@@ -144,3 +144,54 @@ add_test(NAME test_mercury_precession COMMAND test_mercury_precession)
 add_executable(test_shapiro_delay tests/test_shapiro_delay.cpp)
 target_link_libraries(test_shapiro_delay PRIVATE relativistic_core)
 add_test(NAME test_shapiro_delay COMMAND test_shapiro_delay)
+
+add_executable(test_spsc_queue tests/test_spsc_queue.cpp)
+target_link_libraries(test_spsc_queue PRIVATE relativistic_core)
+add_test(NAME test_spsc_queue COMMAND test_spsc_queue)
+
+add_executable(test_repl_parser tests/test_repl_parser.cpp)
+target_link_libraries(test_repl_parser PRIVATE relativistic_core)
+add_test(NAME test_repl_parser COMMAND test_repl_parser)
+
+add_executable(test_scheduler tests/test_scheduler.cpp)
+target_link_libraries(test_scheduler PRIVATE relativistic_core)
+add_test(NAME test_scheduler COMMAND test_scheduler)
+
+add_executable(test_concurrent_command_injection tests/test_concurrent_command_injection.cpp)
+target_link_libraries(test_concurrent_command_injection PRIVATE relativistic_core)
+add_test(NAME test_concurrent_command_injection COMMAND test_concurrent_command_injection)
+
+add_executable(test_ephemeris_kepler tests/test_ephemeris_kepler.cpp)
+target_link_libraries(test_ephemeris_kepler PRIVATE relativistic_core)
+add_test(NAME test_ephemeris_kepler COMMAND test_ephemeris_kepler)
+
+add_executable(test_spk_reader tests/test_spk_reader.cpp)
+target_link_libraries(test_spk_reader PRIVATE relativistic_core)
+add_test(NAME test_spk_reader COMMAND test_spk_reader)
+
+add_executable(test_horizons_parser tests/test_horizons_parser.cpp)
+target_link_libraries(test_horizons_parser PRIVATE relativistic_core)
+add_test(NAME test_horizons_parser COMMAND test_horizons_parser)
+
+add_executable(test_frame_transforms tests/test_frame_transforms.cpp)
+target_link_libraries(test_frame_transforms PRIVATE relativistic_core)
+add_test(NAME test_frame_transforms COMMAND test_frame_transforms)
+
+add_executable(test_scenario_serializer tests/test_scenario_serializer.cpp)
+target_link_libraries(test_scenario_serializer PRIVATE relativistic_core)
+add_test(NAME test_scenario_serializer COMMAND test_scenario_serializer)
+
+add_executable(test_fits_exporter tests/test_fits_exporter.cpp)
+target_link_libraries(test_fits_exporter PRIVATE relativistic_core)
+add_test(NAME test_fits_exporter COMMAND test_fits_exporter)
+
+add_executable(test_hdf5_serializer tests/test_hdf5_serializer.cpp)
+target_link_libraries(test_hdf5_serializer PRIVATE relativistic_core)
+add_test(NAME test_hdf5_serializer COMMAND test_hdf5_serializer)
+
+add_executable(test_vtk_exporter tests/test_vtk_exporter.cpp)
+target_link_libraries(test_vtk_exporter PRIVATE relativistic_core)
+add_test(NAME test_vtk_exporter COMMAND test_vtk_exporter)
+
+add_executable(engine_cli apps/engine_cli/main.cpp)
+target_link_libraries(engine_cli PRIVATE relativistic_core)

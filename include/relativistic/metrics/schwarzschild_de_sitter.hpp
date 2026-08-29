@@ -1,27 +1,33 @@
 #pragma once
 
 #include "relativistic/core/tensor.hpp"
-#include "spacetime_concept.hpp"
+#include "relativistic/metrics/spacetime_concept.hpp"
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <numbers>
+#include <algorithm>
 
 namespace Relativistic::Metrics {
 
 template <typename Scalar = double>
-class SchwarzschildMetric {
+class SchwarzschildDeSitterMetric {
 private:
 	Scalar mass_;
+	Scalar lambda_;
 	Scalar c_;
 	Scalar g_const_;
 	Scalar r_s_;
 
 public:
-	explicit constexpr SchwarzschildMetric(
+	explicit constexpr SchwarzschildDeSitterMetric(
 		Scalar mass,
+		Scalar cosmological_constant,
 		Scalar speed_of_light = static_cast<Scalar>(1),
 		Scalar gravitational_constant = static_cast<Scalar>(1)
 	) noexcept
 		: mass_(mass),
+		  lambda_(cosmological_constant),
 		  c_(speed_of_light),
 		  g_const_(gravitational_constant),
 		  r_s_(static_cast<Scalar>(2) * gravitational_constant * mass / (speed_of_light * speed_of_light)) {}
@@ -30,12 +36,12 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] constexpr Scalar schwarzschild_radius() const noexcept {
-		return r_s_;
-	}
-
 	[[nodiscard]] constexpr Scalar mass() const noexcept {
 		return mass_;
+	}
+
+	[[nodiscard]] constexpr Scalar cosmological_constant() const noexcept {
+		return lambda_;
 	}
 
 	[[nodiscard]] constexpr Scalar speed_of_light() const noexcept {
@@ -46,11 +52,32 @@ public:
 		return g_const_;
 	}
 
+	[[nodiscard]] constexpr Scalar schwarzschild_radius() const noexcept {
+		return r_s_;
+	}
+
+	[[nodiscard]] static constexpr bool is_cartesian() noexcept {
+		return false;
+	}
+
+	[[nodiscard]] static constexpr bool is_spherical() noexcept {
+		return true;
+	}
+
+	[[nodiscard]] constexpr Scalar coordinate_radius(const Core::FourVector<Scalar>& x) const noexcept {
+		return x(1);
+	}
+
+	[[nodiscard]] Scalar lapse_function(Scalar r) const noexcept {
+		return static_cast<Scalar>(1) - r_s_ / r - (lambda_ * r * r) / static_cast<Scalar>(3);
+	}
+
 	[[nodiscard]] Core::MetricTensor<Scalar> metric_tensor(const Core::FourVector<Scalar>& x) const noexcept {
-		const Scalar r = std::max(x(1), r_s_ * static_cast<Scalar>(1.000000001));
+		const Scalar r = std::max(x(1), static_cast<Scalar>(1e-12));
 		const Scalar theta = x(2);
-		const Scalar factor = static_cast<Scalar>(1) - r_s_ / r;
 		const Scalar sin_t = std::sin(theta);
+
+		const Scalar factor = lapse_function(r);
 
 		Core::MetricTensor<Scalar> g;
 		g.zero();
@@ -66,11 +93,12 @@ public:
 	}
 
 	[[nodiscard]] Core::MetricTensor<Scalar> inverse_metric(const Core::FourVector<Scalar>& x) const noexcept {
-		const Scalar r = std::max(x(1), r_s_ * static_cast<Scalar>(1.000000001));
+		const Scalar r = std::max(x(1), static_cast<Scalar>(1e-12));
 		const Scalar theta = x(2);
-		const Scalar factor = static_cast<Scalar>(1) - r_s_ / r;
 		const Scalar sin_t = std::sin(theta);
 		const Scalar safe_sin2 = std::max(sin_t * sin_t, static_cast<Scalar>(1e-30));
+
+		const Scalar factor = lapse_function(r);
 
 		Core::MetricTensor<Scalar> inv_g;
 		inv_g.zero();
@@ -82,25 +110,25 @@ public:
 	}
 
 	[[nodiscard]] Core::ChristoffelSymbols<Scalar> christoffel_symbols(const Core::FourVector<Scalar>& x) const noexcept {
-		const Scalar r = std::max(x(1), r_s_ * static_cast<Scalar>(1.000000001));
+		const Scalar r = std::max(x(1), static_cast<Scalar>(1e-12));
 		const Scalar theta = x(2);
 		const Scalar sin_t = std::sin(theta);
 		const Scalar cos_t = std::cos(theta);
-		const Scalar r_diff = r - r_s_;
-		const Scalar r2 = r * r;
-		const Scalar r3 = r2 * r;
+
+		const Scalar factor = lapse_function(r);
+		const Scalar df_dr = r_s_ / (r * r) - (static_cast<Scalar>(2) * lambda_ * r) / static_cast<Scalar>(3);
 
 		Core::ChristoffelSymbols<Scalar> gamma;
 		gamma.zero();
 
-		const Scalar g001 = r_s_ / (static_cast<Scalar>(2) * r * r_diff);
+		const Scalar g001 = df_dr / (static_cast<Scalar>(2) * factor);
 		gamma(0, 0, 1) = g001;
 		gamma(0, 1, 0) = g001;
 
-		gamma(1, 0, 0) = (c_ * c_ * r_s_ * r_diff) / (static_cast<Scalar>(2) * r3);
-		gamma(1, 1, 1) = -r_s_ / (static_cast<Scalar>(2) * r * r_diff);
-		gamma(1, 2, 2) = -r_diff;
-		gamma(1, 3, 3) = -r_diff * sin_t * sin_t;
+		gamma(1, 0, 0) = (c_ * c_ * factor * df_dr) / static_cast<Scalar>(2);
+		gamma(1, 1, 1) = -df_dr / (static_cast<Scalar>(2) * factor);
+		gamma(1, 2, 2) = -r * factor;
+		gamma(1, 3, 3) = -r * factor * sin_t * sin_t;
 
 		const Scalar g212 = static_cast<Scalar>(1) / r;
 		gamma(2, 1, 2) = g212;

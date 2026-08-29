@@ -11,7 +11,8 @@ concept SpacetimeMetric = requires(const T& metric, const Core::FourVector<Scala
 	{ metric.metric_tensor(x) } -> std::same_as<Core::MetricTensor<Scalar>>;
 	{ metric.inverse_metric(x) } -> std::same_as<Core::MetricTensor<Scalar>>;
 	{ metric.christoffel_symbols(x) } -> std::same_as<Core::ChristoffelSymbols<Scalar>>;
-	{ metric.has_analytic_christoffel() } -> std::convertible_to<bool>;
+	{ metric.speed_of_light() } -> std::convertible_to<Scalar>;
+	{ T::has_analytic_christoffel() } -> std::convertible_to<bool>;
 };
 
 }

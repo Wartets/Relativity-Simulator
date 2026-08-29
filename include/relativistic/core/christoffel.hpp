@@ -56,16 +56,16 @@ struct FiniteDifferenceCoefficients<DerivativeOrder::EighthOrder, Scalar> {
 template <DerivativeOrder Order = DerivativeOrder::EighthOrder, typename Scalar = double>
 [[nodiscard]] constexpr Scalar compute_adaptive_step_size(Scalar x_alpha) noexcept {
 	const Scalar abs_x = std::abs(x_alpha);
-	const Scalar scale = (abs_x > static_cast<Scalar>(1)) ? (abs_x * std::sqrt(abs_x)) : static_cast<Scalar>(1);
+	const Scalar scale = (abs_x > static_cast<Scalar>(1)) ? abs_x : static_cast<Scalar>(1);
 
 	if constexpr (Order == DerivativeOrder::FourthOrder) {
-		const Scalar h0 = static_cast<Scalar>(2.5e-3);
+		const Scalar h0 = static_cast<Scalar>(1e-4);
 		return h0 * scale;
 	} else if constexpr (Order == DerivativeOrder::SixthOrder) {
-		const Scalar h0 = static_cast<Scalar>(1.5e-3);
+		const Scalar h0 = static_cast<Scalar>(5e-4);
 		return h0 * scale;
 	} else {
-		const Scalar h0 = static_cast<Scalar>(1.1e-3);
+		const Scalar h0 = static_cast<Scalar>(2e-3);
 		return h0 * scale;
 	}
 }
@@ -159,11 +159,7 @@ template <DerivativeOrder Order = DerivativeOrder::EighthOrder, typename MetricT
 			return compute_christoffel_numerical<Order, MetricType, Scalar>(metric, x);
 		}
 	} else {
-		if (metric.has_analytic_christoffel()) {
-			return metric.christoffel_symbols(x);
-		} else {
-			return compute_christoffel_numerical<Order, MetricType, Scalar>(metric, x);
-		}
+		return compute_christoffel_numerical<Order, MetricType, Scalar>(metric, x);
 	}
 }
 
@@ -178,6 +174,10 @@ public:
 
 	[[nodiscard]] static constexpr bool has_analytic_christoffel() noexcept {
 		return false;
+	}
+
+	[[nodiscard]] Scalar speed_of_light() const noexcept {
+		return base_metric_.speed_of_light();
 	}
 
 	[[nodiscard]] MetricTensor<Scalar> metric_tensor(const FourVector<Scalar>& x) const noexcept {

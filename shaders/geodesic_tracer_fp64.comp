@@ -1,0 +1,195 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : enable
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    dvec4 observer_position;
+    dvec4 tetrad_e0;
+    dvec4 tetrad_e1;
+    dvec4 tetrad_e2;
+    dvec4 tetrad_e3;
+
+    uint screen_width;
+    uint screen_height;
+    uint metric_type;
+    uint precision_mode;
+
+    double fov_rad;
+    double metric_mass;
+    double metric_spin;
+    double metric_charge;
+
+    double speed_of_light;
+    double g_constant;
+    double initial_step;
+    double min_step;
+
+    double max_step;
+    double horizon_radius;
+    double escape_radius;
+    double cosmological_lambda;
+
+    uint max_steps;
+    uint render_flags;
+    uint pad0;
+    uint pad1;
+} pc;
+
+struct PixelOutput {
+    vec4 rgba;
+    float redshift;
+    float affine_parameter;
+    uint status_flags;
+    uint iterations_used;
+};
+
+layout(std430, binding = 0) buffer OutputBuffer {
+    PixelOutput pixels[];
+};
+
+dvec4 compute_schwarzschild_acc(dvec4 x, dvec4 u, double rs, double c2) {
+    double r = max(x.y, rs * 1.000000001);
+    double theta = x.z;
+    double sin_t = sin(theta);
+    double cos_t = cos(theta);
+    double r_diff = r - rs;
+    double r2 = r * r;
+    double r3 = r2 * r;
+
+    double g001 = rs / (2.0 * r * r_diff);
+    double g100 = (c2 * rs * r_diff) / (2.0 * r3);
+    double g111 = -g001;
+    double g122 = -r_diff;
+    double g133 = -r_diff * sin_t * sin_t;
+    double g212 = 1.0 / r;
+    double g233 = -sin_t * cos_t;
+    double g313 = 1.0 / r;
+    double g323 = (abs(sin_t) > 1e-15) ? (cos_t / sin_t) : 0.0;
+
+    dvec4 acc;
+    acc.x = -2.0 * g001 * u.x * u.y;
+    acc.y = -(g100 * u.x * u.x + g111 * u.y * u.y + g122 * u.z * u.z + g133 * u.w * u.w);
+    acc.z = -(2.0 * g212 * u.y * u.z + g233 * u.w * u.w);
+    acc.w = -2.0 * (g313 * u.y * u.w + g323 * u.z * u.w);
+    return acc;
+}
+
+vec4 evaluate_sky(dvec4 u) {
+    double px = u.y * sin(u.z) * cos(u.w);
+    double py = u.y * sin(u.z) * sin(u.w);
+    double pz = u.y * cos(u.z);
+    double len = sqrt(px * px + py * py + pz * pz);
+    if (len > 0.0) {
+        px /= len;
+        py /= len;
+        pz /= len;
+    }
+
+    double phi = atan(py, px);
+    double theta = acos(clamp(pz, -1.0, 1.0));
+
+    double u_coord = (phi + 3.141592653589793) / (2.0 * 3.141592653589793);
+    double v_coord = theta / 3.141592653589793;
+
+    double grid_u = abs(fract(u_coord * 24.0) - 0.5);
+    double grid_v = abs(fract(v_coord * 12.0) - 0.5);
+    float grid = (grid_u < 0.02 || grid_v < 0.04) ? 0.8 : 0.1;
+
+    vec3 col = vec3(float(0.5 + 0.5 * sin(u_coord * 6.28318)), float(0.5 + 0.5 * cos(v_coord * 6.28318)), float(grid));
+    return vec4(col, 1.0);
+}
+
+void main() {
+    uint px = gl_GlobalInvocationID.x;
+    uint py = gl_GlobalInvocationID.y;
+
+    if (px >= pc.screen_width || py >= pc.screen_height) {
+        return;
+    }
+
+    uint pixel_index = py * pc.screen_width + px;
+
+    double u_norm = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
+    double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
+    double aspect = double(pc.screen_width) / double(pc.screen_height);
+    u_norm *= aspect;
+
+    double tan_half_fov = tan(pc.fov_rad * 0.5);
+    double n1 = 1.0;
+    double n2 = -v_norm * tan_half_fov;
+    double n3 = u_norm * tan_half_fov;
+    double n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+    n1 /= n_len;
+    n2 /= n_len;
+    n3 /= n_len;
+
+    dvec4 ray_x = pc.observer_position;
+    dvec4 ray_u = pc.tetrad_e0 + n1 * pc.tetrad_e1 + n2 * pc.tetrad_e2 + n3 * pc.tetrad_e3;
+
+    double rs = pc.horizon_radius;
+    double c2 = pc.speed_of_light * pc.speed_of_light;
+    double total_lambda = 0.0;
+    uint status = 0;
+    uint iters = 0;
+
+    for (uint step = 0; step < pc.max_steps; ++step) {
+        iters = step + 1;
+        double current_r = ray_x.y;
+
+        if (current_r <= rs * 1.001) {
+            status = 1;
+            break;
+        }
+
+        if (current_r >= pc.escape_radius) {
+            status = 2;
+            break;
+        }
+
+        double dt = -clamp(0.05 * current_r, 0.005, 0.25);
+
+        dvec4 k1_x = ray_u;
+        dvec4 k1_u = compute_schwarzschild_acc(ray_x, ray_u, rs, c2);
+
+        dvec4 s2_x = ray_x + (0.5 * dt) * k1_x;
+        dvec4 s2_u = ray_u + (0.5 * dt) * k1_u;
+        dvec4 k2_x = s2_u;
+        dvec4 k2_u = compute_schwarzschild_acc(s2_x, s2_u, rs, c2);
+
+        dvec4 s3_x = ray_x + (0.5 * dt) * k2_x;
+        dvec4 s3_u = ray_u + (0.5 * dt) * k2_u;
+        dvec4 k3_x = s3_u;
+        dvec4 k3_u = compute_schwarzschild_acc(s3_x, s3_u, rs, c2);
+
+        dvec4 s4_x = ray_x + dt * k3_x;
+        dvec4 s4_u = ray_u + dt * k3_u;
+        dvec4 k4_x = s4_u;
+        dvec4 k4_u = compute_schwarzschild_acc(s4_x, s4_u, rs, c2);
+
+        ray_x += (dt / 6.0) * (k1_x + 2.0 * k2_x + 2.0 * k3_x + k4_x);
+        ray_u += (dt / 6.0) * (k1_u + 2.0 * k2_u + 2.0 * k3_u + k4_u);
+
+        total_lambda += abs(dt);
+    }
+
+    vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+    float redshift = 1.0;
+
+    if (status == 2) {
+        color = evaluate_sky(ray_u);
+        double factor_obs = 1.0 - rs / pc.observer_position.y;
+        double factor_emit = 1.0 - rs / ray_x.y;
+        if (factor_obs > 0.0 && factor_emit > 0.0) {
+            redshift = float(sqrt(factor_emit / factor_obs));
+        }
+    } else if (status == 1) {
+        color = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    pixels[pixel_index].rgba = color;
+    pixels[pixel_index].redshift = redshift;
+    pixels[pixel_index].affine_parameter = float(total_lambda);
+    pixels[pixel_index].status_flags = status;
+    pixels[pixel_index].iterations_used = iters;
+}

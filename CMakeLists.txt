@@ -193,5 +193,37 @@ add_executable(test_vtk_exporter tests/test_vtk_exporter.cpp)
 target_link_libraries(test_vtk_exporter PRIVATE relativistic_core)
 add_test(NAME test_vtk_exporter COMMAND test_vtk_exporter)
 
+add_executable(test_double_single tests/test_double_single.cpp)
+target_link_libraries(test_double_single PRIVATE relativistic_core)
+add_test(NAME test_double_single COMMAND test_double_single)
+
+add_executable(test_observer_tetrad tests/test_observer_tetrad.cpp)
+target_link_libraries(test_observer_tetrad PRIVATE relativistic_core)
+add_test(NAME test_observer_tetrad COMMAND test_observer_tetrad)
+
+add_executable(test_vulkan_compute_pipeline tests/test_vulkan_compute_pipeline.cpp)
+target_link_libraries(test_vulkan_compute_pipeline PRIVATE relativistic_core)
+add_test(NAME test_vulkan_compute_pipeline COMMAND test_vulkan_compute_pipeline)
+
+add_executable(test_schwarzschild_shadow_render tests/test_schwarzschild_shadow_render.cpp)
+target_link_libraries(test_schwarzschild_shadow_render PRIVATE relativistic_core)
+add_test(NAME test_schwarzschild_shadow_render COMMAND test_schwarzschild_shadow_render)
+
+add_executable(test_spectral_shift_beaming tests/test_spectral_shift_beaming.cpp)
+target_link_libraries(test_spectral_shift_beaming PRIVATE relativistic_core)
+add_test(NAME test_spectral_shift_beaming COMMAND test_spectral_shift_beaming)
+
+add_executable(test_terrell_penrose tests/test_terrell_penrose.cpp)
+target_link_libraries(test_terrell_penrose PRIVATE relativistic_core)
+add_test(NAME test_terrell_penrose COMMAND test_terrell_penrose)
+
+add_executable(test_cie_spectral_pipeline tests/test_cie_spectral_pipeline.cpp)
+target_link_libraries(test_cie_spectral_pipeline PRIVATE relativistic_core)
+add_test(NAME test_cie_spectral_pipeline COMMAND test_cie_spectral_pipeline)
+
+add_executable(test_kerr_shadow_eht tests/test_kerr_shadow_eht.cpp)
+target_link_libraries(test_kerr_shadow_eht PRIVATE relativistic_core)
+add_test(NAME test_kerr_shadow_eht COMMAND test_kerr_shadow_eht)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

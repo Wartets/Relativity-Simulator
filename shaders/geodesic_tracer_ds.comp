@@ -1,0 +1,185 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    vec4 obs_pos_hi;
+    vec4 obs_pos_lo;
+    vec4 tetrad_e0_hi;
+    vec4 tetrad_e0_lo;
+    vec4 tetrad_e1_hi;
+    vec4 tetrad_e1_lo;
+    vec4 tetrad_e2_hi;
+    vec4 tetrad_e2_lo;
+    vec4 tetrad_e3_hi;
+    vec4 tetrad_e3_lo;
+
+    uint screen_width;
+    uint screen_height;
+    uint metric_type;
+    uint max_steps;
+
+    float fov_rad;
+    float metric_mass;
+    float metric_spin;
+    float horizon_radius;
+    float escape_radius;
+    float initial_step;
+} pc;
+
+struct PixelOutput {
+    vec4 rgba;
+    float redshift;
+    float affine_parameter;
+    uint status_flags;
+    uint iterations_used;
+};
+
+layout(std430, binding = 0) buffer OutputBuffer {
+    PixelOutput pixels[];
+};
+
+struct DS {
+    float hi;
+    float lo;
+};
+
+DS ds_set(float high, float low) {
+    DS res;
+    res.hi = high;
+    res.lo = low;
+    return res;
+}
+
+DS ds_from_float(float val) {
+    return ds_set(val, 0.0);
+}
+
+DS quick_two_sum(float a, float b) {
+    float s = a + b;
+    float e = b - (s - a);
+    return ds_set(s, e);
+}
+
+DS two_sum(float a, float b) {
+    float s = a + b;
+    float v = s - a;
+    float e = (a - (s - v)) + (b - v);
+    return ds_set(s, e);
+}
+
+DS two_prod(float a, float b) {
+    float p = a * b;
+    float e = fma(a, b, -p);
+    return ds_set(p, e);
+}
+
+DS ds_add(DS a, DS b) {
+    DS st = two_sum(a.hi, b.hi);
+    DS th = two_sum(a.lo, b.lo);
+    float c = st.lo + th.hi;
+    DS v = quick_two_sum(st.hi, c);
+    float w = v.lo + th.lo;
+    return quick_two_sum(v.hi, w);
+}
+
+DS ds_sub(DS a, DS b) {
+    DS neg_b = ds_set(-b.hi, -b.lo);
+    return ds_add(a, neg_b);
+}
+
+DS ds_mul(DS a, DS b) {
+    DS p = two_prod(a.hi, b.hi);
+    float c = fma(a.hi, b.lo, fma(a.lo, b.hi, p.lo));
+    return quick_two_sum(p.hi, c);
+}
+
+DS ds_div(DS a, DS b) {
+    float q1 = a.hi / b.hi;
+    DS r = ds_sub(a, ds_mul(b, ds_from_float(q1)));
+    float q2 = r.hi / b.hi;
+    return ds_add(ds_from_float(q1), ds_from_float(q2));
+}
+
+void main() {
+    uint px = gl_GlobalInvocationID.x;
+    uint py = gl_GlobalInvocationID.y;
+
+    if (px >= pc.screen_width || py >= pc.screen_height) {
+        return;
+    }
+
+    uint pixel_index = py * pc.screen_width + px;
+
+    float u_norm = (float(px) + 0.5) / float(pc.screen_width) * 2.0 - 1.0;
+    float v_norm = 1.0 - (float(py) + 0.5) / float(pc.screen_height) * 2.0;
+    float aspect = float(pc.screen_width) / float(pc.screen_height);
+    u_norm *= aspect;
+
+    float tan_half_fov = tan(pc.fov_rad * 0.5);
+    float n1 = 1.0;
+    float n2 = -v_norm * tan_half_fov;
+    float n3 = u_norm * tan_half_fov;
+    float n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+    n1 /= n_len;
+    n2 /= n_len;
+    n3 /= n_len;
+
+    vec4 ray_x = pc.obs_pos_hi;
+    vec4 ray_u = pc.tetrad_e0_hi + n1 * pc.tetrad_e1_hi + n2 * pc.tetrad_e2_hi + n3 * pc.tetrad_e3_hi;
+
+    float rs = pc.horizon_radius;
+    uint status = 0;
+    uint iters = 0;
+
+    for (uint step = 0; step < pc.max_steps; ++step) {
+        iters = step + 1;
+        float r = ray_x.y;
+
+        if (r <= rs * 1.001) {
+            status = 1;
+            break;
+        }
+
+        if (r >= pc.escape_radius) {
+            status = 2;
+            break;
+        }
+
+        float dt = -clamp(0.05 * r, 0.005, 0.25);
+
+        float theta = ray_x.z;
+        float sin_t = sin(theta);
+        float cos_t = cos(theta);
+        float r_diff = r - rs;
+        float r2 = r * r;
+        float r3 = r2 * r;
+
+        float g001 = rs / (2.0 * r * r_diff);
+        float g100 = (rs * r_diff) / (2.0 * r3);
+        float g111 = -g001;
+        float g122 = -r_diff;
+        float g133 = -r_diff * sin_t * sin_t;
+        float g212 = 1.0 / r;
+        float g233 = -sin_t * cos_t;
+        float g313 = 1.0 / r;
+        float g323 = (abs(sin_t) > 1e-6) ? (cos_t / sin_t) : 0.0;
+
+        vec4 acc;
+        acc.x = -2.0 * g001 * ray_u.x * ray_u.y;
+        acc.y = -(g100 * ray_u.x * ray_u.x + g111 * ray_u.y * ray_u.y + g122 * ray_u.z * ray_u.z + g133 * ray_u.w * ray_u.w);
+        acc.z = -(2.0 * g212 * ray_u.y * ray_u.z + g233 * ray_u.w * ray_u.w);
+        acc.w = -2.0 * (g313 * ray_u.y * ray_u.w + g323 * ray_u.z * ray_u.w);
+
+        ray_x += dt * ray_u;
+        ray_u += dt * acc;
+    }
+
+    vec4 col = (status == 2) ? vec4(0.3, 0.5, 0.9, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+
+    pixels[pixel_index].rgba = col;
+    pixels[pixel_index].redshift = 1.0;
+    pixels[pixel_index].affine_parameter = float(iters) * 0.05;
+    pixels[pixel_index].status_flags = status;
+    pixels[pixel_index].iterations_used = iters;
+}

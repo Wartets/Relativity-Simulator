@@ -225,5 +225,17 @@ add_executable(test_kerr_shadow_eht tests/test_kerr_shadow_eht.cpp)
 target_link_libraries(test_kerr_shadow_eht PRIVATE relativistic_core)
 add_test(NAME test_kerr_shadow_eht COMMAND test_kerr_shadow_eht)
 
+add_executable(test_rocket_dynamics tests/test_rocket_dynamics.cpp)
+target_link_libraries(test_rocket_dynamics PRIVATE relativistic_core)
+add_test(NAME test_rocket_dynamics COMMAND test_rocket_dynamics)
+
+add_executable(test_camera_projections tests/test_camera_projections.cpp)
+target_link_libraries(test_camera_projections PRIVATE relativistic_core)
+add_test(NAME test_camera_projections COMMAND test_camera_projections)
+
+add_executable(test_hyperbolic_motion tests/test_hyperbolic_motion.cpp)
+target_link_libraries(test_hyperbolic_motion PRIVATE relativistic_core)
+add_test(NAME test_hyperbolic_motion COMMAND test_hyperbolic_motion)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

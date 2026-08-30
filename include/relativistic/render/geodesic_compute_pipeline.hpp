@@ -20,6 +20,7 @@ struct GeodesicPipelineConfig {
 	uint32_t max_steps{2048};
 	double initial_step{-0.05};
 	bool headless{true};
+	Observer::ProjectionMode projection_mode{Observer::ProjectionMode::Pinhole};
 };
 
 struct PipelineExecutionTelemetry {
@@ -54,6 +55,10 @@ public:
 		config_.precision = mode;
 	}
 
+	void set_projection_mode(Observer::ProjectionMode mode) noexcept {
+		config_.projection_mode = mode;
+	}
+
 	[[nodiscard]] const GeodesicPipelineConfig& config() const noexcept {
 		return config_;
 	}
@@ -77,10 +82,13 @@ public:
 	void dispatch(const GpuCameraPushConstants& camera_constants) {
 		const auto t_start = std::chrono::high_resolution_clock::now();
 
+		GpuCameraPushConstants actual_constants = camera_constants;
+		actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+
 		if (config_.precision == PrecisionMode::NativeFloat64) {
-			SoftwareComputeEngine::dispatch_fp64(camera_constants, framebuffer_);
+			SoftwareComputeEngine::dispatch_fp64(actual_constants, framebuffer_);
 		} else {
-			SoftwareComputeEngine::dispatch_double_single(camera_constants, framebuffer_);
+			SoftwareComputeEngine::dispatch_double_single(actual_constants, framebuffer_);
 		}
 
 		const auto t_end = std::chrono::high_resolution_clock::now();

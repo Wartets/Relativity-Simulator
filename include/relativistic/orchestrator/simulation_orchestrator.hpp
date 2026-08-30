@@ -18,6 +18,8 @@ struct PhysicalParameters {
 	double cosmological_lambda{0.0};
 	double wormhole_throat{1.0};
 	double warp_velocity{1.0};
+	uint32_t projection_mode{0};
+	uint32_t time_flow_mode{0};
 };
 
 struct CustomParameterEntry {
@@ -133,6 +135,12 @@ public:
 				break;
 			case ParameterType::WarpVelocity:
 				params_.warp_velocity = val;
+				break;
+			case ParameterType::ProjectionMode:
+				params_.projection_mode = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::TimeFlowMode:
+				params_.time_flow_mode = static_cast<uint32_t>(val);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

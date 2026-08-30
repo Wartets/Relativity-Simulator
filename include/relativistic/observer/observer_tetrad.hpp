@@ -3,6 +3,7 @@
 #include "relativistic/core/tensor.hpp"
 #include "relativistic/core/tensor_ops.hpp"
 #include "relativistic/metrics/spacetime_concept.hpp"
+#include "relativistic/observer/camera_projections.hpp"
 #include <array>
 #include <cmath>
 #include <numbers>
@@ -42,6 +43,18 @@ public:
 
 	[[nodiscard]] constexpr Core::FourVector<Scalar>& e(size_t alpha) noexcept {
 		return e_[alpha];
+	}
+
+	[[nodiscard]] constexpr const std::array<Core::FourVector<Scalar>, 4>& tetrad_basis() const noexcept {
+		return e_;
+	}
+
+	constexpr void set_tetrad_basis(const std::array<Core::FourVector<Scalar>, 4>& basis) noexcept {
+		e_ = basis;
+	}
+
+	constexpr void set_e(size_t alpha, const Core::FourVector<Scalar>& vec) noexcept {
+		e_[alpha] = vec;
 	}
 
 	template <typename MetricType>
@@ -160,6 +173,20 @@ public:
 		const Scalar n3 = screen_u * tan_half_fov;
 
 		return construct_light_ray(n1, n2, n3);
+	}
+
+	[[nodiscard]] Core::FourVector<Scalar> construct_projected_ray(
+		ProjectionMode mode,
+		Scalar screen_u,
+		Scalar screen_v,
+		Scalar fov_rad,
+		Scalar lorentz_gamma = static_cast<Scalar>(1.0),
+		Scalar beta_forward = static_cast<Scalar>(0.0)
+	) const noexcept {
+		const auto n = CameraProjector<Scalar>::compute_ray_direction(
+			mode, screen_u, screen_v, fov_rad, lorentz_gamma, beta_forward
+		);
+		return construct_light_ray(n[0], n[1], n[2]);
 	}
 
 	template <typename MetricType>

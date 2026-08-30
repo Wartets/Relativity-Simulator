@@ -36,7 +36,6 @@ public:
 
 		const double rs = params.horizon_radius;
 		const double c2 = params.speed_of_light * params.speed_of_light;
-		const double tan_half_fov = std::tan(params.field_of_view_rad * 0.5);
 		const double aspect = static_cast<double>(width) / static_cast<double>(height);
 
 		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
@@ -46,13 +45,15 @@ public:
 					const size_t pixel_idx = y * width + x;
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
-					double n1 = 1.0;
-					double n2 = -v_norm * tan_half_fov;
-					double n3 = u_norm * tan_half_fov;
-					const double n_len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);
-					n1 /= n_len;
-					n2 /= n_len;
-					n3 /= n_len;
+					const auto n = Observer::CameraProjector<double>::compute_ray_direction(
+						static_cast<Observer::ProjectionMode>(params.projection_mode),
+						(params.projection_mode == 3) ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm,
+						v_norm,
+						params.field_of_view_rad
+					);
+					const double n1 = n[0];
+					const double n2 = n[1];
+					const double n3 = n[2];
 
 					Core::FourVector<double> ray_x(
 						params.observer_position[0],
@@ -240,7 +241,6 @@ public:
 
 		const DoubleSingle rs(params.horizon_radius);
 		const DoubleSingle c2(params.speed_of_light * params.speed_of_light);
-		const DoubleSingle tan_half_fov(std::tan(params.field_of_view_rad * 0.5));
 		const DoubleSingle aspect(static_cast<double>(width) / static_cast<double>(height));
 
 		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
@@ -250,13 +250,15 @@ public:
 					const size_t pixel_idx = y * width + x;
 					const DoubleSingle u_norm = DoubleSingle((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
-					DoubleSingle n1(1.0);
-					DoubleSingle n2 = -v_norm * tan_half_fov;
-					DoubleSingle n3 = u_norm * tan_half_fov;
-					const DoubleSingle n_len = ds_sqrt(n1 * n1 + n2 * n2 + n3 * n3);
-					n1 /= n_len;
-					n2 /= n_len;
-					n3 /= n_len;
+					const auto n_dir = Observer::CameraProjector<double>::compute_ray_direction(
+						static_cast<Observer::ProjectionMode>(params.projection_mode),
+						(params.projection_mode == 3) ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : static_cast<double>(u_norm),
+						static_cast<double>(v_norm),
+						params.field_of_view_rad
+					);
+					DoubleSingle n1(n_dir[0]);
+					DoubleSingle n2(n_dir[1]);
+					DoubleSingle n3(n_dir[2]);
 
 					std::array<DoubleSingle, 4> ray_x{
 						DoubleSingle(params.observer_position[0]),

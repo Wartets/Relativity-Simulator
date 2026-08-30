@@ -32,7 +32,9 @@ enum class ParameterType : uint32_t {
 	WormholeThroat = 5,
 	WarpVelocity = 6,
 	TickRate = 7,
-	Custom = 8
+	ProjectionMode = 8,
+	TimeFlowMode = 9,
+	Custom = 10
 };
 
 struct Command {
@@ -275,6 +277,8 @@ public:
 			else if (iequals_sv(token2, "lambda")) ptype = ParameterType::CosmologicalLambda;
 			else if (iequals_sv(token2, "throat")) ptype = ParameterType::WormholeThroat;
 			else if (iequals_sv(token2, "warp_velocity") || iequals_sv(token2, "warp_vel")) ptype = ParameterType::WarpVelocity;
+			else if (iequals_sv(token2, "projection") || iequals_sv(token2, "proj")) ptype = ParameterType::ProjectionMode;
+			else if (iequals_sv(token2, "timeflow") || iequals_sv(token2, "time_flow")) ptype = ParameterType::TimeFlowMode;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

@@ -32,7 +32,7 @@ layout(push_constant) uniform PushConstants {
 
     uint max_steps;
     uint render_flags;
-    uint pad0;
+    uint projection_mode;
     uint pad1;
 } pc;
 
@@ -115,14 +115,48 @@ void main() {
     double aspect = double(pc.screen_width) / double(pc.screen_height);
     u_norm *= aspect;
 
-    double tan_half_fov = tan(pc.fov_rad * 0.5);
     double n1 = 1.0;
-    double n2 = -v_norm * tan_half_fov;
-    double n3 = u_norm * tan_half_fov;
+    double n2 = 0.0;
+    double n3 = 0.0;
+
+    if (pc.projection_mode == 3) {
+        double phi = u_norm * 3.14159265358979323846 / aspect;
+        double theta = (0.5 - 0.5 * v_norm) * 3.14159265358979323846;
+        double sin_t = sin(theta);
+        double cos_t = cos(theta);
+        n1 = sin_t * cos(phi);
+        n2 = cos_t;
+        n3 = sin_t * sin(phi);
+    } else if (pc.projection_mode == 2) {
+        double r = sqrt(u_norm * u_norm + v_norm * v_norm);
+        if (r > 1e-15) {
+            double theta = 2.0 * atan(r * tan(pc.fov_rad * 0.25));
+            double sin_t = sin(theta);
+            double cos_t = cos(theta);
+            n1 = cos_t;
+            n2 = -v_norm * (sin_t / r);
+            n3 = u_norm * (sin_t / r);
+        }
+    } else if (pc.projection_mode == 1) {
+        double beta = 0.99;
+        double comp = sqrt((1.0 + beta) / (1.0 - beta));
+        double tan_half = tan(pc.fov_rad * 0.5) / comp;
+        n1 = 1.0;
+        n2 = -v_norm * tan_half;
+        n3 = u_norm * tan_half;
+    } else {
+        double tan_half_fov = tan(pc.fov_rad * 0.5);
+        n1 = 1.0;
+        n2 = -v_norm * tan_half_fov;
+        n3 = u_norm * tan_half_fov;
+    }
+
     double n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
-    n1 /= n_len;
-    n2 /= n_len;
-    n3 /= n_len;
+    if (n_len > 0.0) {
+        n1 /= n_len;
+        n2 /= n_len;
+        n3 /= n_len;
+    }
 
     dvec4 ray_x = pc.observer_position;
     dvec4 ray_u = pc.tetrad_e0 + n1 * pc.tetrad_e1 + n2 * pc.tetrad_e2 + n3 * pc.tetrad_e3;

@@ -297,5 +297,9 @@ add_executable(test_relativistic_hydro tests/test_relativistic_hydro.cpp)
 target_link_libraries(test_relativistic_hydro PRIVATE relativistic_core)
 add_test(NAME test_relativistic_hydro COMMAND test_relativistic_hydro)
 
+add_executable(test_eos_tov tests/test_eos_tov.cpp)
+target_link_libraries(test_eos_tov PRIVATE relativistic_core)
+add_test(NAME test_eos_tov COMMAND test_eos_tov)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

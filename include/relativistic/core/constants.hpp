@@ -17,6 +17,7 @@ struct PhysicalConstants {
 	static constexpr T SOLAR_SCHWARZSCHILD_RADIUS = static_cast<T>(2.0 * GRAVITATIONAL_CONSTANT * SOLAR_MASS / (SPEED_OF_LIGHT * SPEED_OF_LIGHT));
 	static constexpr T ELECTRON_MASS = static_cast<T>(9.1093837015e-31);
 	static constexpr T PROTON_MASS = static_cast<T>(1.67262192369e-27);
+	static constexpr T NEUTRON_MASS = static_cast<T>(1.67492749804e-27);
 };
 
 template <typename T = double>

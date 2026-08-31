@@ -237,5 +237,61 @@ add_executable(test_hyperbolic_motion tests/test_hyperbolic_motion.cpp)
 target_link_libraries(test_hyperbolic_motion PRIVATE relativistic_core)
 add_test(NAME test_hyperbolic_motion COMMAND test_hyperbolic_motion)
 
+add_executable(test_pn_conservative tests/test_pn_conservative.cpp)
+target_link_libraries(test_pn_conservative PRIVATE relativistic_core)
+add_test(NAME test_pn_conservative COMMAND test_pn_conservative)
+
+add_executable(test_pn_spin_precession tests/test_pn_spin_precession.cpp)
+target_link_libraries(test_pn_spin_precession PRIVATE relativistic_core)
+add_test(NAME test_pn_spin_precession COMMAND test_pn_spin_precession)
+
+add_executable(test_pn_radiation_reaction tests/test_pn_radiation_reaction.cpp)
+target_link_libraries(test_pn_radiation_reaction PRIVATE relativistic_core)
+add_test(NAME test_pn_radiation_reaction COMMAND test_pn_radiation_reaction)
+
+add_executable(test_gravitational_waves tests/test_gravitational_waves.cpp)
+target_link_libraries(test_gravitational_waves PRIVATE relativistic_core)
+add_test(NAME test_gravitational_waves COMMAND test_gravitational_waves)
+
+add_executable(test_hulse_taylor_orbital_decay tests/test_hulse_taylor_orbital_decay.cpp)
+target_link_libraries(test_hulse_taylor_orbital_decay PRIVATE relativistic_core)
+add_test(NAME test_hulse_taylor_orbital_decay COMMAND test_hulse_taylor_orbital_decay)
+
+add_executable(test_spherical_harmonics tests/test_spherical_harmonics.cpp)
+target_link_libraries(test_spherical_harmonics PRIVATE relativistic_core)
+add_test(NAME test_spherical_harmonics COMMAND test_spherical_harmonics)
+
+add_executable(test_nodal_precession_leo tests/test_nodal_precession_leo.cpp)
+target_link_libraries(test_nodal_precession_leo PRIVATE relativistic_core)
+add_test(NAME test_nodal_precession_leo COMMAND test_nodal_precession_leo)
+
+add_executable(test_tidal_rotational_gravity tests/test_tidal_rotational_gravity.cpp)
+target_link_libraries(test_tidal_rotational_gravity PRIVATE relativistic_core)
+add_test(NAME test_tidal_rotational_gravity COMMAND test_tidal_rotational_gravity)
+
+add_executable(test_dark_matter_profiles tests/test_dark_matter_profiles.cpp)
+target_link_libraries(test_dark_matter_profiles PRIVATE relativistic_core)
+add_test(NAME test_dark_matter_profiles COMMAND test_dark_matter_profiles)
+
+add_executable(test_barnes_hut_octree tests/test_barnes_hut_octree.cpp)
+target_link_libraries(test_barnes_hut_octree PRIVATE relativistic_core)
+add_test(NAME test_barnes_hut_octree COMMAND test_barnes_hut_octree)
+
+add_executable(test_mond_rotation_curves tests/test_mond_rotation_curves.cpp)
+target_link_libraries(test_mond_rotation_curves PRIVATE relativistic_core)
+add_test(NAME test_mond_rotation_curves COMMAND test_mond_rotation_curves)
+
+add_executable(test_teves_metric tests/test_teves_metric.cpp)
+target_link_libraries(test_teves_metric PRIVATE relativistic_core)
+add_test(NAME test_teves_metric COMMAND test_teves_metric)
+
+add_executable(test_f_r_chameleon tests/test_f_r_chameleon.cpp)
+target_link_libraries(test_f_r_chameleon PRIVATE relativistic_core)
+add_test(NAME test_f_r_chameleon COMMAND test_f_r_chameleon)
+
+add_executable(test_galaxy_collision_nbody tests/test_galaxy_collision_nbody.cpp)
+target_link_libraries(test_galaxy_collision_nbody PRIVATE relativistic_core)
+add_test(NAME test_galaxy_collision_nbody COMMAND test_galaxy_collision_nbody)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

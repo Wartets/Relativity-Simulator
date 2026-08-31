@@ -293,5 +293,9 @@ add_executable(test_galaxy_collision_nbody tests/test_galaxy_collision_nbody.cpp
 target_link_libraries(test_galaxy_collision_nbody PRIVATE relativistic_core)
 add_test(NAME test_galaxy_collision_nbody COMMAND test_galaxy_collision_nbody)
 
+add_executable(test_relativistic_hydro tests/test_relativistic_hydro.cpp)
+target_link_libraries(test_relativistic_hydro PRIVATE relativistic_core)
+add_test(NAME test_relativistic_hydro COMMAND test_relativistic_hydro)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

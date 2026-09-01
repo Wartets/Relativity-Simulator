@@ -48,17 +48,17 @@ struct CustomParameterEntry {
 };
 
 struct CameraState {
-	std::array<double, 3> position{0.0, 50.0, 0.0};
+	std::array<double, 3> position{0.0, 32.0, 9.0};
 	std::array<double, 3> target{0.0, 0.0, 0.0};
-	double pitch{0.0};
+	double pitch{-15.5};
 	double yaw{0.0};
 	double roll{0.0};
 	double fov_deg{60.0};
-	double speed{10.0};
-	double radius{50.0};
-	double theta{std::numbers::pi_v<double> / 2.0};
-	double phi{0.0};
-	double orbit_distance{50.0};
+	double speed{15.0};
+	double radius{33.24};
+	double theta{1.296};
+	double phi{1.5707963267948966};
+	double orbit_distance{33.24};
 };
 
 template <size_t QueueCapacity = 1024>

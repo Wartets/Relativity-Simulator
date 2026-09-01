@@ -3,279 +3,241 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(push_constant) uniform PushConstants {
-    vec4 obs_pos_hi;
-    vec4 obs_pos_lo;
-    vec4 tetrad_e0_hi;
-    vec4 tetrad_e0_lo;
-    vec4 tetrad_e1_hi;
-    vec4 tetrad_e1_lo;
-    vec4 tetrad_e2_hi;
-    vec4 tetrad_e2_lo;
-    vec4 tetrad_e3_hi;
-    vec4 tetrad_e3_lo;
+	vec4 obs_pos_hi;
+	vec4 obs_pos_lo;
+	vec4 tetrad_e0_hi;
+	vec4 tetrad_e0_lo;
+	vec4 tetrad_e1_hi;
+	vec4 tetrad_e1_lo;
+	vec4 tetrad_e2_hi;
+	vec4 tetrad_e2_lo;
+	vec4 tetrad_e3_hi;
+	vec4 tetrad_e3_lo;
 
-    uint screen_width;
-    uint screen_height;
-    uint metric_type;
-    uint max_steps;
+	uint screen_width;
+	uint screen_height;
+	uint metric_type;
+	uint max_steps;
 
-    float fov_rad;
-    float metric_mass;
-    float metric_spin;
-    float horizon_radius;
-    float escape_radius;
-    float initial_step;
-    uint projection_mode;
-    uint pad1;
+	float fov_rad;
+	float metric_mass;
+	float metric_spin;
+	float horizon_radius;
+	float escape_radius;
+	float initial_step;
+	uint projection_mode;
+	uint pad1;
 } pc;
 
 struct PixelOutput {
-    vec4 rgba;
-    float redshift;
-    float affine_parameter;
-    uint status_flags;
-    uint iterations_used;
+	vec4 rgba;
+	float redshift;
+	float affine_parameter;
+	uint status_flags;
+	uint iterations_used;
 };
 
 layout(std430, binding = 0) buffer OutputBuffer {
-    PixelOutput pixels[];
+	PixelOutput pixels[];
 };
 
-struct DS {
-    float hi;
-    float lo;
-};
-
-DS ds_set(float high, float low) {
-    DS res;
-    res.hi = high;
-    res.lo = low;
-    return res;
+uint hash_u32(uint x) {
+	x ^= x >> 16;
+	x *= 0x7feb352dU;
+	x ^= x >> 15;
+	x *= 0x846ca68bU;
+	x ^= x >> 16;
+	return x;
 }
 
-DS ds_from_float(float val) {
-    return ds_set(val, 0.0);
+float hash_to_float(uint x) {
+	return float(hash_u32(x) & 0x00FFFFFFU) * (1.0 / 16777216.0);
 }
 
-DS quick_two_sum(float a, float b) {
-    float s = a + b;
-    float e = b - (s - a);
-    return ds_set(s, e);
+vec3 sample_sky(vec3 dir) {
+	float theta = acos(clamp(dir.z, -1.0, 1.0));
+	float phi = atan(dir.y, dir.x);
+
+	float u = (phi + 3.141592653589793) * (1.0 / (2.0 * 3.141592653589793));
+	float v = theta * (1.0 / 3.141592653589793);
+
+	float gal_lat = 0.5 - v;
+	float gal_band = exp(-(gal_lat * gal_lat) / 0.015);
+	float gal_core = exp(-(gal_lat * gal_lat) / 0.008) * exp(-pow(u - 0.5, 2.0) / 0.05);
+
+	vec3 col = vec3(0.015 * gal_band + 0.12 * gal_core,
+					0.020 * gal_band + 0.09 * gal_core,
+					0.045 * gal_band + 0.06 * gal_core);
+
+	float u_grid = u * 720.0;
+	float v_grid = v * 360.0;
+	int iu = int(floor(u_grid));
+	int iv = int(floor(v_grid));
+
+	uint seed = uint(iu * 73856093 ^ iv * 19349663);
+	float prob = hash_to_float(seed);
+
+	if (prob > 0.88) {
+		float off_u = hash_to_float(seed + 101U);
+		float off_v = hash_to_float(seed + 202U);
+		float du = (u_grid - float(iu)) - off_u;
+		float dv = (v_grid - float(iv)) - off_v;
+		float d2 = du * du + dv * dv;
+		if (d2 < 0.35) {
+			float bright = pow(hash_to_float(seed + 303U), 6.0) * 4.5;
+			float fall = exp(-d2 * 10.0);
+			col += vec3(bright * fall);
+		}
+	}
+	return col;
 }
 
-DS two_sum(float a, float b) {
-    float s = a + b;
-    float v = s - a;
-    float e = (a - (s - v)) + (b - v);
-    return ds_set(s, e);
-}
-
-DS two_prod(float a, float b) {
-    float p = a * b;
-    float e = fma(a, b, -p);
-    return ds_set(p, e);
-}
-
-DS ds_add(DS a, DS b) {
-    DS st = two_sum(a.hi, b.hi);
-    DS th = two_sum(a.lo, b.lo);
-    float c = st.lo + th.hi;
-    DS v = quick_two_sum(st.hi, c);
-    float w = v.lo + th.lo;
-    return quick_two_sum(v.hi, w);
-}
-
-DS ds_sub(DS a, DS b) {
-    DS neg_b = ds_set(-b.hi, -b.lo);
-    return ds_add(a, neg_b);
-}
-
-DS ds_mul(DS a, DS b) {
-    DS p = two_prod(a.hi, b.hi);
-    float c = fma(a.hi, b.lo, fma(a.lo, b.hi, p.lo));
-    return quick_two_sum(p.hi, c);
-}
-
-DS ds_div(DS a, DS b) {
-    float q1 = a.hi / b.hi;
-    DS r = ds_sub(a, ds_mul(b, ds_from_float(q1)));
-    float q2 = r.hi / b.hi;
-    return ds_add(ds_from_float(q1), ds_from_float(q2));
+vec3 temp_to_rgb(float t, float intensity) {
+	float r = 1.0, g = 1.0, b = 1.0;
+	if (t <= 6600.0) {
+		g = clamp(0.39008 * log(t / 100.0) - 0.63184, 0.0, 1.0);
+		b = (t <= 1900.0) ? 0.0 : clamp(0.54320 * log(t / 100.0 - 10.0) - 1.19625, 0.0, 1.0);
+	} else {
+		r = clamp(1.29293 * pow(t / 100.0 - 60.0, -0.13320), 0.0, 1.0);
+		g = clamp(1.12989 * pow(t / 100.0 - 60.0, -0.07551), 0.0, 1.0);
+	}
+	return vec3(r, g, b) * intensity;
 }
 
 void main() {
-    uint px = gl_GlobalInvocationID.x;
-    uint py = gl_GlobalInvocationID.y;
+	uint px = gl_GlobalInvocationID.x;
+	uint py = gl_GlobalInvocationID.y;
 
-    if (px >= pc.screen_width || py >= pc.screen_height) {
-        return;
-    }
+	if (px >= pc.screen_width || py >= pc.screen_height) {
+		return;
+	}
 
-    uint pixel_index = py * pc.screen_width + px;
+	uint pixel_index = py * pc.screen_width + px;
 
-    float u_norm = (float(px) + 0.5) / float(pc.screen_width) * 2.0 - 1.0;
-    float v_norm = 1.0 - (float(py) + 0.5) / float(pc.screen_height) * 2.0;
-    float aspect = float(pc.screen_width) / float(pc.screen_height);
-    u_norm *= aspect;
+	float u_norm = (float(px) + 0.5) / float(pc.screen_width) * 2.0 - 1.0;
+	float v_norm = 1.0 - (float(py) + 0.5) / float(pc.screen_height) * 2.0;
+	float aspect = float(pc.screen_width) / float(pc.screen_height);
+	u_norm *= aspect;
 
-    float n1 = 1.0;
-    float n2 = 0.0;
-    float n3 = 0.0;
+	float tan_half_fov = tan(pc.fov_rad * 0.5);
+	float n1 = 1.0;
+	float n2 = -v_norm * tan_half_fov;
+	float n3 = u_norm * tan_half_fov;
+	float n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	if (n_len > 0.0) {
+		n1 /= n_len; n2 /= n_len; n3 /= n_len;
+	}
 
-    if (pc.projection_mode == 3) {
-        float phi = u_norm * 3.14159265358979323846 / aspect;
-        float theta = (0.5 - 0.5 * v_norm) * 3.14159265358979323846;
-        float sin_t = sin(theta);
-        float cos_t = cos(theta);
-        n1 = sin_t * cos(phi);
-        n2 = cos_t;
-        n3 = sin_t * sin(phi);
-    } else if (pc.projection_mode == 2) {
-        float r = sqrt(u_norm * u_norm + v_norm * v_norm);
-        if (r > 1e-7) {
-            float theta = 2.0 * atan(r * tan(pc.fov_rad * 0.25));
-            float sin_t = sin(theta);
-            float cos_t = cos(theta);
-            n1 = cos_t;
-            n2 = -v_norm * (sin_t / r);
-            n3 = u_norm * (sin_t / r);
-        }
-    } else if (pc.projection_mode == 1) {
-        float beta = 0.99;
-        float comp = sqrt((1.0 + beta) / (1.0 - beta));
-        float tan_half = tan(pc.fov_rad * 0.5) / comp;
-        n1 = 1.0;
-        n2 = -v_norm * tan_half;
-        n3 = u_norm * tan_half;
-    } else {
-        float tan_half_fov = tan(pc.fov_rad * 0.5);
-        n1 = 1.0;
-        n2 = -v_norm * tan_half_fov;
-        n3 = u_norm * tan_half_fov;
-    }
+	float m = max(pc.metric_mass, 1e-4);
+	float rs = 2.0 * m;
+	float isco = 6.0 * m;
+	float disk_outer = 24.0 * m;
 
-    float n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
-    if (n_len > 0.0) {
-        n1 /= n_len;
-        n2 /= n_len;
-        n3 /= n_len;
-    }
+	float r_obs = max(pc.obs_pos_hi.y, rs * 1.02);
+	float th_obs = clamp(pc.obs_pos_hi.z, 0.01, 3.14159265 - 0.01);
+	float phi_obs = pc.obs_pos_hi.w;
 
-    vec4 ray_x = pc.obs_pos_hi;
-    vec4 ray_u = pc.tetrad_e0_hi + n1 * pc.tetrad_e1_hi + n2 * pc.tetrad_e2_hi + n3 * pc.tetrad_e3_hi;
+	float sin_to = sin(th_obs);
+	float f_obs = max(1.0 - rs / r_obs, 1e-6);
+	float sqrt_f_obs = sqrt(f_obs);
 
-    float rs = pc.horizon_radius;
-    uint status = 0;
-    uint iters = 0;
+	float e0_t = 1.0 / sqrt_f_obs;
+	float e1_r = sqrt_f_obs;
+	float e2_th = 1.0 / r_obs;
+	float e3_phi = 1.0 / (r_obs * sin_to);
 
-    for (uint step = 0; step < pc.max_steps; ++step) {
-        iters = step + 1;
-        float r = ray_x.y;
-        float prev_theta = ray_x.z;
+	float ray_r = r_obs;
+	float ray_th = th_obs;
+	float ray_phi = phi_obs;
+	float ray_pr = n1 * e1_r;
+	float ray_pth = n2 * e2_th;
+	float ray_pphi = n3 * e3_phi;
 
-        if (r <= rs * 1.002) {
-            status = 1;
-            break;
-        }
+	float E_cons = e0_t * f_obs;
+	float Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
 
-        if (r >= pc.escape_radius || (step > 4 && r >= pc.obs_pos_hi.y && ray_u.y < 0.0)) {
-            status = 2;
-            break;
-        }
+	vec3 acc_col = vec3(0.0);
+	float throughput = 1.0;
+	float redshift = 1.0;
+	uint status = 0;
+	uint iters = 0;
 
-        float dt = -clamp(0.08 * r, 0.01, 1.0);
+	for (uint step = 0; step < pc.max_steps && throughput > 0.01; ++step) {
+		iters = step + 1;
 
-        float theta = ray_x.z;
-        float sin_t = sin(theta);
-        float cos_t = cos(theta);
-        float r_diff = max(r - rs, 0.005 * rs);
-        float r2 = r * r;
-        float r3 = r2 * r;
+		if (ray_r <= rs * 1.002) {
+			status = 1;
+			throughput = 0.0;
+			break;
+		}
 
-        float g001 = rs / (2.0 * r * r_diff);
-        float g100 = (rs * r_diff) / (2.0 * r3);
-        float g111 = -g001;
-        float g122 = -r_diff;
-        float g133 = -r_diff * sin_t * sin_t;
-        float g212 = 1.0 / r;
-        float g233 = -sin_t * cos_t;
-        float g313 = 1.0 / r;
-        float g323 = (abs(sin_t) > 1e-6) ? (cos_t / sin_t) : 0.0;
+		if (ray_r >= pc.escape_radius || (step > 4 && ray_r >= 30.0 * m && ray_pr > 0.0)) {
+			status = 2;
+			break;
+		}
 
-        vec4 acc;
-        acc.x = -2.0 * g001 * ray_u.x * ray_u.y;
-        acc.y = -(g100 * ray_u.x * ray_u.x + g111 * ray_u.y * ray_u.y + g122 * ray_u.z * ray_u.z + g133 * ray_u.w * ray_u.w);
-        acc.z = -(2.0 * g212 * ray_u.y * ray_u.z + g233 * ray_u.w * ray_u.w);
-        acc.w = -2.0 * (g313 * ray_u.y * ray_u.w + g323 * ray_u.z * ray_u.w);
+		float dt = -clamp((ray_r > 15.0 * m) ? (0.2 * ray_r) : (0.08 * ray_r), 0.01, 3.0);
+		float prev_r = ray_r;
+		float prev_th = ray_th;
+		float prev_phi = ray_phi;
 
-        ray_x += dt * ray_u;
-        ray_u += dt * acc;
+		float f = max(1.0 - rs / ray_r, 1e-6);
+		float p_t = E_cons / f;
+		float sin_t = sin(ray_th);
+		float cos_t = cos(ray_th);
+		float sin2_t = max(sin_t * sin_t, 1e-10);
+		float r2 = ray_r * ray_r;
 
-        float curr_theta = ray_x.z;
-        if ((prev_theta - 1.57079632679) * (curr_theta - 1.57079632679) < 0.0) {
-            float t_cross = abs(prev_theta - 1.57079632679) / (abs(prev_theta - 1.57079632679) + abs(curr_theta - 1.57079632679));
-            float r_cross = mix(r, ray_x.y, t_cross);
-            
-            float isco = 6.0 * pc.metric_mass;
-            if (pc.metric_spin > 0.0) isco = 6.0 * pc.metric_mass - 4.0 * pc.metric_mass * pc.metric_spin;
-            float disk_outer = 25.0 * pc.metric_mass;
-            
-            if (r_cross >= isco && r_cross <= disk_outer) {
-                status = 4;
-                ray_x.y = r_cross;
-                ray_x.z = 1.57079632679;
-                ray_x.w = mix(ray_x.w - dt * ray_u.w, ray_x.w, t_cross);
-                break;
-            }
-        }
-    }
+		float g100 = (rs * f) / (2.0 * r2);
+		float g111 = -rs / (2.0 * r2 * f);
+		float g122 = -ray_r * f;
+		float g133 = -ray_r * f * sin2_t;
 
-    vec4 col = vec4(0.0, 0.0, 0.0, 1.0);
-    float redshift = 1.0;
+		float d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
+		float d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+		float d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / sin_t) * ray_pth * ray_pphi);
 
-    if (status == 4) {
-        float r = ray_x.y;
-        float isco = 6.0 * pc.metric_mass;
-        if (pc.metric_spin > 0.0) isco = 6.0 * pc.metric_mass - 4.0 * pc.metric_mass * pc.metric_spin;
-        
-        float temp = pow(isco / r, 0.75);
-        float v_phi = sqrt(pc.metric_mass / r);
-        float n_phi = ray_u.w * r;
-        float g_factor = 1.0 / (1.0 - v_phi * n_phi);
-        
-        float intensity = temp * pow(g_factor, 3.0);
-        float phi = ray_x.w;
-        float pattern = float(sin(phi * 20.0) * sin(r * 2.0));
-        intensity *= (0.8 + 0.2 * pattern);
-        
-        float fade = smoothstep(25.0 * pc.metric_mass, 20.0 * pc.metric_mass, r);
-        vec3 disk_col = vec3(1.0, 0.5, 0.1) * (intensity * fade);
-        
-        col = vec4(disk_col, 1.0);
-        redshift = g_factor;
-    } else if (status == 2) {
-        float u_coord = (ray_x.w + 3.141592653589793) / (2.0 * 3.141592653589793);
-        float v_coord = ray_x.z / 3.141592653589793;
-        
-        float n = fract(sin(dot(vec2(u_coord, v_coord), vec2(12.9898, 78.233))) * 43758.5453);
-        vec3 sky_col = vec3(0.0);
-        if (n > 0.995) {
-            sky_col = vec3((n - 0.995) * 200.0);
-        }
-        float band = exp(-pow(v_coord - 0.5, 2.0) * 20.0);
-        sky_col += vec3(0.05, 0.1, 0.2) * band;
-        
-        col = vec4(sky_col, 1.0);
-        float factor_obs = 1.0 - rs / pc.obs_pos_hi.y;
-        float factor_emit = 1.0 - rs / ray_x.y;
-        if (factor_obs > 0.0 && factor_emit > 0.0) {
-            redshift = sqrt(factor_emit / factor_obs);
-        }
-    }
+		ray_r += dt * ray_pr;
+		ray_th += dt * ray_ptheta;
+		ray_phi += dt * ray_pphi;
+		ray_pr += dt * d_pr;
+		ray_ptheta += dt * d_pth;
+		ray_pphi += dt * d_pphi;
 
-    pixels[pixel_index].rgba = col;
-    pixels[pixel_index].redshift = redshift;
-    pixels[pixel_index].affine_parameter = float(iters) * 0.05;
-    pixels[pixel_index].status_flags = status;
-    pixels[pixel_index].iterations_used = iters;
+		float mid = 1.57079632;
+		if ((prev_th - mid) * (ray_th - mid) <= 0.0) {
+			float s = clamp(abs(prev_th - mid) / max(abs(ray_th - prev_th), 1e-10), 0.0, 1.0);
+			float r_cross = mix(prev_r, ray_r, s);
+			float phi_cross = mix(prev_phi, ray_phi, s);
+
+			if (r_cross >= isco && r_cross <= disk_outer) {
+				status = 4;
+				float v_orb = sqrt(m / r_cross);
+				float omega_orb = v_orb / r_cross;
+				float gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
+				float l_e = Lz_cons / max(abs(E_cons), 1e-10);
+				float g_dop = sqrt(max(1.0 - rs / r_cross, 1e-4)) / (gamma_orb * (1.0 - omega_orb * l_e));
+				redshift = g_dop;
+
+				float t_norm = pow(isco / r_cross, 0.75) * pow(max(1.0 - sqrt(isco / r_cross), 0.0), 0.25);
+				float t_obs = (18000.0 * t_norm + 1200.0) * g_dop;
+				float flux = pow(g_dop, 4.0) * t_norm * clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * 1.5;
+
+				vec3 col = temp_to_rgb(t_obs, flux);
+				acc_col += throughput * col;
+				throughput *= 0.1;
+			}
+		}
+	}
+
+	if (throughput > 0.01) {
+		vec3 dir = vec3(sin(ray_th) * cos(ray_phi), sin(ray_th) * sin(ray_phi), cos(ray_th));
+		acc_col += throughput * sample_sky(dir);
+	}
+
+	pixels[pixel_index].rgba = vec4(acc_col, 1.0);
+	pixels[pixel_index].redshift = redshift;
+	pixels[pixel_index].affine_parameter = float(iters) * 0.05;
+	pixels[pixel_index].status_flags = status;
+	pixels[pixel_index].iterations_used = iters;
 }

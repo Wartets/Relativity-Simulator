@@ -129,18 +129,23 @@ public:
 		snap_to_equatorial_front(photon_r);
 	}
 
-	void look_at_origin() noexcept {
+	void look_at_target(const std::array<double, 3>& target_pos) noexcept {
 		auto& cam = orchestrator_.camera();
-		const double x = cam.position[0];
-		const double y = cam.position[1];
-		const double z = cam.position[2];
-		const double r_xy = std::sqrt(x * x + y * y);
-		const double r = std::sqrt(r_xy * r_xy + z * z);
-		if (r > 1e-6) {
-			cam.yaw = std::atan2(-x, -y) * (180.0 / std::numbers::pi);
-			cam.pitch = std::atan2(-z, r_xy) * (180.0 / std::numbers::pi);
+		const double dx = target_pos[0] - cam.position[0];
+		const double dy = target_pos[1] - cam.position[1];
+		const double dz = target_pos[2] - cam.position[2];
+		const double d_xy = std::sqrt(dx * dx + dy * dy);
+		const double d_tot = std::sqrt(d_xy * d_xy + dz * dz);
+		if (d_tot > 1e-6) {
+			cam.yaw = std::atan2(dx, dy) * (180.0 / std::numbers::pi);
+			cam.pitch = std::atan2(dz, d_xy) * (180.0 / std::numbers::pi);
 			cam.roll = 0.0;
+			cam.target = target_pos;
 		}
+	}
+
+	void look_at_origin() noexcept {
+		look_at_target({0.0, 0.0, 0.0});
 	}
 
 	void reset_roll() noexcept {

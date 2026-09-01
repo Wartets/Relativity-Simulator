@@ -39,20 +39,28 @@ private:
 	void initialize_presets() {
 		presets_ = {
 			{
+				"Schwarzschild Black Hole & Accretion Disk",
+				"Accretion Physics & Extreme Raytracing",
+				"Static Schwarzschild black hole with an equatorial Novikov-Thorne accretion disk and gravitational lensing.",
+				"Schwarzschild",
+				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+				33.0, 60.0, "RK45"
+			},
+			{
+				"Kerr Rotating Black Hole (a=0.94)",
+				"Accretion Physics & Extreme Raytracing",
+				"Rapidly spinning Kerr black hole (a=0.94) surrounded by an asymmetric beaming accretion disk.",
+				"Kerr",
+				1.0, 0.94, 0.0, 0.0, 1.0, 0.0,
+				33.0, 60.0, "RK45"
+			},
+			{
 				"Solar System 1PN Precession",
 				"Relativistic Celestial Mechanics",
 				"Post-Newtonian multi-body integration with Mercury perihelion advance validation and J2 solar harmonics.",
 				"Schwarzschild",
 				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
 				100.0, 45.0, "RK45"
-			},
-			{
-				"Kerr Black Hole & Thin Novikov-Thorne Disk",
-				"Accretion Physics & Extreme Raytracing",
-				"Rapidly spinning Kerr black hole (a=0.94) surrounded by a thin Novikov-Thorne accretion disk with relativistic beaming.",
-				"Kerr",
-				1.0, 0.94, 0.0, 0.0, 1.0, 0.0,
-				30.0, 60.0, "RK45"
 			},
 			{
 				"EHT Event Horizon Telescope Shadow (M87*)",

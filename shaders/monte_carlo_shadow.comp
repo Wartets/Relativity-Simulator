@@ -1,0 +1,168 @@
+#version 450
+#extension GL_ARB_gpu_shader_int64 : require
+#extension GL_ARB_gpu_shader_fp64 : enable
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    dvec4 obs_pos;
+    dvec4 tetrad_e0;
+    dvec4 tetrad_e1;
+    dvec4 tetrad_e2;
+    dvec4 tetrad_e3;
+    dvec4 mass_spin_cov;
+    uint screen_width;
+    uint screen_height;
+    uint samples_per_pixel;
+    uint max_steps;
+    double fov_rad;
+    double horizon_radius;
+    double escape_radius;
+    double initial_step;
+    uint64_t random_seed;
+} pc;
+
+layout(std430, binding = 0) buffer HeatmapBuffer {
+    uint hits[];
+};
+
+uint64_t pcg_hash(inout uint64_t state) {
+    uint64_t old = state;
+    state = old * 6364136223846793005ul + 1442695040888963407ul;
+    uint shift = uint((old >> 59ul) + 5ul);
+    uint64_t word = ((old >> shift) ^ old) * 12605985483714917081ul;
+    return (word >> 43ul) ^ word;
+}
+
+double random_double(inout uint64_t state) {
+    uint64_t r = pcg_hash(state);
+    return double(r >> 11ul) * (1.0 / 9007199254740992.0);
+}
+
+dvec2 random_gaussian_pair(inout uint64_t state) {
+    double u1 = max(random_double(state), 1e-15);
+    double u2 = random_double(state);
+    double r = sqrt(-2.0 * log(u1));
+    double theta = 6.283185307179586 * u2;
+    return dvec2(r * cos(theta), r * sin(theta));
+}
+
+dvec4 compute_kerr_acc(dvec4 x, dvec4 u, double mass, double a) {
+    double r = max(x.y, 1e-12);
+    double theta = x.z;
+    double sin_t = sin(theta);
+    double cos_t = cos(theta);
+    double sin2_t = sin_t * sin_t;
+    double cos2_t = cos_t * cos_t;
+    double a2 = a * a;
+    double r2 = r * r;
+    double rho2 = r2 + a2 * cos2_t;
+    double rho4 = rho2 * rho2;
+    double delta = r2 - 2.0 * mass * r + a2;
+
+    double r_diff = r2 - a2 * cos2_t;
+    double d1_g00 = -2.0 * mass * r_diff / rho4;
+    double d1_g03 = 2.0 * mass * a * sin2_t * r_diff / rho4;
+    double d1_g11 = (2.0 * r * delta - 2.0 * (r - mass) * rho2) / (delta * delta);
+    double d1_g22 = 2.0 * r;
+    double d1_g33 = 2.0 * r * sin2_t - 2.0 * mass * a2 * sin2_t * sin2_t * r_diff / rho4;
+
+    double sin_cos = sin_t * cos_t;
+    double d2_g00 = 4.0 * mass * r * a2 * sin_cos / rho4;
+    double d2_g03 = -4.0 * mass * r * a * sin_cos * (r2 + a2) / rho4;
+    double d2_g11 = -2.0 * a2 * sin_cos / delta;
+    double d2_g22 = -2.0 * a2 * sin_cos;
+    double term_sigma = 2.0 * sin_cos * (r2 + a2 + (2.0 * mass * r * a2 * sin2_t) / rho2);
+    double term_extra = (4.0 * mass * r * a2 * sin_cos * (r2 + a2) * sin2_t) / rho4;
+    double d2_g33 = term_sigma + term_extra;
+
+    double sigma = (r2 + a2) * (r2 + a2) - a2 * delta * sin2_t;
+    double inv_g00 = -sigma / (rho2 * delta);
+    double inv_g03 = -(2.0 * mass * r * a) / (rho2 * delta);
+    double inv_g11 = delta / rho2;
+    double inv_g22 = 1.0 / rho2;
+    double inv_g33 = (delta - a2 * sin2_t) / (rho2 * delta * max(sin2_t, 1e-30));
+
+    dvec4 acc = dvec4(0.0);
+    double p0 = u.x, p1 = u.y, p2 = u.z, p3 = u.w;
+
+    double term0 = d1_g00 * p1 * p0 + d2_g00 * p2 * p0 + d1_g03 * p1 * p3 + d2_g03 * p2 * p3;
+    double term1 = -0.5 * (d1_g00 * p0 * p0 + d1_g11 * p1 * p1 + d1_g22 * p2 * p2 + d1_g33 * p3 * p3 + 2.0 * d1_g03 * p0 * p3) + d1_g11 * p1 * p1 + d2_g11 * p2 * p1;
+    double term2 = -0.5 * (d2_g00 * p0 * p0 + d2_g11 * p1 * p1 + d2_g22 * p2 * p2 + d2_g33 * p3 * p3 + 2.0 * d2_g03 * p0 * p3) + d1_g22 * p1 * p2 + d2_g22 * p2 * p2;
+    double term3 = d1_g03 * p1 * p0 + d2_g03 * p2 * p0 + d1_g33 * p1 * p3 + d2_g33 * p2 * p3;
+
+    acc.x = -(inv_g00 * term0 + inv_g03 * term3);
+    acc.y = -inv_g11 * term1;
+    acc.z = -inv_g22 * term2;
+    acc.w = -(inv_g03 * term0 + inv_g33 * term3);
+
+    return acc;
+}
+
+void main() {
+    uint px = gl_GlobalInvocationID.x;
+    uint py = gl_GlobalInvocationID.y;
+    if (px >= pc.screen_width || py >= pc.screen_height) return;
+
+    uint pixel_index = py * pc.screen_width + px;
+    uint64_t rng_state = pc.random_seed + uint64_t(pixel_index);
+
+    uint hit_count = 0;
+    double aspect = double(pc.screen_width) / double(pc.screen_height);
+    double tan_half_fov = tan(pc.fov_rad * 0.5);
+
+    for (uint s = 0; s < pc.samples_per_pixel; ++s) {
+        dvec2 rp = random_gaussian_pair(rng_state);
+        double d_mass = rp.x * pc.mass_spin_cov.x;
+        double d_spin = rp.y * pc.mass_spin_cov.y;
+        double mass = max(0.1, 1.0 + d_mass);
+        double spin = clamp(pc.mass_spin_cov.z + d_spin, -0.999, 0.999) * mass;
+
+        dvec2 jit = random_gaussian_pair(rng_state);
+        double u_norm = ((double(px) + 0.5 + jit.x * 0.5) / double(pc.screen_width) * 2.0 - 1.0) * aspect;
+        double v_norm = 1.0 - (double(py) + 0.5 + jit.y * 0.5) / double(pc.screen_height) * 2.0;
+
+        double n1 = 1.0;
+        double n2 = -v_norm * tan_half_fov;
+        double n3 = u_norm * tan_half_fov;
+        double n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+        n1 /= n_len; n2 /= n_len; n3 /= n_len;
+
+        dvec4 ray_x = pc.obs_pos;
+        dvec4 ray_u = pc.tetrad_e0 + n1 * pc.tetrad_e1 + n2 * pc.tetrad_e2 + n3 * pc.tetrad_e3;
+
+        double rs_eff = mass + sqrt(max(0.0, mass * mass - spin * spin));
+
+        for (uint step = 0; step < pc.max_steps; ++step) {
+            double r = ray_x.y;
+            if (r <= rs_eff * 1.01 && ray_u.y < 0.0) {
+                hit_count++;
+                break;
+            }
+            if (r >= pc.escape_radius) {
+                break;
+            }
+
+            double dt = -clamp(0.05 * r, 0.005, 0.5);
+            dvec4 k1_x = ray_u;
+            dvec4 k1_u = compute_kerr_acc(ray_x, ray_u, mass, spin);
+            dvec4 s2_x = ray_x + (0.5 * dt) * k1_x;
+            dvec4 s2_u = ray_u + (0.5 * dt) * k1_u;
+            dvec4 k2_x = s2_u;
+            dvec4 k2_u = compute_kerr_acc(s2_x, s2_u, mass, spin);
+            dvec4 s3_x = ray_x + (0.5 * dt) * k2_x;
+            dvec4 s3_u = ray_u + (0.5 * dt) * k2_u;
+            dvec4 k3_x = s3_u;
+            dvec4 k3_u = compute_kerr_acc(s3_x, s3_u, mass, spin);
+            dvec4 s4_x = ray_x + dt * k3_x;
+            dvec4 s4_u = ray_u + dt * k3_u;
+            dvec4 k4_x = s4_u;
+            dvec4 k4_u = compute_kerr_acc(s4_x, s4_u, mass, spin);
+
+            ray_x += (dt / 6.0) * (k1_x + 2.0 * k2_x + 2.0 * k3_x + k4_x);
+            ray_u += (dt / 6.0) * (k1_u + 2.0 * k2_u + 2.0 * k3_u + k4_u);
+        }
+    }
+
+    atomicAdd(hits[pixel_index], hit_count);
+}

@@ -172,6 +172,45 @@ public:
 		}
 		return bands;
 	}
+
+	[[nodiscard]] static ProbabilityHeatmap2D generate_empirical_2d_heatmap(
+		std::span<const std::array<double, 2>> points,
+		size_t width = 100,
+		size_t height = 100,
+		double x_min = -10.0,
+		double x_max = 10.0,
+		double y_min = -10.0,
+		double y_max = 10.0
+	) {
+		ProbabilityHeatmap2D map;
+		map.width = width;
+		map.height = height;
+		map.x_min = x_min;
+		map.x_max = x_max;
+		map.y_min = y_min;
+		map.y_max = y_max;
+		map.density_grid.assign(width * height, 0.0);
+
+		if (points.empty()) return map;
+
+		const double dx = (x_max - x_min) / static_cast<double>(width);
+		const double dy = (y_max - y_min) / static_cast<double>(height);
+
+		for (const auto& pt : points) {
+			if (pt[0] >= x_min && pt[0] < x_max && pt[1] >= y_min && pt[1] < y_max) {
+				const size_t i = std::clamp(static_cast<size_t>((pt[0] - x_min) / dx), size_t{0}, width - 1);
+				const size_t j = std::clamp(static_cast<size_t>((pt[1] - y_min) / dy), size_t{0}, height - 1);
+				map.density_grid[j * width + i] += 1.0;
+			}
+		}
+
+		const double norm = 1.0 / (static_cast<double>(points.size()) * dx * dy);
+		for (auto& val : map.density_grid) {
+			val *= norm;
+		}
+
+		return map;
+	}
 };
 
 }

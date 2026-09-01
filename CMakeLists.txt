@@ -337,5 +337,9 @@ add_executable(test_uncertainty_metrology tests/test_uncertainty_metrology.cpp)
 target_link_libraries(test_uncertainty_metrology PRIVATE relativistic_core)
 add_test(NAME test_uncertainty_metrology COMMAND test_uncertainty_metrology)
 
+add_executable(test_uncertainty_pce tests/test_uncertainty_pce.cpp)
+target_link_libraries(test_uncertainty_pce PRIVATE relativistic_core)
+add_test(NAME test_uncertainty_pce COMMAND test_uncertainty_pce)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

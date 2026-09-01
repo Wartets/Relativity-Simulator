@@ -48,17 +48,17 @@ struct CustomParameterEntry {
 };
 
 struct CameraState {
-	std::array<double, 3> position{0.0, 32.0, 9.0};
+	std::array<double, 3> position{0.0, 32.0, 0.0};
 	std::array<double, 3> target{0.0, 0.0, 0.0};
-	double pitch{-15.5};
-	double yaw{0.0};
+	double pitch{0.0};
+	double yaw{180.0};
 	double roll{0.0};
 	double fov_deg{60.0};
 	double speed{15.0};
-	double radius{33.24};
-	double theta{1.296};
+	double radius{32.0};
+	double theta{1.5707963267948966};
 	double phi{1.5707963267948966};
-	double orbit_distance{33.24};
+	double orbit_distance{32.0};
 };
 
 template <size_t QueueCapacity = 1024>
@@ -250,32 +250,32 @@ public:
 		switch (preset_index) {
 			case 0:
 				params_.resolution_scale = 0.50;
-				params_.max_ray_steps = 512;
+				params_.max_ray_steps = 256;
 				params_.integration_rtol = 1e-6;
 				params_.integration_atol = 1e-9;
 				break;
 			case 1:
 				params_.resolution_scale = 0.75;
-				params_.max_ray_steps = 1024;
+				params_.max_ray_steps = 512;
 				params_.integration_rtol = 1e-8;
 				params_.integration_atol = 1e-12;
 				break;
 			case 2:
 				params_.resolution_scale = 1.00;
-				params_.max_ray_steps = 2048;
+				params_.max_ray_steps = 1024;
 				params_.integration_rtol = 1e-10;
 				params_.integration_atol = 1e-14;
 				break;
 			case 3:
 				params_.resolution_scale = 1.25;
-				params_.max_ray_steps = 4096;
+				params_.max_ray_steps = 2048;
 				params_.integration_rtol = 1e-12;
 				params_.integration_atol = 1e-15;
 				break;
 			case 4:
 			default:
 				params_.resolution_scale = 1.50;
-				params_.max_ray_steps = 8192;
+				params_.max_ray_steps = 4096;
 				params_.integration_rtol = 1e-14;
 				params_.integration_atol = 1e-17;
 				break;

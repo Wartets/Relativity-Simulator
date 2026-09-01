@@ -51,6 +51,11 @@ struct alignas(16) GpuCameraPushConstants {
 	double escape_radius{100.0};
 	double cosmological_lambda{0.0};
 
+	double wormhole_throat{1.0};
+	double warp_velocity{0.0};
+	double camera_exposure{0.0};
+	uint32_t tonemapping_mode{1};
+
 	uint32_t max_integration_steps{2048};
 	uint32_t render_flags{0};
 	uint32_t projection_mode{0};

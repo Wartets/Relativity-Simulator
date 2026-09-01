@@ -96,26 +96,23 @@ public:
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
 
-			bool dyn_res = orchestrator_.get_custom_param("dyn_res", 0.0) > 0.5;
-			double target_fps = orchestrator_.get_custom_param("target_fps", 60.0);
+			const bool is_navigating = (is_hovered_ || is_focused_) && (
+				glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS ||
+				glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS ||
+				glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
+				glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
+				glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
+				glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS
+			);
 
-			if (dyn_res) {
-				const auto& tel = pipeline_.telemetry();
-				if (tel.execution_time_ms > 0.0) {
-					double current_fps = 1000.0 / tel.execution_time_ms;
-					if (current_fps < target_fps * 0.85) {
-						resolution_scale_ = std::max(0.1f, resolution_scale_ - 0.02f);
-						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(resolution_scale_)));
-					} else if (current_fps > target_fps * 1.15) {
-						resolution_scale_ = std::min(2.5f, resolution_scale_ + 0.02f);
-						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(resolution_scale_)));
-					}
-				}
+			float active_scale = resolution_scale_;
+			if (is_navigating) {
+				active_scale = std::clamp(resolution_scale_ * 0.65f, 0.25f, 1.0f);
 			}
 
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
-			const uint32_t target_w = std::max(static_cast<uint32_t>(avail.x * resolution_scale_), 64u);
-			const uint32_t target_h = std::max(static_cast<uint32_t>(avail.y * resolution_scale_), 64u);
+			const uint32_t target_w = std::max(static_cast<uint32_t>(avail.x * active_scale), 64u);
+			const uint32_t target_h = std::max(static_cast<uint32_t>(avail.y * active_scale), 64u);
 
 			if (std::abs(static_cast<int>(target_w) - static_cast<int>(current_width_)) > 2 || 
 			    std::abs(static_cast<int>(target_h) - static_cast<int>(current_height_)) > 2) {
@@ -137,6 +134,11 @@ public:
 			cam_consts.metric_mass = params.mass;
 			cam_consts.metric_spin = params.spin;
 			cam_consts.metric_charge = params.charge;
+			cam_consts.cosmological_lambda = params.cosmological_lambda;
+			cam_consts.wormhole_throat = params.wormhole_throat;
+			cam_consts.warp_velocity = params.warp_velocity;
+			cam_consts.camera_exposure = params.camera_exposure;
+			cam_consts.tonemapping_mode = params.tonemapping_mode;
 			cam_consts.horizon_radius = 2.0 * params.mass;
 			cam_consts.escape_radius = 100.0 * params.mass;
 			cam_consts.projection_mode = params.projection_mode;
@@ -145,13 +147,15 @@ public:
 
 			const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
 			const double yaw_r = cam.yaw * (std::numbers::pi / 180.0);
+			const double roll_r = cam.roll * (std::numbers::pi / 180.0);
 			const double cp = std::cos(pitch_r), sp = std::sin(pitch_r);
 			const double cy = std::cos(yaw_r), sy = std::sin(yaw_r);
+			const double cr = std::cos(roll_r), sr = std::sin(roll_r);
 
 			cam_consts.tetrad_e0 = {1.0, 0.0, 0.0, 0.0};
 			cam_consts.tetrad_e1 = {0.0, cp * cy, cp * sy, sp};
-			cam_consts.tetrad_e2 = {0.0, -sy, cy, 0.0};
-			cam_consts.tetrad_e3 = {0.0, -sp * cy, -sp * sy, cp};
+			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
+			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
 
 			pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
 			pipeline_.dispatch(cam_consts);

@@ -85,25 +85,103 @@ private:
 	}
 
 	[[nodiscard]] static std::array<float, 3> temperature_to_linear_rgb(double t_kelvin, double intensity) noexcept {
-		const double t = std::clamp(t_kelvin, 1000.0, 40000.0);
-		double r = 0.0, g = 0.0, b = 0.0;
+		const double t = std::clamp(t_kelvin, 800.0, 60000.0);
+		constexpr double h = 6.62607015e-34;
+		constexpr double c = 299792458.0;
+		constexpr double kb = 1.380649e-23;
 
-		if (t <= 6600.0) {
-			r = 1.0;
-			g = std::clamp(0.39008 * std::log(t / 100.0) - 0.63184, 0.0, 1.0);
-			if (t <= 1900.0) {
-				b = 0.0;
-			} else {
-				b = std::clamp(0.54320 * std::log(t / 100.0 - 10.0) - 1.19625, 0.0, 1.0);
+		auto planck = [&](double lambda_m) noexcept -> double {
+			const double exponent = (h * c) / (lambda_m * kb * t);
+			if (exponent > 80.0) return 0.0;
+			const double denom = std::expm1(exponent);
+			if (denom <= 0.0) return 0.0;
+			return (2.0 * h * c * c) / (std::pow(lambda_m, 5.0) * denom);
+		};
+
+		const double i_red = planck(680e-9);
+		const double i_green = planck(540e-9);
+		const double i_blue = planck(440e-9);
+
+		constexpr double ref_t = 6500.0;
+		auto planck_ref = [&](double lambda_m) noexcept -> double {
+			const double exponent = (h * c) / (lambda_m * kb * ref_t);
+			return (2.0 * h * c * c) / (std::pow(lambda_m, 5.0) * std::expm1(exponent));
+		};
+
+		const double norm_r = planck_ref(680e-9);
+		const double norm_g = planck_ref(540e-9);
+		const double norm_b = planck_ref(440e-9);
+
+		double r = i_red / (norm_r > 0.0 ? norm_r : 1.0);
+		double g = i_green / (norm_g > 0.0 ? norm_g : 1.0);
+		double b = i_blue / (norm_b > 0.0 ? norm_b : 1.0);
+
+		const double max_c = std::max({r, g, b, 1e-12});
+		r /= max_c;
+		g /= max_c;
+		b /= max_c;
+
+		const float scale = static_cast<float>(std::max(0.0, intensity));
+		return {static_cast<float>(r) * scale, static_cast<float>(g) * scale, static_cast<float>(b) * scale};
+	}
+
+	[[nodiscard]] static std::array<float, 3> apply_tonemapping(
+		const std::array<double, 3>& linear_color,
+		uint32_t tonemap_mode,
+		double exposure_ev
+	) noexcept {
+		const double exp_scale = std::exp2(exposure_ev);
+		double r = std::max(0.0, linear_color[0] * exp_scale);
+		double g = std::max(0.0, linear_color[1] * exp_scale);
+		double b = std::max(0.0, linear_color[2] * exp_scale);
+
+		auto aces_curve = [](double x) noexcept -> double {
+			constexpr double a = 2.51;
+			constexpr double b = 0.03;
+			constexpr double c = 2.43;
+			constexpr double d = 0.59;
+			constexpr double e = 0.14;
+			return std::clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+		};
+
+		switch (tonemap_mode) {
+			case 1:
+				r = aces_curve(r);
+				g = aces_curve(g);
+				b = aces_curve(b);
+				break;
+			case 2: {
+				const double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+				if (lum > 0.0) {
+					const double mapped_lum = std::log10(1.0 + lum * 100.0) / std::log10(1.0 + 10000.0);
+					const double scale = std::clamp(mapped_lum / lum, 0.0, 1.0);
+					r = std::clamp(r * scale, 0.0, 1.0);
+					g = std::clamp(g * scale, 0.0, 1.0);
+					b = std::clamp(b * scale, 0.0, 1.0);
+				}
+				break;
 			}
-		} else {
-			r = std::clamp(1.29293 * std::pow(t / 100.0 - 60.0, -0.13320), 0.0, 1.0);
-			g = std::clamp(1.12989 * std::pow(t / 100.0 - 60.0, -0.07551), 0.0, 1.0);
-			b = 1.0;
+			case 3:
+				r = (r * (1.0 + r / 25.0)) / (1.0 + r);
+				g = (g * (1.0 + g / 25.0)) / (1.0 + g);
+				b = (b * (1.0 + b / 25.0)) / (1.0 + b);
+				break;
+			case 0:
+			default:
+				r = std::clamp(r, 0.0, 1.0);
+				g = std::clamp(g, 0.0, 1.0);
+				b = std::clamp(b, 0.0, 1.0);
+				break;
 		}
 
-		const float scale = static_cast<float>(intensity);
-		return {static_cast<float>(r) * scale, static_cast<float>(g) * scale, static_cast<float>(b) * scale};
+		auto to_srgb = [](double linear) noexcept -> float {
+			if (linear <= 0.0031308) {
+				return static_cast<float>(12.92 * linear);
+			}
+			return static_cast<float>(1.055 * std::pow(linear, 1.0 / 2.4) - 0.055);
+		};
+
+		return {to_srgb(r), to_srgb(g), to_srgb(b)};
 	}
 
 public:
@@ -132,6 +210,10 @@ public:
 		const double isco = (std::abs(a_spin) > 1e-12) ? std::max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
 		const double disk_outer = 24.0 * m;
 
+		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
+		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
+		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
+
 		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
@@ -139,34 +221,40 @@ public:
 					const size_t pixel_idx = y * width + x;
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
-					const auto n_dir = Observer::CameraProjector<double>::compute_ray_direction(
+					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
 						static_cast<Observer::ProjectionMode>(params.projection_mode),
 						(params.projection_mode == 3) ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm,
 						v_norm,
 						params.field_of_view_rad
 					);
 
-					const double n1 = n_dir[0];
-					const double n2 = n_dir[1];
-					const double n3 = n_dir[2];
+					const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
+					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
+					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
 					const double r_obs = std::max(params.observer_position[1], rh * 1.02);
-					const double theta_obs = std::clamp(params.observer_position[2], 0.01, std::numbers::pi_v<double> - 0.01);
+					const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
 					const double phi_obs = params.observer_position[3];
 
 					const double sin_to = std::sin(theta_obs);
+					const double cos_to = std::cos(theta_obs);
+					const double sin_po = std::sin(phi_obs);
+					const double cos_po = std::cos(phi_obs);
+
+					const double er_x = sin_to * cos_po, er_y = sin_to * sin_po, er_z = cos_to;
+					const double eth_x = cos_to * cos_po, eth_y = cos_to * sin_po, eth_z = -sin_to;
+					const double eph_x = -sin_po, eph_y = cos_po, eph_z = 0.0;
+
+					const double n_r = ray_dir_x * er_x + ray_dir_y * er_y + ray_dir_z * er_z;
+					const double n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
+					const double n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
+
 					const double factor_obs = std::max(1.0 - rs / r_obs, 1e-6);
 					const double sqrt_factor_obs = std::sqrt(factor_obs);
 
-					const double e0_t = 1.0 / sqrt_factor_obs;
-					const double e1_r = sqrt_factor_obs;
-					const double e2_theta = 1.0 / r_obs;
-					const double e3_phi = 1.0 / (r_obs * sin_to);
-
-					const double p_t_init = -e0_t;
-					const double p_r_init = n1 * e1_r;
-					const double p_theta_init = n2 * e2_theta;
-					const double p_phi_init = n3 * e3_phi;
+					const double p_r_init = n_r / sqrt_factor_obs;
+					const double p_theta_init = n_th / r_obs;
+					const double p_phi_init = n_ph / (r_obs * sin_to);
 
 					double ray_r = r_obs;
 					double ray_theta = theta_obs;
@@ -176,7 +264,7 @@ public:
 					double ray_ptheta = p_theta_init;
 					double ray_pphi = p_phi_init;
 
-					const double E_cons = -p_t_init * factor_obs;
+					const double E_cons = 1.0;
 					const double Lz_cons = p_phi_init * (r_obs * r_obs * sin_to * sin_to);
 
 					double accumulated_r = 0.0;
@@ -335,10 +423,16 @@ public:
 						accumulated_b += throughput * static_cast<double>(sky_rgb[2]);
 					}
 
+					const auto mapped_srgb = apply_tonemapping(
+						{accumulated_r, accumulated_g, accumulated_b},
+						params.tonemapping_mode,
+						params.camera_exposure
+					);
+
 					output_framebuffer[pixel_idx] = GpuPixelOutput{
-						.r = static_cast<float>(accumulated_r),
-						.g = static_cast<float>(accumulated_g),
-						.b = static_cast<float>(accumulated_b),
+						.r = mapped_srgb[0],
+						.g = mapped_srgb[1],
+						.b = mapped_srgb[2],
 						.a = 1.0f,
 						.redshift = static_cast<float>(redshift_rec),
 						.affine_parameter = static_cast<float>(iters * 0.05),

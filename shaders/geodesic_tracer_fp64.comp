@@ -30,6 +30,11 @@ layout(push_constant) uniform PushConstants {
 	double escape_radius;
 	double cosmological_lambda;
 
+	double wormhole_throat;
+	double warp_velocity;
+	double camera_exposure;
+	uint tonemapping_mode;
+
 	uint max_steps;
 	uint render_flags;
 	uint projection_mode;
@@ -205,15 +210,15 @@ void main() {
 		double g122 = -ray_r * f;
 		double g133 = -ray_r * f * sin2_t;
 
-		double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_ptheta * ray_ptheta + g133 * ray_pphi * ray_pphi);
-		double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_ptheta - sin_t * cos_t * ray_pphi * ray_pphi);
-		double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / sin_t) * ray_ptheta * ray_pphi);
+		double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
+		double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+		double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / sin_t) * ray_pth * ray_pphi);
 
 		ray_r += dt * ray_pr;
-		ray_th += dt * ray_ptheta;
+		ray_th += dt * ray_pth;
 		ray_phi += dt * ray_pphi;
 		ray_pr += dt * d_pr;
-		ray_ptheta += dt * d_pth;
+		ray_pth += dt * d_pth;
 		ray_pphi += dt * d_pphi;
 
 		double mid = 1.57079632679;
@@ -249,7 +254,10 @@ void main() {
 		acc_col += throughput * sample_sky(dir);
 	}
 
-	pixels[pixel_index].rgba = vec4(acc_col, 1.0);
+	acc_col *= exp2(float(pc.camera_exposure));
+	vec3 mapped_col = clamp((acc_col * (2.51 * acc_col + 0.03)) / (acc_col * (2.43 * acc_col + 0.59) + 0.14), 0.0, 1.0);
+
+	pixels[pixel_index].rgba = vec4(mapped_col, 1.0);
 	pixels[pixel_index].redshift = redshift;
 	pixels[pixel_index].affine_parameter = float(iters) * 0.05;
 	pixels[pixel_index].status_flags = status;

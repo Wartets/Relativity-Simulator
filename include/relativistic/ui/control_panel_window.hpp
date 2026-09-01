@@ -187,21 +187,24 @@ private:
 			auto& c = orchestrator_.camera();
 			c.position = {0.0, 50.0, 0.0};
 			c.pitch = 0.0;
-			c.yaw = 0.0;
+			c.yaw = 180.0;
+			c.roll = 0.0;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Top Polar View (z=50)")) {
 			auto& c = orchestrator_.camera();
-			c.position = {0.0, 0.0, 50.0};
+			c.position = {0.0, 0.001, 50.0};
 			c.pitch = -89.0;
 			c.yaw = 0.0;
+			c.roll = 0.0;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Close-up ISCO (r=8)")) {
 			auto& c = orchestrator_.camera();
 			c.position = {0.0, 8.0, 0.0};
 			c.pitch = 0.0;
-			c.yaw = 0.0;
+			c.yaw = 180.0;
+			c.roll = 0.0;
 		}
 	}
 

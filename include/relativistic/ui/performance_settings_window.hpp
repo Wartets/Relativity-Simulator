@@ -60,11 +60,11 @@ public:
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Rasterization & Ray Budget Configuration");
 
-			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.25f, 2.50f, "%.2fx")) {
+			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.25f, 2.00f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(static_cast<double>(res_scale_))));
 			}
 
-			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 128, 8192)) {
+			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 64, 4096)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps_))));
 			}
 

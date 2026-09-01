@@ -55,30 +55,6 @@ private:
 				33.0, 60.0, "RK45"
 			},
 			{
-				"Solar System 1PN Precession",
-				"Relativistic Celestial Mechanics",
-				"Post-Newtonian multi-body integration with Mercury perihelion advance validation and J2 solar harmonics.",
-				"Schwarzschild",
-				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-				100.0, 45.0, "RK45"
-			},
-			{
-				"EHT Event Horizon Telescope Shadow (M87*)",
-				"Accretion Physics & Extreme Raytracing",
-				"Bardeen analytical critical curve benchmarking for spinning compact objects with photon sphere multi-turn lensing.",
-				"Kerr",
-				1.0, 0.90, 0.0, 0.0, 1.0, 0.0,
-				50.0, 50.0, "RK45"
-			},
-			{
-				"Binary Black Hole Coalescence 3.5PN",
-				"Gravitational Waves & Radiation Reaction",
-				"Tight binary compact object inspiring and emitting gravitational wave quadrupoles with 2.5PN / 3.5PN damping.",
-				"Kerr",
-				2.0, 0.5, 0.0, 0.0, 1.0, 0.0,
-				60.0, 50.0, "Vernier9"
-			},
-			{
 				"Hulse-Taylor Pulsar PSR B1913+16",
 				"Astrophysical Verification",
 				"High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay.",
@@ -101,38 +77,6 @@ private:
 				"Alcubierre",
 				0.0, 0.0, 0.0, 0.0, 1.0, 2.0,
 				40.0, 70.0, "RK45"
-			},
-			{
-				"BSSN Conformal Gauge Wave Evolution",
-				"Numerical Relativity (3+1 ADM)",
-				"Dynamic gravitational wave propagating across a 3D conformal structured mesh with Hamiltonian constraint tracking.",
-				"BSSN",
-				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-				50.0, 60.0, "RK45"
-			},
-			{
-				"MOND Galaxy Rotation Curve (Milky Way)",
-				"Modified Gravity & Dark Matter",
-				"Modified Newtonian Dynamics reproducing asymptotic flat rotation velocities without dark matter halos.",
-				"FlatMinkowski",
-				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-				80.0, 60.0, "RK45"
-			},
-			{
-				"Reissner-Nordstrom Extremal Charged Singularity",
-				"Electrovacuum Solutions",
-				"Static charged black hole near extremality displaying inner and outer Cauchy horizons and repulsive gravity.",
-				"ReissnerNordstrom",
-				1.0, 0.0, 0.99, 0.0, 1.0, 0.0,
-				25.0, 65.0, "CashKarp"
-			},
-			{
-				"FLRW Accelerating Cosmological Expansion",
-				"Cosmological Spacetimes",
-				"Cosmological metric evolution with Lambda-CDM scale factor expansion and optical cosmological redshift.",
-				"FLRW",
-				1.0, 0.0, 0.0, 0.7, 1.0, 0.0,
-				10.0, 90.0, "RK45"
 			}
 		};
 	}
@@ -239,7 +183,8 @@ private:
 			auto& cam = orchestrator_.camera();
 			cam.position = {0.0, p.cam_r, 0.0};
 			cam.pitch = 0.0;
-			cam.yaw = 0.0;
+			cam.yaw = 180.0;
+			cam.roll = 0.0;
 		}
 		auto& cam = orchestrator_.camera();
 		cam.fov_deg = p.cam_fov;

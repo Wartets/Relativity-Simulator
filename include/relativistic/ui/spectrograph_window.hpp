@@ -80,7 +80,7 @@ public:
 				}
 			}
 
-			if (ImGui::SliderFloat("Doppler Factor (g)", &doppler_shift_factor_, 0.1f, 5.0f, "%.3f")) {
+			if (ImGui::SliderFloat("Doppler Factor (g)", &doppler_shift_factor_, 0.05f, 10.0f, "%.3f")) {
 				recompute_spectrum();
 			}
 

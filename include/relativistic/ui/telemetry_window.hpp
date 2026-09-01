@@ -12,7 +12,7 @@ private:
 	bool is_open_{true};
 
 public:
-	void render(const Orchestrator::SimulationOrchestrator<16384>& orchestrator) {
+	void render(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 		if (!is_open_) return;
 
 		if (ImGui::Begin("Telemetry & Invariants", &is_open_)) {

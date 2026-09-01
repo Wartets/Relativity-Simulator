@@ -20,7 +20,17 @@ enum class CommandType : uint32_t {
 	SetParam = 6,
 	SetTickRate = 7,
 	Status = 8,
-	Shutdown = 9
+	Shutdown = 9,
+	CameraMove = 10,
+	CameraRotate = 11,
+	CameraSetFov = 12,
+	CameraSetSpeed = 13,
+	CameraReset = 14,
+	SetMetric = 15,
+	LoadScenario = 16,
+	SaveScenario = 17,
+	SetIntegrator = 18,
+	TriggerExport = 19
 };
 
 enum class ParameterType : uint32_t {
@@ -34,7 +44,15 @@ enum class ParameterType : uint32_t {
 	TickRate = 7,
 	ProjectionMode = 8,
 	TimeFlowMode = 9,
-	Custom = 10
+	CameraSpeed = 10,
+	CameraFov = 11,
+	CameraExposure = 12,
+	TonemappingMode = 13,
+	IntegrationRtol = 14,
+	IntegrationAtol = 15,
+	IntegrationMinStep = 16,
+	IntegrationMaxStep = 17,
+	Custom = 18
 };
 
 struct Command {
@@ -42,7 +60,9 @@ struct Command {
 	ParameterType param_type{ParameterType::Unknown};
 	uint64_t step_count{0};
 	double numeric_value{0.0};
-	char custom_param_name[32]{};
+	double vec_values[4]{0.0, 0.0, 0.0, 0.0};
+	char custom_param_name[64]{};
+	char text_payload[256]{};
 	uint64_t target_tick{0};
 
 	[[nodiscard]] static constexpr Command make_pause() noexcept {
@@ -103,11 +123,94 @@ struct Command {
 		cmd.type = CommandType::Shutdown;
 		return cmd;
 	}
+
+	[[nodiscard]] static constexpr Command make_camera_move(double dx, double dy, double dz) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CameraMove;
+		cmd.vec_values[0] = dx;
+		cmd.vec_values[1] = dy;
+		cmd.vec_values[2] = dz;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_camera_rotate(double pitch, double yaw, double roll = 0.0) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CameraRotate;
+		cmd.vec_values[0] = pitch;
+		cmd.vec_values[1] = yaw;
+		cmd.vec_values[2] = roll;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_camera_set_fov(double fov_deg) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CameraSetFov;
+		cmd.numeric_value = fov_deg;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_camera_set_speed(double speed) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CameraSetSpeed;
+		cmd.numeric_value = speed;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_camera_reset() noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CameraReset;
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_set_metric(std::string_view metric_name) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetMetric;
+		const size_t len = std::min(metric_name.size(), sizeof(cmd.text_payload) - 1);
+		std::memcpy(cmd.text_payload, metric_name.data(), len);
+		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_load_scenario(std::string_view scenario_path) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::LoadScenario;
+		const size_t len = std::min(scenario_path.size(), sizeof(cmd.text_payload) - 1);
+		std::memcpy(cmd.text_payload, scenario_path.data(), len);
+		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_save_scenario(std::string_view scenario_path) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SaveScenario;
+		const size_t len = std::min(scenario_path.size(), sizeof(cmd.text_payload) - 1);
+		std::memcpy(cmd.text_payload, scenario_path.data(), len);
+		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_set_integrator(std::string_view scheme_name) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetIntegrator;
+		const size_t len = std::min(scheme_name.size(), sizeof(cmd.text_payload) - 1);
+		std::memcpy(cmd.text_payload, scheme_name.data(), len);
+		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_trigger_export(std::string_view format_name) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::TriggerExport;
+		const size_t len = std::min(format_name.size(), sizeof(cmd.text_payload) - 1);
+		std::memcpy(cmd.text_payload, format_name.data(), len);
+		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
 };
 
 struct CommandResult {
 	bool success{false};
-	char message[64]{};
+	char message[128]{};
 };
 
 class CommandParser {
@@ -186,12 +289,12 @@ public:
 		const std::string_view token1 = extract_token(remaining);
 
 		if (iequals_sv(token1, "pause")) {
-			set_msg(result_out, true, "Command parsed: pause");
+			set_msg(result_out, true, "Simulation paused");
 			return Command::make_pause();
 		}
 
 		if (iequals_sv(token1, "resume")) {
-			set_msg(result_out, true, "Command parsed: resume");
+			set_msg(result_out, true, "Simulation resumed");
 			return Command::make_resume();
 		}
 
@@ -204,7 +307,7 @@ public:
 					return std::nullopt;
 				}
 			}
-			set_msg(result_out, true, "Command parsed: step");
+			set_msg(result_out, true, "Step command queued");
 			return Command::make_step(n);
 		}
 
@@ -216,15 +319,15 @@ public:
 			}
 			double factor = 0.0;
 			if (!parse_dbl(token2, factor) || factor <= 0.0) {
-				set_msg(result_out, false, "Invalid warp factor (must be positive)");
+				set_msg(result_out, false, "Invalid warp factor");
 				return std::nullopt;
 			}
-			set_msg(result_out, true, "Command parsed: warp");
+			set_msg(result_out, true, "Warp factor updated");
 			return Command::make_warp(factor);
 		}
 
 		if (iequals_sv(token1, "reset")) {
-			set_msg(result_out, true, "Command parsed: reset");
+			set_msg(result_out, true, "Simulation reset");
 			return Command::make_reset();
 		}
 
@@ -236,21 +339,120 @@ public:
 			}
 			double rate = 0.0;
 			if (!parse_dbl(token2, rate) || rate < 10.0 || rate > 1000.0) {
-				set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");
+				set_msg(result_out, false, "Invalid tickrate");
 				return std::nullopt;
 			}
-			set_msg(result_out, true, "Command parsed: tickrate");
+			set_msg(result_out, true, "Tick rate updated");
 			return Command::make_set_tickrate(rate);
 		}
 
 		if (iequals_sv(token1, "status")) {
-			set_msg(result_out, true, "Command parsed: status");
+			set_msg(result_out, true, "Status query accepted");
 			return Command::make_status();
 		}
 
 		if (iequals_sv(token1, "shutdown") || iequals_sv(token1, "quit") || iequals_sv(token1, "exit")) {
-			set_msg(result_out, true, "Command parsed: shutdown");
+			set_msg(result_out, true, "Shutdown command registered");
 			return Command::make_shutdown();
+		}
+
+		if (iequals_sv(token1, "camera")) {
+			const std::string_view sub = extract_token(remaining);
+			if (iequals_sv(sub, "reset")) {
+				set_msg(result_out, true, "Camera reset");
+				return Command::make_camera_reset();
+			}
+			if (iequals_sv(sub, "fov")) {
+				const std::string_view val_tok = extract_token(remaining);
+				double fov_val = 0.0;
+				if (!parse_dbl(val_tok, fov_val) || fov_val < 5.0 || fov_val > 175.0) {
+					set_msg(result_out, false, "Invalid FOV (range: 5 to 175 degrees)");
+					return std::nullopt;
+				}
+				set_msg(result_out, true, "Camera FOV set");
+				return Command::make_camera_set_fov(fov_val);
+			}
+			if (iequals_sv(sub, "speed")) {
+				const std::string_view val_tok = extract_token(remaining);
+				double spd_val = 0.0;
+				if (!parse_dbl(val_tok, spd_val) || spd_val <= 0.0) {
+					set_msg(result_out, false, "Invalid camera speed");
+					return std::nullopt;
+				}
+				set_msg(result_out, true, "Camera speed set");
+				return Command::make_camera_set_speed(spd_val);
+			}
+			if (iequals_sv(sub, "move")) {
+				double dx = 0.0, dy = 0.0, dz = 0.0;
+				const auto tx = extract_token(remaining);
+				const auto ty = extract_token(remaining);
+				const auto tz = extract_token(remaining);
+				if (!parse_dbl(tx, dx) || !parse_dbl(ty, dy) || !parse_dbl(tz, dz)) {
+					set_msg(result_out, false, "Invalid move delta (expected dx dy dz)");
+					return std::nullopt;
+				}
+				set_msg(result_out, true, "Camera translation applied");
+				return Command::make_camera_move(dx, dy, dz);
+			}
+			if (iequals_sv(sub, "rotate")) {
+				double dp = 0.0, dy = 0.0, dr = 0.0;
+				const auto tp = extract_token(remaining);
+				const auto ty = extract_token(remaining);
+				const auto tr = extract_token(remaining);
+				if (!parse_dbl(tp, dp) || !parse_dbl(ty, dy)) {
+					set_msg(result_out, false, "Invalid rotation delta (expected pitch yaw [roll])");
+					return std::nullopt;
+				}
+				if (!tr.empty()) static_cast<void>(parse_dbl(tr, dr));
+				set_msg(result_out, true, "Camera rotation applied");
+				return Command::make_camera_rotate(dp, dy, dr);
+			}
+		}
+
+		if (iequals_sv(token1, "metric")) {
+			const std::string_view name = extract_token(remaining);
+			if (name.empty()) {
+				set_msg(result_out, false, "Missing metric name");
+				return std::nullopt;
+			}
+			set_msg(result_out, true, "Metric changed");
+			return Command::make_set_metric(name);
+		}
+
+		if (iequals_sv(token1, "load")) {
+			const std::string_view path = remaining;
+			if (path.empty()) {
+				set_msg(result_out, false, "Missing scenario path");
+				return std::nullopt;
+			}
+			set_msg(result_out, true, "Loading scenario");
+			return Command::make_load_scenario(path);
+		}
+
+		if (iequals_sv(token1, "save")) {
+			const std::string_view path = remaining;
+			if (path.empty()) {
+				set_msg(result_out, false, "Missing scenario save path");
+				return std::nullopt;
+			}
+			set_msg(result_out, true, "Saving scenario");
+			return Command::make_save_scenario(path);
+		}
+
+		if (iequals_sv(token1, "integrator")) {
+			const std::string_view name = extract_token(remaining);
+			if (name.empty()) {
+				set_msg(result_out, false, "Missing integrator name");
+				return std::nullopt;
+			}
+			set_msg(result_out, true, "Integrator updated");
+			return Command::make_set_integrator(name);
+		}
+
+		if (iequals_sv(token1, "export")) {
+			const std::string_view fmt = extract_token(remaining);
+			set_msg(result_out, true, "Export triggered");
+			return Command::make_trigger_export(fmt.empty() ? "all" : fmt);
 		}
 
 		if (iequals_sv(token1, "set")) {
@@ -279,6 +481,14 @@ public:
 			else if (iequals_sv(token2, "warp_velocity") || iequals_sv(token2, "warp_vel")) ptype = ParameterType::WarpVelocity;
 			else if (iequals_sv(token2, "projection") || iequals_sv(token2, "proj")) ptype = ParameterType::ProjectionMode;
 			else if (iequals_sv(token2, "timeflow") || iequals_sv(token2, "time_flow")) ptype = ParameterType::TimeFlowMode;
+			else if (iequals_sv(token2, "cameran_speed") || iequals_sv(token2, "speed")) ptype = ParameterType::CameraSpeed;
+			else if (iequals_sv(token2, "fov")) ptype = ParameterType::CameraFov;
+			else if (iequals_sv(token2, "exposure")) ptype = ParameterType::CameraExposure;
+			else if (iequals_sv(token2, "tonemapper") || iequals_sv(token2, "tonemap")) ptype = ParameterType::TonemappingMode;
+			else if (iequals_sv(token2, "rtol")) ptype = ParameterType::IntegrationRtol;
+			else if (iequals_sv(token2, "atol")) ptype = ParameterType::IntegrationAtol;
+			else if (iequals_sv(token2, "min_step")) ptype = ParameterType::IntegrationMinStep;
+			else if (iequals_sv(token2, "max_step")) ptype = ParameterType::IntegrationMaxStep;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");
@@ -293,7 +503,7 @@ public:
 				std::memcpy(cmd.custom_param_name, token2.data(), len);
 				cmd.custom_param_name[len] = '\0';
 			}
-			set_msg(result_out, true, "Command parsed: set");
+			set_msg(result_out, true, "Parameter updated");
 			return cmd;
 		}
 

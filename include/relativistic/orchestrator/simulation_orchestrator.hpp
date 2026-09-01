@@ -3,11 +3,17 @@
 #include "relativistic/core/spsc_queue.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
+#include "relativistic/io/scenario_serializer.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <optional>
+#include <cmath>
+#include <numbers>
+#include <fstream>
+#include <sstream>
 
 namespace Relativistic::Orchestrator {
 
@@ -20,15 +26,35 @@ struct PhysicalParameters {
 	double warp_velocity{1.0};
 	uint32_t projection_mode{0};
 	uint32_t time_flow_mode{0};
+	double camera_speed{5.0};
+	double camera_fov_deg{60.0};
+	double camera_exposure{0.0};
+	uint32_t tonemapping_mode{0};
+	double integration_rtol{1e-10};
+	double integration_atol{1e-14};
+	double integration_min_step{1e-8};
+	double integration_max_step{10.0};
 };
 
 struct CustomParameterEntry {
-	char name[32]{};
+	char name[64]{};
 	double value{0.0};
 	bool active{false};
 };
 
-template <size_t QueueCapacity = 16384>
+struct CameraState {
+	std::array<double, 3> position{0.0, 50.0, 0.0};
+	double pitch{0.0};
+	double yaw{0.0};
+	double roll{0.0};
+	double fov_deg{60.0};
+	double speed{5.0};
+	double radius{50.0};
+	double theta{std::numbers::pi_v<double> / 2.0};
+	double phi{0.0};
+};
+
+template <size_t QueueCapacity = 1024>
 class SimulationOrchestrator {
 private:
 	Core::SpscQueue<Command, QueueCapacity> command_queue_;
@@ -36,13 +62,29 @@ private:
 
 	Scheduler<double> scheduler_;
 	PhysicalParameters params_;
+	CameraState camera_{};
+	std::string active_metric_name_{"Schwarzschild"};
+	std::string active_integrator_name_{"RK45"};
+	std::string active_scenario_name_{"Custom Spacetime"};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
 	std::atomic<uint64_t> commands_processed_{0};
 
+	void sync_camera_spherical_from_cartesian() noexcept {
+		const double x = camera_.position[0];
+		const double y = camera_.position[1];
+		const double z = camera_.position[2];
+		const double r = std::sqrt(x * x + y * y + z * z);
+		camera_.radius = std::max(r, 1e-6);
+		camera_.theta = (r > 0.0) ? std::acos(std::clamp(z / r, -1.0, 1.0)) : (std::numbers::pi_v<double> / 2.0);
+		camera_.phi = std::atan2(y, x);
+	}
+
 public:
-	constexpr SimulationOrchestrator() noexcept = default;
+	constexpr SimulationOrchestrator() noexcept {
+		sync_camera_spherical_from_cartesian();
+	}
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {
 		return command_queue_.try_push(cmd);
@@ -88,10 +130,12 @@ public:
 			case CommandType::Reset:
 				scheduler_.reset();
 				params_ = PhysicalParameters{};
+				camera_ = CameraState{};
+				sync_camera_spherical_from_cartesian();
 				for (auto& entry : custom_params_) {
 					entry.active = false;
 				}
-				std::strncpy(res.message, "Simulation reset", sizeof(res.message) - 1);
+				std::strncpy(res.message, "Simulation reset to initial state", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetTickRate:
 				scheduler_.set_tick_rate(cmd.numeric_value);
@@ -101,6 +145,56 @@ public:
 				set_physical_param(cmd.param_type, cmd.numeric_value, cmd.custom_param_name);
 				std::strncpy(res.message, "Parameter updated", sizeof(res.message) - 1);
 				break;
+			case CommandType::CameraMove:
+				camera_.position[0] += cmd.vec_values[0];
+				camera_.position[1] += cmd.vec_values[1];
+				camera_.position[2] += cmd.vec_values[2];
+				sync_camera_spherical_from_cartesian();
+				std::strncpy(res.message, "Camera translated", sizeof(res.message) - 1);
+				break;
+			case CommandType::CameraRotate:
+				camera_.pitch = std::clamp(camera_.pitch + cmd.vec_values[0], -89.0, 89.0);
+				camera_.yaw += cmd.vec_values[1];
+				camera_.roll += cmd.vec_values[2];
+				std::strncpy(res.message, "Camera rotated", sizeof(res.message) - 1);
+				break;
+			case CommandType::CameraSetFov:
+				camera_.fov_deg = std::clamp(cmd.numeric_value, 5.0, 175.0);
+				params_.camera_fov_deg = camera_.fov_deg;
+				std::strncpy(res.message, "Camera FOV set", sizeof(res.message) - 1);
+				break;
+			case CommandType::CameraSetSpeed:
+				camera_.speed = std::max(cmd.numeric_value, 0.001);
+				params_.camera_speed = camera_.speed;
+				std::strncpy(res.message, "Camera speed set", sizeof(res.message) - 1);
+				break;
+			case CommandType::CameraReset:
+				camera_ = CameraState{};
+				sync_camera_spherical_from_cartesian();
+				std::strncpy(res.message, "Camera reset to default", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetMetric:
+				if (cmd.text_payload[0] != '\0') {
+					active_metric_name_ = cmd.text_payload;
+				}
+				std::strncpy(res.message, "Metric set", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetIntegrator:
+				if (cmd.text_payload[0] != '\0') {
+					active_integrator_name_ = cmd.text_payload;
+				}
+				std::strncpy(res.message, "Integrator set", sizeof(res.message) - 1);
+				break;
+			case CommandType::LoadScenario:
+				if (cmd.text_payload[0] != '\0') {
+					load_scenario_file(cmd.text_payload, res);
+				}
+				break;
+			case CommandType::SaveScenario:
+				if (cmd.text_payload[0] != '\0') {
+					save_scenario_file(cmd.text_payload, res);
+				}
+				break;
 			case CommandType::Status:
 				std::strncpy(res.message, "Status reported", sizeof(res.message) - 1);
 				break;
@@ -108,12 +202,87 @@ public:
 				is_running_.store(false, std::memory_order_release);
 				std::strncpy(res.message, "Shutdown initiated", sizeof(res.message) - 1);
 				break;
+			case CommandType::TriggerExport:
 			case CommandType::None:
 			default:
 				res.success = false;
-				std::strncpy(res.message, "Unknown command", sizeof(res.message) - 1);
+				std::strncpy(res.message, "Unknown or unsupported command", sizeof(res.message) - 1);
 				break;
 		}
+	}
+
+	void load_scenario_file(const char* filepath, CommandResult& res) noexcept {
+		std::ifstream file(filepath);
+		if (!file.is_open()) {
+			res.success = false;
+			std::strncpy(res.message, "Failed to open scenario file", sizeof(res.message) - 1);
+			return;
+		}
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+		const std::string content = buffer.str();
+		const auto scenario_opt = IO::ScenarioSerializer::from_yaml(content);
+		if (!scenario_opt.has_value()) {
+			res.success = false;
+			std::strncpy(res.message, "Failed to parse scenario YAML", sizeof(res.message) - 1);
+			return;
+		}
+
+		const auto& s = *scenario_opt;
+		active_scenario_name_ = s.scenario_name;
+		active_metric_name_ = s.metric_type;
+		params_.mass = s.central_mass;
+		params_.spin = s.central_spin;
+		params_.charge = s.central_charge;
+		params_.cosmological_lambda = s.cosmological_lambda;
+		params_.wormhole_throat = s.wormhole_throat;
+		params_.warp_velocity = s.warp_velocity;
+		active_integrator_name_ = s.integrator.scheme;
+		params_.integration_rtol = s.integrator.relative_tolerance;
+		params_.integration_atol = s.integrator.absolute_tolerance;
+
+		if (!s.observers.empty()) {
+			camera_.position[0] = s.observers[0].position[1];
+			camera_.position[1] = s.observers[0].position[2];
+			camera_.position[2] = s.observers[0].position[3];
+			camera_.fov_deg = s.observers[0].field_of_view_deg;
+			params_.camera_fov_deg = camera_.fov_deg;
+			sync_camera_spherical_from_cartesian();
+		}
+
+		res.success = true;
+		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
+	}
+
+	void save_scenario_file(const char* filepath, CommandResult& res) noexcept {
+		IO::ScenarioDefinition s;
+		s.scenario_name = active_scenario_name_;
+		s.metric_type = active_metric_name_;
+		s.central_mass = params_.mass;
+		s.central_spin = params_.spin;
+		s.central_charge = params_.charge;
+		s.cosmological_lambda = params_.cosmological_lambda;
+		s.wormhole_throat = params_.wormhole_throat;
+		s.warp_velocity = params_.warp_velocity;
+		s.integrator.scheme = active_integrator_name_;
+		s.integrator.relative_tolerance = params_.integration_rtol;
+		s.integrator.absolute_tolerance = params_.integration_atol;
+
+		IO::ScenarioObserverConfig obs;
+		obs.position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
+		obs.field_of_view_deg = camera_.fov_deg;
+		s.observers.push_back(obs);
+
+		const std::string yaml_str = IO::ScenarioSerializer::to_yaml(s);
+		std::ofstream out(filepath);
+		if (!out.is_open()) {
+			res.success = false;
+			std::strncpy(res.message, "Failed to write scenario file", sizeof(res.message) - 1);
+			return;
+		}
+		out << yaml_str;
+		res.success = true;
+		std::strncpy(res.message, "Scenario saved successfully", sizeof(res.message) - 1);
 	}
 
 	void set_physical_param(ParameterType param, double val, const char* custom_name = nullptr) noexcept {
@@ -141,6 +310,32 @@ public:
 				break;
 			case ParameterType::TimeFlowMode:
 				params_.time_flow_mode = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::CameraSpeed:
+				camera_.speed = std::max(val, 0.001);
+				params_.camera_speed = camera_.speed;
+				break;
+			case ParameterType::CameraFov:
+				camera_.fov_deg = std::clamp(val, 5.0, 175.0);
+				params_.camera_fov_deg = camera_.fov_deg;
+				break;
+			case ParameterType::CameraExposure:
+				params_.camera_exposure = val;
+				break;
+			case ParameterType::TonemappingMode:
+				params_.tonemapping_mode = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::IntegrationRtol:
+				params_.integration_rtol = val;
+				break;
+			case ParameterType::IntegrationAtol:
+				params_.integration_atol = val;
+				break;
+			case ParameterType::IntegrationMinStep:
+				params_.integration_min_step = val;
+				break;
+			case ParameterType::IntegrationMaxStep:
+				params_.integration_max_step = val;
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
@@ -191,6 +386,38 @@ public:
 
 	[[nodiscard]] constexpr PhysicalParameters& parameters() noexcept {
 		return params_;
+	}
+
+	[[nodiscard]] constexpr const CameraState& camera() const noexcept {
+		return camera_;
+	}
+
+	[[nodiscard]] constexpr CameraState& camera() noexcept {
+		return camera_;
+	}
+
+	[[nodiscard]] const std::string& active_metric_name() const noexcept {
+		return active_metric_name_;
+	}
+
+	void set_active_metric_name(std::string_view name) {
+		active_metric_name_ = name;
+	}
+
+	[[nodiscard]] const std::string& active_integrator_name() const noexcept {
+		return active_integrator_name_;
+	}
+
+	void set_active_integrator_name(std::string_view name) {
+		active_integrator_name_ = name;
+	}
+
+	[[nodiscard]] const std::string& active_scenario_name() const noexcept {
+		return active_scenario_name_;
+	}
+
+	void set_active_scenario_name(std::string_view name) {
+		active_scenario_name_ = name;
 	}
 
 	[[nodiscard]] bool is_running() const noexcept {

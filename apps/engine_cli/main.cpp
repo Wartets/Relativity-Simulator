@@ -2,13 +2,6 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/repl.hpp"
 #include "relativistic/ui/ui_manager.hpp"
-#include "relativistic/uncertainty/uncertainty_types.hpp"
-#include "relativistic/uncertainty/interval.hpp"
-#include "relativistic/uncertainty/zonotope.hpp"
-#include "relativistic/uncertainty/covariance.hpp"
-#include "relativistic/uncertainty/polynomial_chaos.hpp"
-#include "relativistic/uncertainty/uncertain_quantity.hpp"
-#include "relativistic/uncertainty/metrology.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -24,11 +17,11 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	auto orchestrator = std::make_unique<SimulationOrchestrator<16384>>();
-	MasterTerminalRepl<16384> repl(*orchestrator);
+	auto orchestrator = std::make_unique<SimulationOrchestrator<1024>>();
+	MasterTerminalRepl<1024> repl(*orchestrator);
 
-	std::cout << "Relativistic Engine - Master Terminal REPL\n";
-	std::cout << "Type 'help' for commands list, 'quit' to exit.\n\n";
+	std::cout << "Relativistic Engine - Master Terminal Control Loop\n";
+	std::cout << "Type 'help' for available commands, 'quit' to exit.\n\n";
 
 	std::jthread sim_thread([&orchestrator](std::stop_token stop_token) {
 		auto last_time = std::chrono::steady_clock::now();
@@ -68,9 +61,9 @@ int main(int argc, char* argv[]) {
 	} else {
 		Relativistic::UI::UiManager ui_manager(*orchestrator);
 		ui_manager.initialize();
-		
-		for (int i = 1; i <= 10; ++i) {
-			ui_manager.add_secondary_view("Auxiliary View " + std::to_string(i));
+
+		for (int i = 1; i <= 2; ++i) {
+			ui_manager.add_secondary_view("Secondary Observer Camera " + std::to_string(i));
 		}
 
 		while (orchestrator->is_running() && !ui_manager.should_close()) {

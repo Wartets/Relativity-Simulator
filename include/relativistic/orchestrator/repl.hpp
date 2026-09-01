@@ -8,7 +8,7 @@
 
 namespace Relativistic::Orchestrator {
 
-template <size_t QueueCapacity = 16384>
+template <size_t QueueCapacity = 1024>
 class MasterTerminalRepl {
 private:
 	SimulationOrchestrator<QueueCapacity>& orchestrator_;

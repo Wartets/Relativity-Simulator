@@ -301,5 +301,13 @@ add_executable(test_eos_tov tests/test_eos_tov.cpp)
 target_link_libraries(test_eos_tov PRIVATE relativistic_core)
 add_test(NAME test_eos_tov COMMAND test_eos_tov)
 
+add_executable(test_novikov_thorne_disk tests/test_novikov_thorne_disk.cpp)
+target_link_libraries(test_novikov_thorne_disk PRIVATE relativistic_core)
+add_test(NAME test_novikov_thorne_disk COMMAND test_novikov_thorne_disk)
+
+add_executable(test_fishbone_moncrief_torus tests/test_fishbone_moncrief_torus.cpp)
+target_link_libraries(test_fishbone_moncrief_torus PRIVATE relativistic_core)
+add_test(NAME test_fishbone_moncrief_torus COMMAND test_fishbone_moncrief_torus)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

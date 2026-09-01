@@ -34,6 +34,7 @@ private:
 	uint32_t current_width_{1280};
 	uint32_t current_height_{720};
 	float resolution_scale_{1.0f};
+	std::vector<float> color_upload_buffer_{};
 	bool is_hovered_{false};
 	bool is_focused_{false};
 	bool show_telemetry_overlay_{true};
@@ -64,7 +65,7 @@ public:
 	        .max_steps = 2048,
 	        .initial_step = -0.05,
 	        .headless = false,
-	        .projection_mode = Observer::ProjectionMode::Pinhole
+	        .projection_mode = Observer::ProjectionMode::Equirectangular360
 	    }) {
 		init_gl_texture();
 	}
@@ -111,14 +112,15 @@ public:
 			}
 
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
-			const uint32_t target_w = std::max(static_cast<uint32_t>(avail.x * active_scale), 64u);
-			const uint32_t target_h = std::max(static_cast<uint32_t>(avail.y * active_scale), 64u);
+			const uint32_t target_w = std::clamp(static_cast<uint32_t>(avail.x * active_scale), 64u, 3840u);
+			const uint32_t target_h = std::clamp(static_cast<uint32_t>(avail.y * active_scale), 64u, 2160u);
 
 			if (std::abs(static_cast<int>(target_w) - static_cast<int>(current_width_)) > 2 || 
 			    std::abs(static_cast<int>(target_h) - static_cast<int>(current_height_)) > 2) {
 				current_width_ = target_w;
 				current_height_ = target_h;
 				pipeline_.resize(current_width_, current_height_);
+				color_upload_buffer_.assign(static_cast<size_t>(current_width_) * static_cast<size_t>(current_height_) * 4, 0.0f);
 			}
 
 			if (is_hovered_ || is_focused_) {
@@ -143,6 +145,7 @@ public:
 			cam_consts.escape_radius = 100.0 * params.mass;
 			cam_consts.projection_mode = params.projection_mode;
 			cam_consts.max_integration_steps = params.max_ray_steps;
+			cam_consts.render_flags = params.visual_overlays_flags;
 			cam_consts.observer_position = {0.0, cam.radius, cam.theta, cam.phi};
 
 			const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
@@ -162,11 +165,21 @@ public:
 
 			if (pipeline_.check_and_clear_new_frame()) {
 				const auto fb = pipeline_.framebuffer();
+				const size_t pixel_count = static_cast<size_t>(current_width_) * static_cast<size_t>(current_height_);
+				if (color_upload_buffer_.size() < pixel_count * 4) {
+					color_upload_buffer_.assign(pixel_count * 4, 0.0f);
+				}
+				for (size_t i = 0; i < pixel_count && i < fb.size(); ++i) {
+					color_upload_buffer_[i * 4 + 0] = fb[i].r;
+					color_upload_buffer_[i * 4 + 1] = fb[i].g;
+					color_upload_buffer_[i * 4 + 2] = fb[i].b;
+					color_upload_buffer_[i * 4 + 3] = fb[i].a;
+				}
 				glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
 				glTexImage2D(
 					GL_TEXTURE_2D, 0, GL_RGBA32F,
 					static_cast<GLsizei>(current_width_), static_cast<GLsizei>(current_height_),
-					0, GL_RGBA, GL_FLOAT, fb.data()
+					0, GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
 				);
 			}
 

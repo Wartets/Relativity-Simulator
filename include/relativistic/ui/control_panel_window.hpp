@@ -161,6 +161,11 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(tonemapping_mode_))));
 		}
 
+		bool use_grid_skybox = (orchestrator_.parameters().visual_overlays_flags & 0x10U) != 0U;
+		if (ImGui::Checkbox("Distant Grid Sphere Skybox", &use_grid_skybox)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(0x10U, use_grid_skybox)));
+		}
+
 		ImGui::Separator();
 
 		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Cockpit View"};

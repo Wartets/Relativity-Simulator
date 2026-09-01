@@ -84,6 +84,26 @@ private:
 		return {r_bg, g_bg, b_bg};
 	}
 
+	[[nodiscard]] static std::array<float, 3> sample_celestial_grid_sphere(double dir_x, double dir_y, double dir_z) noexcept {
+		const double theta = std::acos(std::clamp(dir_z, -1.0, 1.0));
+		const double phi = std::atan2(dir_y, dir_x);
+		const double lat_deg = 90.0 - theta * (180.0 / std::numbers::pi_v<double>);
+		const double lon_deg = phi * (180.0 / std::numbers::pi_v<double>);
+		const double lat_line = std::abs(std::remainder(lat_deg, 15.0));
+		const double lon_line = std::abs(std::remainder(lon_deg, 15.0));
+		constexpr double line_width = 0.35;
+		const bool on_major_lat = std::abs(std::remainder(lat_deg, 90.0)) < line_width;
+		const bool on_major_lon = std::abs(std::remainder(lon_deg, 90.0)) < line_width;
+		const bool on_minor_line = (lat_line < line_width) || (lon_line < line_width);
+		if (on_major_lat || on_major_lon) {
+			return {0.14f, 0.20f, 0.28f};
+		}
+		if (on_minor_line) {
+			return {0.05f, 0.07f, 0.10f};
+		}
+		return {0.008f, 0.009f, 0.012f};
+	}
+
 	[[nodiscard]] static std::array<float, 3> temperature_to_linear_rgb(double t_kelvin, double intensity) noexcept {
 		const double t = std::clamp(t_kelvin, 800.0, 60000.0);
 		constexpr double h = 6.62607015e-34;
@@ -136,12 +156,12 @@ private:
 		double b = std::max(0.0, linear_color[2] * exp_scale);
 
 		auto aces_curve = [](double x) noexcept -> double {
-			constexpr double a = 2.51;
-			constexpr double b = 0.03;
-			constexpr double c = 2.43;
-			constexpr double d = 0.59;
-			constexpr double e = 0.14;
-			return std::clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+			constexpr double aces_a = 2.51;
+			constexpr double aces_b = 0.03;
+			constexpr double aces_c = 2.43;
+			constexpr double aces_d = 0.59;
+			constexpr double aces_e = 0.14;
+			return std::clamp((x * (aces_a * x + aces_b)) / (x * (aces_c * x + aces_d) + aces_e), 0.0, 1.0);
 		};
 
 		switch (tonemap_mode) {
@@ -417,7 +437,9 @@ public:
 						const double p_len = std::sqrt(px * px + py * py + pz * pz);
 						const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
 
-						const auto sky_rgb = sample_celestial_starfield(px * inv_plen, py * inv_plen, pz * inv_plen);
+						const auto sky_rgb = (params.render_flags & 0x10U)
+							? sample_celestial_grid_sphere(px * inv_plen, py * inv_plen, pz * inv_plen)
+							: sample_celestial_starfield(px * inv_plen, py * inv_plen, pz * inv_plen);
 						accumulated_r += throughput * static_cast<double>(sky_rgb[0]);
 						accumulated_g += throughput * static_cast<double>(sky_rgb[1]);
 						accumulated_b += throughput * static_cast<double>(sky_rgb[2]);

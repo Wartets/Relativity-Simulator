@@ -24,7 +24,7 @@ struct PhysicalParameters {
 	double cosmological_lambda{0.0};
 	double wormhole_throat{1.0};
 	double warp_velocity{1.0};
-	uint32_t projection_mode{0};
+	uint32_t projection_mode{3};
 	uint32_t time_flow_mode{0};
 	double camera_speed{10.0};
 	double camera_fov_deg{60.0};
@@ -206,7 +206,7 @@ public:
 				std::strncpy(res.message, "Status reported", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetResolutionScale:
-				params_.resolution_scale = std::clamp(cmd.numeric_value, 0.1, 4.0);
+				params_.resolution_scale = std::clamp(cmd.numeric_value, 0.1, 2.0);
 				std::strncpy(res.message, "Resolution scale updated", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetRenderSteps:
@@ -409,7 +409,7 @@ public:
 				params_.integration_max_step = val;
 				break;
 			case ParameterType::ResolutionScale:
-				params_.resolution_scale = std::clamp(val, 0.1, 4.0);
+				params_.resolution_scale = std::clamp(val, 0.1, 2.0);
 				break;
 			case ParameterType::MaxRaySteps:
 				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(val, 64.0, 16384.0));

@@ -309,5 +309,9 @@ add_executable(test_fishbone_moncrief_torus tests/test_fishbone_moncrief_torus.c
 target_link_libraries(test_fishbone_moncrief_torus PRIVATE relativistic_core)
 add_test(NAME test_fishbone_moncrief_torus COMMAND test_fishbone_moncrief_torus)
 
+add_executable(test_polarized_radiative_transfer tests/test_polarized_radiative_transfer.cpp)
+target_link_libraries(test_polarized_radiative_transfer PRIVATE relativistic_core)
+add_test(NAME test_polarized_radiative_transfer COMMAND test_polarized_radiative_transfer)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core)

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.0.1
+	VERSION 1.0.0
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
-	LANGUAGES CXX
+	LANGUAGES C CXX
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-	add_compile_options(
+	set(STRICT_CXX_FLAGS
 		-Wall
 		-Wextra
 		-Wpedantic
@@ -30,10 +30,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 		-fno-math-errno
 	)
 	if (NOT MSVC)
-		add_compile_options(-march=native)
+		list(APPEND STRICT_CXX_FLAGS -march=native)
 	endif()
 elseif (MSVC)
-	add_compile_options(
+	set(STRICT_CXX_FLAGS
 		/W4
 		/WX
 		/permissive-
@@ -41,6 +41,53 @@ elseif (MSVC)
 		/Zc:__cplusplus
 		/utf-8
 	)
+endif()
+
+include(FetchContent)
+
+FetchContent_Declare(
+	glfw
+	GIT_REPOSITORY https://github.com/glfw/glfw.git
+	GIT_TAG 3.3.8
+)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
+FetchContent_Declare(
+	imgui
+	GIT_REPOSITORY https://github.com/ocornut/imgui.git
+	GIT_TAG docking
+)
+FetchContent_MakeAvailable(imgui)
+
+FetchContent_Declare(
+	implot
+	GIT_REPOSITORY https://github.com/epezent/implot.git
+	GIT_TAG master
+)
+FetchContent_MakeAvailable(implot)
+
+add_library(imgui_lib STATIC
+	${imgui_SOURCE_DIR}/imgui.cpp
+	${imgui_SOURCE_DIR}/imgui_draw.cpp
+	${imgui_SOURCE_DIR}/imgui_tables.cpp
+	${imgui_SOURCE_DIR}/imgui_widgets.cpp
+	${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+	${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+	${implot_SOURCE_DIR}/implot.cpp
+	${implot_SOURCE_DIR}/implot_items.cpp
+)
+target_include_directories(imgui_lib SYSTEM PUBLIC 
+	${imgui_SOURCE_DIR} 
+	${imgui_SOURCE_DIR}/backends 
+	${implot_SOURCE_DIR}
+)
+find_package(OpenGL REQUIRED)
+target_link_libraries(imgui_lib PUBLIC glfw OpenGL::GL)
+if (WIN32)
+	target_link_libraries(imgui_lib PUBLIC opengl32)
 endif()
 
 include_directories(
@@ -53,6 +100,7 @@ target_include_directories(relativistic_core INTERFACE
 	$<INSTALL_INTERFACE:include>
 )
 target_compile_features(relativistic_core INTERFACE cxx_std_23)
+target_compile_options(relativistic_core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
 
 include(CTest)
 enable_testing()
@@ -345,5 +393,9 @@ add_executable(test_bssn_gauge_wave tests/test_bssn_gauge_wave.cpp)
 target_link_libraries(test_bssn_gauge_wave PRIVATE relativistic_core)
 add_test(NAME test_bssn_gauge_wave COMMAND test_bssn_gauge_wave)
 
+add_executable(test_ui_multi_window tests/test_ui_multi_window.cpp)
+target_link_libraries(test_ui_multi_window PRIVATE relativistic_core imgui_lib)
+add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
-target_link_libraries(engine_cli PRIVATE relativistic_core)
+target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)

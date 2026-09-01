@@ -1,6 +1,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/repl.hpp"
+#include "relativistic/ui/ui_manager.hpp"
 #include "relativistic/uncertainty/uncertainty_types.hpp"
 #include "relativistic/uncertainty/interval.hpp"
 #include "relativistic/uncertainty/zonotope.hpp"
@@ -49,36 +50,33 @@ int main(int argc, char* argv[]) {
 
 	if (headless) {
 		std::cout << "Running in headless mode. Press Ctrl+C or send 'shutdown' to exit.\n";
-		while (orchestrator->is_running()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(100));
-		}
-	} else {
 		std::string line;
 		while (orchestrator->is_running()) {
 			repl.print_prompt();
 			if (!std::getline(std::cin, line)) {
 				break;
 			}
-			if (line.empty()) {
-				continue;
-			}
-			if (line == "help") {
-				repl.print_help();
-				continue;
-			}
-			if (line == "status") {
-				repl.print_status();
-				continue;
-			}
+			if (line.empty()) continue;
+			if (line == "help") { repl.print_help(); continue; }
+			if (line == "status") { repl.print_status(); continue; }
 
 			CommandResult result{};
 			const bool ok = repl.execute_line(line, &result);
-			if (!ok) {
-				std::cout << "Error: " << result.message << "\n";
-			} else if (result.message[0] != '\0') {
-				std::cout << "OK: " << result.message << "\n";
-			}
+			if (!ok) std::cout << "Error: " << result.message << "\n";
+			else if (result.message[0] != '\0') std::cout << "OK: " << result.message << "\n";
 		}
+	} else {
+		Relativistic::UI::UiManager ui_manager(*orchestrator);
+		ui_manager.initialize();
+		
+		for (int i = 1; i <= 10; ++i) {
+			ui_manager.add_secondary_view("Auxiliary View " + std::to_string(i));
+		}
+
+		while (orchestrator->is_running() && !ui_manager.should_close()) {
+			ui_manager.render_frame();
+		}
+		orchestrator->stop();
 	}
 
 	orchestrator->stop();

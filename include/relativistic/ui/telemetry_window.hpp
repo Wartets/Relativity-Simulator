@@ -15,6 +15,9 @@ public:
 	void render(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(15.0f, 705.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(315.0f, 335.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Telemetry & Invariants", &is_open_)) {
 			const auto& params = orchestrator.parameters();
 			

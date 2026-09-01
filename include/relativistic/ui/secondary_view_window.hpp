@@ -18,6 +18,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(400.0f, 100.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(480.0f, 320.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin(name_.c_str(), &is_open_)) {
 			ImVec2 size = ImGui::GetContentRegionAvail();
 			if (size.x > 0 && size.y > 0) {

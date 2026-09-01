@@ -137,6 +137,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(15.0f, 35.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(315.0f, 660.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Scenario Manager & Presets", &is_open_)) {
 			ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Scientific Scenario Catalog");
 			ImGui::Separator();

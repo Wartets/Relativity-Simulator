@@ -65,6 +65,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(340.0f, 750.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 290.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Radiative Transfer & Spectrograph Monitor", &is_open_)) {
 			const char* types[] = {"Thermal Blackbody Emission", "Relativistic Synchrotron Power-Law", "Monochromatic Calibration Line"};
 			if (ImGui::Combo("Emission Process", &spectrum_type_, types, IM_ARRAYSIZE(types))) {

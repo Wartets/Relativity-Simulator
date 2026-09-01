@@ -60,6 +60,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(1480.0f, 35.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(425.0f, 705.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Master Simulation Controls", &is_open_)) {
 			if (ImGui::BeginTabBar("ControlTabs")) {
 				if (ImGui::BeginTabItem("Spacetime & Metrics")) {

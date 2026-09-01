@@ -26,6 +26,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(1480.0f, 750.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(425.0f, 290.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Curvature Diagnostics & Tensor Inspector", &is_open_)) {
 			const auto& cam = orchestrator_.camera();
 			const auto& params = orchestrator_.parameters();

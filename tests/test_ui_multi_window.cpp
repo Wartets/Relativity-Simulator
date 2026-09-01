@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/repl.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/scenario_selector_window.hpp"
+#include "relativistic/ui/ui_manager.hpp"
 #include <cassert>
 #include <iostream>
 #include <cmath>
@@ -70,6 +71,27 @@ int main() {
 
 	cam_ctrl.handle_scroll(-1.0);
 	assert(orchestrator->camera().fov_deg > 45.0);
+
+	cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::OrbitCenter);
+	assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::OrbitCenter);
+
+	cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::SphericalBoyerLindquist);
+	assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::SphericalBoyerLindquist);
+
+	cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::CockpitFlight);
+	assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::CockpitFlight);
+
+	cam_ctrl.snap_to_equatorial_front(60.0);
+	assert(std::abs(orchestrator->camera().position[1] - 60.0) < 1e-6);
+
+	cam_ctrl.snap_to_north_pole(40.0);
+	assert(orchestrator->camera().position[2] > 39.0);
+
+	cam_ctrl.snap_to_isco();
+	assert(orchestrator->camera().position[1] > 0.0);
+
+	cam_ctrl.snap_to_photon_sphere();
+	assert(orchestrator->camera().position[1] > 0.0);
 
 	UI::ScenarioSelectorWindow scenario_selector(*orchestrator);
 

@@ -36,6 +36,9 @@ public:
 	void render() {
 		if (!is_open_) return;
 
+		ImGui::SetNextWindowPos(ImVec2(910.0f, 750.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 290.0f), ImGuiCond_FirstUseEver);
+
 		if (ImGui::Begin("Performance & Engine Optimization", &is_open_)) {
 			ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Hardware & Computation Profiles");
 			ImGui::Separator();

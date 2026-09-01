@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/core/tensor.hpp"
+#include "relativistic/core/pcg64.hpp"
 #include <array>
 #include <vector>
 #include <cmath>
@@ -209,6 +210,12 @@ public:
 			}
 		}
 
+		Scalar tr = static_cast<Scalar>(0.0);
+		for (size_t i = 0; i < Dim; ++i) {
+			tr += std::abs(cov_[i][i]);
+		}
+		const Scalar eps_tol = static_cast<Scalar>(1e-15) * std::max(tr, static_cast<Scalar>(1e-30));
+
 		for (size_t sweep = 0; sweep < max_sweeps; ++sweep) {
 			Scalar max_off_diag = static_cast<Scalar>(0.0);
 			for (size_t i = 0; i < Dim; ++i) {
@@ -217,19 +224,19 @@ public:
 				}
 			}
 
-			if (max_off_diag < static_cast<Scalar>(1e-15)) {
+			if (max_off_diag <= eps_tol) {
 				break;
 			}
 
 			for (size_t p = 0; p < Dim; ++p) {
 				for (size_t q = p + 1; q < Dim; ++q) {
-					if (std::abs(a[p][q]) < static_cast<Scalar>(1e-18)) {
+					if (std::abs(a[p][q]) <= eps_tol * static_cast<Scalar>(0.01)) {
 						continue;
 					}
 
 					const Scalar h = a[q][q] - a[p][p];
 					Scalar t = static_cast<Scalar>(0.0);
-					if (std::abs(a[p][q]) > static_cast<Scalar>(1e-15)) {
+					if (std::abs(a[p][q]) > static_cast<Scalar>(1e-30)) {
 						const Scalar theta = static_cast<Scalar>(0.5) * h / a[p][q];
 						t = static_cast<Scalar>(1.0) / (std::abs(theta) + std::sqrt(static_cast<Scalar>(1.0) + theta * theta));
 						if (theta < static_cast<Scalar>(0.0)) t = -t;
@@ -298,6 +305,75 @@ public:
 		const double half_d = static_cast<double>(Dim) * 0.5;
 		const double vol_unit_sphere = std::pow(std::numbers::pi, half_d) / std::tgamma(half_d + 1.0);
 		return static_cast<Scalar>(vol_unit_sphere) * prod;
+	}
+
+	template <size_t SubDim>
+	[[nodiscard]] CovarianceMatrix<Scalar, SubDim> extract_submatrix(size_t row_offset, size_t col_offset) const noexcept {
+		CovarianceMatrix<Scalar, SubDim> sub;
+		for (size_t i = 0; i < SubDim; ++i) {
+			for (size_t j = 0; j < SubDim; ++j) {
+				if (row_offset + i < Dim && col_offset + j < Dim) {
+					sub(i, j) = cov_[row_offset + i][col_offset + j];
+				}
+			}
+		}
+		return sub;
+	}
+
+	template <size_t SubDim>
+	void set_submatrix(size_t row_offset, size_t col_offset, const CovarianceMatrix<Scalar, SubDim>& sub) noexcept {
+		for (size_t i = 0; i < SubDim; ++i) {
+			for (size_t j = 0; j < SubDim; ++j) {
+				if (row_offset + i < Dim && col_offset + j < Dim) {
+					cov_[row_offset + i][col_offset + j] = sub(i, j);
+				}
+			}
+		}
+	}
+
+	[[nodiscard]] std::array<Scalar, Dim> principal_semi_axes() const noexcept {
+		const auto es = compute_eigensystem();
+		std::array<Scalar, Dim> axes{};
+		for (size_t i = 0; i < Dim; ++i) {
+			axes[i] = std::sqrt(std::max(es.eigenvalues[i], static_cast<Scalar>(0.0)));
+		}
+		std::sort(axes.begin(), axes.end(), std::greater<Scalar>());
+		return axes;
+	}
+
+	[[nodiscard]] Scalar frobenius_norm() const noexcept {
+		Scalar sum = static_cast<Scalar>(0.0);
+		for (size_t i = 0; i < Dim; ++i) {
+			for (size_t j = 0; j < Dim; ++j) {
+				sum += cov_[i][j] * cov_[i][j];
+			}
+		}
+		return std::sqrt(sum);
+	}
+
+	[[nodiscard]] VectorType sample_multivariate_gaussian(
+		Core::PCG64Engine& rng,
+		const VectorType& mean = {}
+	) const noexcept {
+		const auto es = compute_eigensystem();
+		VectorType z{};
+		for (size_t i = 0; i < Dim; i += 2) {
+			const auto [g1, g2] = rng.next_gaussian_pair();
+			z[i] = static_cast<Scalar>(g1);
+			if (i + 1 < Dim) {
+				z[i + 1] = static_cast<Scalar>(g2);
+			}
+		}
+
+		VectorType sample = mean;
+		for (size_t k = 0; k < Dim; ++k) {
+			const Scalar std_k = std::sqrt(std::max(es.eigenvalues[k], static_cast<Scalar>(0.0)));
+			const Scalar z_scaled = z[k] * std_k;
+			for (size_t d = 0; d < Dim; ++d) {
+				sample[d] += es.eigenvectors[d][k] * z_scaled;
+			}
+		}
+		return sample;
 	}
 };
 

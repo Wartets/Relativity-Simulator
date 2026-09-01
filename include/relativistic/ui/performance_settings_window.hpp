@@ -77,9 +77,13 @@ public:
 				orchestrator_.set_physical_param(Orchestrator::ParameterType::Custom, static_cast<double>(precision_mode_), "precision_mode");
 			}
 
-			ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_);
+			if (ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("dyn_res", enable_dynamic_resolution_ ? 1.0 : 0.0)));
+			}
 			if (enable_dynamic_resolution_) {
-				ImGui::SliderFloat("Target Frame Rate", &target_framerate_, 30.0f, 144.0f, "%.0f FPS");
+				if (ImGui::SliderFloat("Target Frame Rate", &target_framerate_, 30.0f, 144.0f, "%.0f FPS")) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("target_fps", target_framerate_)));
+				}
 			}
 
 			ImGui::Spacing();

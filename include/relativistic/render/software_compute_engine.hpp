@@ -165,9 +165,22 @@ public:
 					float redshift = 1.0f;
 
 					if (status == PixelFlags::CELESTIAL_HIT) {
-						double px_dir = ray_u(1) * std::sin(ray_u(2)) * std::cos(ray_u(3));
-						double py_dir = ray_u(1) * std::sin(ray_u(2)) * std::sin(ray_u(3));
-						double pz_dir = ray_u(1) * std::cos(ray_u(2));
+						const double r_final = ray_x(1);
+						const double theta_final = ray_x(2);
+						const double phi_final = ray_x(3);
+						const double pr = ray_u(1);
+						const double ptheta = ray_u(2);
+						const double pphi = ray_u(3);
+
+						const double sin_t = std::sin(theta_final);
+						const double cos_t = std::cos(theta_final);
+						const double sin_p = std::sin(phi_final);
+						const double cos_p = std::cos(phi_final);
+
+						double px_dir = pr * sin_t * cos_p + r_final * ptheta * cos_t * cos_p - r_final * sin_t * pphi * sin_p;
+						double py_dir = pr * sin_t * sin_p + r_final * ptheta * cos_t * sin_p + r_final * sin_t * pphi * cos_p;
+						double pz_dir = pr * cos_t - r_final * ptheta * sin_t;
+
 						const double len = std::sqrt(px_dir * px_dir + py_dir * py_dir + pz_dir * pz_dir);
 						if (len > 0.0) {
 							px_dir /= len;
@@ -372,9 +385,22 @@ public:
 					float redshift = 1.0f;
 
 					if (status == PixelFlags::CELESTIAL_HIT) {
-						double px_dir = static_cast<double>(ray_u[1]) * std::sin(static_cast<double>(ray_u[2])) * std::cos(static_cast<double>(ray_u[3]));
-						double py_dir = static_cast<double>(ray_u[1]) * std::sin(static_cast<double>(ray_u[2])) * std::sin(static_cast<double>(ray_u[3]));
-						double pz_dir = static_cast<double>(ray_u[1]) * std::cos(static_cast<double>(ray_u[2]));
+						const double r_final = static_cast<double>(ray_x[1]);
+						const double theta_final = static_cast<double>(ray_x[2]);
+						const double phi_final = static_cast<double>(ray_x[3]);
+						const double pr = static_cast<double>(ray_u[1]);
+						const double ptheta = static_cast<double>(ray_u[2]);
+						const double pphi = static_cast<double>(ray_u[3]);
+
+						const double sin_t = std::sin(theta_final);
+						const double cos_t = std::cos(theta_final);
+						const double sin_p = std::sin(phi_final);
+						const double cos_p = std::cos(phi_final);
+
+						double px_dir = pr * sin_t * cos_p + r_final * ptheta * cos_t * cos_p - r_final * sin_t * pphi * sin_p;
+						double py_dir = pr * sin_t * sin_p + r_final * ptheta * cos_t * sin_p + r_final * sin_t * pphi * cos_p;
+						double pz_dir = pr * cos_t - r_final * ptheta * sin_t;
+
 						const double len = std::sqrt(px_dir * px_dir + py_dir * py_dir + pz_dir * pz_dir);
 						if (len > 0.0) {
 							px_dir /= len;

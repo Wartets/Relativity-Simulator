@@ -116,6 +116,17 @@ struct Command {
 		return cmd;
 	}
 
+	[[nodiscard]] static Command make_set_custom_param(std::string_view name, double val) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetParam;
+		cmd.param_type = ParameterType::Custom;
+		cmd.numeric_value = val;
+		const size_t len = std::min(name.size(), sizeof(cmd.custom_param_name) - 1);
+		std::memcpy(cmd.custom_param_name, name.data(), len);
+		cmd.custom_param_name[len] = '\0';
+		return cmd;
+	}
+
 	[[nodiscard]] static constexpr Command make_set_tickrate(double rate_hz) noexcept {
 		Command cmd{};
 		cmd.type = CommandType::SetTickRate;

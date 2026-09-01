@@ -59,7 +59,12 @@ public:
 	        .width = 1280,
 	        .height = 720,
 	        .precision = Render::PrecisionMode::NativeFloat64,
-	        .metric = Render::MetricId::Schwarzschild
+	        .metric = Render::MetricId::Schwarzschild,
+	        .field_of_view_deg = 60.0,
+	        .max_steps = 2048,
+	        .initial_step = -0.05,
+	        .headless = false,
+	        .projection_mode = Observer::ProjectionMode::Pinhole
 	    }) {
 		init_gl_texture();
 	}
@@ -83,11 +88,29 @@ public:
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
 
+			bool dyn_res = orchestrator_.get_custom_param("dyn_res", 0.0) > 0.5;
+			double target_fps = orchestrator_.get_custom_param("target_fps", 60.0);
+
+			if (dyn_res) {
+				const auto& tel = pipeline_.telemetry();
+				if (tel.execution_time_ms > 0.0) {
+					double current_fps = 1000.0 / tel.execution_time_ms;
+					if (current_fps < target_fps * 0.85) {
+						resolution_scale_ = std::max(0.1f, resolution_scale_ - 0.02f);
+						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(resolution_scale_)));
+					} else if (current_fps > target_fps * 1.15) {
+						resolution_scale_ = std::min(2.5f, resolution_scale_ + 0.02f);
+						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(resolution_scale_)));
+					}
+				}
+			}
+
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
 			const uint32_t target_w = std::max(static_cast<uint32_t>(avail.x * resolution_scale_), 64u);
 			const uint32_t target_h = std::max(static_cast<uint32_t>(avail.y * resolution_scale_), 64u);
 
-			if (target_w != current_width_ || target_h != current_height_) {
+			if (std::abs(static_cast<int>(target_w) - static_cast<int>(current_width_)) > 2 || 
+			    std::abs(static_cast<int>(target_h) - static_cast<int>(current_height_)) > 2) {
 				current_width_ = target_w;
 				current_height_ = target_h;
 				pipeline_.resize(current_width_, current_height_);

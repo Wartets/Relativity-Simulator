@@ -75,10 +75,23 @@ dvec4 compute_schwarzschild_acc(dvec4 x, dvec4 u, double rs, double c2) {
     return acc;
 }
 
-vec4 evaluate_sky(dvec4 u) {
-    double px = u.y * sin(u.z) * cos(u.w);
-    double py = u.y * sin(u.z) * sin(u.w);
-    double pz = u.y * cos(u.z);
+vec4 evaluate_sky(dvec4 x, dvec4 u) {
+    double r_final = x.y;
+    double theta_final = x.z;
+    double phi_final = x.w;
+    double pr = u.y;
+    double ptheta = u.z;
+    double pphi = u.w;
+
+    double sin_t = sin(theta_final);
+    double cos_t = cos(theta_final);
+    double sin_p = sin(phi_final);
+    double cos_p = cos(phi_final);
+
+    double px = pr * sin_t * cos_p + r_final * ptheta * cos_t * cos_p - r_final * sin_t * pphi * sin_p;
+    double py = pr * sin_t * sin_p + r_final * ptheta * cos_t * sin_p + r_final * sin_t * pphi * cos_p;
+    double pz = pr * cos_t - r_final * ptheta * sin_t;
+
     double len = sqrt(px * px + py * py + pz * pz);
     if (len > 0.0) {
         px /= len;
@@ -211,7 +224,7 @@ void main() {
     float redshift = 1.0;
 
     if (status == 2) {
-        color = evaluate_sky(ray_u);
+        color = evaluate_sky(ray_x, ray_u);
         double factor_obs = 1.0 - rs / pc.observer_position.y;
         double factor_emit = 1.0 - rs / ray_x.y;
         if (factor_obs > 0.0 && factor_emit > 0.0) {

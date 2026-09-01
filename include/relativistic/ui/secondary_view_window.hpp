@@ -9,7 +9,7 @@ namespace Relativistic::UI {
 class SecondaryViewWindow {
 private:
 	std::string name_;
-	bool is_open_{true};
+	bool is_open_{false};
 	uint32_t texture_id_{0};
 
 public:

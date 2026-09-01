@@ -171,23 +171,24 @@ void main() {
     for (uint step = 0; step < pc.max_steps; ++step) {
         iters = step + 1;
         float r = ray_x.y;
+        float prev_theta = ray_x.z;
 
-        if (r <= rs * 1.001) {
+        if (r <= rs * 1.002) {
             status = 1;
             break;
         }
 
-        if (r >= pc.escape_radius) {
+        if (r >= pc.escape_radius || (step > 4 && r >= pc.obs_pos_hi.y && ray_u.y < 0.0)) {
             status = 2;
             break;
         }
 
-        float dt = -clamp(0.05 * r, 0.005, 0.25);
+        float dt = -clamp(0.08 * r, 0.01, 1.0);
 
         float theta = ray_x.z;
         float sin_t = sin(theta);
         float cos_t = cos(theta);
-        float r_diff = r - rs;
+        float r_diff = max(r - rs, 0.005 * rs);
         float r2 = r * r;
         float r3 = r2 * r;
 
@@ -209,12 +210,71 @@ void main() {
 
         ray_x += dt * ray_u;
         ray_u += dt * acc;
+
+        float curr_theta = ray_x.z;
+        if ((prev_theta - 1.57079632679) * (curr_theta - 1.57079632679) < 0.0) {
+            float t_cross = abs(prev_theta - 1.57079632679) / (abs(prev_theta - 1.57079632679) + abs(curr_theta - 1.57079632679));
+            float r_cross = mix(r, ray_x.y, t_cross);
+            
+            float isco = 6.0 * pc.metric_mass;
+            if (pc.metric_spin > 0.0) isco = 6.0 * pc.metric_mass - 4.0 * pc.metric_mass * pc.metric_spin;
+            float disk_outer = 25.0 * pc.metric_mass;
+            
+            if (r_cross >= isco && r_cross <= disk_outer) {
+                status = 4;
+                ray_x.y = r_cross;
+                ray_x.z = 1.57079632679;
+                ray_x.w = mix(ray_x.w - dt * ray_u.w, ray_x.w, t_cross);
+                break;
+            }
+        }
     }
 
-    vec4 col = (status == 2) ? vec4(0.3, 0.5, 0.9, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+    vec4 col = vec4(0.0, 0.0, 0.0, 1.0);
+    float redshift = 1.0;
+
+    if (status == 4) {
+        float r = ray_x.y;
+        float isco = 6.0 * pc.metric_mass;
+        if (pc.metric_spin > 0.0) isco = 6.0 * pc.metric_mass - 4.0 * pc.metric_mass * pc.metric_spin;
+        
+        float temp = pow(isco / r, 0.75);
+        float v_phi = sqrt(pc.metric_mass / r);
+        float n_phi = ray_u.w * r;
+        float g_factor = 1.0 / (1.0 - v_phi * n_phi);
+        
+        float intensity = temp * pow(g_factor, 3.0);
+        float phi = ray_x.w;
+        float pattern = float(sin(phi * 20.0) * sin(r * 2.0));
+        intensity *= (0.8 + 0.2 * pattern);
+        
+        float fade = smoothstep(25.0 * pc.metric_mass, 20.0 * pc.metric_mass, r);
+        vec3 disk_col = vec3(1.0, 0.5, 0.1) * (intensity * fade);
+        
+        col = vec4(disk_col, 1.0);
+        redshift = g_factor;
+    } else if (status == 2) {
+        float u_coord = (ray_x.w + 3.141592653589793) / (2.0 * 3.141592653589793);
+        float v_coord = ray_x.z / 3.141592653589793;
+        
+        float n = fract(sin(dot(vec2(u_coord, v_coord), vec2(12.9898, 78.233))) * 43758.5453);
+        vec3 sky_col = vec3(0.0);
+        if (n > 0.995) {
+            sky_col = vec3((n - 0.995) * 200.0);
+        }
+        float band = exp(-pow(v_coord - 0.5, 2.0) * 20.0);
+        sky_col += vec3(0.05, 0.1, 0.2) * band;
+        
+        col = vec4(sky_col, 1.0);
+        float factor_obs = 1.0 - rs / pc.obs_pos_hi.y;
+        float factor_emit = 1.0 - rs / ray_x.y;
+        if (factor_obs > 0.0 && factor_emit > 0.0) {
+            redshift = sqrt(factor_emit / factor_obs);
+        }
+    }
 
     pixels[pixel_index].rgba = col;
-    pixels[pixel_index].redshift = 1.0;
+    pixels[pixel_index].redshift = redshift;
     pixels[pixel_index].affine_parameter = float(iters) * 0.05;
     pixels[pixel_index].status_flags = status;
     pixels[pixel_index].iterations_used = iters;

@@ -76,14 +76,22 @@ public:
 		}
 	}
 
-	void render(GLFWwindow* window, double dt) {
-		ImGui::SetNextWindowPos(ImVec2(340.0f, 35.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(1130.0f, 705.0f), ImGuiCond_FirstUseEver);
+	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
+		if (fullscreen_bg) {
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->WorkPos);
+			ImGui::SetNextWindowSize(ImGui::GetMainViewport()->WorkSize);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+		} else {
+			ImGui::SetNextWindowPos(ImVec2(340.0f, 35.0f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(1130.0f, 705.0f), ImGuiCond_FirstUseEver);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+			ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		}
 
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		if (ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-			is_hovered_ = ImGui::IsWindowHovered();
-			is_focused_ = ImGui::IsWindowFocused();
+		is_hovered_ = ImGui::IsWindowHovered();
+		is_focused_ = ImGui::IsWindowFocused();
 
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
@@ -117,7 +125,7 @@ public:
 			}
 
 			if (is_hovered_ || is_focused_) {
-				camera_controller_.update(window, dt);
+				camera_controller_.update(window, dt, is_hovered_);
 			}
 
 			const auto& cam = orchestrator_.camera();
@@ -168,9 +176,13 @@ public:
 			if (show_telemetry_overlay_) {
 				render_hud_overlay(avail);
 			}
-		}
+		
 		ImGui::End();
-		ImGui::PopStyleVar();
+		if (fullscreen_bg) {
+			ImGui::PopStyleVar(2);
+		} else {
+			ImGui::PopStyleVar(1);
+		}
 	}
 
 	void render_viewport_toolbar() noexcept {
@@ -178,11 +190,11 @@ public:
 		ImGui::BeginGroup();
 		
 		if (orchestrator_.scheduler().is_paused()) {
-			if (ImGui::Button("Play (Space)", ImVec2(90.0f, 24.0f))) {
+			if (ImGui::Button("Play (P)", ImVec2(90.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 			}
 		} else {
-			if (ImGui::Button("Pause (Space)", ImVec2(90.0f, 24.0f))) {
+			if (ImGui::Button("Pause (P)", ImVec2(90.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
 			}
 		}

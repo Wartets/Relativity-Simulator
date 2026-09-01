@@ -31,6 +31,7 @@ class ScenarioSelectorWindow {
 private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	InteractiveCameraController* camera_controller_{nullptr};
 	std::vector<ScenarioPresetItem> presets_;
 	int selected_index_{0};
 	char custom_path_buffer_[256]{"scenarios/custom_scenario.yaml"};
@@ -129,8 +130,8 @@ private:
 	}
 
 public:
-	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
-		: orchestrator_(orchestrator) {
+	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController* cam_ctrl = nullptr)
+		: orchestrator_(orchestrator), camera_controller_(cam_ctrl) {
 		initialize_presets();
 	}
 
@@ -209,10 +210,13 @@ public:
 
 private:
 	void apply_preset(const ScenarioPresetItem& p) noexcept {
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
+		
 		orchestrator_.set_active_scenario_name(p.name);
 		orchestrator_.set_active_metric_name(p.metric_type);
 		orchestrator_.set_active_integrator_name(p.integrator);
 
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(p.metric_type)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, p.mass)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, p.spin)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, p.charge)));
@@ -221,10 +225,15 @@ private:
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, p.warp_vel)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(p.cam_fov)));
 
+		if (camera_controller_) {
+			camera_controller_->snap_to_equatorial_front(p.cam_r);
+		} else {
+			auto& cam = orchestrator_.camera();
+			cam.position = {0.0, p.cam_r, 0.0};
+			cam.pitch = 0.0;
+			cam.yaw = 0.0;
+		}
 		auto& cam = orchestrator_.camera();
-		cam.position = {0.0, p.cam_r, 0.0};
-		cam.pitch = 0.0;
-		cam.yaw = 0.0;
 		cam.fov_deg = p.cam_fov;
 	}
 };

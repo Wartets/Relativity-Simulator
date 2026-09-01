@@ -51,11 +51,11 @@ private:
 
 	bool show_viewport_{true};
 	bool show_scenarios_{true};
-	bool show_telemetry_{true};
-	bool show_spectrograph_{true};
+	bool show_telemetry_{false};
+	bool show_spectrograph_{false};
 	bool show_controls_{true};
-	bool show_performance_{true};
-	bool show_diagnostics_{true};
+	bool show_performance_{false};
+	bool show_diagnostics_{false};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
@@ -127,7 +127,7 @@ public:
 		ImGui_ImplOpenGL3_Init("#version 330");
 
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_);
-		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_);
+		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		last_frame_time_ = std::chrono::steady_clock::now();
 
 		apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
@@ -167,7 +167,7 @@ public:
 		}
 
 		if (show_viewport_ && viewport_window_) {
-			viewport_window_->render(main_window_, dt);
+			viewport_window_->render(main_window_, dt, multi_window_mode_);
 		}
 
 		if (show_scenarios_ && scenario_window_) {
@@ -259,7 +259,7 @@ private:
 		if (ImGui::IsKeyPressed(ImGuiKey_F4, false)) {
 			apply_multi_window_layout_preset(UiLayoutPreset::ViewportFocused);
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F5, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+		if (ImGui::IsKeyPressed(ImGuiKey_F5, false) || ImGui::IsKeyPressed(ImGuiKey_P, false)) {
 			if (orchestrator_.scheduler().is_paused()) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 			} else {
@@ -304,29 +304,24 @@ private:
 			const float top_h = std::clamp(screen_h * 0.68f, 450.0f, 780.0f);
 			const float bottom_h = screen_h - top_h - 45.0f;
 
-			ImGui::SetWindowPos("Primary Relativistic Viewport", ImVec2(offset_x + left_col_w + 20.0f, offset_y + 35.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Primary Relativistic Viewport", ImVec2(center_w, top_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 10.0f, offset_y + 35.0f));
+			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h));
 
-			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 10.0f, offset_y + 35.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + 35.0f));
+			ImGui::SetWindowSize("Master Simulation Controls", ImVec2(right_col_w, top_h));
 
-			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + 35.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Master Simulation Controls", ImVec2(right_col_w, top_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 10.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowSize("Telemetry & Invariants", ImVec2(left_col_w, bottom_h));
 
-			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 10.0f, offset_y + top_h + 40.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Telemetry & Invariants", ImVec2(left_col_w, bottom_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 20.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowSize("Radiative Transfer & Spectrograph Monitor", ImVec2(center_w * 0.5f - 10.0f, bottom_h));
 
-			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 20.0f, offset_y + top_h + 40.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Radiative Transfer & Spectrograph Monitor", ImVec2(center_w * 0.5f - 10.0f, bottom_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 20.0f + center_w * 0.5f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f, bottom_h));
 
-			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 20.0f + center_w * 0.5f, offset_y + top_h + 40.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f, bottom_h), ImGuiCond_Always);
-
-			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + top_h + 40.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h), ImGuiCond_Always);
+			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h));
 		} else if (current_layout_ == UiLayoutPreset::ViewportFocused) {
-			ImGui::SetWindowPos("Primary Relativistic Viewport", ImVec2(offset_x + 10.0f, offset_y + 35.0f), ImGuiCond_Always);
-			ImGui::SetWindowSize("Primary Relativistic Viewport", ImVec2(screen_w - 20.0f, screen_h - 45.0f), ImGuiCond_Always);
 			show_scenarios_ = false;
 			show_telemetry_ = false;
 			show_spectrograph_ = false;
@@ -367,7 +362,7 @@ private:
 			}
 
 			if (ImGui::BeginMenu("Simulation")) {
-				if (ImGui::MenuItem("Pause / Resume", "Space / F5")) {
+				if (ImGui::MenuItem("Pause / Resume", "P / F5")) {
 					if (orchestrator_.scheduler().is_paused()) {
 						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 					} else {

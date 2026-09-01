@@ -45,15 +45,15 @@ public:
 					const size_t pixel_idx = y * width + x;
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
-					const auto n = Observer::CameraProjector<double>::compute_ray_direction(
+					const auto n_dir = Observer::CameraProjector<double>::compute_ray_direction(
 						static_cast<Observer::ProjectionMode>(params.projection_mode),
 						(params.projection_mode == 3) ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm,
 						v_norm,
 						params.field_of_view_rad
 					);
-					const double n1 = n[0];
-					const double n2 = n[1];
-					const double n3 = n[2];
+					const double n1 = n_dir[0];
+					const double n2 = n_dir[1];
+					const double n3 = n_dir[2];
 
 					Core::FourVector<double> ray_x(
 						params.observer_position[0],
@@ -74,6 +74,9 @@ public:
 					for (uint32_t step = 0; step < params.max_integration_steps; ++step) {
 						iters = step + 1;
 						const double current_r = ray_x(1);
+						const double prev_theta = ray_x(2);
+						const double prev_r = ray_x(1);
+						const double prev_phi = ray_x(3);
 
 						if (current_r <= rs * 1.002) {
 							status = PixelFlags::HORIZON_ABSORBED;
@@ -149,6 +152,24 @@ public:
 						}
 
 						total_lambda += std::abs(dt);
+
+						const double curr_theta = ray_x(2);
+						if ((prev_theta - std::numbers::pi_v<double> / 2.0) * (curr_theta - std::numbers::pi_v<double> / 2.0) < 0.0) {
+							const double t_cross = std::abs(prev_theta - std::numbers::pi_v<double> / 2.0) / (std::abs(prev_theta - std::numbers::pi_v<double> / 2.0) + std::abs(curr_theta - std::numbers::pi_v<double> / 2.0));
+							const double r_cross = prev_r + t_cross * (ray_x(1) - prev_r);
+							
+							double isco = 6.0 * params.metric_mass;
+							if (params.metric_spin > 0.0) isco = 6.0 * params.metric_mass - 4.0 * params.metric_mass * params.metric_spin;
+							const double disk_outer = 25.0 * params.metric_mass;
+							
+							if (r_cross >= isco && r_cross <= disk_outer) {
+								status = PixelFlags::ACCRETION_DISK_HIT;
+								ray_x(1) = r_cross;
+								ray_x(2) = std::numbers::pi_v<double> / 2.0;
+								ray_x(3) = prev_phi + t_cross * (ray_x(3) - prev_phi);
+								break;
+							}
+						}
 					}
 
 					if (status == 0) {
@@ -164,42 +185,41 @@ public:
 					float b_col = 0.0f;
 					float redshift = 1.0f;
 
-					if (status == PixelFlags::CELESTIAL_HIT) {
-						const double r_final = ray_x(1);
-						const double theta_final = ray_x(2);
-						const double phi_final = ray_x(3);
-						const double pr = ray_u(1);
-						const double ptheta = ray_u(2);
-						const double pphi = ray_u(3);
+					if (status == PixelFlags::ACCRETION_DISK_HIT) {
+						const double r = ray_x(1);
+						double isco = 6.0 * params.metric_mass;
+						if (params.metric_spin > 0.0) isco = 6.0 * params.metric_mass - 4.0 * params.metric_mass * params.metric_spin;
+						
+						const double temp = std::pow(isco / r, 0.75);
+						const double v_phi = std::sqrt(params.metric_mass / r);
+						const double n_phi = ray_u(3) * r;
+						const double g_factor = 1.0 / (1.0 - v_phi * n_phi);
+						
+						double intensity = temp * std::pow(g_factor, 3.0);
+						const double phi = ray_x(3);
+						const double pattern = std::sin(phi * 20.0) * std::sin(r * 2.0);
+						intensity *= (0.8 + 0.2 * pattern);
+						
+						const double fade = std::clamp((25.0 * params.metric_mass - r) / (5.0 * params.metric_mass), 0.0, 1.0);
+						
+						r_col = static_cast<float>(1.0 * intensity * fade);
+						g_col = static_cast<float>(0.5 * intensity * fade);
+						b_col = static_cast<float>(0.1 * intensity * fade);
+						redshift = static_cast<float>(g_factor);
+					} else if (status == PixelFlags::CELESTIAL_HIT) {
+						const double u_coord = (ray_x(3) + std::numbers::pi_v<double>) / (2.0 * std::numbers::pi_v<double>);
+						const double v_coord = ray_x(2) / std::numbers::pi_v<double>;
 
-						const double sin_t = std::sin(theta_final);
-						const double cos_t = std::cos(theta_final);
-						const double sin_p = std::sin(phi_final);
-						const double cos_p = std::cos(phi_final);
-
-						double px_dir = pr * sin_t * cos_p + r_final * ptheta * cos_t * cos_p - r_final * sin_t * pphi * sin_p;
-						double py_dir = pr * sin_t * sin_p + r_final * ptheta * cos_t * sin_p + r_final * sin_t * pphi * cos_p;
-						double pz_dir = pr * cos_t - r_final * ptheta * sin_t;
-
-						const double len = std::sqrt(px_dir * px_dir + py_dir * py_dir + pz_dir * pz_dir);
-						if (len > 0.0) {
-							px_dir /= len;
-							py_dir /= len;
-							pz_dir /= len;
+						double n_sky = std::sin(u_coord * 12.9898 + v_coord * 78.233) * 43758.5453;
+						n_sky = n_sky - std::floor(n_sky);
+						
+						if (n_sky > 0.995) {
+							r_col = g_col = b_col = static_cast<float>((n_sky - 0.995) * 200.0);
 						}
-
-						const double phi = std::atan2(py_dir, px_dir);
-						const double theta = std::acos(std::clamp(pz_dir, -1.0, 1.0));
-						const double u_coord = (phi + std::numbers::pi_v<double>) / (2.0 * std::numbers::pi_v<double>);
-						const double v_coord = theta / std::numbers::pi_v<double>;
-
-						const double grid_u = std::abs(u_coord * 24.0 - std::floor(u_coord * 24.0) - 0.5);
-						const double grid_v = std::abs(v_coord * 12.0 - std::floor(v_coord * 12.0) - 0.5);
-						const float grid = (grid_u < 0.02 || grid_v < 0.04) ? 0.8f : 0.1f;
-
-						r_col = static_cast<float>(0.5 + 0.5 * std::sin(u_coord * 6.283185307179586));
-						g_col = static_cast<float>(0.5 + 0.5 * std::cos(v_coord * 6.283185307179586));
-						b_col = grid;
+						const double band = std::exp(-std::pow(v_coord - 0.5, 2.0) * 20.0);
+						r_col += static_cast<float>(0.05 * band);
+						g_col += static_cast<float>(0.1 * band);
+						b_col += static_cast<float>(0.2 * band);
 
 						const double factor_obs = 1.0 - rs / params.observer_position[1];
 						const double factor_emit = 1.0 - rs / ray_x(1);
@@ -288,6 +308,9 @@ public:
 					for (uint32_t step = 0; step < params.max_integration_steps; ++step) {
 						iters = step + 1;
 						const DoubleSingle current_r = ray_x[1];
+						const DoubleSingle prev_theta = ray_x[2];
+						const DoubleSingle prev_r = ray_x[1];
+						const DoubleSingle prev_phi = ray_x[3];
 
 						if (current_r <= rs * DoubleSingle(1.05) && ray_u[1] > DoubleSingle(0.0)) {
 							status = PixelFlags::HORIZON_ABSORBED;
@@ -369,6 +392,26 @@ public:
 						}
 
 						total_lambda += ds_abs(dt);
+
+						const DoubleSingle curr_theta = ray_x[2];
+						const double pt = static_cast<double>(prev_theta);
+						const double ct = static_cast<double>(curr_theta);
+						if ((pt - std::numbers::pi_v<double> / 2.0) * (ct - std::numbers::pi_v<double> / 2.0) < 0.0) {
+							const double t_cross = std::abs(pt - std::numbers::pi_v<double> / 2.0) / (std::abs(pt - std::numbers::pi_v<double> / 2.0) + std::abs(ct - std::numbers::pi_v<double> / 2.0));
+							const double r_cross = static_cast<double>(prev_r) + t_cross * (static_cast<double>(ray_x[1]) - static_cast<double>(prev_r));
+							
+							double isco = 6.0 * params.metric_mass;
+							if (params.metric_spin > 0.0) isco = 6.0 * params.metric_mass - 4.0 * params.metric_mass * params.metric_spin;
+							const double disk_outer = 25.0 * params.metric_mass;
+							
+							if (r_cross >= isco && r_cross <= disk_outer) {
+								status = PixelFlags::ACCRETION_DISK_HIT;
+								ray_x[1] = DoubleSingle(r_cross);
+								ray_x[2] = DoubleSingle(std::numbers::pi_v<double> / 2.0);
+								ray_x[3] = DoubleSingle(static_cast<double>(prev_phi) + t_cross * (static_cast<double>(ray_x[3]) - static_cast<double>(prev_phi)));
+								break;
+							}
+						}
 					}
 
 					if (status == 0) {
@@ -384,42 +427,41 @@ public:
 					float b_col = 0.0f;
 					float redshift = 1.0f;
 
-					if (status == PixelFlags::CELESTIAL_HIT) {
-						const double r_final = static_cast<double>(ray_x[1]);
-						const double theta_final = static_cast<double>(ray_x[2]);
-						const double phi_final = static_cast<double>(ray_x[3]);
-						const double pr = static_cast<double>(ray_u[1]);
-						const double ptheta = static_cast<double>(ray_u[2]);
-						const double pphi = static_cast<double>(ray_u[3]);
+					if (status == PixelFlags::ACCRETION_DISK_HIT) {
+						const double r = static_cast<double>(ray_x[1]);
+						double isco = 6.0 * params.metric_mass;
+						if (params.metric_spin > 0.0) isco = 6.0 * params.metric_mass - 4.0 * params.metric_mass * params.metric_spin;
+						
+						const double temp = std::pow(isco / r, 0.75);
+						const double v_phi = std::sqrt(params.metric_mass / r);
+						const double n_phi = static_cast<double>(ray_u[3]) * r;
+						const double g_factor = 1.0 / (1.0 - v_phi * n_phi);
+						
+						double intensity = temp * std::pow(g_factor, 3.0);
+						const double phi = static_cast<double>(ray_x[3]);
+						const double pattern = std::sin(phi * 20.0) * std::sin(r * 2.0);
+						intensity *= (0.8 + 0.2 * pattern);
+						
+						const double fade = std::clamp((25.0 * params.metric_mass - r) / (5.0 * params.metric_mass), 0.0, 1.0);
+						
+						r_col = static_cast<float>(1.0 * intensity * fade);
+						g_col = static_cast<float>(0.5 * intensity * fade);
+						b_col = static_cast<float>(0.1 * intensity * fade);
+						redshift = static_cast<float>(g_factor);
+					} else if (status == PixelFlags::CELESTIAL_HIT) {
+						const double u_coord = (static_cast<double>(ray_x[3]) + std::numbers::pi_v<double>) / (2.0 * std::numbers::pi_v<double>);
+						const double v_coord = static_cast<double>(ray_x[2]) / std::numbers::pi_v<double>;
 
-						const double sin_t = std::sin(theta_final);
-						const double cos_t = std::cos(theta_final);
-						const double sin_p = std::sin(phi_final);
-						const double cos_p = std::cos(phi_final);
-
-						double px_dir = pr * sin_t * cos_p + r_final * ptheta * cos_t * cos_p - r_final * sin_t * pphi * sin_p;
-						double py_dir = pr * sin_t * sin_p + r_final * ptheta * cos_t * sin_p + r_final * sin_t * pphi * cos_p;
-						double pz_dir = pr * cos_t - r_final * ptheta * sin_t;
-
-						const double len = std::sqrt(px_dir * px_dir + py_dir * py_dir + pz_dir * pz_dir);
-						if (len > 0.0) {
-							px_dir /= len;
-							py_dir /= len;
-							pz_dir /= len;
+						double n_sky = std::sin(u_coord * 12.9898 + v_coord * 78.233) * 43758.5453;
+						n_sky = n_sky - std::floor(n_sky);
+						
+						if (n_sky > 0.995) {
+							r_col = g_col = b_col = static_cast<float>((n_sky - 0.995) * 200.0);
 						}
-
-						const double phi = std::atan2(py_dir, px_dir);
-						const double theta = std::acos(std::clamp(pz_dir, -1.0, 1.0));
-						const double u_coord = (phi + std::numbers::pi_v<double>) / (2.0 * std::numbers::pi_v<double>);
-						const double v_coord = theta / std::numbers::pi_v<double>;
-
-						const double grid_u = std::abs(u_coord * 24.0 - std::floor(u_coord * 24.0) - 0.5);
-						const double grid_v = std::abs(v_coord * 12.0 - std::floor(v_coord * 12.0) - 0.5);
-						const float grid = (grid_u < 0.02 || grid_v < 0.04) ? 0.8f : 0.1f;
-
-						r_col = static_cast<float>(0.5 + 0.5 * std::sin(u_coord * 6.283185307179586));
-						g_col = static_cast<float>(0.5 + 0.5 * std::cos(v_coord * 6.283185307179586));
-						b_col = grid;
+						const double band = std::exp(-std::pow(v_coord - 0.5, 2.0) * 20.0);
+						r_col += static_cast<float>(0.05 * band);
+						g_col += static_cast<float>(0.1 * band);
+						b_col += static_cast<float>(0.2 * band);
 
 						const double factor_obs = 1.0 - static_cast<double>(rs) / params.observer_position[1];
 						const double factor_emit = 1.0 - static_cast<double>(rs) / static_cast<double>(ray_x[1]);

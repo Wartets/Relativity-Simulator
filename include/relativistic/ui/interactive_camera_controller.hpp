@@ -147,7 +147,7 @@ public:
 		orchestrator_.camera().roll = 0.0;
 	}
 
-	void update(GLFWwindow* window, double dt) noexcept {
+	void update(GLFWwindow* window, double dt, bool is_hovered) noexcept {
 		if (!window || dt <= 0.0) return;
 
 		handle_global_shortcuts(window);
@@ -163,17 +163,17 @@ public:
 
 		switch (navigation_mode_) {
 			case CameraNavigationMode::OrbitCenter:
-				update_orbit_mode(window, dt, current_speed);
+				update_orbit_mode(window, dt, current_speed, is_hovered);
 				break;
 			case CameraNavigationMode::SphericalBoyerLindquist:
-				update_spherical_mode(window, dt, current_speed);
+				update_spherical_mode(window, dt, current_speed, is_hovered);
 				break;
 			case CameraNavigationMode::CockpitFlight:
-				update_cockpit_flight_mode(window, dt, current_speed);
+				update_cockpit_flight_mode(window, dt, current_speed, is_hovered);
 				break;
 			case CameraNavigationMode::FreeFly6DOF:
 			default:
-				update_free_fly_mode(window, dt, current_speed);
+				update_free_fly_mode(window, dt, current_speed, is_hovered);
 				break;
 		}
 	}
@@ -219,7 +219,7 @@ private:
 		}
 	}
 
-	void update_free_fly_mode(GLFWwindow* window, double dt, double speed) noexcept {
+	void update_free_fly_mode(GLFWwindow* window, double dt, double speed, bool is_hovered) noexcept {
 		auto& cam = orchestrator_.camera();
 		const double pitch_rad = cam.pitch * (std::numbers::pi / 180.0);
 		const double yaw_rad = cam.yaw * (std::numbers::pi / 180.0);
@@ -270,10 +270,10 @@ private:
 			sync_spherical_from_cartesian();
 		}
 
-		handle_mouse_look(window);
+		handle_mouse_look(window, is_hovered);
 	}
 
-	void update_orbit_mode(GLFWwindow* window, double dt, double speed) noexcept {
+	void update_orbit_mode(GLFWwindow* window, double dt, double speed, bool is_hovered) noexcept {
 		auto& cam = orchestrator_.camera();
 
 		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
@@ -289,7 +289,7 @@ private:
 			cam.yaw -= 40.0 * dt;
 		}
 
-		handle_mouse_look(window);
+		handle_mouse_look(window, is_hovered);
 
 		const double p_rad = cam.pitch * (std::numbers::pi / 180.0);
 		const double y_rad = cam.yaw * (std::numbers::pi / 180.0);
@@ -300,7 +300,7 @@ private:
 		sync_spherical_from_cartesian();
 	}
 
-	void update_spherical_mode(GLFWwindow* window, double dt, double speed) noexcept {
+	void update_spherical_mode(GLFWwindow* window, double dt, double speed, bool is_hovered) noexcept {
 		auto& cam = orchestrator_.camera();
 
 		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
@@ -327,10 +327,10 @@ private:
 		cam.position[2] = cam.radius * std::cos(cam.theta);
 
 		look_at_origin();
-		handle_mouse_look(window);
+		handle_mouse_look(window, is_hovered);
 	}
 
-	void update_cockpit_flight_mode(GLFWwindow* window, double dt, double speed) noexcept {
+	void update_cockpit_flight_mode(GLFWwindow* window, double dt, double speed, bool is_hovered) noexcept {
 		auto& cam = orchestrator_.camera();
 		double throttle = 0.0;
 		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) throttle += 1.0;
@@ -355,17 +355,17 @@ private:
 		if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) cam.pitch = std::clamp(cam.pitch - 40.0 * dt, -89.0, 89.0);
 
 		sync_spherical_from_cartesian();
-		handle_mouse_look(window);
+		handle_mouse_look(window, is_hovered);
 	}
 
-	void handle_mouse_look(GLFWwindow* window) noexcept {
+	void handle_mouse_look(GLFWwindow* window, bool is_hovered) noexcept {
 		double mx = 0.0, my = 0.0;
 		glfwGetCursorPos(window, &mx, &my);
 
 		const bool right_down = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
-		const bool left_down = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS);
+		const bool left_down = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
 
-		if (right_down || left_down || cursor_captured_) {
+		if ((right_down || left_down) && (is_hovered || is_dragging_)) {
 			if (!is_dragging_) {
 				is_dragging_ = true;
 				last_mouse_x_ = mx;

@@ -34,9 +34,9 @@ struct PhysicalParameters {
 	double integration_atol{1e-14};
 	double integration_min_step{1e-8};
 	double integration_max_step{10.0};
-	double resolution_scale{1.0};
-	uint32_t max_ray_steps{2048};
-	uint32_t performance_preset{3};
+	double resolution_scale{0.75};
+	uint32_t max_ray_steps{1024};
+	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
 	uint32_t visual_overlays_flags{0x0F};
 };

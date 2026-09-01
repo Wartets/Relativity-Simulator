@@ -125,13 +125,15 @@ public:
 			pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
 			pipeline_.dispatch(cam_consts);
 
-			const auto fb = pipeline_.framebuffer();
-			glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
-			glTexImage2D(
-				GL_TEXTURE_2D, 0, GL_RGBA32F,
-				static_cast<GLsizei>(current_width_), static_cast<GLsizei>(current_height_),
-				0, GL_RGBA, GL_FLOAT, fb.data()
-			);
+			if (pipeline_.check_and_clear_new_frame()) {
+				const auto fb = pipeline_.framebuffer();
+				glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
+				glTexImage2D(
+					GL_TEXTURE_2D, 0, GL_RGBA32F,
+					static_cast<GLsizei>(current_width_), static_cast<GLsizei>(current_height_),
+					0, GL_RGBA, GL_FLOAT, fb.data()
+				);
+			}
 
 			ImGui::Image(
 				reinterpret_cast<void*>(static_cast<intptr_t>(gl_texture_id_)),

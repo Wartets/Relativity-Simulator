@@ -56,7 +56,7 @@ public:
 		  tick_rate_hz_(config.default_tick_rate_hz),
 		  tick_dt_(static_cast<Scalar>(1.0) / config.default_tick_rate_hz),
 		  warp_factor_(static_cast<Scalar>(1.0)),
-		  is_paused_(false),
+		  is_paused_(true),
 		  remaining_steps_(0),
 		  current_tick_(0),
 		  logical_time_(static_cast<Scalar>(0.0)),
@@ -116,7 +116,7 @@ public:
 		logical_time_ = static_cast<Scalar>(0.0);
 		accumulator_ns_ = 0;
 		remaining_steps_ = 0;
-		is_paused_ = false;
+		is_paused_ = true;
 		warp_factor_ = static_cast<Scalar>(1.0);
 		tick_rate_hz_ = config_.default_tick_rate_hz;
 		recalculate_intervals();

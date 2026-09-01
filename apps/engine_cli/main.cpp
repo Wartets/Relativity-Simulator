@@ -37,7 +37,11 @@ int main(int argc, char* argv[]) {
 				orchestrator->scheduler().advance_tick();
 			}
 
-			std::this_thread::sleep_for(std::chrono::microseconds(500));
+			if (orchestrator->scheduler().is_paused()) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			} else {
+				std::this_thread::sleep_for(std::chrono::microseconds(500));
+			}
 		}
 	});
 

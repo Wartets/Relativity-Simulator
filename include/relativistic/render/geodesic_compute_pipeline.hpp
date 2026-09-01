@@ -8,6 +8,10 @@
 #include <memory>
 #include <chrono>
 #include <cmath>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <thread>
 
 namespace Relativistic::Render {
 
@@ -35,20 +39,93 @@ class GeodesicComputePipeline {
 private:
 	GeodesicPipelineConfig config_;
 	VulkanContext context_;
-	std::vector<GpuPixelOutput> framebuffer_;
+	std::vector<GpuPixelOutput> front_buffer_;
+	std::vector<GpuPixelOutput> back_buffer_;
 	PipelineExecutionTelemetry telemetry_{};
+
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::atomic<bool> is_running_{true};
+	std::atomic<bool> request_pending_{false};
+	std::atomic<bool> new_frame_ready_{false};
+	std::atomic<bool> is_rendering_{false};
+
+	GpuCameraPushConstants pending_constants_{};
+	std::jthread worker_thread_;
+
+	void worker_loop(std::stop_token st) noexcept {
+		while (!st.stop_requested() && is_running_.load(std::memory_order_relaxed)) {
+			GpuCameraPushConstants current_job;
+			{
+				std::unique_lock<std::mutex> lock(mutex_);
+				cv_.wait(lock, [&]() {
+					return st.stop_requested() || !is_running_.load(std::memory_order_relaxed) || request_pending_.load(std::memory_order_relaxed);
+				});
+
+				if (st.stop_requested() || !is_running_.load(std::memory_order_relaxed)) {
+					break;
+				}
+
+				current_job = pending_constants_;
+				request_pending_.store(false, std::memory_order_relaxed);
+				is_rendering_.store(true, std::memory_order_relaxed);
+			}
+
+			const auto t_start = std::chrono::high_resolution_clock::now();
+			if (config_.precision == PrecisionMode::NativeFloat64) {
+				SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_);
+			} else {
+				SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_);
+			}
+			const auto t_end = std::chrono::high_resolution_clock::now();
+			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+			uint64_t absorbed = 0;
+			uint64_t celestial = 0;
+			for (const auto& px : back_buffer_) {
+				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
+				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+			}
+
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				std::swap(front_buffer_, back_buffer_);
+				telemetry_.execution_time_ms = duration_ms;
+				telemetry_.frame_rate_fps = (duration_ms > 0.0) ? (1000.0 / duration_ms) : 0.0;
+				telemetry_.total_pixels_processed = config_.width * config_.height;
+				telemetry_.horizon_pixels_absorbed = absorbed;
+				telemetry_.celestial_pixels_hit = celestial;
+				new_frame_ready_.store(true, std::memory_order_release);
+				is_rendering_.store(false, std::memory_order_relaxed);
+			}
+		}
+	}
 
 public:
 	explicit GeodesicComputePipeline(const GeodesicPipelineConfig& config = {})
 		: config_(config) {
-		framebuffer_.resize(config_.width * config_.height);
+		front_buffer_.resize(config_.width * config_.height);
+		back_buffer_.resize(config_.width * config_.height);
 		static_cast<void>(context_.initialize(config_.headless, config_.precision == PrecisionMode::NativeFloat64));
+
+		if (!config_.headless) {
+			worker_thread_ = std::jthread([this](std::stop_token st) {
+				worker_loop(st);
+			});
+		}
+	}
+
+	~GeodesicComputePipeline() noexcept {
+		is_running_.store(false, std::memory_order_release);
+		cv_.notify_all();
 	}
 
 	void resize(uint32_t width, uint32_t height) {
+		std::lock_guard<std::mutex> lock(mutex_);
 		config_.width = width;
 		config_.height = height;
-		framebuffer_.resize(width * height);
+		front_buffer_.resize(width * height);
+		back_buffer_.resize(width * height);
 	}
 
 	void set_precision_mode(PrecisionMode mode) noexcept {
@@ -68,11 +145,19 @@ public:
 	}
 
 	[[nodiscard]] std::span<const GpuPixelOutput> framebuffer() const noexcept {
-		return framebuffer_;
+		return front_buffer_;
 	}
 
 	[[nodiscard]] std::span<GpuPixelOutput> framebuffer() noexcept {
-		return framebuffer_;
+		return front_buffer_;
+	}
+
+	[[nodiscard]] bool check_and_clear_new_frame() noexcept {
+		return new_frame_ready_.exchange(false, std::memory_order_acq_rel);
+	}
+
+	[[nodiscard]] bool is_rendering() const noexcept {
+		return is_rendering_.load(std::memory_order_relaxed);
 	}
 
 	[[nodiscard]] const PipelineExecutionTelemetry& telemetry() const noexcept {
@@ -80,32 +165,25 @@ public:
 	}
 
 	void dispatch(const GpuCameraPushConstants& camera_constants) {
-		const auto t_start = std::chrono::high_resolution_clock::now();
-
-		GpuCameraPushConstants actual_constants = camera_constants;
-		actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
-
-		if (config_.precision == PrecisionMode::NativeFloat64) {
-			SoftwareComputeEngine::dispatch_fp64(actual_constants, framebuffer_);
-		} else {
-			SoftwareComputeEngine::dispatch_double_single(actual_constants, framebuffer_);
+		if (config_.headless) {
+			GpuCameraPushConstants actual_constants = camera_constants;
+			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			if (config_.precision == PrecisionMode::NativeFloat64) {
+				SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_);
+			} else {
+				SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_);
+			}
+			new_frame_ready_.store(true, std::memory_order_release);
+			return;
 		}
 
-		const auto t_end = std::chrono::high_resolution_clock::now();
-		const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-
-		telemetry_.execution_time_ms = duration_ms;
-		telemetry_.frame_rate_fps = (duration_ms > 0.0) ? (1000.0 / duration_ms) : 0.0;
-		telemetry_.total_pixels_processed = config_.width * config_.height;
-
-		uint64_t absorbed = 0;
-		uint64_t celestial = 0;
-		for (const auto& px : framebuffer_) {
-			if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
-			else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			pending_constants_ = camera_constants;
+			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			request_pending_.store(true, std::memory_order_release);
 		}
-		telemetry_.horizon_pixels_absorbed = absorbed;
-		telemetry_.celestial_pixels_hit = celestial;
+		cv_.notify_one();
 	}
 };
 

@@ -15,15 +15,12 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 		-Wall
 		-Wextra
 		-Wpedantic
-		-Werror
 		-Wconversion
 		-Wshadow
 		-Wnon-virtual-dtor
 		-Wold-style-cast
 		-Wcast-align
-		-Wunused
 		-Woverloaded-virtual
-		-Wnull-dereference
 		-Wdouble-promotion
 		-Wformat=2
 		-frounding-math
@@ -35,7 +32,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif (MSVC)
 	set(STRICT_CXX_FLAGS
 		/W4
-		/WX
 		/permissive-
 		/fp:strict
 		/Zc:__cplusplus

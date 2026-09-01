@@ -75,12 +75,7 @@ public:
 						iters = step + 1;
 						const double current_r = ray_x(1);
 
-						if (current_r <= rs * 1.05 && ray_u(1) > 0.0) {
-							status = PixelFlags::HORIZON_ABSORBED;
-							break;
-						}
-
-						if (current_r <= rs * 1.0001) {
+						if (current_r <= rs * 1.002) {
 							status = PixelFlags::HORIZON_ABSORBED;
 							break;
 						}
@@ -90,14 +85,14 @@ public:
 							break;
 						}
 
-						const double dt = -std::clamp(0.05 * current_r, 0.005, 0.5);
+						const double dt = -std::clamp(0.08 * current_r, 0.01, 1.0);
 
 						auto compute_acc = [&](const Core::FourVector<double>& rx, const Core::FourVector<double>& ru) noexcept -> Core::FourVector<double> {
-							const double r = std::max(rx(1), rs * 1.000000001);
+							const double r = std::max(rx(1), rs * 1.00001);
 							const double theta = rx(2);
 							const double sin_t = std::sin(theta);
 							const double cos_t = std::cos(theta);
-							const double r_diff = std::max(r - rs, 0.02 * rs);
+							const double r_diff = std::max(r - rs, 0.005 * rs);
 							const double r2 = r * r;
 							const double r3 = r2 * r;
 
@@ -123,17 +118,18 @@ public:
 						const auto k1_u = compute_acc(ray_x, ray_u);
 
 						Core::FourVector<double> s2_x, s2_u;
+						const double half_dt = 0.5 * dt;
 						for (size_t i = 0; i < 4; ++i) {
-							s2_x(i) = ray_x(i) + (0.5 * dt) * k1_x(i);
-							s2_u(i) = ray_u(i) + (0.5 * dt) * k1_u(i);
+							s2_x(i) = ray_x(i) + half_dt * k1_x(i);
+							s2_u(i) = ray_u(i) + half_dt * k1_u(i);
 						}
 						const auto k2_x = s2_u;
 						const auto k2_u = compute_acc(s2_x, s2_u);
 
 						Core::FourVector<double> s3_x, s3_u;
 						for (size_t i = 0; i < 4; ++i) {
-							s3_x(i) = ray_x(i) + (0.5 * dt) * k2_x(i);
-							s3_u(i) = ray_u(i) + (0.5 * dt) * k2_u(i);
+							s3_x(i) = ray_x(i) + half_dt * k2_x(i);
+							s3_u(i) = ray_u(i) + half_dt * k2_u(i);
 						}
 						const auto k3_x = s3_u;
 						const auto k3_u = compute_acc(s3_x, s3_u);

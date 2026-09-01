@@ -32,26 +32,46 @@ public:
 		if (ImGui::Begin("Curvature Diagnostics & Tensor Inspector", &is_open_)) {
 			const auto& cam = orchestrator_.camera();
 			const auto& params = orchestrator_.parameters();
+			const double cur_time = ImGui::GetTime();
 
+			static double last_diag_eval = -1.0;
+			static double cached_diag_k1 = 0.0;
+			static double cached_diag_r = 0.0;
+			static Core::MetricTensor<double> cached_diag_g{};
+
+			const double r_safe = std::max(cam.radius, 2.05 * params.mass);
 			Metrics::KerrMetric<double> metric(params.mass, params.spin, 1.0, 1.0);
-			Core::FourVector<double> pos(0.0, cam.radius, cam.theta, cam.phi);
+			Core::FourVector<double> pos(0.0, r_safe, cam.theta, cam.phi);
 
-			const auto g = metric.metric_tensor(pos);
-			const auto inv_g = metric.inverse_metric(pos);
-			const auto R_tensor = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_riemann(metric, pos);
-			const auto ricci = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_ricci_tensor(R_tensor);
-			const double R_scalar = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_ricci_scalar(ricci, inv_g);
-			const double K1 = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_kretschmann_invariant(R_tensor, g, inv_g);
+			if (cur_time - last_diag_eval > 0.15) {
+				last_diag_eval = cur_time;
+				cached_diag_g = metric.metric_tensor(pos);
 
-			if (r_history_.size() >= 120) {
-				r_history_.erase(r_history_.begin());
-				kretschmann_history_.erase(kretschmann_history_.begin());
-				ricci_history_.erase(ricci_history_.begin());
+				if (std::abs(params.spin) < 1e-12) {
+					cached_diag_k1 = 48.0 * params.mass * params.mass / std::max(std::pow(r_safe, 6.0), 1e-12);
+					cached_diag_r = 0.0;
+				} else {
+					const auto inv_g = metric.inverse_metric(pos);
+					const auto R_tensor = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_riemann(metric, pos);
+					const auto ricci = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_ricci_tensor(R_tensor);
+					cached_diag_r = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_ricci_scalar(ricci, inv_g);
+					cached_diag_k1 = Core::RiemannComputer<Core::DerivativeOrder::FourthOrder, Metrics::KerrMetric<double>, double>::compute_kretschmann_invariant(R_tensor, cached_diag_g, inv_g);
+				}
+
+				if (r_history_.size() >= 120) {
+					r_history_.erase(r_history_.begin());
+					kretschmann_history_.erase(kretschmann_history_.begin());
+					ricci_history_.erase(ricci_history_.begin());
+				}
+
+				r_history_.push_back(cam.radius);
+				kretschmann_history_.push_back(std::abs(cached_diag_k1) + 1e-30);
+				ricci_history_.push_back(std::abs(cached_diag_r));
 			}
 
-			r_history_.push_back(cam.radius);
-			kretschmann_history_.push_back(std::abs(K1) + 1e-30);
-			ricci_history_.push_back(std::abs(R_scalar));
+			const auto& g = cached_diag_g;
+			const double R_scalar = cached_diag_r;
+			const double K1 = cached_diag_k1;
 
 			ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Local Metric Tensor g_uv:");
 			if (ImGui::BeginTable("MetricTensorTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {

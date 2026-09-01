@@ -115,31 +115,12 @@ public:
 					for (size_t d = 0; d < 4; ++d) {
 						Scalar sum = static_cast<Scalar>(0.0);
 						for (size_t e = 0; e < 4; ++e) {
-							sum += g(a, e) * R(e, b, c, d);
-						}
-						R_lower(a, b, c, d) = sum;
-					}
-				}
-			}
-		}
-
-		Tensor<Scalar, 4, 4> R_upper;
-		R_upper.zero();
-		for (size_t a = 0; a < 4; ++a) {
-			for (size_t b = 0; b < 4; ++b) {
-				for (size_t c = 0; c < 4; ++c) {
-					for (size_t d = 0; d < 4; ++d) {
-						Scalar sum = static_cast<Scalar>(0.0);
-						for (size_t e = 0; e < 4; ++e) {
-							for (size_t f = 0; f < 4; ++f) {
-								for (size_t g_idx = 0; g_idx < 4; ++g_idx) {
-									for (size_t h = 0; h < 4; ++h) {
-										sum += inv_g(a, e) * inv_g(b, f) * inv_g(c, g_idx) * inv_g(d, h) * R_lower(e, f, g_idx, h);
-									}
-								}
+							const Scalar g_ae = g(a, e);
+							if (g_ae != static_cast<Scalar>(0.0)) {
+								sum += g_ae * R(e, b, c, d);
 							}
 						}
-						R_upper(a, b, c, d) = sum;
+						R_lower(a, b, c, d) = sum;
 					}
 				}
 			}
@@ -150,7 +131,27 @@ public:
 			for (size_t b = 0; b < 4; ++b) {
 				for (size_t c = 0; c < 4; ++c) {
 					for (size_t d = 0; d < 4; ++d) {
-						K1 += R_upper(a, b, c, d) * R_lower(a, b, c, d);
+						const Scalar R_low = R_lower(a, b, c, d);
+						if (R_low == static_cast<Scalar>(0.0)) continue;
+
+						for (size_t e = 0; e < 4; ++e) {
+							const Scalar ig_ae = inv_g(a, e);
+							if (ig_ae == static_cast<Scalar>(0.0)) continue;
+							for (size_t f = 0; f < 4; ++f) {
+								const Scalar ig_bf = inv_g(b, f);
+								if (ig_bf == static_cast<Scalar>(0.0)) continue;
+								for (size_t g_idx = 0; g_idx < 4; ++g_idx) {
+									const Scalar ig_cg = inv_g(c, g_idx);
+									if (ig_cg == static_cast<Scalar>(0.0)) continue;
+									for (size_t h = 0; h < 4; ++h) {
+										const Scalar ig_dh = inv_g(d, h);
+										if (ig_dh != static_cast<Scalar>(0.0)) {
+											K1 += R_low * (ig_ae * ig_bf * ig_cg * ig_dh * R_lower(e, f, g_idx, h));
+										}
+									}
+								}
+							}
+						}
 					}
 				}
 			}

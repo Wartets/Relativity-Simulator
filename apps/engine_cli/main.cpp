@@ -1,6 +1,13 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/repl.hpp"
+#include "relativistic/uncertainty/uncertainty_types.hpp"
+#include "relativistic/uncertainty/interval.hpp"
+#include "relativistic/uncertainty/zonotope.hpp"
+#include "relativistic/uncertainty/covariance.hpp"
+#include "relativistic/uncertainty/polynomial_chaos.hpp"
+#include "relativistic/uncertainty/uncertain_quantity.hpp"
+#include "relativistic/uncertainty/metrology.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -19,7 +26,7 @@ int main(int argc, char* argv[]) {
 	auto orchestrator = std::make_unique<SimulationOrchestrator<16384>>();
 	MasterTerminalRepl<16384> repl(*orchestrator);
 
-	std::cout << "Relativistic Engine - Master Terminal REPL v0.3.0\n";
+	std::cout << "Relativistic Engine - Master Terminal REPL\n";
 	std::cout << "Type 'help' for commands list, 'quit' to exit.\n\n";
 
 	std::jthread sim_thread([&orchestrator](std::stop_token stop_token) {

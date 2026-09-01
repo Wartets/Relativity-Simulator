@@ -77,6 +77,9 @@ public:
 			is_hovered_ = ImGui::IsWindowHovered();
 			is_focused_ = ImGui::IsWindowFocused();
 
+			const auto& params = orchestrator_.parameters();
+			resolution_scale_ = static_cast<float>(params.resolution_scale);
+
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
 			const uint32_t target_w = std::max(static_cast<uint32_t>(avail.x * resolution_scale_), 64u);
 			const uint32_t target_h = std::max(static_cast<uint32_t>(avail.y * resolution_scale_), 64u);
@@ -92,7 +95,6 @@ public:
 			}
 
 			const auto& cam = orchestrator_.camera();
-			const auto& params = orchestrator_.parameters();
 
 			Render::GpuCameraPushConstants cam_consts{};
 			cam_consts.screen_width = current_width_;
@@ -104,6 +106,7 @@ public:
 			cam_consts.horizon_radius = 2.0 * params.mass;
 			cam_consts.escape_radius = 100.0 * params.mass;
 			cam_consts.projection_mode = params.projection_mode;
+			cam_consts.max_integration_steps = params.max_ray_steps;
 			cam_consts.observer_position = {0.0, cam.radius, cam.theta, cam.phi};
 
 			const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
@@ -132,6 +135,8 @@ public:
 				avail, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f)
 			);
 
+			render_viewport_toolbar();
+
 			if (show_telemetry_overlay_) {
 				render_hud_overlay(avail);
 			}
@@ -140,28 +145,68 @@ public:
 		ImGui::PopStyleVar();
 	}
 
+	void render_viewport_toolbar() noexcept {
+		ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
+		ImGui::BeginGroup();
+		
+		if (orchestrator_.scheduler().is_paused()) {
+			if (ImGui::Button("Play (Space)", ImVec2(90.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
+			}
+		} else {
+			if (ImGui::Button("Pause (Space)", ImVec2(90.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Step (F6)", ImVec2(70.0f, 24.0f))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Reset View", ImVec2(80.0f, 24.0f))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
+		}
+
+		ImGui::SameLine();
+		const char* cam_modes[] = {"Free Fly", "Orbit Center", "Cockpit"};
+		int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
+		ImGui::SetNextItemWidth(110.0f);
+		if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
+		}
+
+		ImGui::SameLine();
+		ImGui::Checkbox("HUD", &show_telemetry_overlay_);
+
+		ImGui::EndGroup();
+	}
+
 private:
 	void render_hud_overlay(const ImVec2& avail) noexcept {
 		const auto& cam = orchestrator_.camera();
 		const auto& params = orchestrator_.parameters();
 		const auto& tel = pipeline_.telemetry();
 
-		ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
+		ImGui::SetCursorPos(ImVec2(16.0f, 48.0f));
 		ImGui::BeginGroup();
-		ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "FPS: %.1f (%.2f ms)", tel.frame_rate_fps, tel.execution_time_ms);
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Resolution: %ux%u", current_width_, current_height_);
+		ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Render: %.1f FPS (%.2f ms) [%ux%u @ %.2fx]", tel.frame_rate_fps, tel.execution_time_ms, current_width_, current_height_, static_cast<double>(resolution_scale_));
 		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Position (r, theta, phi): (%.2f, %.2f, %.2f)", cam.radius, cam.theta, cam.phi);
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera Pitch/Yaw: %.1f deg / %.1f deg", cam.pitch, cam.yaw);
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Active Metric: %s (M=%.2f, a=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin);
+		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
+		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Active Metric: %s (M=%.2f, a=%.2f, Q=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
+		ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 0.9f), "Horizon Absorbed: %llu | Celestial Hits: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
 		ImGui::EndGroup();
 
-		ImGui::SetCursorPos(ImVec2(avail.x - 220.0f, 16.0f));
+		ImGui::SetCursorPos(ImVec2(avail.x - 240.0f, 16.0f));
 		ImGui::BeginGroup();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Controls (ZQSD / WASD):");
 		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Z/W: Forward | S: Back");
 		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Q/A: Left    | D: Right");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Space: Up    | Ctrl: Down");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Shift: Sprint | Mouse: Look");
+		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Space: Up    | Ctrl/C: Down");
+		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "J/K: Roll    | Shift: Sprint");
+		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Right Click Drag: Look");
+		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Mouse Scroll: Adjust FOV");
 		ImGui::EndGroup();
 	}
 };

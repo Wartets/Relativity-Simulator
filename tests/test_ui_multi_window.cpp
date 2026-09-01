@@ -45,6 +45,23 @@ int main() {
 	orchestrator->process_incoming_commands();
 	assert(orchestrator->active_integrator_name() == "Vernier9");
 
+	assert(repl.execute_line("set render_scale 1.5", &res));
+	orchestrator->process_incoming_commands();
+	assert(std::abs(orchestrator->parameters().resolution_scale - 1.5) < 1e-12);
+
+	assert(repl.execute_line("set ray_steps 4096", &res));
+	orchestrator->process_incoming_commands();
+	assert(orchestrator->parameters().max_ray_steps == 4096);
+
+	assert(repl.execute_line("set performance 1", &res));
+	orchestrator->process_incoming_commands();
+	assert(orchestrator->parameters().performance_preset == 1);
+	assert(std::abs(orchestrator->parameters().resolution_scale - 0.75) < 1e-12);
+
+	assert(repl.execute_line("set camera_mode 1", &res));
+	orchestrator->process_incoming_commands();
+	assert(orchestrator->parameters().camera_mode == 1);
+
 	UI::InteractiveCameraController cam_ctrl(*orchestrator);
 	cam_ctrl.set_move_speed(15.0);
 	assert(std::abs(cam_ctrl.move_speed() - 15.0) < 1e-12);
@@ -53,6 +70,8 @@ int main() {
 
 	cam_ctrl.handle_scroll(-1.0);
 	assert(orchestrator->camera().fov_deg > 45.0);
+
+	UI::ScenarioSelectorWindow scenario_selector(*orchestrator);
 
 	std::cout << "UI multi-window, camera navigation, and scenario selector unit tests passed successfully.\n";
 	return 0;

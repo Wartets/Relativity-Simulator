@@ -160,6 +160,12 @@ private:
 
 		ImGui::Separator();
 
+		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Cockpit View"};
+		int mode = static_cast<int>(orchestrator_.parameters().camera_mode);
+		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
+		}
+
 		if (ImGui::SliderFloat("Field of View (FOV)", &camera_fov_, 10.0f, 160.0f, "%.1f deg")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(static_cast<double>(camera_fov_))));
 		}
@@ -172,8 +178,27 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
 		}
 
-		if (ImGui::Button("Reset Camera to Origin")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
+		ImGui::Separator();
+		ImGui::Text("Camera Quick Viewpoints:");
+		if (ImGui::Button("Equatorial View (r=50)")) {
+			auto& c = orchestrator_.camera();
+			c.position = {0.0, 50.0, 0.0};
+			c.pitch = 0.0;
+			c.yaw = 0.0;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Top Polar View (z=50)")) {
+			auto& c = orchestrator_.camera();
+			c.position = {0.0, 0.0, 50.0};
+			c.pitch = -89.0;
+			c.yaw = 0.0;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close-up ISCO (r=8)")) {
+			auto& c = orchestrator_.camera();
+			c.position = {0.0, 8.0, 0.0};
+			c.pitch = 0.0;
+			c.yaw = 0.0;
 		}
 	}
 

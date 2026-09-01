@@ -7,6 +7,8 @@
 #include "relativistic/ui/secondary_view_window.hpp"
 #include "relativistic/ui/viewport_primary_window.hpp"
 #include "relativistic/ui/scenario_selector_window.hpp"
+#include "relativistic/ui/performance_settings_window.hpp"
+#include "relativistic/ui/visual_diagnostics_window.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 
 #include <imgui.h>
@@ -34,6 +36,8 @@ private:
 	TelemetryWindow telemetry_window_;
 	SpectrographWindow spectrograph_window_;
 	ControlPanelWindow control_panel_window_;
+	PerformanceSettingsWindow performance_window_;
+	VisualDiagnosticsWindow diagnostics_window_;
 	std::vector<SecondaryViewWindow> secondary_views_;
 
 	bool show_viewport_{true};
@@ -41,6 +45,8 @@ private:
 	bool show_telemetry_{true};
 	bool show_spectrograph_{true};
 	bool show_controls_{true};
+	bool show_performance_{true};
+	bool show_diagnostics_{true};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
 
@@ -48,7 +54,9 @@ public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator),
 		  camera_controller_(orchestrator),
-		  control_panel_window_(orchestrator) {}
+		  control_panel_window_(orchestrator),
+		  performance_window_(orchestrator),
+		  diagnostics_window_(orchestrator) {}
 
 	~UiManager() {
 		shutdown();
@@ -137,6 +145,14 @@ public:
 
 		if (show_spectrograph_) {
 			spectrograph_window_.render();
+		}
+
+		if (show_performance_) {
+			performance_window_.render();
+		}
+
+		if (show_diagnostics_) {
+			diagnostics_window_.render();
 		}
 
 		for (auto& view : secondary_views_) {
@@ -231,6 +247,8 @@ private:
 				ImGui::MenuItem("3D Primary Viewport", nullptr, &show_viewport_);
 				ImGui::MenuItem("Scenario Manager", nullptr, &show_scenarios_);
 				ImGui::MenuItem("Master Controls", nullptr, &show_controls_);
+				ImGui::MenuItem("Performance & Optimization", nullptr, &show_performance_);
+				ImGui::MenuItem("Curvature Diagnostics", nullptr, &show_diagnostics_);
 				ImGui::MenuItem("Curvature Telemetry", nullptr, &show_telemetry_);
 				ImGui::MenuItem("Spectrograph Monitor", nullptr, &show_spectrograph_);
 				ImGui::EndMenu();

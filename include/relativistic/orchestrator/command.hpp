@@ -30,7 +30,13 @@ enum class CommandType : uint32_t {
 	LoadScenario = 16,
 	SaveScenario = 17,
 	SetIntegrator = 18,
-	TriggerExport = 19
+	TriggerExport = 19,
+	SetResolutionScale = 20,
+	SetRenderSteps = 21,
+	SetPerformancePreset = 22,
+	SetCameraMode = 23,
+	SetVisualOverlay = 24,
+	CaptureScreenshot = 25
 };
 
 enum class ParameterType : uint32_t {
@@ -52,7 +58,12 @@ enum class ParameterType : uint32_t {
 	IntegrationAtol = 15,
 	IntegrationMinStep = 16,
 	IntegrationMaxStep = 17,
-	Custom = 18
+	ResolutionScale = 18,
+	MaxRaySteps = 19,
+	PerformancePreset = 20,
+	CameraMode = 21,
+	VisualOverlays = 22,
+	Custom = 23
 };
 
 struct Command {
@@ -204,6 +215,53 @@ struct Command {
 		const size_t len = std::min(format_name.size(), sizeof(cmd.text_payload) - 1);
 		std::memcpy(cmd.text_payload, format_name.data(), len);
 		cmd.text_payload[len] = '\0';
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_set_resolution_scale(double scale) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetResolutionScale;
+		cmd.numeric_value = scale;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_set_render_steps(uint64_t steps) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetRenderSteps;
+		cmd.step_count = steps;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_set_performance_preset(uint32_t preset) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetPerformancePreset;
+		cmd.step_count = preset;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_set_camera_mode(uint32_t mode) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetCameraMode;
+		cmd.step_count = mode;
+		return cmd;
+	}
+
+	[[nodiscard]] static constexpr Command make_set_visual_overlay(uint32_t overlay_flag, bool enable) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::SetVisualOverlay;
+		cmd.step_count = overlay_flag;
+		cmd.numeric_value = enable ? 1.0 : 0.0;
+		return cmd;
+	}
+
+	[[nodiscard]] static Command make_capture_screenshot(std::string_view filename = {}) noexcept {
+		Command cmd{};
+		cmd.type = CommandType::CaptureScreenshot;
+		if (!filename.empty()) {
+			const size_t len = std::min(filename.size(), sizeof(cmd.text_payload) - 1);
+			std::memcpy(cmd.text_payload, filename.data(), len);
+			cmd.text_payload[len] = '\0';
+		}
 		return cmd;
 	}
 };
@@ -489,6 +547,10 @@ public:
 			else if (iequals_sv(token2, "atol")) ptype = ParameterType::IntegrationAtol;
 			else if (iequals_sv(token2, "min_step")) ptype = ParameterType::IntegrationMinStep;
 			else if (iequals_sv(token2, "max_step")) ptype = ParameterType::IntegrationMaxStep;
+			else if (iequals_sv(token2, "render_scale") || iequals_sv(token2, "scale")) ptype = ParameterType::ResolutionScale;
+			else if (iequals_sv(token2, "ray_steps") || iequals_sv(token2, "steps_limit")) ptype = ParameterType::MaxRaySteps;
+			else if (iequals_sv(token2, "performance") || iequals_sv(token2, "perf")) ptype = ParameterType::PerformancePreset;
+			else if (iequals_sv(token2, "camera_mode") || iequals_sv(token2, "cam_mode")) ptype = ParameterType::CameraMode;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

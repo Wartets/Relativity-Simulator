@@ -68,51 +68,92 @@ public:
 
 		std::array<double, 3> move_dir = {0.0, 0.0, 0.0};
 
+		if (orchestrator_.parameters().camera_mode == 1) {
+			handle_orbit_controls(window, dt, current_speed);
+		} else {
+			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+				move_dir[0] += forward[0];
+				move_dir[1] += forward[1];
+				move_dir[2] += forward[2];
+			}
+			if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+				move_dir[0] -= forward[0];
+				move_dir[1] -= forward[1];
+				move_dir[2] -= forward[2];
+			}
+			if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+				move_dir[0] += right[0];
+				move_dir[1] += right[1];
+				move_dir[2] += right[2];
+			}
+			if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+				move_dir[0] -= right[0];
+				move_dir[1] -= right[1];
+				move_dir[2] -= right[2];
+			}
+			if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+				move_dir[0] += up[0];
+				move_dir[1] += up[1];
+				move_dir[2] += up[2];
+			}
+			if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
+				move_dir[0] -= up[0];
+				move_dir[1] -= up[1];
+				move_dir[2] -= up[2];
+			}
+
+			if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS) {
+				cam.roll -= 45.0 * dt;
+			}
+			if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS) {
+				cam.roll += 45.0 * dt;
+			}
+
+			const double move_len = std::sqrt(move_dir[0] * move_dir[0] + move_dir[1] * move_dir[1] + move_dir[2] * move_dir[2]);
+			if (move_len > 0.0) {
+				const double factor = (current_speed * dt) / move_len;
+				cam.position[0] += move_dir[0] * factor;
+				cam.position[1] += move_dir[1] * factor;
+				cam.position[2] += move_dir[2] * factor;
+
+				const double r = std::sqrt(cam.position[0] * cam.position[0] + cam.position[1] * cam.position[1] + cam.position[2] * cam.position[2]);
+				cam.radius = std::max(r, 1e-4);
+				cam.theta = (r > 0.0) ? std::acos(std::clamp(cam.position[2] / r, -1.0, 1.0)) : (std::numbers::pi / 2.0);
+				cam.phi = std::atan2(cam.position[1], cam.position[0]);
+			}
+
+			handle_mouse_look(window);
+		}
+	}
+
+	void handle_orbit_controls(GLFWwindow* window, double dt, double speed) noexcept {
+		auto& cam = orchestrator_.camera();
+
 		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-			move_dir[0] += forward[0];
-			move_dir[1] += forward[1];
-			move_dir[2] += forward[2];
+			cam.orbit_distance = std::max(2.0, cam.orbit_distance - speed * dt);
 		}
 		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-			move_dir[0] -= forward[0];
-			move_dir[1] -= forward[1];
-			move_dir[2] -= forward[2];
-		}
-		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-			move_dir[0] += right[0];
-			move_dir[1] += right[1];
-			move_dir[2] += right[2];
+			cam.orbit_distance = std::min(500.0, cam.orbit_distance + speed * dt);
 		}
 		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-			move_dir[0] -= right[0];
-			move_dir[1] -= right[1];
-			move_dir[2] -= right[2];
+			cam.yaw += 40.0 * dt;
 		}
-		if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-			move_dir[0] += up[0];
-			move_dir[1] += up[1];
-			move_dir[2] += up[2];
-		}
-		if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
-			move_dir[0] -= up[0];
-			move_dir[1] -= up[1];
-			move_dir[2] -= up[2];
-		}
-
-		const double move_len = std::sqrt(move_dir[0] * move_dir[0] + move_dir[1] * move_dir[1] + move_dir[2] * move_dir[2]);
-		if (move_len > 0.0) {
-			const double factor = (current_speed * dt) / move_len;
-			cam.position[0] += move_dir[0] * factor;
-			cam.position[1] += move_dir[1] * factor;
-			cam.position[2] += move_dir[2] * factor;
-
-			const double r = std::sqrt(cam.position[0] * cam.position[0] + cam.position[1] * cam.position[1] + cam.position[2] * cam.position[2]);
-			cam.radius = std::max(r, 1e-4);
-			cam.theta = (r > 0.0) ? std::acos(std::clamp(cam.position[2] / r, -1.0, 1.0)) : (std::numbers::pi / 2.0);
-			cam.phi = std::atan2(cam.position[1], cam.position[0]);
+		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+			cam.yaw -= 40.0 * dt;
 		}
 
 		handle_mouse_look(window);
+
+		const double p_rad = cam.pitch * (std::numbers::pi / 180.0);
+		const double y_rad = cam.yaw * (std::numbers::pi / 180.0);
+		cam.position[0] = cam.target[0] - cam.orbit_distance * std::cos(p_rad) * std::sin(y_rad);
+		cam.position[1] = cam.target[1] - cam.orbit_distance * std::cos(p_rad) * std::cos(y_rad);
+		cam.position[2] = cam.target[2] + cam.orbit_distance * std::sin(p_rad);
+
+		const double r = std::sqrt(cam.position[0] * cam.position[0] + cam.position[1] * cam.position[1] + cam.position[2] * cam.position[2]);
+		cam.radius = std::max(r, 1e-4);
+		cam.theta = (r > 0.0) ? std::acos(std::clamp(cam.position[2] / r, -1.0, 1.0)) : (std::numbers::pi / 2.0);
+		cam.phi = std::atan2(cam.position[1], cam.position[0]);
 	}
 
 	void handle_mouse_look(GLFWwindow* window) noexcept {

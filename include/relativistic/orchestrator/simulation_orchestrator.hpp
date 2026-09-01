@@ -26,7 +26,7 @@ struct PhysicalParameters {
 	double warp_velocity{1.0};
 	uint32_t projection_mode{0};
 	uint32_t time_flow_mode{0};
-	double camera_speed{5.0};
+	double camera_speed{10.0};
 	double camera_fov_deg{60.0};
 	double camera_exposure{0.0};
 	uint32_t tonemapping_mode{0};
@@ -34,6 +34,11 @@ struct PhysicalParameters {
 	double integration_atol{1e-14};
 	double integration_min_step{1e-8};
 	double integration_max_step{10.0};
+	double resolution_scale{1.0};
+	uint32_t max_ray_steps{2048};
+	uint32_t performance_preset{3};
+	uint32_t camera_mode{0};
+	uint32_t visual_overlays_flags{0x0F};
 };
 
 struct CustomParameterEntry {
@@ -44,14 +49,16 @@ struct CustomParameterEntry {
 
 struct CameraState {
 	std::array<double, 3> position{0.0, 50.0, 0.0};
+	std::array<double, 3> target{0.0, 0.0, 0.0};
 	double pitch{0.0};
 	double yaw{0.0};
 	double roll{0.0};
 	double fov_deg{60.0};
-	double speed{5.0};
+	double speed{10.0};
 	double radius{50.0};
 	double theta{std::numbers::pi_v<double> / 2.0};
 	double phi{0.0};
+	double orbit_distance{50.0};
 };
 
 template <size_t QueueCapacity = 1024>
@@ -198,6 +205,33 @@ public:
 			case CommandType::Status:
 				std::strncpy(res.message, "Status reported", sizeof(res.message) - 1);
 				break;
+			case CommandType::SetResolutionScale:
+				params_.resolution_scale = std::clamp(cmd.numeric_value, 0.1, 4.0);
+				std::strncpy(res.message, "Resolution scale updated", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetRenderSteps:
+				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(cmd.step_count, uint64_t{64}, uint64_t{16384}));
+				std::strncpy(res.message, "Max ray steps limit updated", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetPerformancePreset:
+				apply_performance_preset(static_cast<uint32_t>(cmd.step_count));
+				std::strncpy(res.message, "Performance preset applied", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetCameraMode:
+				params_.camera_mode = static_cast<uint32_t>(cmd.step_count);
+				std::strncpy(res.message, "Camera mode updated", sizeof(res.message) - 1);
+				break;
+			case CommandType::SetVisualOverlay:
+				if (cmd.numeric_value > 0.5) {
+					params_.visual_overlays_flags |= static_cast<uint32_t>(cmd.step_count);
+				} else {
+					params_.visual_overlays_flags &= ~static_cast<uint32_t>(cmd.step_count);
+				}
+				std::strncpy(res.message, "Visual overlay state toggled", sizeof(res.message) - 1);
+				break;
+			case CommandType::CaptureScreenshot:
+				std::strncpy(res.message, "Screenshot requested", sizeof(res.message) - 1);
+				break;
 			case CommandType::Shutdown:
 				is_running_.store(false, std::memory_order_release);
 				std::strncpy(res.message, "Shutdown initiated", sizeof(res.message) - 1);
@@ -207,6 +241,43 @@ public:
 			default:
 				res.success = false;
 				std::strncpy(res.message, "Unknown or unsupported command", sizeof(res.message) - 1);
+				break;
+		}
+	}
+
+	void apply_performance_preset(uint32_t preset_index) noexcept {
+		params_.performance_preset = preset_index;
+		switch (preset_index) {
+			case 0:
+				params_.resolution_scale = 0.50;
+				params_.max_ray_steps = 512;
+				params_.integration_rtol = 1e-6;
+				params_.integration_atol = 1e-9;
+				break;
+			case 1:
+				params_.resolution_scale = 0.75;
+				params_.max_ray_steps = 1024;
+				params_.integration_rtol = 1e-8;
+				params_.integration_atol = 1e-12;
+				break;
+			case 2:
+				params_.resolution_scale = 1.00;
+				params_.max_ray_steps = 2048;
+				params_.integration_rtol = 1e-10;
+				params_.integration_atol = 1e-14;
+				break;
+			case 3:
+				params_.resolution_scale = 1.25;
+				params_.max_ray_steps = 4096;
+				params_.integration_rtol = 1e-12;
+				params_.integration_atol = 1e-15;
+				break;
+			case 4:
+			default:
+				params_.resolution_scale = 1.50;
+				params_.max_ray_steps = 8192;
+				params_.integration_rtol = 1e-14;
+				params_.integration_atol = 1e-17;
 				break;
 		}
 	}
@@ -336,6 +407,21 @@ public:
 				break;
 			case ParameterType::IntegrationMaxStep:
 				params_.integration_max_step = val;
+				break;
+			case ParameterType::ResolutionScale:
+				params_.resolution_scale = std::clamp(val, 0.1, 4.0);
+				break;
+			case ParameterType::MaxRaySteps:
+				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(val, 64.0, 16384.0));
+				break;
+			case ParameterType::PerformancePreset:
+				apply_performance_preset(static_cast<uint32_t>(val));
+				break;
+			case ParameterType::CameraMode:
+				params_.camera_mode = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::VisualOverlays:
+				params_.visual_overlays_flags = static_cast<uint32_t>(val);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

@@ -54,12 +54,28 @@ private:
 				30.0, 60.0, "RK45"
 			},
 			{
+				"EHT Event Horizon Telescope Shadow (M87*)",
+				"Accretion Physics & Extreme Raytracing",
+				"Bardeen analytical critical curve benchmarking for spinning compact objects with photon sphere multi-turn lensing.",
+				"Kerr",
+				1.0, 0.90, 0.0, 0.0, 1.0, 0.0,
+				50.0, 50.0, "RK45"
+			},
+			{
 				"Binary Black Hole Coalescence 3.5PN",
 				"Gravitational Waves & Radiation Reaction",
 				"Tight binary compact object inspiring and emitting gravitational wave quadrupoles with 2.5PN / 3.5PN damping.",
 				"Kerr",
 				2.0, 0.5, 0.0, 0.0, 1.0, 0.0,
 				60.0, 50.0, "Vernier9"
+			},
+			{
+				"Hulse-Taylor Pulsar PSR B1913+16",
+				"Astrophysical Verification",
+				"High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay.",
+				"Schwarzschild",
+				2.828, 0.0, 0.0, 0.0, 1.0, 0.0,
+				120.0, 40.0, "Hermite4"
 			},
 			{
 				"Morris-Thorne Traversable Wormhole",
@@ -86,12 +102,28 @@ private:
 				50.0, 60.0, "RK45"
 			},
 			{
-				"Hulse-Taylor Pulsar PSR B1913+16",
-				"Astrophysical Verification",
-				"High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay.",
-				"Schwarzschild",
-				2.828, 0.0, 0.0, 0.0, 1.0, 0.0,
-				120.0, 40.0, "Hermite4"
+				"MOND Galaxy Rotation Curve (Milky Way)",
+				"Modified Gravity & Dark Matter",
+				"Modified Newtonian Dynamics reproducing asymptotic flat rotation velocities without dark matter halos.",
+				"FlatMinkowski",
+				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+				80.0, 60.0, "RK45"
+			},
+			{
+				"Reissner-Nordstrom Extremal Charged Singularity",
+				"Electrovacuum Solutions",
+				"Static charged black hole near extremality displaying inner and outer Cauchy horizons and repulsive gravity.",
+				"ReissnerNordstrom",
+				1.0, 0.0, 0.99, 0.0, 1.0, 0.0,
+				25.0, 65.0, "CashKarp"
+			},
+			{
+				"FLRW Accelerating Cosmological Expansion",
+				"Cosmological Spacetimes",
+				"Cosmological metric evolution with Lambda-CDM scale factor expansion and optical cosmological redshift.",
+				"FLRW",
+				1.0, 0.0, 0.0, 0.7, 1.0, 0.0,
+				10.0, 90.0, "RK45"
 			}
 		};
 	}
@@ -109,10 +141,20 @@ public:
 			ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Scientific Scenario Catalog");
 			ImGui::Separator();
 
+			static char search_filter[64] = "";
+			ImGui::InputTextWithHint("Search", "Filter scenarios by keyword...", search_filter, sizeof(search_filter));
+
 			ImGui::Columns(2, "ScenarioColumns", true);
-			ImGui::SetColumnWidth(0, 260.0f);
+			ImGui::SetColumnWidth(0, 300.0f);
 
 			for (int i = 0; i < static_cast<int>(presets_.size()); ++i) {
+				if (search_filter[0] != '\0') {
+					if (presets_[i].name.find(search_filter) == std::string::npos &&
+					    presets_[i].category.find(search_filter) == std::string::npos) {
+						continue;
+					}
+				}
+
 				const bool is_selected = (selected_index_ == i);
 				if (ImGui::Selectable(presets_[i].name.c_str(), is_selected)) {
 					selected_index_ = i;
@@ -133,11 +175,13 @@ public:
 				ImGui::Text("Spacetime Metric: %s", p.metric_type.c_str());
 				ImGui::Text("Central Mass:     %.2f M", p.mass);
 				ImGui::Text("Central Spin:     %.2f a", p.spin);
+				ImGui::Text("Electric Charge:  %.2f Q", p.charge);
 				ImGui::Text("Integrator:       %s", p.integrator.c_str());
 				ImGui::Text("Default FOV:      %.1f deg", p.cam_fov);
+				ImGui::Text("Initial Distance: %.1f M", p.cam_r);
 
 				ImGui::Spacing();
-				if (ImGui::Button("Activate Scenario Preset", ImVec2(220.0f, 32.0f))) {
+				if (ImGui::Button("Activate Scenario Preset", ImVec2(240.0f, 32.0f))) {
 					apply_preset(p);
 				}
 			}

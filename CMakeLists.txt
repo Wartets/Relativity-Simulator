@@ -397,5 +397,92 @@ add_executable(test_ui_multi_window tests/test_ui_multi_window.cpp)
 target_link_libraries(test_ui_multi_window PRIVATE relativistic_core imgui_lib)
 add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)
 
+option(ENABLE_LTO "Enable Link-Time Optimization (LTO / IPO)" ON)
+option(ENABLE_PGO_GENERATE "Enable Profile-Guided Optimization instrument generation" OFF)
+option(ENABLE_PGO_USE "Enable Profile-Guided Optimization profile utilization" OFF)
+
+if (ENABLE_LTO)
+	include(CheckIPOSupported)
+	check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+	if (ipo_supported)
+		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+	endif()
+endif()
+
+if (ENABLE_PGO_GENERATE)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		add_compile_options(-fprofile-generate)
+		add_link_options(-fprofile-generate)
+	elseif (MSVC)
+		add_compile_options(/GL)
+		add_link_options(/LTCG:PGINSTRUMENT)
+	endif()
+elseif (ENABLE_PGO_USE)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		add_compile_options(-fprofile-use -fprofile-correction)
+		add_link_options(-fprofile-use)
+	elseif (MSVC)
+		add_compile_options(/GL)
+		add_link_options(/LTCG:PGOPTIMIZE)
+	endif()
+endif()
+
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)
+
+add_executable(headless_exporter apps/headless_exporter/main.cpp)
+target_link_libraries(headless_exporter PRIVATE relativistic_core)
+
+include(GNUInstallDirs)
+
+install(TARGETS engine_cli headless_exporter
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+	COMPONENT Application
+)
+
+install(DIRECTORY include/relativistic
+	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+	COMPONENT Development
+	FILES_MATCHING PATTERN "*.hpp"
+)
+
+install(DIRECTORY shaders
+	DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine/shaders
+	COMPONENT RuntimeData
+	FILES_MATCHING PATTERN "*.comp"
+)
+
+install(DIRECTORY scenarios
+	DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine/scenarios
+	COMPONENT Scenarios
+	FILES_MATCHING PATTERN "*.yaml"
+)
+
+include(InstallRequiredSystemLibraries)
+
+set(CPACK_PACKAGE_NAME "relativistic-engine")
+set(CPACK_PACKAGE_VENDOR "Relativistic Scientific Computing Team")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-Precision Relativistic Mechanics and Radiative Transfer Engine")
+set(CPACK_PACKAGE_VERSION_MAJOR 1)
+set(CPACK_PACKAGE_VERSION_MINOR 0)
+set(CPACK_PACKAGE_VERSION_PATCH 0)
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+set(CPACK_STRIP_FILES TRUE)
+
+if (WIN32)
+	set(CPACK_GENERATOR "ZIP;NSIS")
+	set(CPACK_NSIS_DISPLAY_NAME "Relativistic Engine 1.0.0")
+	set(CPACK_NSIS_PACKAGE_NAME "RelativisticEngine")
+	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+	set(CPACK_NSIS_MODIFY_PATH ON)
+else()
+	set(CPACK_GENERATOR "TGZ;DEB;RPM")
+	set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Relativistic Engine Maintainers <contact@relativistic-engine.org>")
+	set(CPACK_DEBIAN_PACKAGE_SECTION "science")
+	set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+	set(CPACK_RPM_PACKAGE_GROUP "Applications/Engineering")
+	set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+endif()
+
+include(CPack)

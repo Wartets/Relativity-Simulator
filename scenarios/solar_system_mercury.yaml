@@ -1,0 +1,47 @@
+scenario_name: "solar_system_mercury"
+description: "High-precision 1PN Post-Newtonian Solar System Ephemeris validation for Mercury perihelion precession"
+spacetime:
+  metric_type: "Schwarzschild"
+  central_mass: 1.98847e30
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 299792458.0
+  gravitational_constant: 6.67430e-11
+integrator:
+  scheme: "RK45"
+  initial_step: 100.0
+  min_step: 1.0
+  max_step: 3600.0
+  relative_tolerance: 1.0e-13
+  absolute_tolerance: 1.0e-16
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+bodies:
+  - name: "Sun"
+    body_id: 10
+    mass: 1.98847e30
+    radius: 6.9634e8
+    spin: 0.0
+    charge: 0.0
+    position: [0.0, 0.0, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 0.0, 0.0]
+  - name: "Mercury"
+    body_id: 199
+    mass: 3.3011e23
+    radius: 2.4397e6
+    spin: 0.0
+    charge: 0.0
+    position: [0.0, 4.60012e10, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 58980.0, 0.0]
+observers:
+  - name: "EclipticObserver"
+    fov_deg: 60.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 1.495978707e11, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

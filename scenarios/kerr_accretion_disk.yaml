@@ -1,0 +1,31 @@
+scenario_name: "kerr_accretion_disk"
+description: "Rapidly spinning Kerr black hole (a=0.98M) with Novikov-Thorne geometrically thin accretion disk and relativistic beaming"
+spacetime:
+  metric_type: "Kerr"
+  central_mass: 10.0
+  central_spin: 0.98
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+integrator:
+  scheme: "Vernier9"
+  initial_step: -0.02
+  min_step: 1.0e-8
+  max_step: 0.5
+  relative_tolerance: 1.0e-11
+  absolute_tolerance: 1.0e-15
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+bodies: []
+observers:
+  - name: "PrimaryKerrCamera"
+    fov_deg: 65.0
+    resolution: [3840, 2160]
+    position: [0.0, 30.0, 1.3962634, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

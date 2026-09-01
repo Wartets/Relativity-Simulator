@@ -1,0 +1,42 @@
+scenario_name: "galaxy_collision"
+description: "Direct collision and merger of two spiral galaxies with Navarro-Frenk-White dark matter halos and stellar disks"
+spacetime:
+  metric_type: "Minkowski"
+  central_mass: 0.0
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 299792458.0
+  gravitational_constant: 6.67430e-11
+integrator:
+  scheme: "BarnesHutLeapfrog"
+  initial_step: 3.15576e13
+  min_step: 3.15576e11
+  max_step: 3.15576e14
+  relative_tolerance: 1.0e-8
+  absolute_tolerance: 1.0e-12
+output:
+  fits_enabled: false
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+bodies:
+  - name: "Galaxy1_Core"
+    body_id: 1001
+    mass: 1.0e11
+    radius: 1.0e20
+    spin: 0.0
+    charge: 0.0
+    position: [0.0, -1.0e21, 0.0, 0.0]
+    velocity: [299792458.0, 1.5e5, 0.0, 0.0]
+  - name: "Galaxy2_Core"
+    body_id: 1002
+    mass: 1.0e11
+    radius: 1.0e20
+    spin: 0.0
+    charge: 0.0
+    position: [0.0, 1.0e21, 0.0, 0.0]
+    velocity: [299792458.0, -1.5e5, 0.0, 0.0]
+observers: []

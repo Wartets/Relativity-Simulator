@@ -1,0 +1,26 @@
+scenario_name: "relativistic_shock_tube"
+description: "Relativistic Sod shock tube benchmark with WENO-Z spatial reconstruction and HLLC approximate Riemann solver"
+spacetime:
+  metric_type: "Minkowski"
+  central_mass: 0.0
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+integrator:
+  scheme: "SSPRK3"
+  initial_step: 0.001
+  min_step: 1.0e-6
+  max_step: 0.01
+  relative_tolerance: 1.0e-8
+  absolute_tolerance: 1.0e-12
+output:
+  fits_enabled: false
+  hdf5_enabled: true
+  vtk_enabled: false
+  export_directory: "./output"
+bodies: []
+observers: []

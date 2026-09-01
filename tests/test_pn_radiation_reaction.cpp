@@ -31,7 +31,7 @@ int main() {
 	const size_t num_steps = 2000;
 
 	for (size_t step = 0; step < num_steps; ++step) {
-		AdaptiveRungeKuttaPNIntegrator::step(sys, dt);
+		RungeKutta4PNIntegrator::step(sys, dt);
 	}
 
 	const double e_final = sys.compute_total_energy();

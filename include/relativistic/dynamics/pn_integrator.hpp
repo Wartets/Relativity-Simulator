@@ -266,8 +266,10 @@ public:
 				const double err_x = dt * std::abs(E1 * k1_v[i][c] + E3 * k3_v[i][c] + E4 * k4_v[i][c] + E5 * k5_v[i][c] + E6 * k6_v[i][c] + E7 * k7_v[i][c]);
 				const double err_v = dt * std::abs(E1 * k1_a[i][c] + E3 * k3_a[i][c] + E4 * k4_a[i][c] + E5 * k5_a[i][c] + E6 * k6_a[i][c] + E7 * k7_a[i][c]);
 
-				const double scale_x = rtol * std::max(std::abs(orig_bodies[i].position[c]), std::abs(bodies[i].position[c])) + atol;
-				const double scale_v = rtol * std::max(std::abs(orig_bodies[i].velocity[c]), std::abs(bodies[i].velocity[c])) + atol;
+				const double r_mag = std::max(orig_bodies[i].radius, std::sqrt(orig_bodies[i].position[0] * orig_bodies[i].position[0] + orig_bodies[i].position[1] * orig_bodies[i].position[1] + orig_bodies[i].position[2] * orig_bodies[i].position[2]));
+				const double v_mag = std::max(1.0, orig_bodies[i].speed());
+				const double scale_x = rtol * r_mag + atol;
+				const double scale_v = rtol * v_mag + atol;
 
 				max_err = std::max({max_err, err_x / scale_x, err_v / scale_v});
 			}

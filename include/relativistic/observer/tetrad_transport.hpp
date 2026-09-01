@@ -269,13 +269,11 @@ public:
 		AccelerationFunc&& get_proper_acc,
 		bool is_coordinate_time = false
 	) const noexcept {
-		const Scalar c = metric_.speed_of_light();
-
 		auto eval_stage_derivatives = [&](const WorldlineObserverState<Scalar>& st, Scalar& out_dtau_rate) noexcept -> FermiWalkerDerivatives<Scalar> {
 			auto d = compute_derivatives(st, get_proper_acc(st));
 			const Scalar u0 = st.four_velocity(0);
 			if (is_coordinate_time) {
-				const Scalar inv_u0 = (u0 > static_cast<Scalar>(0.0)) ? (c / u0) : static_cast<Scalar>(1.0);
+				const Scalar inv_u0 = (u0 > static_cast<Scalar>(0.0)) ? (static_cast<Scalar>(1.0) / u0) : static_cast<Scalar>(1.0);
 				for (size_t mu = 0; mu < 4; ++mu) {
 					d.d_position(mu) *= inv_u0;
 					d.d_velocity(mu) *= inv_u0;
@@ -338,7 +336,7 @@ public:
 
 		const Scalar delta_tau = sixth_h * (dtau_k1 + static_cast<Scalar>(2) * dtau_k2 + static_cast<Scalar>(2) * dtau_k3 + dtau_k4);
 		state.proper_time += delta_tau;
-		state.coordinate_time = state.position(0) / c;
+		state.coordinate_time = state.position(0);
 		stats_.accumulated_proper_time += delta_tau;
 		++stats_.steps_taken;
 

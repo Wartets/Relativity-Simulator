@@ -82,6 +82,8 @@ struct PNOrderConfig {
 		double g = Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT
 	) noexcept {
 		PNOrderConfig cfg{};
+		cfg.enable_1pn = false;
+		cfg.enable_2pn = false;
 		cfg.enable_3pn = false;
 		cfg.enable_3_5pn = false;
 		cfg.enable_spin_orbit = false;

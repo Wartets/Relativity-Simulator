@@ -54,7 +54,7 @@ private:
 	bool show_telemetry_{false};
 	bool show_spectrograph_{false};
 	bool show_controls_{true};
-	bool show_performance_{false};
+	bool show_performance_{true};
 	bool show_diagnostics_{false};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
@@ -304,7 +304,7 @@ private:
 			const float top_h = std::clamp(screen_h * 0.68f, 450.0f, 780.0f);
 			const float bottom_h = screen_h - top_h - 45.0f;
 
-			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 10.0f, offset_y + 35.0f));
+			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 35.0f, offset_y + 35.0f));
 			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h));
 
 			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + 35.0f));

@@ -140,10 +140,14 @@ private:
 
 	void render_camera_tab() noexcept {
 		const char* projections[] = {
-			"Pinhole Perspective",
+			"Standard Perspective (Pinhole)",
 			"Auto-Zoom (Aberration Comp.)",
-			"Fisheye Stereographic",
-			"Equirectangular 360 Panorama"
+			"Fisheye Stereographic (Conformal)",
+			"Equirectangular 360 Panorama",
+			"Fisheye Equidistant (All-Sky)",
+			"Fisheye Orthographic (Hemisphere)",
+			"Panini Cylindrical (Wide-Angle)",
+			"Hammer-Aitoff (Equal-Area)"
 		};
 
 		if (ImGui::Combo("Projection Mode", &projection_mode_, projections, IM_ARRAYSIZE(projections))) {

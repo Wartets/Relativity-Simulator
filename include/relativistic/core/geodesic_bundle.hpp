@@ -142,6 +142,14 @@ struct alignas(64) GeodesicBundle {
 		return minkowski_norm_squared(p0, p1, p2, p3, speed_of_light);
 	}
 
+	constexpr void set_step_size(const SimdVec<T, Width>& dt) noexcept {
+		step_size = dt;
+	}
+
+	constexpr void set_step_size_scalar(T dt) noexcept {
+		step_size = SimdVec<T, Width>(dt);
+	}
+
 	void step_rk4_schwarzschild(
 		T mass,
 		T speed_of_light = static_cast<T>(1),
@@ -195,9 +203,10 @@ struct alignas(64) GeodesicBundle {
 			const auto g313 = inv_r;
 			const auto safe_sin_t = select(abs(sin_t) < SimdVec<T, Width>(eps_val), SimdVec<T, Width>(eps_val), sin_t);
 			const auto g323 = cos_t / safe_sin_t;
+			const auto p_t = v_one / safe_factor;
 
-			dp0 = -v_two * g001 * rp0 * rp1;
-			dp1 = -(g100 * rp0 * rp0 + g111 * rp1 * rp1 + g122 * rp2 * rp2 + g133 * rp3 * rp3);
+			dp0 = SimdVec<T, Width>(static_cast<T>(0));
+			dp1 = -(g100 * p_t * p_t + g111 * rp1 * rp1 + g122 * rp2 * rp2 + g133 * rp3 * rp3);
 			dp2 = -(v_two * g212 * rp1 * rp2 + g233 * rp3 * rp3);
 			dp3 = -v_two * (g313 * rp1 * rp3 + g323 * rp2 * rp3);
 		};
@@ -283,7 +292,7 @@ struct alignas(64) GeodesicBundle {
 		const auto horizon_hit = (x1 <= (v_rs * static_cast<T>(1.001)));
 		mask_mark_horizon(horizon_hit);
 
-		const auto celestial_escape = (x1 >= SimdVec<T, Width>(static_cast<T>(100.0) * r_s));
+		const auto celestial_escape = (x1 >= SimdVec<T, Width>(static_cast<T>(40.0) * r_s));
 		mask_mark_celestial(celestial_escape);
 	}
 };

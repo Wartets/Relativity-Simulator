@@ -164,23 +164,27 @@ public:
 			pipeline_.dispatch(cam_consts);
 
 			if (pipeline_.check_and_clear_new_frame()) {
-				const auto fb = pipeline_.framebuffer();
-				const size_t pixel_count = static_cast<size_t>(current_width_) * static_cast<size_t>(current_height_);
-				if (color_upload_buffer_.size() < pixel_count * 4) {
-					color_upload_buffer_.assign(pixel_count * 4, 0.0f);
-				}
-				for (size_t i = 0; i < pixel_count && i < fb.size(); ++i) {
+				std::vector<Render::GpuPixelOutput> fb;
+				uint32_t fb_w = 0, fb_h = 0;
+				pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+				const size_t pixel_count = static_cast<size_t>(fb_w) * static_cast<size_t>(fb_h);
+				if (pixel_count > 0 && fb.size() == pixel_count) {
+					if (color_upload_buffer_.size() < pixel_count * 4) {
+						color_upload_buffer_.assign(pixel_count * 4, 0.0f);
+					}
+					for (size_t i = 0; i < pixel_count; ++i) {
 					color_upload_buffer_[i * 4 + 0] = fb[i].r;
 					color_upload_buffer_[i * 4 + 1] = fb[i].g;
 					color_upload_buffer_[i * 4 + 2] = fb[i].b;
 					color_upload_buffer_[i * 4 + 3] = fb[i].a;
+					}
+					glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
+					glTexImage2D(
+						GL_TEXTURE_2D, 0, GL_RGBA32F,
+						static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h),
+						0, GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
+					);
 				}
-				glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
-				glTexImage2D(
-					GL_TEXTURE_2D, 0, GL_RGBA32F,
-					static_cast<GLsizei>(current_width_), static_cast<GLsizei>(current_height_),
-					0, GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
-				);
 			}
 
 			ImGui::Image(

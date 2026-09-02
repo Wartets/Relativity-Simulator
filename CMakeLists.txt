@@ -193,6 +193,10 @@ add_executable(test_spsc_queue tests/test_spsc_queue.cpp)
 target_link_libraries(test_spsc_queue PRIVATE relativistic_core)
 add_test(NAME test_spsc_queue COMMAND test_spsc_queue)
 
+add_executable(test_thread_pool tests/test_thread_pool.cpp)
+target_link_libraries(test_thread_pool PRIVATE relativistic_core)
+add_test(NAME test_thread_pool COMMAND test_thread_pool)
+
 add_executable(test_repl_parser tests/test_repl_parser.cpp)
 target_link_libraries(test_repl_parser PRIVATE relativistic_core)
 add_test(NAME test_repl_parser COMMAND test_repl_parser)

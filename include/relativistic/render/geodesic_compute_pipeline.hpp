@@ -3,6 +3,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/software_compute_engine.hpp"
+#include "relativistic/core/thread_pool.hpp"
 #include <vector>
 #include <span>
 #include <memory>
@@ -43,14 +44,17 @@ private:
 	std::vector<GpuPixelOutput> back_buffer_;
 	PipelineExecutionTelemetry telemetry_{};
 
-	std::mutex mutex_;
+	mutable std::mutex mutex_;
 	std::condition_variable cv_;
 	std::atomic<bool> is_running_{true};
 	std::atomic<bool> request_pending_{false};
 	std::atomic<bool> new_frame_ready_{false};
 	std::atomic<bool> is_rendering_{false};
+	uint32_t rendered_width_{3840};
+	uint32_t rendered_height_{2160};
 
 	GpuCameraPushConstants pending_constants_{};
+	std::unique_ptr<Core::ThreadPool> thread_pool_{};
 	std::jthread worker_thread_;
 
 	void worker_loop(std::stop_token st) noexcept {
@@ -71,11 +75,16 @@ private:
 				is_rendering_.store(true, std::memory_order_relaxed);
 			}
 
+			const size_t req_pixels = static_cast<size_t>(current_job.screen_width) * static_cast<size_t>(current_job.screen_height);
+			if (back_buffer_.size() != req_pixels) {
+				back_buffer_.assign(req_pixels, GpuPixelOutput{});
+			}
+
 			const auto t_start = std::chrono::high_resolution_clock::now();
 			if (config_.precision == PrecisionMode::NativeFloat64) {
-				SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_);
+				SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get());
 			} else {
-				SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_);
+				SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get());
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
 			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
@@ -89,10 +98,12 @@ private:
 
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
-				std::swap(front_buffer_, back_buffer_);
+				front_buffer_ = back_buffer_;
+				rendered_width_ = current_job.screen_width;
+				rendered_height_ = current_job.screen_height;
 				telemetry_.execution_time_ms = duration_ms;
 				telemetry_.frame_rate_fps = (duration_ms > 0.0) ? (1000.0 / duration_ms) : 0.0;
-				telemetry_.total_pixels_processed = config_.width * config_.height;
+				telemetry_.total_pixels_processed = req_pixels;
 				telemetry_.horizon_pixels_absorbed = absorbed;
 				telemetry_.celestial_pixels_hit = celestial;
 				new_frame_ready_.store(true, std::memory_order_release);
@@ -103,7 +114,8 @@ private:
 
 public:
 	explicit GeodesicComputePipeline(const GeodesicPipelineConfig& config = {})
-		: config_(config) {
+		: config_(config),
+		  thread_pool_(std::make_unique<Core::ThreadPool>()) {
 		front_buffer_.resize(config_.width * config_.height);
 		back_buffer_.resize(config_.width * config_.height);
 		static_cast<void>(context_.initialize(config_.headless, config_.precision == PrecisionMode::NativeFloat64));
@@ -124,8 +136,6 @@ public:
 		std::lock_guard<std::mutex> lock(mutex_);
 		config_.width = width;
 		config_.height = height;
-		front_buffer_.resize(width * height);
-		back_buffer_.resize(width * height);
 	}
 
 	void set_precision_mode(PrecisionMode mode) noexcept {
@@ -144,11 +154,14 @@ public:
 		return context_;
 	}
 
-	[[nodiscard]] std::span<const GpuPixelOutput> framebuffer() const noexcept {
-		return front_buffer_;
+	void copy_framebuffer(std::vector<GpuPixelOutput>& dst, uint32_t& out_w, uint32_t& out_h) const {
+		std::lock_guard<std::mutex> lock(mutex_);
+		dst = front_buffer_;
+		out_w = rendered_width_;
+		out_h = rendered_height_;
 	}
 
-	[[nodiscard]] std::span<GpuPixelOutput> framebuffer() noexcept {
+	[[nodiscard]] std::span<const GpuPixelOutput> framebuffer() const noexcept {
 		return front_buffer_;
 	}
 
@@ -169,9 +182,9 @@ public:
 			GpuCameraPushConstants actual_constants = camera_constants;
 			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			if (config_.precision == PrecisionMode::NativeFloat64) {
-				SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_);
+				SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, thread_pool_.get());
 			} else {
-				SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_);
+				SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, thread_pool_.get());
 			}
 			new_frame_ready_.store(true, std::memory_order_release);
 			return;

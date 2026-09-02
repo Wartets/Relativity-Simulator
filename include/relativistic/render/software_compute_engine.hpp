@@ -6,6 +6,8 @@
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
+#include "relativistic/core/thread_pool.hpp"
+#include "relativistic/core/geodesic_bundle.hpp"
 #include <vector>
 #include <span>
 #include <thread>
@@ -205,9 +207,10 @@ private:
 	}
 
 public:
-	static void dispatch_fp64(
+	static void dispatch_fp64_scalar(
 		const GpuCameraPushConstants& params,
-		std::span<GpuPixelOutput> output_framebuffer
+		std::span<GpuPixelOutput> output_framebuffer,
+		Core::ThreadPool* pool = nullptr
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -239,13 +242,14 @@ public:
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 				for (size_t x = 0; x < width; ++x) {
 					const size_t pixel_idx = y * width + x;
+					if (pixel_idx >= output_framebuffer.size()) continue;
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
+					const bool is_allsky = (params.projection_mode == 3 || params.projection_mode == 7);
+					const double u_coord = is_allsky ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm;
 					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
 						static_cast<Observer::ProjectionMode>(params.projection_mode),
-						(params.projection_mode == 3) ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm,
-						v_norm,
-						params.field_of_view_rad
+						u_coord, v_norm, params.field_of_view_rad
 					);
 
 					const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
@@ -465,21 +469,306 @@ public:
 			}
 		};
 
-		const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
-		for (size_t t = 0; t < num_threads; ++t) {
-			const size_t y_start = t * rows_per_thread;
-			const size_t y_end = std::min(y_start + rows_per_thread, height);
-			if (y_start < y_end) {
-				workers.emplace_back(render_slice, y_start, y_end);
+		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
+			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+				render_slice(y_start, y_end);
+			});
+		} else {
+			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+			for (size_t t = 0; t < num_threads; ++t) {
+				const size_t y_start = t * rows_per_thread;
+				const size_t y_end = std::min(y_start + rows_per_thread, height);
+				if (y_start < y_end) {
+					workers.emplace_back(render_slice, y_start, y_end);
+				}
 			}
+		}
+	}
+
+	static void dispatch_fp64_simd(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		Core::ThreadPool* pool = nullptr
+	) noexcept {
+		const size_t width = params.screen_width;
+		const size_t height = params.screen_height;
+		const size_t total_pixels = width * height;
+
+		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
+			return;
+		}
+
+		const double m = std::max(params.metric_mass, 1e-4);
+		const double a_spin = std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
+		const double rs = 2.0 * m;
+		const double rh = (std::abs(a_spin) > 1e-12) ? (m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0))) : rs;
+		const double aspect = static_cast<double>(width) / static_cast<double>(height);
+
+		const double isco = (std::abs(a_spin) > 1e-12) ? std::max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
+		const double disk_outer = 24.0 * m;
+
+		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
+		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
+		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
+
+		const double r_obs = std::max(params.observer_position[1], rh * 1.02);
+		const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
+		const double phi_obs = params.observer_position[3];
+
+		const double sin_to = std::sin(theta_obs);
+		const double cos_to = std::cos(theta_obs);
+		const double sin_po = std::sin(phi_obs);
+		const double cos_po = std::cos(phi_obs);
+
+		const double er_x = sin_to * cos_po, er_y = sin_to * sin_po, er_z = cos_to;
+		const double eth_x = cos_to * cos_po, eth_y = cos_to * sin_po, eth_z = -sin_to;
+		const double eph_x = -sin_po, eph_y = cos_po, eph_z = 0.0;
+
+		const double factor_obs = std::max(1.0 - rs / r_obs, 1e-6);
+		const double sqrt_factor_obs = std::sqrt(factor_obs);
+
+		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
+		const double fov_rad = params.field_of_view_rad;
+
+		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
+			for (size_t y = y_start; y < y_end; ++y) {
+				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
+
+				for (size_t x = 0; x < width; x += 4) {
+					Core::GeodesicBundle4d bundle;
+					const size_t lanes = std::min(size_t{4}, width - x);
+
+					std::array<double, 4> accum_r{0.0, 0.0, 0.0, 0.0};
+					std::array<double, 4> accum_g{0.0, 0.0, 0.0, 0.0};
+					std::array<double, 4> accum_b{0.0, 0.0, 0.0, 0.0};
+					std::array<double, 4> throughput{1.0, 1.0, 1.0, 1.0};
+					std::array<double, 4> redshift_rec{1.0, 1.0, 1.0, 1.0};
+					std::array<uint32_t, 4> status{0, 0, 0, 0};
+					std::array<uint32_t, 4> iters{0, 0, 0, 0};
+
+					for (size_t l = 0; l < 4; ++l) {
+						if (l < lanes) {
+							const size_t cur_x = x + l;
+							const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
+							const double u_norm = is_allsky
+								? (((static_cast<double>(cur_x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
+								: (((static_cast<double>(cur_x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
+
+							const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
+								proj_mode, u_norm, v_norm, fov_rad
+							);
+
+							const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
+							const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
+							const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
+
+							const double n_r = ray_dir_x * er_x + ray_dir_y * er_y + ray_dir_z * er_z;
+							const double n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
+							const double n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
+
+							bundle.x0[l] = 0.0;
+							bundle.x1[l] = r_obs;
+							bundle.x2[l] = theta_obs;
+							bundle.x3[l] = phi_obs;
+
+							bundle.p0[l] = 1.0 / factor_obs;
+							bundle.p1[l] = n_r / sqrt_factor_obs;
+							bundle.p2[l] = n_th / r_obs;
+							bundle.p3[l] = n_ph / (r_obs * sin_to);
+							bundle.active_mask[l] = true;
+						} else {
+							bundle.x0[l] = 0.0;
+							bundle.x1[l] = r_obs;
+							bundle.x2[l] = theta_obs;
+							bundle.x3[l] = phi_obs;
+							bundle.p0[l] = 1.0;
+							bundle.p1[l] = 0.0;
+							bundle.p2[l] = 0.0;
+							bundle.p3[l] = 0.0;
+							bundle.active_mask[l] = false;
+						}
+					}
+
+					const uint32_t step_limit = std::min(params.max_integration_steps, 512u);
+					for (uint32_t step = 0; step < step_limit && bundle.active_mask.any(); ++step) {
+						for (size_t l = 0; l < lanes; ++l) {
+							if (bundle.active_mask[l]) {
+								iters[l] = step + 1;
+								if (bundle.x1[l] <= rh * 1.002) {
+									status[l] |= PixelFlags::HORIZON_ABSORBED;
+									throughput[l] = 0.0;
+									bundle.active_mask[l] = false;
+								} else if (bundle.x1[l] >= params.escape_radius || (step > 2 && bundle.x1[l] >= 25.0 * m && bundle.p1[l] > 0.0)) {
+									status[l] |= PixelFlags::CELESTIAL_HIT;
+									bundle.active_mask[l] = false;
+								}
+							}
+						}
+
+						if (!bundle.active_mask.any()) break;
+
+						for (size_t l = 0; l < 4; ++l) {
+							if (bundle.active_mask[l]) {
+								double dt_step = 0.08;
+								if (bundle.x1[l] > 15.0 * m) {
+									dt_step = (bundle.p1[l] > 0.0) ? (0.40 * bundle.x1[l]) : (0.20 * bundle.x1[l]);
+								} else if (bundle.x1[l] > 5.0 * m) {
+									dt_step = 0.12 * bundle.x1[l];
+								} else {
+									dt_step = std::max(0.06 * (bundle.x1[l] - rh), 0.01);
+								}
+								bundle.step_size[l] = -std::min(dt_step, 6.0);
+							} else {
+								bundle.step_size[l] = -0.01;
+							}
+						}
+
+						std::array<double, 4> prev_r{bundle.x1[0], bundle.x1[1], bundle.x1[2], bundle.x1[3]};
+						std::array<double, 4> prev_th{bundle.x2[0], bundle.x2[1], bundle.x2[2], bundle.x2[3]};
+						std::array<double, 4> prev_phi{bundle.x3[0], bundle.x3[1], bundle.x3[2], bundle.x3[3]};
+
+						bundle.step_rk4_schwarzschild(m, 1.0, 1.0);
+
+						for (size_t l = 0; l < lanes; ++l) {
+							if (bundle.horizon_mask[l]) {
+								status[l] |= PixelFlags::HORIZON_ABSORBED;
+								throughput[l] = 0.0;
+							}
+							if (bundle.celestial_mask[l]) {
+								status[l] |= PixelFlags::CELESTIAL_HIT;
+							}
+						}
+
+						const double mid_plane = std::numbers::pi_v<double> * 0.5;
+						for (size_t l = 0; l < lanes; ++l) {
+							if (throughput[l] > 0.01 && ((prev_th[l] - mid_plane) * (bundle.x2[l] - mid_plane) <= 0.0)) {
+								const double d_th_span = std::abs(bundle.x2[l] - prev_th[l]);
+								const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_th[l] - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
+								const double r_cross = prev_r[l] + s_cross * (bundle.x1[l] - prev_r[l]);
+								const double phi_cross = prev_phi[l] + s_cross * (bundle.x3[l] - prev_phi[l]);
+
+								if (r_cross >= isco && r_cross <= disk_outer) {
+									status[l] |= PixelFlags::ACCRETION_DISK_HIT;
+
+									const double v_orb = std::sqrt(m / r_cross);
+									const double omega_orb = v_orb / r_cross;
+									const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * m / r_cross, 1e-4));
+
+									const double Lz_val = bundle.p3[l] * (bundle.x1[l] * bundle.x1[l] * std::max(std::sin(bundle.x2[l]) * std::sin(bundle.x2[l]), 1e-6));
+									const double E_val = 1.0;
+									const double l_over_e = Lz_val / std::max(std::abs(E_val), 1e-12);
+									const double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
+									const double g_doppler = (std::abs(denom_g) > 1e-12) ? (std::sqrt(std::max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+									redshift_rec[l] = g_doppler;
+
+									const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
+									const double t_eff_k = 18000.0 * t_norm + 1200.0;
+									const double t_obs = t_eff_k * g_doppler;
+
+									const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
+									const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+									const double turbulence = 0.88 + 0.12 * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
+									const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
+
+									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
+									const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+
+									accum_r[l] += throughput[l] * static_cast<double>(disk_rgb[0]);
+									accum_g[l] += throughput[l] * static_cast<double>(disk_rgb[1]);
+									accum_b[l] += throughput[l] * static_cast<double>(disk_rgb[2]);
+									throughput[l] *= (1.0 - alpha_opacity);
+								}
+							}
+						}
+					}
+
+					for (size_t l = 0; l < lanes; ++l) {
+						if (status[l] & PixelFlags::CELESTIAL_HIT || throughput[l] > 0.01) {
+							const double sin_t = std::sin(bundle.x2[l]);
+							const double cos_t = std::cos(bundle.x2[l]);
+							const double sin_p = std::sin(bundle.x3[l]);
+							const double cos_p = std::cos(bundle.x3[l]);
+
+							const double px = bundle.p1[l] * sin_t * cos_p + bundle.x1[l] * bundle.p2[l] * cos_t * cos_p - bundle.x1[l] * sin_t * bundle.p3[l] * sin_p;
+							const double py = bundle.p1[l] * sin_t * sin_p + bundle.x1[l] * bundle.p2[l] * cos_t * sin_p + bundle.x1[l] * sin_t * bundle.p3[l] * cos_p;
+							const double pz = bundle.p1[l] * cos_t - bundle.x1[l] * bundle.p2[l] * sin_t;
+
+							const double p_len = std::sqrt(px * px + py * py + pz * pz);
+							const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
+							const double dir_x = (p_len > 1e-12) ? (px * inv_plen) : 0.0;
+							const double dir_y = (p_len > 1e-12) ? (py * inv_plen) : 1.0;
+							const double dir_z = (p_len > 1e-12) ? (pz * inv_plen) : 0.0;
+
+							const auto sky_rgb = (params.render_flags & RenderFlags::USE_GRID_SKYBOX)
+								? sample_celestial_grid_sphere(dir_x, dir_y, dir_z)
+								: sample_celestial_starfield(dir_x, dir_y, dir_z);
+
+							accum_r[l] += throughput[l] * static_cast<double>(sky_rgb[0]);
+							accum_g[l] += throughput[l] * static_cast<double>(sky_rgb[1]);
+							accum_b[l] += throughput[l] * static_cast<double>(sky_rgb[2]);
+						}
+
+						const auto mapped_srgb = apply_tonemapping(
+							{accum_r[l], accum_g[l], accum_b[l]},
+							params.tonemapping_mode,
+							params.camera_exposure
+						);
+
+						const size_t out_idx = y * width + (x + l);
+						if (out_idx < output_framebuffer.size()) {
+							output_framebuffer[out_idx] = GpuPixelOutput{
+								.r = mapped_srgb[0],
+								.g = mapped_srgb[1],
+								.b = mapped_srgb[2],
+								.a = 1.0f,
+								.redshift = static_cast<float>(redshift_rec[l]),
+								.affine_parameter = static_cast<float>(iters[l] * 0.05),
+							.status_flags = status[l],
+								.iterations_used = iters[l]
+							};
+						}
+					}
+				}
+			}
+		};
+
+		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
+			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+				render_simd_slice(y_start, y_end);
+			});
+		} else {
+			const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
+			std::vector<std::jthread> workers;
+			workers.reserve(num_threads);
+			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+			for (size_t t = 0; t < num_threads; ++t) {
+				const size_t y_start = t * rows_per_thread;
+				const size_t y_end = std::min(y_start + rows_per_thread, height);
+				if (y_start < y_end) {
+					workers.emplace_back(render_simd_slice, y_start, y_end);
+				}
+			}
+		}
+	}
+
+	static void dispatch_fp64(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		Core::ThreadPool* pool = nullptr
+	) noexcept {
+		if (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) {
+			dispatch_fp64_scalar(params, output_framebuffer, pool);
+		} else {
+			dispatch_fp64_simd(params, output_framebuffer, pool);
 		}
 	}
 
 	static void dispatch_double_single(
 		const GpuCameraPushConstants& params,
-		std::span<GpuPixelOutput> output_framebuffer
+		std::span<GpuPixelOutput> output_framebuffer,
+		Core::ThreadPool* pool = nullptr
 	) noexcept {
-		dispatch_fp64(params, output_framebuffer);
+		dispatch_fp64(params, output_framebuffer, pool);
 	}
 };
 

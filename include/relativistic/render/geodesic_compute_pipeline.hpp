@@ -50,6 +50,7 @@ private:
 	std::atomic<bool> request_pending_{false};
 	std::atomic<bool> new_frame_ready_{false};
 	std::atomic<bool> is_rendering_{false};
+	std::atomic<bool> cancel_render_{false};
 	uint32_t rendered_width_{3840};
 	uint32_t rendered_height_{2160};
 
@@ -80,13 +81,18 @@ private:
 				back_buffer_.assign(req_pixels, GpuPixelOutput{});
 			}
 
+			cancel_render_.store(false, std::memory_order_relaxed);
 			const auto t_start = std::chrono::high_resolution_clock::now();
 			if (config_.precision == PrecisionMode::NativeFloat64) {
-				SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get());
+				SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get(), &cancel_render_);
 			} else {
-				SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get());
+				SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get(), &cancel_render_);
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
+			if (cancel_render_.load(std::memory_order_relaxed)) {
+				is_rendering_.store(false, std::memory_order_relaxed);
+				continue;
+			}
 			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
 			uint64_t absorbed = 0;
@@ -192,6 +198,9 @@ public:
 
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
+			if (is_rendering_.load(std::memory_order_relaxed)) {
+				cancel_render_.store(true, std::memory_order_relaxed);
+			}
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			request_pending_.store(true, std::memory_order_release);

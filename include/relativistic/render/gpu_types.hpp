@@ -84,6 +84,11 @@ namespace PixelFlags {
 }
 
 namespace RenderFlags {
+	static constexpr uint32_t SKYBOX_STARS = 0U;
+	static constexpr uint32_t SKYBOX_GRID = 1U;
+	static constexpr uint32_t SKYBOX_COMPOSITE = 2U;
+	static constexpr uint32_t SKYBOX_VOID = 3U;
+	static constexpr uint32_t SKYBOX_MODE_MASK = 0x0FU;
 	static constexpr uint32_t USE_GRID_SKYBOX = 1U << 4;
 	static constexpr uint32_t USE_SCALAR_PIPELINE = 1U << 5;
 	static constexpr uint32_t USE_PER_FRAME_THREADS = 1U << 6;

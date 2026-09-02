@@ -43,6 +43,7 @@ private:
 	Render::GpuCameraPushConstants last_camera_constants_{};
 	double last_logical_time_{-1.0};
 	bool force_rerender_{true};
+	bool has_received_frame_{false};
 
 	void init_gl_texture() noexcept {
 		if (gl_texture_id_ == 0) {
@@ -130,6 +131,7 @@ public:
 				current_height_ = target_h;
 				pipeline_.resize(current_width_, current_height_);
 				color_upload_buffer_.assign(static_cast<size_t>(current_width_) * static_cast<size_t>(current_height_) * 4, 0.0f);
+				force_rerender_ = true;
 			}
 
 			if (is_hovered_ || is_focused_) {
@@ -198,6 +200,7 @@ public:
 					color_upload_buffer_[i * 4 + 2] = fb[i].b;
 					color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
+					has_received_frame_ = true;
 					glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
 					if (fb_w != allocated_texture_w_ || fb_h != allocated_texture_h_) {
 						glTexImage2D(
@@ -223,9 +226,10 @@ public:
 			);
 
 			render_viewport_toolbar();
+			render_loading_indicator(avail);
 
 			if (show_telemetry_overlay_) {
-				render_hud_overlay(avail);
+				render_hud_overlay(avail, window);
 			}
 		
 		ImGui::End();
@@ -316,8 +320,44 @@ public:
 		ImGui::EndGroup();
 	}
 
+	void render_loading_indicator(const ImVec2& avail) noexcept {
+		const bool is_loading = pipeline_.is_rendering() || !has_received_frame_;
+		if (!is_loading) return;
+
+		const ImVec2 center(avail.x - 36.0f, avail.y - 36.0f);
+		const float radius = 14.0f;
+		const double time = ImGui::GetTime();
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		const ImVec2 window_pos = ImGui::GetWindowPos();
+		const ImVec2 draw_center(window_pos.x + center.x, window_pos.y + center.y);
+
+		draw_list->AddCircleFilled(draw_center, radius + 8.0f, IM_COL32(15, 15, 25, 200));
+
+		const int num_segments = 24;
+		const float start_angle = static_cast<float>(time * 8.0);
+		const float arc_len = static_cast<float>(std::numbers::pi * 1.3);
+
+		for (int i = 0; i < num_segments; ++i) {
+			const float a1 = start_angle + (static_cast<float>(i) / static_cast<float>(num_segments)) * arc_len;
+			const float a2 = start_angle + (static_cast<float>(i + 1) / static_cast<float>(num_segments)) * arc_len;
+			const float alpha = static_cast<float>(i + 1) / static_cast<float>(num_segments);
+			const ImU32 col = IM_COL32(50 + static_cast<int>(180 * alpha), 150 + static_cast<int>(105 * alpha), 255, static_cast<int>(255 * alpha));
+			draw_list->AddLine(
+				ImVec2(draw_center.x + std::cos(a1) * radius, draw_center.y + std::sin(a1) * radius),
+				ImVec2(draw_center.x + std::cos(a2) * radius, draw_center.y + std::sin(a2) * radius),
+				col, 3.0f
+			);
+		}
+
+		draw_list->AddText(
+			ImVec2(draw_center.x - 145.0f, draw_center.y - 7.0f),
+			IM_COL32(200, 225, 255, 240),
+			"Calculating Geodesics..."
+		);
+	}
+
 private:
-	void render_hud_overlay(const ImVec2& avail) noexcept {
+	void render_hud_overlay(const ImVec2& avail, GLFWwindow* window) noexcept {
 		const auto& cam = orchestrator_.camera();
 		const auto& params = orchestrator_.parameters();
 		const auto& tel = pipeline_.telemetry();
@@ -334,12 +374,34 @@ private:
 		ImGui::SetCursorPos(ImVec2(avail.x - 240.0f, 16.0f));
 		ImGui::BeginGroup();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Navigation Controls:");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Z/W: Forward | S: Back");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Q/A: Left    | D: Right");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Space: Up    | Ctrl/C: Down");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "J/K: Roll    | Shift: Sprint");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Right Click Drag: Look Around");
-		ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 0.8f), "Mouse Scroll: Zoom / FOV");
+
+		auto draw_keybind = [&](const char* label, bool is_active) noexcept {
+			if (is_active) {
+				ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.2f, 1.0f), "> %s <", label);
+			} else {
+				ImGui::TextColored(ImVec4(0.7f, 0.75f, 0.8f, 0.8f), "  %s", label);
+			}
+		};
+
+		const bool fwd = window && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS);
+		const bool back = window && (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS);
+		const bool left = window && (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS);
+		const bool right = window && (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS);
+		const bool up = window && (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
+		const bool down = window && (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS);
+		const bool roll = window && (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS);
+		const bool sprint = window && (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+		const bool rmb = window && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS || glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+
+		draw_keybind("Z/W: Forward", fwd);
+		draw_keybind("S: Back", back);
+		draw_keybind("Q/A: Left", left);
+		draw_keybind("D: Right", right);
+		draw_keybind("Space: Up", up);
+		draw_keybind("Ctrl/C: Down", down);
+		draw_keybind("J/K: Roll", roll);
+		draw_keybind("Shift: Sprint", sprint);
+		draw_keybind("Mouse Drag: Look", rmb);
 		ImGui::EndGroup();
 	}
 };

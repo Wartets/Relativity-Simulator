@@ -49,12 +49,15 @@ public:
 				"Balanced (0.75x scale, 1024 steps)",
 				"Quality High (1.0x scale, 2048 steps)",
 				"Ultra Fidelity (1.25x scale, 4096 steps)",
-				"Scientific Extreme (1.5x scale, 8192 steps)"
+				"Scientific Extreme (1.5x scale, 8192 steps)",
+				"Custom (User Defined)"
 			};
 
 			if (ImGui::Combo("Preset Profile", &preset_idx_, presets, IM_ARRAYSIZE(presets))) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(static_cast<uint32_t>(preset_idx_))));
-				sync_from_orchestrator();
+				if (preset_idx_ < 5) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(static_cast<uint32_t>(preset_idx_))));
+					sync_from_orchestrator();
+				}
 			}
 
 			ImGui::Spacing();
@@ -62,10 +65,12 @@ public:
 			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Rasterization & Ray Budget Configuration");
 
 			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.25f, 2.00f, "%.2fx")) {
+				preset_idx_ = 5;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(static_cast<double>(res_scale_))));
 			}
 
-			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 64, 4096)) {
+			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 64, 8192)) {
+				preset_idx_ = 5;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps_))));
 			}
 
@@ -75,11 +80,13 @@ public:
 			};
 
 			if (ImGui::Combo("Arithmetic Precision", &precision_mode_, precisions, IM_ARRAYSIZE(precisions))) {
+				preset_idx_ = 5;
 				orchestrator_.set_physical_param(Orchestrator::ParameterType::Custom, static_cast<double>(precision_mode_), "precision_mode");
 			}
 
 			bool use_simd = !(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_SCALAR_PIPELINE);
 			if (ImGui::Checkbox("SIMD Vector Geodesic Bundles (4x Lanes)", &use_simd)) {
+				preset_idx_ = 5;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_SCALAR_PIPELINE, !use_simd)));
 			}
 

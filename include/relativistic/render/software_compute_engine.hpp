@@ -210,7 +210,8 @@ public:
 	static void dispatch_fp64_scalar(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
-		Core::ThreadPool* pool = nullptr
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -239,6 +240,7 @@ public:
 
 		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 				for (size_t x = 0; x < width; ++x) {
 					const size_t pixel_idx = y * width + x;
@@ -441,9 +443,17 @@ public:
 						const double p_len = std::sqrt(px * px + py * py + pz * pz);
 						const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
 
-						const auto sky_rgb = (params.render_flags & 0x10U)
-							? sample_celestial_grid_sphere(px * inv_plen, py * inv_plen, pz * inv_plen)
-							: sample_celestial_starfield(px * inv_plen, py * inv_plen, pz * inv_plen);
+						std::array<float, 3> sky_rgb{0.0f, 0.0f, 0.0f};
+						const uint32_t sky_mode = params.render_flags & RenderFlags::SKYBOX_MODE_MASK;
+						if (sky_mode == RenderFlags::SKYBOX_GRID || (params.render_flags & RenderFlags::USE_GRID_SKYBOX)) {
+							sky_rgb = sample_celestial_grid_sphere(px * inv_plen, py * inv_plen, pz * inv_plen);
+						} else if (sky_mode == RenderFlags::SKYBOX_COMPOSITE) {
+							const auto stars = sample_celestial_starfield(px * inv_plen, py * inv_plen, pz * inv_plen);
+							const auto grid = sample_celestial_grid_sphere(px * inv_plen, py * inv_plen, pz * inv_plen);
+							sky_rgb = {stars[0] + grid[0] * 0.7f, stars[1] + grid[1] * 0.7f, stars[2] + grid[2] * 0.7f};
+						} else if (sky_mode == RenderFlags::SKYBOX_STARS) {
+							sky_rgb = sample_celestial_starfield(px * inv_plen, py * inv_plen, pz * inv_plen);
+						}
 						accumulated_r += throughput * static_cast<double>(sky_rgb[0]);
 						accumulated_g += throughput * static_cast<double>(sky_rgb[1]);
 						accumulated_b += throughput * static_cast<double>(sky_rgb[2]);
@@ -488,7 +498,8 @@ public:
 	static void dispatch_fp64_simd(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
-		Core::ThreadPool* pool = nullptr
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -532,6 +543,7 @@ public:
 
 		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 
 				for (size_t x = 0; x < width; x += 4) {
@@ -699,10 +711,17 @@ public:
 							const double dir_y = (p_len > 1e-12) ? (py * inv_plen) : 1.0;
 							const double dir_z = (p_len > 1e-12) ? (pz * inv_plen) : 0.0;
 
-							const auto sky_rgb = (params.render_flags & RenderFlags::USE_GRID_SKYBOX)
-								? sample_celestial_grid_sphere(dir_x, dir_y, dir_z)
-								: sample_celestial_starfield(dir_x, dir_y, dir_z);
-
+							std::array<float, 3> sky_rgb{0.0f, 0.0f, 0.0f};
+							const uint32_t sky_mode = params.render_flags & RenderFlags::SKYBOX_MODE_MASK;
+							if (sky_mode == RenderFlags::SKYBOX_GRID || (params.render_flags & RenderFlags::USE_GRID_SKYBOX)) {
+								sky_rgb = sample_celestial_grid_sphere(dir_x, dir_y, dir_z);
+							} else if (sky_mode == RenderFlags::SKYBOX_COMPOSITE) {
+								const auto stars = sample_celestial_starfield(dir_x, dir_y, dir_z);
+								const auto grid = sample_celestial_grid_sphere(dir_x, dir_y, dir_z);
+								sky_rgb = {stars[0] + grid[0] * 0.7f, stars[1] + grid[1] * 0.7f, stars[2] + grid[2] * 0.7f};
+							} else if (sky_mode == RenderFlags::SKYBOX_STARS) {
+								sky_rgb = sample_celestial_starfield(dir_x, dir_y, dir_z);
+							}
 							accum_r[l] += throughput[l] * static_cast<double>(sky_rgb[0]);
 							accum_g[l] += throughput[l] * static_cast<double>(sky_rgb[1]);
 							accum_b[l] += throughput[l] * static_cast<double>(sky_rgb[2]);
@@ -754,21 +773,23 @@ public:
 	static void dispatch_fp64(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
-		Core::ThreadPool* pool = nullptr
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
 		if (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) {
-			dispatch_fp64_scalar(params, output_framebuffer, pool);
+			dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {
-			dispatch_fp64_simd(params, output_framebuffer, pool);
+			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag);
 		}
 	}
 
 	static void dispatch_double_single(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
-		Core::ThreadPool* pool = nullptr
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
-		dispatch_fp64(params, output_framebuffer, pool);
+		dispatch_fp64(params, output_framebuffer, pool, cancel_flag);
 	}
 };
 

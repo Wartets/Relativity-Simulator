@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
+#include "relativistic/render/gpu_types.hpp"
 #include <string>
 #include <array>
 
@@ -71,6 +72,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Optics & Camera")) {
 					render_camera_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Skybox & Environment")) {
+					render_skybox_tab();
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem("Solvers & Integrators")) {
@@ -188,6 +193,43 @@ private:
 
 		if (ImGui::SliderFloat("Exposure Compensation (EV)", &camera_exposure_, -6.0f, 6.0f, "%.2f EV")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
+		}
+	}
+
+	void render_skybox_tab() noexcept {
+		const char* sky_modes[] = {
+			"Milky Way Starfield",
+			"Celestial Coordinate Grid",
+			"Composite (Starfield + Grid Overlay)",
+			"Dark Cosmic Void"
+		};
+
+		int current_sky = static_cast<int>(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK);
+		if (ImGui::Combo("Skybox Style", &current_sky, sky_modes, IM_ARRAYSIZE(sky_modes))) {
+			uint32_t flags = orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK;
+			flags |= static_cast<uint32_t>(current_sky);
+			orchestrator_.parameters().visual_overlays_flags = flags;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Skybox Presets:");
+		if (ImGui::Button("Full Starfield", ImVec2(120.0f, 26.0f))) {
+			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_STARS;
+			orchestrator_.parameters().visual_overlays_flags = flags;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Grid Sphere", ImVec2(110.0f, 26.0f))) {
+			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_GRID;
+			orchestrator_.parameters().visual_overlays_flags = flags;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Composite Overlay", ImVec2(130.0f, 26.0f))) {
+			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_COMPOSITE;
+			orchestrator_.parameters().visual_overlays_flags = flags;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
 		}
 
 		ImGui::Separator();

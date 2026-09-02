@@ -60,6 +60,8 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t render_flags{0};
 	uint32_t projection_mode{0};
 	uint32_t padding1{0};
+
+	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
 
 struct alignas(16) GpuPixelOutput {

@@ -38,6 +38,11 @@ private:
 	bool is_hovered_{false};
 	bool is_focused_{false};
 	bool show_telemetry_overlay_{true};
+	uint32_t allocated_texture_w_{0};
+	uint32_t allocated_texture_h_{0};
+	Render::GpuCameraPushConstants last_camera_constants_{};
+	double last_logical_time_{-1.0};
+	bool force_rerender_{true};
 
 	void init_gl_texture() noexcept {
 		if (gl_texture_id_ == 0) {
@@ -75,6 +80,10 @@ public:
 			glDeleteTextures(1, &gl_texture_id_);
 			gl_texture_id_ = 0;
 		}
+	}
+
+	void request_rerender() noexcept {
+		force_rerender_ = true;
 	}
 
 	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
@@ -160,8 +169,19 @@ public:
 			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
 			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
 
-			pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
-			pipeline_.dispatch(cam_consts);
+			const auto snap = orchestrator_.scheduler().snapshot();
+			const bool is_time_progressing = !snap.is_paused || snap.remaining_steps > 0;
+			const bool time_changed = (snap.logical_time != last_logical_time_);
+			const bool params_changed = !(cam_consts == last_camera_constants_);
+			const bool is_dirty = force_rerender_ || params_changed || (is_time_progressing && time_changed);
+
+			if (is_dirty) {
+				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
+				pipeline_.dispatch(cam_consts);
+				last_camera_constants_ = cam_consts;
+				last_logical_time_ = snap.logical_time;
+				force_rerender_ = false;
+			}
 
 			if (pipeline_.check_and_clear_new_frame()) {
 				std::vector<Render::GpuPixelOutput> fb;
@@ -179,11 +199,21 @@ public:
 					color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
 					glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
-					glTexImage2D(
-						GL_TEXTURE_2D, 0, GL_RGBA32F,
-						static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h),
-						0, GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
-					);
+					if (fb_w != allocated_texture_w_ || fb_h != allocated_texture_h_) {
+						glTexImage2D(
+							GL_TEXTURE_2D, 0, GL_RGBA32F,
+							static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h),
+							0, GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
+						);
+						allocated_texture_w_ = fb_w;
+						allocated_texture_h_ = fb_h;
+					} else {
+						glTexSubImage2D(
+							GL_TEXTURE_2D, 0, 0, 0,
+							static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h),
+							GL_RGBA, GL_FLOAT, color_upload_buffer_.data()
+						);
+					}
 				}
 			}
 

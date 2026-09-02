@@ -292,7 +292,7 @@ struct alignas(64) GeodesicBundle {
 		const auto horizon_hit = (x1 <= (v_rs * static_cast<T>(1.001)));
 		mask_mark_horizon(horizon_hit);
 
-		const auto celestial_escape = (x1 >= SimdVec<T, Width>(static_cast<T>(40.0) * r_s));
+		const auto celestial_escape = (x1 >= SimdVec<T, Width>(static_cast<T>(50.0) * r_s));
 		mask_mark_celestial(celestial_escape);
 	}
 };

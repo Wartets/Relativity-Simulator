@@ -87,10 +87,30 @@ public:
 	}
 
 	void wait_idle() noexcept {
-		std::unique_lock<std::mutex> lock(queue_mutex_);
-		cv_finished_.wait(lock, [this]() {
-			return tasks_.empty() && (active_tasks_.load(std::memory_order_acquire) == 0);
-		});
+		while (true) {
+			std::function<void()> task;
+			{
+				std::unique_lock<std::mutex> lock(queue_mutex_);
+				if (tasks_.empty()) {
+					if (active_tasks_.load(std::memory_order_acquire) == 0) {
+						return;
+					}
+					cv_finished_.wait(lock, [this]() {
+						return tasks_.empty() && (active_tasks_.load(std::memory_order_acquire) == 0);
+					});
+					return;
+				}
+				task = std::move(tasks_.front());
+				tasks_.pop();
+			}
+			if (task) {
+				task();
+				if (active_tasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					std::lock_guard<std::mutex> lock(queue_mutex_);
+					cv_finished_.notify_all();
+				}
+			}
+		}
 	}
 
 	template <typename Func>

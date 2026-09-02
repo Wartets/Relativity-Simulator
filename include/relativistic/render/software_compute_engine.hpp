@@ -589,7 +589,7 @@ public:
 						}
 					}
 
-					const uint32_t step_limit = std::min(params.max_integration_steps, 512u);
+					const uint32_t step_limit = params.max_integration_steps;
 					for (uint32_t step = 0; step < step_limit && bundle.active_mask.any(); ++step) {
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.active_mask[l]) {

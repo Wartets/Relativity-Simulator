@@ -24,6 +24,11 @@ enum class PrecisionMode : uint32_t {
 	DoubleSingleEmulation = 1
 };
 
+namespace SkyBackgroundLimits {
+	static constexpr double MIN_VALUE = 0.0;
+	static constexpr double MAX_VALUE = 1.0;
+}
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -60,6 +65,17 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t render_flags{0};
 	uint32_t projection_mode{0};
 	uint32_t padding1{0};
+
+	double sky_rotation_rad{0.0};
+	double sky_hue_shift_rad{0.0};
+	double sky_saturation{1.0};
+	double sky_star_density{1.0};
+	double sky_star_brightness{1.0};
+	double sky_nebula_intensity{1.0};
+	double sky_grid_opacity{1.0};
+	double sky_background_r{0.0};
+	double sky_background_g{0.0};
+	double sky_background_b{0.0};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

@@ -36,6 +36,15 @@ private:
 	float rocket_throttle_{0.0f};
 	int timeflow_mode_{0};
 
+	float sky_star_density_{1.0f};
+	float sky_star_brightness_{1.0f};
+	float sky_nebula_intensity_{1.0f};
+	float sky_grid_opacity_{1.0f};
+	float sky_rotation_{0.0f};
+	float sky_hue_shift_{0.0f};
+	float sky_saturation_{1.0f};
+	float sky_background_[3]{0.0f, 0.0f, 0.0f};
+
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator) {
@@ -56,6 +65,16 @@ public:
 		projection_mode_ = static_cast<int>(p.projection_mode);
 		tonemapping_mode_ = static_cast<int>(p.tonemapping_mode);
 		timeflow_mode_ = static_cast<int>(p.time_flow_mode);
+		sky_star_density_ = static_cast<float>(p.sky_star_density);
+		sky_star_brightness_ = static_cast<float>(p.sky_star_brightness);
+		sky_nebula_intensity_ = static_cast<float>(p.sky_nebula_intensity);
+		sky_grid_opacity_ = static_cast<float>(p.sky_grid_opacity);
+		sky_rotation_ = static_cast<float>(p.sky_rotation_deg);
+		sky_hue_shift_ = static_cast<float>(p.sky_hue_shift_deg);
+		sky_saturation_ = static_cast<float>(p.sky_saturation);
+		sky_background_[0] = static_cast<float>(p.sky_background_r);
+		sky_background_[1] = static_cast<float>(p.sky_background_g);
+		sky_background_[2] = static_cast<float>(p.sky_background_b);
 	}
 
 	void render() {
@@ -170,10 +189,10 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(tonemapping_mode_))));
 		}
 
-		bool use_grid_skybox = (orchestrator_.parameters().visual_overlays_flags & 0x10U) != 0U;
-		if (ImGui::Checkbox("Distant Grid Sphere Skybox", &use_grid_skybox)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(0x10U, use_grid_skybox)));
-		}
+		// bool use_grid_skybox = (orchestrator_.parameters().visual_overlays_flags & 0x10U) != 0U;
+		// if (ImGui::Checkbox("Distant Grid Sphere Skybox", &use_grid_skybox)) {
+		// 	static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(0x10U, use_grid_skybox)));
+		// }
 
 		ImGui::Separator();
 
@@ -198,9 +217,9 @@ private:
 
 	void render_skybox_tab() noexcept {
 		const char* sky_modes[] = {
-			"Milky Way Starfield",
-			"Celestial Coordinate Grid",
-			"Composite (Starfield + Grid Overlay)",
+			"Full Starfield",
+			"Grid Sphere",
+			"Composite Overlay (Starfield + Grid Overlay)",
 			"Dark Cosmic Void"
 		};
 
@@ -256,6 +275,58 @@ private:
 			c.pitch = 0.0;
 			c.yaw = 180.0;
 			c.roll = 0.0;
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sky Style Customization:");
+
+		if (ImGui::SliderFloat("Star Density", &sky_star_density_, 0.0f, 4.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, static_cast<double>(sky_star_density_))));
+		}
+		if (ImGui::SliderFloat("Star Brightness", &sky_star_brightness_, 0.0f, 4.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, static_cast<double>(sky_star_brightness_))));
+		}
+		if (ImGui::SliderFloat("Nebula Glow Intensity", &sky_nebula_intensity_, 0.0f, 4.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, static_cast<double>(sky_nebula_intensity_))));
+		}
+		if (ImGui::SliderFloat("Coordinate Grid Opacity", &sky_grid_opacity_, 0.0f, 2.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, static_cast<double>(sky_grid_opacity_))));
+		}
+		if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
+		}
+		if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
+		}
+		if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
+		}
+		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
+		}
+		if (ImGui::Button("Reset Sky Style to Defaults", ImVec2(220.0f, 26.0f))) {
+			sky_star_density_ = 1.0f;
+			sky_star_brightness_ = 1.0f;
+			sky_nebula_intensity_ = 1.0f;
+			sky_grid_opacity_ = 1.0f;
+			sky_rotation_ = 0.0f;
+			sky_hue_shift_ = 0.0f;
+			sky_saturation_ = 1.0f;
+			sky_background_[0] = 0.0f;
+			sky_background_[1] = 0.0f;
+			sky_background_[2] = 0.0f;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, 0.0)));
 		}
 	}
 

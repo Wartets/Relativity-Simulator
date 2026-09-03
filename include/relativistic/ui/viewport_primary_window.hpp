@@ -42,6 +42,7 @@ private:
 	uint32_t allocated_texture_h_{0};
 	Render::GpuCameraPushConstants last_camera_constants_{};
 	double last_logical_time_{-1.0};
+	double last_precision_selector_{-1.0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
 
@@ -157,6 +158,16 @@ public:
 			cam_consts.projection_mode = params.projection_mode;
 			cam_consts.max_integration_steps = params.max_ray_steps;
 			cam_consts.render_flags = params.visual_overlays_flags;
+			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
+			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
+			cam_consts.sky_saturation = params.sky_saturation;
+			cam_consts.sky_star_density = params.sky_star_density;
+			cam_consts.sky_star_brightness = params.sky_star_brightness;
+			cam_consts.sky_nebula_intensity = params.sky_nebula_intensity;
+			cam_consts.sky_grid_opacity = params.sky_grid_opacity;
+			cam_consts.sky_background_r = params.sky_background_r;
+			cam_consts.sky_background_g = params.sky_background_g;
+			cam_consts.sky_background_b = params.sky_background_b;
 			cam_consts.observer_position = {0.0, cam.radius, cam.theta, cam.phi};
 
 			const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
@@ -171,17 +182,22 @@ public:
 			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
 			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
 
+			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
+			const bool precision_changed = (precision_selector != last_precision_selector_);
+
 			const auto snap = orchestrator_.scheduler().snapshot();
 			const bool is_time_progressing = !snap.is_paused || snap.remaining_steps > 0;
 			const bool time_changed = (snap.logical_time != last_logical_time_);
 			const bool params_changed = !(cam_consts == last_camera_constants_);
-			const bool is_dirty = force_rerender_ || params_changed || (is_time_progressing && time_changed);
+			const bool is_dirty = force_rerender_ || params_changed || precision_changed || (is_time_progressing && time_changed);
 
 			if (is_dirty) {
+				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);
 				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
 				pipeline_.dispatch(cam_consts);
 				last_camera_constants_ = cam_consts;
 				last_logical_time_ = snap.logical_time;
+				last_precision_selector_ = precision_selector;
 				force_rerender_ = false;
 			}
 

@@ -39,6 +39,16 @@ struct PhysicalParameters {
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
 	uint32_t visual_overlays_flags{0x0F};
+	double sky_star_density{1.0};
+	double sky_star_brightness{1.0};
+	double sky_nebula_intensity{1.0};
+	double sky_grid_opacity{1.0};
+	double sky_rotation_deg{0.0};
+	double sky_hue_shift_deg{0.0};
+	double sky_saturation{1.0};
+	double sky_background_r{0.0};
+	double sky_background_g{0.0};
+	double sky_background_b{0.0};
 };
 
 struct CustomParameterEntry {
@@ -422,6 +432,36 @@ public:
 				break;
 			case ParameterType::VisualOverlays:
 				params_.visual_overlays_flags = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::SkyStarDensity:
+				params_.sky_star_density = std::max(val, 0.0);
+				break;
+			case ParameterType::SkyStarBrightness:
+				params_.sky_star_brightness = std::max(val, 0.0);
+				break;
+			case ParameterType::SkyNebulaIntensity:
+				params_.sky_nebula_intensity = std::max(val, 0.0);
+				break;
+			case ParameterType::SkyGridOpacity:
+				params_.sky_grid_opacity = std::max(val, 0.0);
+				break;
+			case ParameterType::SkyRotation:
+				params_.sky_rotation_deg = val;
+				break;
+			case ParameterType::SkyHueShift:
+				params_.sky_hue_shift_deg = val;
+				break;
+			case ParameterType::SkySaturation:
+				params_.sky_saturation = std::max(val, 0.0);
+				break;
+			case ParameterType::SkyBackgroundR:
+				params_.sky_background_r = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::SkyBackgroundG:
+				params_.sky_background_g = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::SkyBackgroundB:
+				params_.sky_background_b = std::clamp(val, 0.0, 1.0);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

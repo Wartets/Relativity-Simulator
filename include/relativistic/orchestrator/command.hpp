@@ -63,7 +63,17 @@ enum class ParameterType : uint32_t {
 	PerformancePreset = 20,
 	CameraMode = 21,
 	VisualOverlays = 22,
-	Custom = 23
+	Custom = 23,
+	SkyStarDensity = 24,
+	SkyStarBrightness = 25,
+	SkyNebulaIntensity = 26,
+	SkyGridOpacity = 27,
+	SkyRotation = 28,
+	SkyHueShift = 29,
+	SkySaturation = 30,
+	SkyBackgroundR = 31,
+	SkyBackgroundG = 32,
+	SkyBackgroundB = 33
 };
 
 struct Command {
@@ -562,6 +572,16 @@ public:
 			else if (iequals_sv(token2, "ray_steps") || iequals_sv(token2, "steps_limit")) ptype = ParameterType::MaxRaySteps;
 			else if (iequals_sv(token2, "performance") || iequals_sv(token2, "perf")) ptype = ParameterType::PerformancePreset;
 			else if (iequals_sv(token2, "camera_mode") || iequals_sv(token2, "cam_mode")) ptype = ParameterType::CameraMode;
+			else if (iequals_sv(token2, "sky_star_density")) ptype = ParameterType::SkyStarDensity;
+			else if (iequals_sv(token2, "sky_star_brightness")) ptype = ParameterType::SkyStarBrightness;
+			else if (iequals_sv(token2, "sky_nebula")) ptype = ParameterType::SkyNebulaIntensity;
+			else if (iequals_sv(token2, "sky_grid_opacity")) ptype = ParameterType::SkyGridOpacity;
+			else if (iequals_sv(token2, "sky_rotation")) ptype = ParameterType::SkyRotation;
+			else if (iequals_sv(token2, "sky_hue")) ptype = ParameterType::SkyHueShift;
+			else if (iequals_sv(token2, "sky_saturation")) ptype = ParameterType::SkySaturation;
+			else if (iequals_sv(token2, "sky_bg_r")) ptype = ParameterType::SkyBackgroundR;
+			else if (iequals_sv(token2, "sky_bg_g")) ptype = ParameterType::SkyBackgroundG;
+			else if (iequals_sv(token2, "sky_bg_b")) ptype = ParameterType::SkyBackgroundB;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

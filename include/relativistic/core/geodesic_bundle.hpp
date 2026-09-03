@@ -289,6 +289,17 @@ struct alignas(64) GeodesicBundle {
 
 		masked_assign(active_mask, affine_parameter, affine_parameter + dt);
 
+		const SimdVec<T, Width> zero_val(static_cast<T>(0));
+		const SimdVec<T, Width> pi_val(static_cast<T>(3.14159265358979323846264338327950288));
+		const auto below_zero = (x2 < zero_val);
+		const auto above_pi = (x2 > pi_val);
+		const auto crossed_pole = (below_zero || above_pi) && active_mask;
+
+		const auto reflected_theta = select(below_zero, zero_val - x2, select(above_pi, pi_val + pi_val - x2, x2));
+		x2 = select(crossed_pole, reflected_theta, x2);
+		x3 = select(crossed_pole, x3 + pi_val, x3);
+		p2 = select(crossed_pole, zero_val - p2, p2);
+
 		const auto horizon_hit = (x1 <= (v_rs * static_cast<T>(1.001)));
 		mask_mark_horizon(horizon_hit);
 

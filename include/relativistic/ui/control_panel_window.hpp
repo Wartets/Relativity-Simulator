@@ -12,6 +12,16 @@
 
 namespace Relativistic::UI {
 
+inline void render_setting_tooltip(const char* text) noexcept {
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+		ImGui::TextUnformatted(text);
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+}
+
 class ControlPanelWindow {
 private:
 	bool is_open_{true};
@@ -52,6 +62,7 @@ private:
 	float sky_hue_shift_{0.0f};
 	float sky_saturation_{1.0f};
 	float sky_background_[3]{0.0f, 0.0f, 0.0f};
+	uint64_t last_synced_version_{0};
 
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -77,6 +88,37 @@ public:
 		projection_mode_ = static_cast<int>(p.projection_mode);
 		tonemapping_mode_ = static_cast<int>(p.tonemapping_mode);
 		timeflow_mode_ = static_cast<int>(p.time_flow_mode);
+		const std::string& active_m = orchestrator_.active_metric_name();
+		if (active_m.find("Minkowski") != std::string::npos) metric_selection_ = 0;
+		else if (active_m.find("de Sitter") != std::string::npos) metric_selection_ = 5;
+		else if (active_m.find("Schwarzschild") != std::string::npos) metric_selection_ = 1;
+		else if (active_m.find("Newman") != std::string::npos) metric_selection_ = 4;
+		else if (active_m.find("Kerr") != std::string::npos) metric_selection_ = 2;
+		else if (active_m.find("Reissner") != std::string::npos) metric_selection_ = 3;
+		else if (active_m.find("FLRW") != std::string::npos) metric_selection_ = 6;
+		else if (active_m.find("Morris") != std::string::npos || active_m.find("Wormhole") != std::string::npos) metric_selection_ = 7;
+		else if (active_m.find("Alcubierre") != std::string::npos || active_m.find("Warp") != std::string::npos) metric_selection_ = 8;
+		else if (active_m.find("BSSN") != std::string::npos) metric_selection_ = 9;
+
+		const std::string& active_i = orchestrator_.active_integrator_name();
+		if (active_i.find("Cash") != std::string::npos) integrator_selection_ = 1;
+		else if (active_i.find("Vernier") != std::string::npos) integrator_selection_ = 2;
+		else if (active_i.find("Gauss") != std::string::npos && active_i.find("6") != std::string::npos) integrator_selection_ = 4;
+		else if (active_i.find("Gauss") != std::string::npos) integrator_selection_ = 3;
+		else if (active_i.find("Hermite") != std::string::npos) integrator_selection_ = 5;
+		else integrator_selection_ = 0;
+
+		const auto& cam = orchestrator_.camera();
+		manual_cartesian_position_[0] = static_cast<float>(cam.position[0]);
+		manual_cartesian_position_[1] = static_cast<float>(cam.position[1]);
+		manual_cartesian_position_[2] = static_cast<float>(cam.position[2]);
+		manual_spherical_position_[0] = static_cast<float>(cam.radius);
+		manual_spherical_position_[1] = static_cast<float>(cam.theta);
+		manual_spherical_position_[2] = static_cast<float>(cam.phi);
+		manual_orientation_[0] = static_cast<float>(cam.pitch);
+		manual_orientation_[1] = static_cast<float>(cam.yaw);
+		manual_orientation_[2] = static_cast<float>(cam.roll);
+
 		sky_star_density_ = static_cast<float>(p.sky_star_density);
 		sky_star_brightness_ = static_cast<float>(p.sky_star_brightness);
 		sky_nebula_intensity_ = static_cast<float>(p.sky_nebula_intensity);
@@ -92,8 +134,16 @@ public:
 	void render() {
 		if (!is_open_) return;
 
-		ImGui::SetNextWindowPos(ImVec2(1480.0f, 35.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(425.0f, 705.0f), ImGuiCond_FirstUseEver);
+		const uint64_t current_ver = orchestrator_.state_version();
+		if (current_ver != last_synced_version_) {
+			sync_from_orchestrator();
+			last_synced_version_ = current_ver;
+		} else if (!ImGui::IsAnyItemActive()) {
+			sync_from_orchestrator();
+		}
+
+		ImGui::SetNextWindowPos(ImVec2(1450.0f, 30.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(455.0f, 720.0f), ImGuiCond_FirstUseEver);
 
 		if (ImGui::Begin("Master Simulation Controls", &is_open_)) {
 			if (ImGui::BeginTabBar("ControlTabs")) {
@@ -146,6 +196,7 @@ private:
 			orchestrator_.set_active_metric_name(metric_names[metric_selection_]);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(metric_names[metric_selection_])));
 		}
+		render_setting_tooltip("Select the background Riemannian manifold or exact vacuum/electrovacuum spacetime solution to simulate.");
 
 		ImGui::Separator();
 
@@ -161,36 +212,42 @@ private:
 			if (ImGui::SliderFloat("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
+			render_setting_tooltip("Central gravitating mass in geometrized units (M). Governs Schwarzschild radius rs = 2M and spacetime curvature strength.");
 		}
 
 		if (needs_spin) {
 			if (ImGui::SliderFloat("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
 			}
+			render_setting_tooltip("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.");
 		}
 
 		if (needs_charge) {
 			if (ImGui::SliderFloat("Electric Charge (Q)", &charge_, -1.0f, 1.0f, "%.3f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
 			}
+			render_setting_tooltip("Net electrostatic charge in Coulomb geometrized units. Creates an inner Cauchy horizon and counteracts gravitational attraction.");
 		}
 
 		if (needs_lambda) {
 			if (ImGui::InputFloat("Cosmological Lambda", &lambda_, 1e-6f, 1e-4f, "%.6e")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
+			render_setting_tooltip("Cosmological constant responsible for large-scale cosmic acceleration and cosmological horizon creation.");
 		}
 
 		if (needs_throat) {
 			if (ImGui::SliderFloat("Wormhole Throat (b0)", &throat_, 0.1f, 20.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
 			}
+			render_setting_tooltip("Radius of the non-singular throat b0 for the Morris-Thorne wormhole connecting two distinct asymptotically flat universes.");
 		}
 
 		if (needs_warp_velocity) {
 			if (ImGui::SliderFloat("Warp Bubble Velocity (vs)", &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
 			}
+			render_setting_tooltip("Apparent transluminal velocity of the Alcubierre spacetime bubble contracting space ahead and expanding behind.");
 		}
 
 		if (!has_any_param) {
@@ -213,6 +270,7 @@ private:
 		if (ImGui::Combo("Projection Mode", &projection_mode_, projections, IM_ARRAYSIZE(projections))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ProjectionMode, static_cast<double>(projection_mode_))));
 		}
+		render_setting_tooltip("Optical projection geometry used to map the celestial sphere onto the screen (Pinhole, Panoramas, Fisheyes, Hammer-Aitoff).");
 
 		const char* tonemappers[] = {
 			"Linear Unclamped",
@@ -224,6 +282,7 @@ private:
 		if (ImGui::Combo("HDR Tonemapper", &tonemapping_mode_, tonemappers, IM_ARRAYSIZE(tonemappers))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(tonemapping_mode_))));
 		}
+		render_setting_tooltip("Tone mapping operator compressing high dynamic range extreme radiant flux down to standard 8-bit sRGB display gamuts.");
 
 		ImGui::Separator();
 
@@ -232,18 +291,22 @@ private:
 		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
 		}
+		render_setting_tooltip("Observer navigation paradigm (6-DOF Free Fly, Spherical Boyer-Lindquist Orbit, Cockpit Flight).");
 
 		if (ImGui::SliderFloat("Field of View (FOV)", &camera_fov_, 10.0f, 160.0f, "%.1f deg")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(static_cast<double>(camera_fov_))));
 		}
+		render_setting_tooltip("Horizontal angular aperture in degrees. Can also be dynamically zoomed using mouse wheel scroll.");
 
 		if (ImGui::SliderFloat("Navigation Speed", &camera_speed_, 0.1f, 100.0f, "%.1f m/s")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_speed(static_cast<double>(camera_speed_))));
 		}
+		render_setting_tooltip("Translational observer traversal speed in coordinate units per second. Hold Shift to sprint, Ctrl to crawl.");
 
 		if (ImGui::SliderFloat("Exposure Compensation (EV)", &camera_exposure_, -6.0f, 6.0f, "%.2f EV")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
 		}
+		render_setting_tooltip("Logarithmic optical sensitivity compensation in Exposure Values (EV). Higher values brighten dim accretion emission.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
@@ -320,6 +383,7 @@ private:
 			orchestrator_.parameters().visual_overlays_flags = flags;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
 		}
+		render_setting_tooltip("Background celestial radiance model: celestial starfields, spherical coordinate grids, or void absorption.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Skybox Presets:");
@@ -463,6 +527,7 @@ private:
 			orchestrator_.set_active_integrator_name(integrators[integrator_selection_]);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(integrators[integrator_selection_])));
 		}
+		render_setting_tooltip("Numerical differential solver scheme: adaptive Runge-Kutta Dormand-Prince, high-order Vernier 9(8), or symplectic Gauss-Legendre.");
 
 		ImGui::Separator();
 
@@ -470,11 +535,13 @@ private:
 		if (ImGui::InputFloat("Relative Tolerance (rtol)", &rtol, 1e-12f, 1e-8f, "%.2e")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
 		}
+		render_setting_tooltip("Local relative error tolerance threshold controlling adaptive step-size regulation.");
 
 		float atol = static_cast<float>(orchestrator_.parameters().integration_atol);
 		if (ImGui::InputFloat("Absolute Tolerance (atol)", &atol, 1e-16f, 1e-12f, "%.2e")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
 		}
+		render_setting_tooltip("Absolute error tolerance floor preventing step-size collapse near null-coordinate vanishing states.");
 	}
 
 	void render_rocket_tab() noexcept {
@@ -482,12 +549,17 @@ private:
 		if (ImGui::Combo("Clock Flow", &timeflow_mode_, flows, IM_ARRAYSIZE(flows))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TimeFlowMode, static_cast<double>(timeflow_mode_))));
 		}
+		render_setting_tooltip("Select whether simulation time advances along observer comobile proper time (tau) or asymptotic coordinate time (t).");
 
 		ImGui::Separator();
 		ImGui::SliderFloat("Main Throttle", &rocket_throttle_, 0.0f, 1.0f, "%.2f");
+		render_setting_tooltip("Throttle percentage regulating main forward relativistic engine thrust.");
 		ImGui::SliderFloat("Thrust X (Longitudinal)", &rocket_thrust_x_, -100.0f, 100.0f, "%.1f m/s^2");
+		render_setting_tooltip("Proper thrust component directed along the vehicle forward longitudinal tetrad axis.");
 		ImGui::SliderFloat("Thrust Y (Lateral)", &rocket_thrust_y_, -50.0f, 50.0f, "%.1f m/s^2");
+		render_setting_tooltip("Proper thrust component directed along the vehicle horizontal lateral tetrad axis.");
 		ImGui::SliderFloat("Thrust Z (Normal)", &rocket_thrust_z_, -50.0f, 50.0f, "%.1f m/s^2");
+		render_setting_tooltip("Proper thrust component directed along the vehicle vertical normal tetrad axis.");
 	}
 
 	void render_execution_tab() noexcept {
@@ -500,11 +572,13 @@ private:
 		if (ImGui::SliderFloat("Warp Factor", &warp, 0.1f, 100.0f, "%.2fx")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(static_cast<double>(warp))));
 		}
+		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock.");
 
 		float rate = static_cast<float>(snap.tick_rate_hz);
 		if (ImGui::SliderFloat("Scheduler Rate", &rate, 10.0f, 240.0f, "%.0f Hz")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_tickrate(static_cast<double>(rate))));
 		}
+		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");
 
 		ImGui::Separator();
 

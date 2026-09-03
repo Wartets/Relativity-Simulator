@@ -7,24 +7,19 @@
 #include <vector>
 #include <string>
 #include <string_view>
-#include <array>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
 
 namespace Relativistic::UI {
 
-struct ScenarioPresetItem {
-	std::string name;
-	std::string category;
-	std::string description;
-	std::string metric_type;
-	double mass{1.0};
-	double spin{0.0};
-	double charge{0.0};
-	double lambda{0.0};
-	double throat{1.0};
-	double warp_vel{1.0};
-	double cam_r{50.0};
-	double cam_fov{60.0};
-	std::string integrator{"RK45"};
+struct ScenarioFileItem {
+	std::string filename;
+	std::string filepath;
+	bool is_compatible{false};
+	std::string error_message{};
+	IO::ScenarioDefinition definition{};
 };
 
 class ScenarioSelectorWindow {
@@ -32,59 +27,74 @@ private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController* camera_controller_{nullptr};
-	std::vector<ScenarioPresetItem> presets_;
+	std::vector<ScenarioFileItem> presets_{};
 	int selected_index_{0};
 	char custom_path_buffer_[256]{"scenarios/custom_scenario.yaml"};
 
-	void initialize_presets() {
-		presets_ = {
-			{
-				"Schwarzschild Black Hole & Accretion Disk",
-				"Accretion Physics & Extreme Raytracing",
-				"Static Schwarzschild black hole with an equatorial Novikov-Thorne accretion disk and gravitational lensing.",
-				"Schwarzschild",
-				1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-				33.0, 60.0, "RK45"
-			},
-			{
-				"Kerr Rotating Black Hole (a=0.94)",
-				"Accretion Physics & Extreme Raytracing",
-				"Rapidly spinning Kerr black hole (a=0.94) surrounded by an asymmetric beaming accretion disk.",
-				"Kerr",
-				1.0, 0.94, 0.0, 0.0, 1.0, 0.0,
-				33.0, 60.0, "RK45"
-			},
-			{
-				"Hulse-Taylor Pulsar PSR B1913+16",
-				"Astrophysical Verification",
-				"High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay.",
-				"Schwarzschild",
-				2.828, 0.0, 0.0, 0.0, 1.0, 0.0,
-				120.0, 40.0, "Hermite4"
-			},
-			{
-				"Morris-Thorne Traversable Wormhole",
-				"Exotic Spacetimes",
-				"Static spherically symmetric traversable wormhole connecting two asymptotically flat spacetime sheets.",
-				"MorrisThorne",
-				0.0, 0.0, 0.0, 0.0, 5.0, 0.0,
-				20.0, 75.0, "GaussLegendre6"
-			},
-			{
-				"Alcubierre Superluminal Warp Bubble",
-				"Exotic Spacetimes",
-				"Dynamic spacetime curvature bubble contracting space in front and expanding behind at apparent speed vs=2.0c.",
-				"Alcubierre",
-				0.0, 0.0, 0.0, 0.0, 1.0, 2.0,
-				40.0, 70.0, "RK45"
+public:
+	void scan_scenario_directory() {
+		presets_.clear();
+		std::vector<std::string> search_paths = {"scenarios", "../scenarios", "./scenarios"};
+		std::string target_dir;
+		for (const auto& path_str : search_paths) {
+			if (std::filesystem::exists(path_str) && std::filesystem::is_directory(path_str)) {
+				target_dir = path_str;
+				break;
 			}
-		};
+		}
+		if (target_dir.empty()) {
+			return;
+		}
+
+		for (const auto& entry : std::filesystem::directory_iterator(target_dir)) {
+			if (!entry.is_regular_file()) continue;
+			const auto ext = entry.path().extension().string();
+			if (ext != ".yaml" && ext != ".yml") continue;
+
+			ScenarioFileItem item;
+			item.filename = entry.path().filename().string();
+			item.filepath = entry.path().string();
+
+			std::ifstream file(item.filepath);
+			if (!file.is_open()) {
+				item.is_compatible = false;
+				item.error_message = "Cannot open scenario file for reading.";
+				presets_.push_back(std::move(item));
+				continue;
+			}
+
+			std::stringstream buffer;
+			buffer << file.rdbuf();
+			const std::string yaml_content = buffer.str();
+
+			const auto parsed_opt = IO::ScenarioSerializer::from_yaml(yaml_content);
+			if (!parsed_opt.has_value()) {
+				item.is_compatible = false;
+				item.error_message = "Failed to parse YAML format.";
+				presets_.push_back(std::move(item));
+				continue;
+			}
+
+			item.definition = *parsed_opt;
+			const auto val_res = IO::ScenarioSerializer::validate(item.definition);
+			item.is_compatible = val_res.is_valid;
+			item.error_message = val_res.error_message;
+			presets_.push_back(std::move(item));
+		}
+
+		std::sort(presets_.begin(), presets_.end(), [](const ScenarioFileItem& a, const ScenarioFileItem& b) {
+			if (a.is_compatible != b.is_compatible) return a.is_compatible > b.is_compatible;
+			return a.filename < b.filename;
+		});
+
+		if (selected_index_ >= static_cast<int>(presets_.size())) {
+			selected_index_ = 0;
+		}
 	}
 
-public:
 	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController* cam_ctrl = nullptr)
 		: orchestrator_(orchestrator), camera_controller_(cam_ctrl) {
-		initialize_presets();
+		scan_scenario_directory();
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {
@@ -108,41 +118,82 @@ public:
 			ImGui::SetColumnWidth(0, 300.0f);
 
 			for (int i = 0; i < static_cast<int>(presets_.size()); ++i) {
+				const auto& item = presets_[i];
 				if (search_filter[0] != '\0') {
-					if (presets_[i].name.find(search_filter) == std::string::npos &&
-					    presets_[i].category.find(search_filter) == std::string::npos) {
+					if (item.definition.scenario_name.find(search_filter) == std::string::npos &&
+					    item.filename.find(search_filter) == std::string::npos &&
+					    item.definition.metric_type.find(search_filter) == std::string::npos) {
 						continue;
 					}
 				}
 
 				const bool is_selected = (selected_index_ == i);
-				if (ImGui::Selectable(presets_[i].name.c_str(), is_selected)) {
+				const std::string label = item.is_compatible
+					? (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name)
+					: ("[Incompatible] " + item.filename);
+
+				if (!item.is_compatible) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
+				} else {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 1.0f, 0.5f, 1.0f));
+				}
+
+				if (ImGui::Selectable(label.c_str(), is_selected)) {
 					selected_index_ = i;
+				}
+				ImGui::PopStyleColor();
+
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+					ImGui::BeginTooltip();
+					ImGui::Text("File: %s", item.filename.c_str());
+					if (!item.is_compatible) {
+						ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Validation Error: %s", item.error_message.c_str());
+					} else {
+						ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "Compatible (%s)", item.definition.metric_type.c_str());
+					}
+					ImGui::EndTooltip();
 				}
 			}
 
 			ImGui::NextColumn();
 
 			if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size())) {
-				const auto& p = presets_[selected_index_];
-				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", p.name.c_str());
-				ImGui::TextDisabled("Category: %s", p.category.c_str());
-				ImGui::Spacing();
-				ImGui::TextWrapped("%s", p.description.c_str());
-				ImGui::Spacing();
-				ImGui::Separator();
+				const auto& item = presets_[selected_index_];
+				const auto& def = item.definition;
 
-				ImGui::Text("Spacetime Metric: %s", p.metric_type.c_str());
-				ImGui::Text("Central Mass:     %.2f M", p.mass);
-				ImGui::Text("Central Spin:     %.2f a", p.spin);
-				ImGui::Text("Electric Charge:  %.2f Q", p.charge);
-				ImGui::Text("Integrator:       %s", p.integrator.c_str());
-				ImGui::Text("Default FOV:      %.1f deg", p.cam_fov);
-				ImGui::Text("Initial Distance: %.1f M", p.cam_r);
+				if (item.is_compatible) {
+					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", def.scenario_name.c_str());
+					ImGui::TextDisabled("File: %s", item.filename.c_str());
+					ImGui::Spacing();
+					ImGui::TextWrapped("%s", def.description.c_str());
+					ImGui::Spacing();
+					ImGui::Separator();
 
-				ImGui::Spacing();
-				if (ImGui::Button("Activate Scenario Preset", ImVec2(240.0f, 32.0f))) {
-					apply_preset(p);
+					ImGui::Text("Spacetime Metric: %s", def.metric_type.c_str());
+					ImGui::Text("Central Mass:     %.2f M", def.central_mass);
+					ImGui::Text("Central Spin:     %.2f a", def.central_spin);
+					ImGui::Text("Electric Charge:  %.2f Q", def.central_charge);
+					ImGui::Text("Integrator:       %s", def.integrator.scheme.c_str());
+					ImGui::Text("Bodies:           %zu", def.bodies.size());
+					ImGui::Text("Observers:        %zu", def.observers.size());
+
+					ImGui::Spacing();
+					if (ImGui::Button("Load Scenario", ImVec2(240.0f, 32.0f))) {
+						static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(item.filepath)));
+					}
+					if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+						ImGui::SetTooltip("Load and activate this validated scenario from disk into the simulation core.");
+					}
+				} else {
+					ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Incompatible: %s", item.filename.c_str());
+					ImGui::Separator();
+					ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", item.error_message.c_str());
+					ImGui::Spacing();
+					ImGui::TextWrapped("This scenario file violates physical invariants or specifies unsupported configuration parameters.");
+					ImGui::Spacing();
+					ImGui::BeginDisabled(true);
+					ImGui::Button("Cannot Load (Incompatible)", ImVec2(240.0f, 32.0f));
+					ImGui::EndDisabled();
 				}
 			}
 
@@ -150,6 +201,14 @@ public:
 			ImGui::Spacing();
 			ImGui::Separator();
 
+			if (ImGui::Button("Rescan Scenarios Folder", ImVec2(200.0f, 26.0f))) {
+				scan_scenario_directory();
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Dynamically scan the scenarios directory for newly added or modified YAML scenario files.");
+			}
+
+			ImGui::Spacing();
 			ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Custom Scenario File I/O (YAML)");
 			ImGui::InputText("Scenario Path", custom_path_buffer_, sizeof(custom_path_buffer_));
 
@@ -162,36 +221,6 @@ public:
 			}
 		}
 		ImGui::End();
-	}
-
-private:
-	void apply_preset(const ScenarioPresetItem& p) noexcept {
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
-		
-		orchestrator_.set_active_scenario_name(p.name);
-		orchestrator_.set_active_metric_name(p.metric_type);
-		orchestrator_.set_active_integrator_name(p.integrator);
-
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(p.metric_type)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, p.mass)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, p.spin)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, p.charge)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, p.lambda)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, p.throat)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, p.warp_vel)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(p.cam_fov)));
-
-		if (camera_controller_) {
-			camera_controller_->snap_to_equatorial_front(p.cam_r);
-		} else {
-			auto& cam = orchestrator_.camera();
-			cam.position = {0.0, p.cam_r, 0.0};
-			cam.pitch = 0.0;
-			cam.yaw = 180.0;
-			cam.roll = 0.0;
-		}
-		auto& cam = orchestrator_.camera();
-		cam.fov_deg = p.cam_fov;
 	}
 };
 

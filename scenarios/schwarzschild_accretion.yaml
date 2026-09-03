@@ -1,0 +1,31 @@
+scenario_name: "Schwarzschild Black Hole & Accretion Disk"
+description: "Static Schwarzschild black hole with an equatorial Novikov-Thorne accretion disk and gravitational lensing."
+spacetime:
+  metric_type: "Schwarzschild"
+  central_mass: 1.0
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 1.0
+  warp_velocity: 0.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+integrator:
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 10.0
+  relative_tolerance: 1.0e-10
+  absolute_tolerance: 1.0e-14
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+bodies: []
+observers:
+  - name: "PrimaryCamera"
+    fov_deg: 60.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 33.0, -5.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

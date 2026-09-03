@@ -93,6 +93,7 @@ private:
 
 	std::atomic<bool> is_running_{true};
 	std::atomic<uint64_t> commands_processed_{0};
+	std::atomic<uint64_t> state_version_{1};
 
 	void sync_camera_spherical_from_cartesian() noexcept {
 		const double x = camera_.position[0];
@@ -158,6 +159,7 @@ public:
 				for (auto& entry : custom_params_) {
 					entry.active = false;
 				}
+				state_version_.fetch_add(1, std::memory_order_release);
 				std::strncpy(res.message, "Simulation reset to initial state", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetTickRate:
@@ -316,6 +318,12 @@ public:
 		}
 
 		const auto& s = *scenario_opt;
+		const auto val_res = IO::ScenarioSerializer::validate(s);
+		if (!val_res.is_valid) {
+			res.success = false;
+			std::strncpy(res.message, val_res.error_message.c_str(), sizeof(res.message) - 1);
+			return;
+		}
 		active_scenario_name_ = s.scenario_name;
 		active_metric_name_ = s.metric_type;
 		params_.mass = s.central_mass;
@@ -335,8 +343,31 @@ public:
 			camera_.fov_deg = s.observers[0].field_of_view_deg;
 			params_.camera_fov_deg = camera_.fov_deg;
 			sync_camera_spherical_from_cartesian();
+			const double dx = -camera_.position[0];
+			const double dy = -camera_.position[1];
+			const double dz = -camera_.position[2];
+			const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+			if (d_tot > 1e-6) {
+				camera_.yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi_v<double>);
+				camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
+				camera_.roll = 0.0;
+			}
 		}
 
+		nbody_system_.clear_bodies();
+		for (const auto& b : s.bodies) {
+			nbody_system_.add_body(Dynamics::PostNewtonianBody(
+				b.body_id, b.mass, b.radius,
+				{b.initial_position[1], b.initial_position[2], b.initial_position[3]},
+				{b.initial_velocity[1], b.initial_velocity[2], b.initial_velocity[3]},
+				{0.0, 0.0, b.spin}, 0.0, 0.0, 0.0, 0.0, b.radius
+			));
+		}
+		if (!s.bodies.empty()) {
+			nbody_system_.update_accelerations();
+		}
+
+		state_version_.fetch_add(1, std::memory_order_release);
 		res.success = true;
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
 	}
@@ -589,6 +620,14 @@ public:
 
 	[[nodiscard]] uint64_t total_commands_processed() const noexcept {
 		return commands_processed_.load(std::memory_order_relaxed);
+	}
+
+	[[nodiscard]] uint64_t state_version() const noexcept {
+		return state_version_.load(std::memory_order_acquire);
+	}
+
+	void notify_state_changed() noexcept {
+		state_version_.fetch_add(1, std::memory_order_release);
 	}
 };
 

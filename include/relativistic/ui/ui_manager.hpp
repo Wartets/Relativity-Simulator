@@ -315,26 +315,26 @@ private:
 			const float top_h = std::clamp(screen_h * 0.68f, 450.0f, 780.0f);
 			const float bottom_h = screen_h - top_h - 45.0f;
 
-			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 20.0f, offset_y + 30.0f));
-			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h * 0.52f));
+			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 15.0f, offset_y + 30.0f));
+			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h * 0.50f));
 
-			ImGui::SetWindowPos("Celestial Body & N-Body Manager", ImVec2(offset_x + 20.0f, offset_y + 30.0f + top_h * 0.52f + 10.0f));
-			ImGui::SetWindowSize("Celestial Body & N-Body Manager", ImVec2(left_col_w, top_h * 0.48f - 10.0f));
+			ImGui::SetWindowPos("Celestial Body & N-Body Manager", ImVec2(offset_x + 15.0f, offset_y + 30.0f + top_h * 0.50f + 8.0f));
+			ImGui::SetWindowSize("Celestial Body & N-Body Manager", ImVec2(left_col_w, top_h * 0.50f - 16.0f));
 
 			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 15.0f, offset_y + 30.0f));
 			ImGui::SetWindowSize("Master Simulation Controls", ImVec2(right_col_w, top_h));
 
-			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 20.0f, offset_y + top_h + 35.0f));
-			ImGui::SetWindowSize("Telemetry & Invariants", ImVec2(left_col_w, bottom_h));
+			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 15.0f, offset_y + top_h + 24.0f));
+			ImGui::SetWindowSize("Telemetry & Invariants", ImVec2(left_col_w, bottom_h + 10.0f));
 
-			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 30.0f, offset_y + top_h + 35.0f));
-			ImGui::SetWindowSize("Radiative Transfer & Spectrograph Monitor", ImVec2(center_w * 0.5f - 10.0f, bottom_h));
+			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 25.0f, offset_y + top_h + 24.0f));
+			ImGui::SetWindowSize("Radiative Transfer & Spectrograph Monitor", ImVec2(center_w * 0.5f - 8.0f, bottom_h + 10.0f));
 
-			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 30.0f + center_w * 0.5f, offset_y + top_h + 35.0f));
-			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f - 10.0f, bottom_h));
+			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 25.0f + center_w * 0.5f, offset_y + top_h + 24.0f));
+			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f - 8.0f, bottom_h + 10.0f));
 
-			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 15.0f, offset_y + top_h + 35.0f));
-			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h));
+			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 15.0f, offset_y + top_h + 24.0f));
+			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h + 10.0f));
 		} else if (current_layout_ == UiLayoutPreset::ViewportFocused) {
 			if (scenario_window_) scenario_window_->open_state() = false;
 			telemetry_window_.open_state() = false;

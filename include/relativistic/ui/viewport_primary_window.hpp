@@ -44,6 +44,7 @@ private:
 	Render::GpuCameraPushConstants last_camera_constants_{};
 	double last_logical_time_{-1.0};
 	double last_precision_selector_{-1.0};
+	uint64_t last_synced_version_{0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
 	std::vector<double> frame_times_history_{};
@@ -56,6 +57,19 @@ private:
 		std::array<double, 3> position{0.0, 0.0, 0.0};
 		double recommended_distance{25.0};
 	};
+
+	[[nodiscard]] static uint32_t get_metric_id_from_name(std::string_view name) noexcept {
+		if (name.find("Minkowski") != std::string_view::npos) return 0;
+		if (name.find("Schwarzschild") != std::string_view::npos && name.find("de Sitter") != std::string_view::npos) return 6;
+		if (name.find("Schwarzschild") != std::string_view::npos) return 1;
+		if (name.find("Kerr-Newman") != std::string_view::npos) return 5;
+		if (name.find("Kerr") != std::string_view::npos) return 2;
+		if (name.find("Reissner") != std::string_view::npos) return 4;
+		if (name.find("FLRW") != std::string_view::npos) return 7;
+		if (name.find("Morris") != std::string_view::npos || name.find("Wormhole") != std::string_view::npos) return 8;
+		if (name.find("Alcubierre") != std::string_view::npos || name.find("Warp") != std::string_view::npos) return 9;
+		return 1;
+	}
 
 	void init_gl_texture() noexcept {
 		if (gl_texture_id_ == 0) {
@@ -166,6 +180,7 @@ public:
 			cam_consts.screen_width = current_width_;
 			cam_consts.screen_height = current_height_;
 			cam_consts.field_of_view_rad = cam.fov_deg * (std::numbers::pi / 180.0);
+			cam_consts.metric_type = get_metric_id_from_name(orchestrator_.active_metric_name());
 			cam_consts.metric_mass = params.mass;
 			cam_consts.metric_spin = params.spin;
 			cam_consts.metric_charge = params.charge;
@@ -206,6 +221,11 @@ public:
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
 			const bool precision_changed = (precision_selector != last_precision_selector_);
 
+			const uint64_t current_ver = orchestrator_.state_version();
+			if (current_ver != last_synced_version_) {
+				force_rerender_ = true;
+				last_synced_version_ = current_ver;
+			}
 			const auto snap = orchestrator_.scheduler().snapshot();
 			const bool is_time_progressing = !snap.is_paused || snap.remaining_steps > 0;
 			const bool time_changed = (snap.logical_time != last_logical_time_);
@@ -283,11 +303,22 @@ public:
 		const auto& p = orchestrator_.parameters();
 		const double m = std::max(p.mass, 1e-4);
 		const double a = p.spin;
+		const std::string& metric = orchestrator_.active_metric_name();
 
-		targets.push_back(DynamicLookAtTarget{"Central Spacetime Origin (r=0)", {0.0, 0.0, 0.0}, 25.0 * m});
-
+		targets.push_back(DynamicLookAtTarget{"Spacetime Singularity / Origin (r=0)", {0.0, 0.0, 0.0}, 25.0 * m});
 		const double r_h = (std::abs(a) > 1e-6) ? (m + std::sqrt(std::max(m * m - a * a, 0.0))) : (2.0 * m);
-		targets.push_back(DynamicLookAtTarget{"Event Horizon (r=" + std::to_string(r_h).substr(0, 4) + "M)", {0.0, r_h * 1.05, 0.0}, r_h * 2.5});
+
+		if (metric.find("Morris") != std::string::npos || metric.find("Wormhole") != std::string::npos) {
+			const double b0 = std::max(p.wormhole_throat, 0.1);
+			targets.push_back(DynamicLookAtTarget{"Wormhole Throat (b0=" + std::to_string(b0).substr(0, 4) + ")", {0.0, b0, 0.0}, b0 * 2.5});
+			targets.push_back(DynamicLookAtTarget{"Alternate Universe Mouth (+l)", {0.0, b0 * 2.0, 0.0}, b0 * 3.5});
+		} else if (metric.find("Alcubierre") != std::string::npos) {
+			targets.push_back(DynamicLookAtTarget{"Warp Bubble Center", {0.0, 0.0, 0.0}, 30.0});
+			targets.push_back(DynamicLookAtTarget{"Forward Contraction Boundary", {15.0, 0.0, 0.0}, 25.0});
+			targets.push_back(DynamicLookAtTarget{"Rear Expansion Boundary", {-15.0, 0.0, 0.0}, 25.0});
+		} else {
+			targets.push_back(DynamicLookAtTarget{"Event Horizon (r=" + std::to_string(r_h).substr(0, 4) + "M)", {0.0, r_h * 1.05, 0.0}, r_h * 2.2});
+		}
 
 		const double r_ph = (std::abs(a) > 1e-6) ? (2.0 * m * (1.0 + std::cos(2.0 / 3.0 * std::acos(-std::clamp(a / m, -1.0, 1.0))))) : (3.0 * m);
 		targets.push_back(DynamicLookAtTarget{"Photon Sphere (r=" + std::to_string(r_ph).substr(0, 4) + "M)", {0.0, r_ph, 0.0}, r_ph * 2.0});
@@ -355,6 +386,16 @@ public:
 		ImGui::SameLine();
 		if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
 			camera_controller_.look_at_target(dynamic_targets[selected_target_idx].position);
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Jump to Target", ImVec2(100.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
+			const auto& tgt = dynamic_targets[selected_target_idx];
+			camera_controller_.look_at_target(tgt.position);
+			auto& c = orchestrator_.camera();
+			c.position = {tgt.position[0], tgt.position[1] + tgt.recommended_distance, tgt.position[2]};
+			c.orbit_distance = tgt.recommended_distance;
+			c.radius = tgt.recommended_distance;
 		}
 
 		ImGui::SameLine();

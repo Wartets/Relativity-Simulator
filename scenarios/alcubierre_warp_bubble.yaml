@@ -1,0 +1,31 @@
+scenario_name: "Alcubierre Superluminal Warp Bubble"
+description: "Dynamic spacetime curvature bubble contracting space in front and expanding behind at apparent speed vs=2.0c."
+spacetime:
+  metric_type: "Alcubierre"
+  central_mass: 0.0
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 1.0
+  warp_velocity: 2.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+integrator:
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 10.0
+  relative_tolerance: 1.0e-10
+  absolute_tolerance: 1.0e-14
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+bodies: []
+observers:
+  - name: "PrimaryCamera"
+    fov_deg: 70.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 40.0, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

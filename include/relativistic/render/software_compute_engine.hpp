@@ -311,6 +311,13 @@ public:
 		std::vector<std::jthread> workers;
 		workers.reserve(num_threads);
 
+		const uint32_t metric_id = params.metric_type;
+		const bool is_wormhole = (metric_id == 8);
+		const bool is_warp = (metric_id == 9);
+		const bool is_flat = (metric_id == 0);
+		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
+		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
+
 		const double m = std::max(params.metric_mass, 1e-4);
 		const double a_spin = std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
 		const double rs = 2.0 * m;
@@ -392,7 +399,7 @@ public:
 						iters = step + 1;
 
 						const double delta_kerr = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
-						if (ray_r <= rh * 1.0001 || delta_kerr <= 0.0) {
+						if (has_event_horizon && (ray_r <= rh * 1.0001 || delta_kerr <= 0.0)) {
 							status = PixelFlags::HORIZON_ABSORBED;
 							throughput = 0.0;
 							break;
@@ -484,7 +491,7 @@ public:
 						}
 
 						const double mid_plane = std::numbers::pi_v<double> * 0.5;
-						if ((prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0) {
+						if (has_accretion_disk && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0) {
 							const double d_th_span = std::abs(ray_theta - prev_theta);
 							const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 							const double r_cross = prev_r + s_cross * (ray_r - prev_r);
@@ -627,6 +634,13 @@ public:
 			return;
 		}
 
+		const uint32_t metric_id = params.metric_type;
+		const bool is_wormhole = (metric_id == 8);
+		const bool is_warp = (metric_id == 9);
+		const bool is_flat = (metric_id == 0);
+		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
+		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
+
 		const double m = std::max(params.metric_mass, 1e-4);
 		const double a_spin = std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
 		const double rs = 2.0 * m;
@@ -725,7 +739,7 @@ public:
 							if (bundle.active_mask[l]) {
 								iters[l] = step + 1;
 								const double delta_k = bundle.x1[l] * bundle.x1[l] - 2.0 * m * bundle.x1[l] + a_spin * a_spin;
-								if (bundle.x1[l] <= rh * 1.0001 || delta_k <= 0.0) {
+								if (has_event_horizon && (bundle.x1[l] <= rh * 1.0001 || delta_k <= 0.0)) {
 									status[l] |= PixelFlags::HORIZON_ABSORBED;
 									throughput[l] = 0.0;
 									bundle.active_mask[l] = false;
@@ -766,7 +780,7 @@ public:
 
 						const double mid_plane = std::numbers::pi_v<double> * 0.5;
 						for (size_t l = 0; l < lanes; ++l) {
-							if (throughput[l] > 0.01 && ((prev_th[l] - mid_plane) * (bundle.x2[l] - mid_plane) <= 0.0)) {
+							if (has_accretion_disk && throughput[l] > 0.01 && ((prev_th[l] - mid_plane) * (bundle.x2[l] - mid_plane) <= 0.0)) {
 								const double d_th_span = std::abs(bundle.x2[l] - prev_th[l]);
 								const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_th[l] - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 								const double r_cross = prev_r[l] + s_cross * (bundle.x1[l] - prev_r[l]);
@@ -927,6 +941,13 @@ public:
 		std::vector<std::jthread> workers;
 		workers.reserve(num_threads);
 
+		const uint32_t metric_id = params.metric_type;
+		const bool is_wormhole = (metric_id == 8);
+		const bool is_warp = (metric_id == 9);
+		const bool is_flat = (metric_id == 0);
+		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
+		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
+
 		const float m = static_cast<float>(std::max(params.metric_mass, 1e-4));
 		const float a_spin = static_cast<float>(std::clamp(params.metric_spin, -0.999 * params.metric_mass, 0.999 * params.metric_mass));
 		const float rs = 2.0f * m;
@@ -1010,7 +1031,7 @@ public:
 						iters = step + 1;
 
 						const float delta_kerr_f = ray_r * ray_r - 2.0f * m * ray_r + a_spin * a_spin;
-						if (ray_r <= rh * 1.0001f || delta_kerr_f <= 0.0f) {
+						if (has_event_horizon && (ray_r <= rh * 1.0001f || delta_kerr_f <= 0.0f)) {
 							status = PixelFlags::HORIZON_ABSORBED;
 							throughput = 0.0f;
 							break;
@@ -1102,7 +1123,7 @@ public:
 						}
 
 						const float mid_plane = pi_f * 0.5f;
-						if ((prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0f) {
+						if (has_accretion_disk && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0f) {
 							const float d_th_span = std::abs(ray_theta - prev_theta);
 							const float s_cross = (d_th_span > 1e-6f) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0f, 1.0f) : 0.5f;
 							const float r_cross = prev_r + s_cross * (ray_r - prev_r);
@@ -1248,6 +1269,13 @@ public:
 			return;
 		}
 
+		const uint32_t metric_id = params.metric_type;
+		const bool is_wormhole = (metric_id == 8);
+		const bool is_warp = (metric_id == 9);
+		const bool is_flat = (metric_id == 0);
+		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
+		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
+
 		const float m = static_cast<float>(std::max(params.metric_mass, 1e-4));
 		const float a_spin = static_cast<float>(std::clamp(params.metric_spin, -0.999 * params.metric_mass, 0.999 * params.metric_mass));
 		const float rs = 2.0f * m;
@@ -1348,7 +1376,7 @@ public:
 							if (bundle.active_mask[l]) {
 								iters[l] = step + 1;
 								const float delta_k = bundle.x1[l] * bundle.x1[l] - 2.0f * m * bundle.x1[l] + a_spin * a_spin;
-								if (bundle.x1[l] <= rh * 1.0001f || delta_k <= 0.0f) {
+								if (has_event_horizon && (bundle.x1[l] <= rh * 1.0001f || delta_k <= 0.0f)) {
 									status[l] |= PixelFlags::HORIZON_ABSORBED;
 									throughput[l] = 0.0f;
 									bundle.active_mask[l] = false;
@@ -1389,7 +1417,7 @@ public:
 
 						const float mid_plane = std::numbers::pi_v<float> * 0.5f;
 						for (size_t l = 0; l < lanes; ++l) {
-							if (throughput[l] > 0.01f && ((prev_th[l] - mid_plane) * (bundle.x2[l] - mid_plane) <= 0.0f)) {
+							if (has_accretion_disk && throughput[l] > 0.01f && ((prev_th[l] - mid_plane) * (bundle.x2[l] - mid_plane) <= 0.0f)) {
 								const float d_th_span = std::abs(bundle.x2[l] - prev_th[l]);
 								const float s_cross = (d_th_span > 1e-6f) ? std::clamp(std::abs(prev_th[l] - mid_plane) / d_th_span, 0.0f, 1.0f) : 0.5f;
 								const float r_cross = prev_r[l] + s_cross * (bundle.x1[l] - prev_r[l]);

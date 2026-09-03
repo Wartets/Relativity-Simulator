@@ -191,6 +191,7 @@ public:
 			cam.fov_deg = std::min(170.0, cam.fov_deg + 2.5);
 		}
 		orchestrator_.parameters().camera_fov_deg = cam.fov_deg;
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(cam.fov_deg)));
 	}
 
 private:

@@ -30,18 +30,19 @@ $$ds^2 = -\left(1 - \frac{2 r_g r}{\rho^2}\right) c^2 dt^2 - \frac{4 r_g r a \si
 where:
 $$r_g = \frac{GM}{c^2}, \quad \rho^2 = r^2 + a^2 \cos^2\theta, \quad \Delta = r^2 - 2 r_g r + a^2, \quad \Sigma = (r^2 + a^2)^2 - a^2 \Delta \sin^2\theta$$
 
-Outer and inner event horizon radii:
+Outer & inner event horizon radii:
 $$r_\pm = r_g \pm \sqrt{r_g^2 - a^2}$$
 
-Outer and inner ergosphere boundary radii:
+Outer & inner ergosphere boundary radii:
 $$r_{\text{ergo},\pm}(\theta) = r_g \pm \sqrt{r_g^2 - a^2 \cos^2\theta}$$
 
 #### Kerr-Schild Cartesian Coordinates $(t, x, y, z)$
 $$g_{\mu\nu} = \eta_{\mu\nu} + 2 H k_\mu k_\nu, \quad g^{\mu\nu} = \eta^{\mu\nu} - 2 H k^\mu k^\nu$$
 $$H = \frac{r_g r^3}{r^4 + a^2 z^2}$$
 $$k_\mu = \left(c, \frac{r x + a y}{r^2 + a^2}, \frac{r y - a x}{r^2 + a^2}, \frac{z}{r}\right), \quad k^\mu = \left(-\frac{1}{c}, \frac{r x + a y}{r^2 + a^2}, \frac{r y - a x}{r^2 + a^2}, \frac{z}{r}\right)$$
-The radial coordinate $r$ is solved from:
-$$r^4 - (x^2 + y^2 + z^2 - a^2) r^2 - a^2 z^2 = 0$$
+The radial coordinate $r$ is determined from the positive root of:
+$$r^4 - (x^2 + y^2 + z^2 - a^2) r^2 - a^2 z^2 = 0 \implies r^2 = \frac{1}{2}\left(R^2 - a^2 + \sqrt{(R^2 - a^2)^2 + 4 a^2 z^2}\right)$$
+where $R^2 = x^2 + y^2 + z^2$.
 
 ### 1.4. Reissner-Nordström Metric (Charged Black Hole)
 
@@ -125,6 +126,7 @@ $$\mathbf{a}_i^{\text{1PN}} = \sum_{j \neq i} \frac{G m_j \mathbf{n}_{ji}}{r_{ij
 
 For binary separation $\mathbf{r} = \mathbf{r}_1 - \mathbf{r}_2$, $\eta = \frac{m_1 m_2}{(m_1+m_2)^2}$, $M = m_1 + m_2$:
 $$\mathbf{a}_{\text{rel}}^{\text{2.5PN}} = \frac{8}{5} \frac{G^2 M^2 \eta}{c^5 r^3} \left[ \left(3v^2 + \frac{17}{3}\frac{GM}{r}\right) \dot{r} \mathbf{n} - \left(v^2 + 3\frac{GM}{r}\right) \mathbf{v} \right]$$
+where $\mathbf{n} = \mathbf{r}/r$, $v = \|\mathbf{v}\|$, and $\dot{r} = \mathbf{n} \cdot \mathbf{v}$.
 
 ### 3.3. Spin-Orbit & Spin-Spin Coupling
 
@@ -153,7 +155,7 @@ $$h_+ = \frac{G}{c^4 D} (\ddot{I}_{11} - \ddot{I}_{22}), \quad h_\times = \frac{
 ### 4.1. Magnetohydrodynamic Energy-Momentum Tensor
 
 $$T^{\mu\nu} = \left(\rho h + b^2\right) u^\mu u^\nu + \left(P + \frac{1}{2}b^2\right) g^{\mu\nu} - b^\mu b^\nu$$
-where $\rho$ is rest-mass density, $h = 1 + \epsilon + \frac{P}{\rho}$ is specific enthalpy, $P$ is isotropic pressure, $u^\mu$ is fluid four-velocity ($u_\mu u^\mu = -1$), and $b^\mu$ is the comobile magnetic four-vector ($b^\mu u_\mu = 0$, $b^2 = b^\mu b_\mu$).
+where $\rho$ is rest-mass density, $h = 1 + \epsilon + \frac{P}{\rho}$ is specific enthalpy, $P$ is isotropic pressure, $u^\mu$ is fluid four-velocity ($u_\mu u^\mu = -1$), & $b^\mu$ is the comobile magnetic four-vector ($b^\mu u_\mu = 0$, $b^2 = b^\mu b_\mu$).
 
 ### 4.2. Conservative 3+1 Form
 
@@ -169,7 +171,7 @@ Lorentz factor: $W = (1 - v^2)^{-1/2}$.
 - Synge / Mathews Relativistic Monoatomic Gas: $h = \frac{5}{2}\theta + \sqrt{\frac{9}{4}\theta^2 + 1}$ with $\theta = P/\rho$.
 - Relativistic Degenerate Fermi Gas: $P(x) = p_0 \left[ x(2x^2 - 3)\sqrt{1+x^2} + 3\operatorname{asinh}(x) \right]$ with $x = ( \rho / \rho_0 )^{1/3}$.
 - Tolman-Oppenheimer-Volkoff (TOV) Hydrostatic Balance:
-  $$\frac{dP}{dr} = -\frac{G(\epsilon + P)(m + 4\pi r^3 P / c^2)}{r^2 \left(1 - \frac{2Gm}{c^2 r}\right)}$$
+  $$\frac{dP}{dr} = -\frac{G(\epsilon/c^2 + P/c^2)(m + 4\pi r^3 P / c^2)}{r^2 \left(1 - \frac{2Gm}{c^2 r}\right)}, \quad \frac{dm}{dr} = 4\pi r^2 \frac{\epsilon(r)}{c^2}$$
 
 ---
 
@@ -181,7 +183,7 @@ Radiative surface flux $F(r)$:
 $$F(r) = \frac{3GM\dot{M}}{8\pi r^3} \frac{f(x)}{x(x^3 + a_*)}, \quad x = \sqrt{\frac{r}{r_g}}$$
 Page-Thorne analytical integral $f(x)$:
 $$f(x) = x - x_0 - \frac{3}{2}a_* \ln\left(\frac{x}{x_0}\right) - \sum_{i=1}^3 \frac{3(x_i - a_*)^2}{x_i(x_i - x_j)(x_i - x_k)} \ln\left(\frac{x - x_i}{x_0 - x_i}\right)$$
-where $x_0 = \sqrt{r_{\text{ISCO}}/r_g}$ and $x_1, x_2, x_3$ are roots of $x^3 - 3x + 2a_* = 0$.
+where $x_0 = \sqrt{r_{\text{ISCO}}/r_g}$ & $x_1, x_2, x_3$ are roots of $x^3 - 3x + 2a_* = 0$.
 
 Effective blackbody emission temperature:
 $$T_{\text{eff}}(r) = \left( \frac{F(r)}{\sigma_{\text{SB}}} \right)^{1/4}$$
@@ -222,7 +224,7 @@ Linear transformation $\mathbf{A} \mathcal{Z} = (\mathbf{A}\mathbf{c}) \oplus \s
 
 ### 7.3. Lyapunov Covariance Matrix Propagation
 
-For phase state vector $\mathbf{Y} = (\mathbf{x}, \mathbf{p})^T \in \mathbb{R}^8$ and Jacobian $\mathbf{J} = \frac{\partial \mathbf{f}}{\partial \mathbf{Y}}$:
+For phase state vector $\mathbf{Y} = (\mathbf{x}, \mathbf{p})^T \in \mathbb{R}^8$ & Jacobian $\mathbf{J} = \frac{\partial \mathbf{f}}{\partial \mathbf{Y}}$:
 $$\frac{d\mathbf{\Sigma}}{d\lambda} = \mathbf{J}\mathbf{\Sigma} + \mathbf{\Sigma}\mathbf{J}^T + \mathbf{Q}$$
 
 ### 7.4. Generalized Polynomial Chaos Expansion (gPCE)

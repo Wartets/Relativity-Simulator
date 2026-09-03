@@ -5,6 +5,7 @@
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/dynamics/pn_nbody_system.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -52,6 +53,7 @@ struct PhysicalParameters {
 	double sky_background_b{0.0};
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
+	uint32_t rolling_average_frame_count{10};
 };
 
 struct CustomParameterEntry {
@@ -86,6 +88,7 @@ private:
 	std::string active_metric_name_{"Schwarzschild"};
 	std::string active_integrator_name_{"RK45"};
 	std::string active_scenario_name_{"Custom Spacetime"};
+	Dynamics::PostNewtonianSystem nbody_system_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
@@ -482,6 +485,9 @@ public:
 					params_.visual_overlays_flags &= ~Relativistic::Render::RenderFlags::FORCE_TEXTURE_REALLOCATION;
 				}
 				break;
+			case ParameterType::RollingAverageFrameCount:
+				params_.rolling_average_frame_count = static_cast<uint32_t>(std::clamp(val, 2.0, 120.0));
+				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
 				break;
@@ -539,6 +545,14 @@ public:
 
 	[[nodiscard]] constexpr CameraState& camera() noexcept {
 		return camera_;
+	}
+
+	[[nodiscard]] Dynamics::PostNewtonianSystem& nbody_system() noexcept {
+		return nbody_system_;
+	}
+
+	[[nodiscard]] const Dynamics::PostNewtonianSystem& nbody_system() const noexcept {
+		return nbody_system_;
 	}
 
 	[[nodiscard]] const std::string& active_metric_name() const noexcept {

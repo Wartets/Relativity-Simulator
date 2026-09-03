@@ -46,6 +46,16 @@ private:
 	double last_precision_selector_{-1.0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
+	std::vector<double> frame_times_history_{};
+	double current_frame_time_ms_{0.0};
+	double rolling_average_time_ms_{0.0};
+	bool has_sufficient_rolling_frames_{false};
+
+	struct DynamicLookAtTarget {
+		std::string label;
+		std::array<double, 3> position{0.0, 0.0, 0.0};
+		double recommended_distance{25.0};
+	};
 
 	void init_gl_texture() noexcept {
 		if (gl_texture_id_ == 0) {
@@ -268,6 +278,39 @@ public:
 		}
 	}
 
+	[[nodiscard]] std::vector<DynamicLookAtTarget> build_dynamic_look_at_targets() const noexcept {
+		std::vector<DynamicLookAtTarget> targets;
+		const auto& p = orchestrator_.parameters();
+		const double m = std::max(p.mass, 1e-4);
+		const double a = p.spin;
+
+		targets.push_back(DynamicLookAtTarget{"Central Spacetime Origin (r=0)", {0.0, 0.0, 0.0}, 25.0 * m});
+
+		const double r_h = (std::abs(a) > 1e-6) ? (m + std::sqrt(std::max(m * m - a * a, 0.0))) : (2.0 * m);
+		targets.push_back(DynamicLookAtTarget{"Event Horizon (r=" + std::to_string(r_h).substr(0, 4) + "M)", {0.0, r_h * 1.05, 0.0}, r_h * 2.5});
+
+		const double r_ph = (std::abs(a) > 1e-6) ? (2.0 * m * (1.0 + std::cos(2.0 / 3.0 * std::acos(-std::clamp(a / m, -1.0, 1.0))))) : (3.0 * m);
+		targets.push_back(DynamicLookAtTarget{"Photon Sphere (r=" + std::to_string(r_ph).substr(0, 4) + "M)", {0.0, r_ph, 0.0}, r_ph * 2.0});
+
+		const double r_isco = (std::abs(a) > 1e-6) ? std::max(r_h * 1.05, 6.0 * m - 4.0 * a) : (6.0 * m);
+		targets.push_back(DynamicLookAtTarget{"Accretion ISCO (r=" + std::to_string(r_isco).substr(0, 4) + "M)", {0.0, r_isco, 0.0}, r_isco * 1.8});
+
+		targets.push_back(DynamicLookAtTarget{"Accretion Outer Edge (r=24M)", {0.0, 24.0 * m, 0.0}, 35.0 * m});
+		targets.push_back(DynamicLookAtTarget{"North Polar Axis (+Z)", {0.0, 0.001, 20.0 * m}, 30.0 * m});
+		targets.push_back(DynamicLookAtTarget{"South Polar Axis (-Z)", {0.0, 0.001, -20.0 * m}, 30.0 * m});
+
+		const auto& sys = orchestrator_.nbody_system();
+		for (const auto& b : sys.bodies()) {
+			targets.push_back(DynamicLookAtTarget{
+				"Celestial Body #" + std::to_string(b.id) + " (M=" + std::to_string(b.mass).substr(0, 4) + ")",
+				b.position,
+				std::max(b.radius * 4.0, 10.0)
+			});
+		}
+
+		return targets;
+	}
+
 	void render_viewport_toolbar() noexcept {
 		ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
 		ImGui::BeginGroup();
@@ -294,44 +337,24 @@ public:
 		}
 
 		ImGui::SameLine();
-		const char* target_names[] = {
-			"Central Black Hole (Origin)",
-			"Accretion Disk ISCO (r = 6M)",
-			"Photon Sphere (r = 3M)",
-			"Accretion Disk Outer Edge (r = 24M)",
-			"North Polar Axis (+Z)",
-			"South Polar Axis (-Z)"
-		};
-		static int selected_target = 0;
-		ImGui::SetNextItemWidth(180.0f);
-		ImGui::Combo("##AimTargetCombo", &selected_target, target_names, IM_ARRAYSIZE(target_names));
+		const auto dynamic_targets = build_dynamic_look_at_targets();
+		static int selected_target_idx = 0;
+		if (selected_target_idx >= static_cast<int>(dynamic_targets.size())) {
+			selected_target_idx = 0;
+		}
+
+		std::vector<const char*> target_labels;
+		target_labels.reserve(dynamic_targets.size());
+		for (const auto& t : dynamic_targets) {
+			target_labels.push_back(t.label.c_str());
+		}
+
+		ImGui::SetNextItemWidth(210.0f);
+		ImGui::Combo("##AimTargetCombo", &selected_target_idx, target_labels.data(), static_cast<int>(target_labels.size()));
 
 		ImGui::SameLine();
-		if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f))) {
-			const double m = orchestrator_.parameters().mass;
-			switch (selected_target) {
-				case 0:
-					camera_controller_.look_at_target({0.0, 0.0, 0.0});
-					break;
-				case 1:
-					camera_controller_.look_at_target({6.0 * m, 0.0, 0.0});
-					break;
-				case 2:
-					camera_controller_.look_at_target({3.0 * m, 0.0, 0.0});
-					break;
-				case 3:
-					camera_controller_.look_at_target({24.0 * m, 0.0, 0.0});
-					break;
-				case 4:
-					camera_controller_.look_at_target({0.0, 0.0, 20.0 * m});
-					break;
-				case 5:
-					camera_controller_.look_at_target({0.0, 0.0, -20.0 * m});
-					break;
-				default:
-					camera_controller_.look_at_target({0.0, 0.0, 0.0});
-					break;
-			}
+		if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
+			camera_controller_.look_at_target(dynamic_targets[selected_target_idx].position);
 		}
 
 		ImGui::SameLine();
@@ -409,9 +432,29 @@ private:
 		const auto& params = orchestrator_.parameters();
 		const auto& tel = pipeline_.telemetry();
 
+		current_frame_time_ms_ = tel.execution_time_ms;
+		if (current_frame_time_ms_ > 0.0) {
+			frame_times_history_.push_back(current_frame_time_ms_);
+		}
+		const size_t target_samples = std::max(uint32_t{2}, params.rolling_average_frame_count);
+		while (frame_times_history_.size() > target_samples) {
+			frame_times_history_.erase(frame_times_history_.begin());
+		}
+
+		has_sufficient_rolling_frames_ = (frame_times_history_.size() >= target_samples);
+		if (has_sufficient_rolling_frames_) {
+			double sum = 0.0;
+			for (double ft : frame_times_history_) sum += ft;
+			rolling_average_time_ms_ = sum / static_cast<double>(frame_times_history_.size());
+		}
+
 		ImGui::SetCursorPos(ImVec2(16.0f, 48.0f));
 		ImGui::BeginGroup();
-		ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Fluid Viewport: %.1f FPS (%.2f ms) [%ux%u @ %.2fx]", tel.frame_rate_fps, tel.execution_time_ms, current_width_, current_height_, static_cast<double>(resolution_scale_));
+		if (has_sufficient_rolling_frames_) {
+			ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
+		} else {
+			ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+		}
 		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera Distance (r): %.2f M | Angles (theta, phi): (%.2f, %.2f)", cam.radius, cam.theta, cam.phi);
 		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
 		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);

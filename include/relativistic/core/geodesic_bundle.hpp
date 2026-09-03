@@ -201,7 +201,7 @@ struct alignas(64) GeodesicBundle {
 			const auto g212 = inv_r;
 			const auto g233 = -sin_t * cos_t;
 			const auto g313 = inv_r;
-			const auto safe_sin_t = select(abs(sin_t) < SimdVec<T, Width>(eps_val), SimdVec<T, Width>(eps_val), sin_t);
+			const auto safe_sin_t = select(abs(sin_t) < SimdVec<T, Width>(eps_val), select(sin_t >= SimdVec<T, Width>(static_cast<T>(0)), SimdVec<T, Width>(eps_val), SimdVec<T, Width>(-eps_val)), sin_t);
 			const auto g323 = cos_t / safe_sin_t;
 			const auto p_t = v_one / safe_factor;
 

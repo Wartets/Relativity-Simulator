@@ -391,26 +391,21 @@ public:
 					for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01; ++step) {
 						iters = step + 1;
 
-						if (ray_r <= rh * 1.002) {
+						const double delta_kerr = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
+						if (ray_r <= rh * 1.0001 || delta_kerr <= 0.0) {
 							status = PixelFlags::HORIZON_ABSORBED;
 							throughput = 0.0;
 							break;
 						}
 
-						if (ray_r >= params.escape_radius || (step > 4 && ray_r >= 30.0 * m && ray_pr > 0.0)) {
+						if (ray_r >= params.escape_radius) {
 							status = PixelFlags::CELESTIAL_HIT;
 							break;
 						}
 
-						double dt_step = 0.05;
-						if (ray_r > 15.0 * m) {
-							dt_step = (ray_pr > 0.0) ? (0.25 * ray_r) : (0.12 * ray_r);
-						} else if (ray_r > 5.0 * m) {
-							dt_step = 0.08 * ray_r;
-						} else {
-							dt_step = std::max(0.04 * (ray_r - rh), 0.005);
-						}
-						const double dt = -std::min(dt_step, 4.0);
+						const double r_scale = std::max(ray_r - rh, 0.02 * m);
+						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
+						const double dt = -std::clamp(smooth_dt, 0.004, 3.5);
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;
@@ -443,7 +438,8 @@ public:
 							const double g212 = 1.0 / r;
 							const double g233 = -sin_t * cos_t;
 							const double g313 = 1.0 / r;
-							const double g323 = cos_t / sin_t;
+							const double safe_sin_t = (std::abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
+							const double g323 = cos_t / safe_sin_t;
 
 							d_pr = -(g100 * p_t * p_t + g111 * pr_eval * pr_eval + g122 * pth_eval * pth_eval + g133 * pphi_eval * pphi_eval);
 							d_pth = -(2.0 * g212 * pr_eval * pth_eval + g233 * pphi_eval * pphi_eval);
@@ -728,11 +724,12 @@ public:
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.active_mask[l]) {
 								iters[l] = step + 1;
-								if (bundle.x1[l] <= rh * 1.002) {
+								const double delta_k = bundle.x1[l] * bundle.x1[l] - 2.0 * m * bundle.x1[l] + a_spin * a_spin;
+								if (bundle.x1[l] <= rh * 1.0001 || delta_k <= 0.0) {
 									status[l] |= PixelFlags::HORIZON_ABSORBED;
 									throughput[l] = 0.0;
 									bundle.active_mask[l] = false;
-								} else if (bundle.x1[l] >= params.escape_radius || (step > 2 && bundle.x1[l] >= 25.0 * m && bundle.p1[l] > 0.0)) {
+								} else if (bundle.x1[l] >= params.escape_radius) {
 									status[l] |= PixelFlags::CELESTIAL_HIT;
 									bundle.active_mask[l] = false;
 								}
@@ -743,15 +740,9 @@ public:
 
 						for (size_t l = 0; l < 4; ++l) {
 							if (bundle.active_mask[l]) {
-								double dt_step = 0.08;
-								if (bundle.x1[l] > 15.0 * m) {
-									dt_step = (bundle.p1[l] > 0.0) ? (0.40 * bundle.x1[l]) : (0.20 * bundle.x1[l]);
-								} else if (bundle.x1[l] > 5.0 * m) {
-									dt_step = 0.12 * bundle.x1[l];
-								} else {
-									dt_step = std::max(0.06 * (bundle.x1[l] - rh), 0.01);
-								}
-								bundle.step_size[l] = -std::min(dt_step, 6.0);
+								const double r_scale = std::max(bundle.x1[l] - rh, 0.02 * m);
+								const double smooth_dt = 0.06 * std::sqrt(bundle.x1[l] * r_scale);
+								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005, 4.0);
 							} else {
 								bundle.step_size[l] = -0.01;
 							}
@@ -1018,26 +1009,21 @@ public:
 					for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01f; ++step) {
 						iters = step + 1;
 
-						if (ray_r <= rh * 1.002f) {
+						const float delta_kerr_f = ray_r * ray_r - 2.0f * m * ray_r + a_spin * a_spin;
+						if (ray_r <= rh * 1.0001f || delta_kerr_f <= 0.0f) {
 							status = PixelFlags::HORIZON_ABSORBED;
 							throughput = 0.0f;
 							break;
 						}
 
-						if (ray_r >= static_cast<float>(params.escape_radius) || (step > 4 && ray_r >= 30.0f * m && ray_pr > 0.0f)) {
+						if (ray_r >= static_cast<float>(params.escape_radius)) {
 							status = PixelFlags::CELESTIAL_HIT;
 							break;
 						}
 
-						float dt_step;
-						if (ray_r > 15.0f * m) {
-							dt_step = (ray_pr > 0.0f) ? (0.25f * ray_r) : (0.12f * ray_r);
-						} else if (ray_r > 5.0f * m) {
-							dt_step = 0.08f * ray_r;
-						} else {
-							dt_step = std::max(0.04f * (ray_r - rh), 0.005f);
-						}
-						const float dt = -std::min(dt_step, 4.0f);
+						const float r_scale = std::max(ray_r - rh, 0.02f * m);
+						const float smooth_dt = 0.05f * std::sqrt(ray_r * r_scale);
+						const float dt = -std::clamp(smooth_dt, 0.004f, 3.5f);
 
 						const float prev_r = ray_r;
 						const float prev_theta = ray_theta;
@@ -1070,7 +1056,8 @@ public:
 							const float g212 = 1.0f / r;
 							const float g233 = -sin_t * cos_t;
 							const float g313 = 1.0f / r;
-							const float g323 = cos_t / sin_t;
+							const float safe_sin_t = (std::abs(sin_t) > 1e-5f) ? sin_t : ((sin_t >= 0.0f) ? 1e-5f : -1e-5f);
+							const float g323 = cos_t / safe_sin_t;
 
 							d_pr = -(g100 * p_t * p_t + g111 * pr_eval * pr_eval + g122 * pth_eval * pth_eval + g133 * pphi_eval * pphi_eval);
 							d_pth = -(2.0f * g212 * pr_eval * pth_eval + g233 * pphi_eval * pphi_eval);
@@ -1360,11 +1347,12 @@ public:
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.active_mask[l]) {
 								iters[l] = step + 1;
-								if (bundle.x1[l] <= rh * 1.002f) {
+								const float delta_k = bundle.x1[l] * bundle.x1[l] - 2.0f * m * bundle.x1[l] + a_spin * a_spin;
+								if (bundle.x1[l] <= rh * 1.0001f || delta_k <= 0.0f) {
 									status[l] |= PixelFlags::HORIZON_ABSORBED;
 									throughput[l] = 0.0f;
 									bundle.active_mask[l] = false;
-								} else if (bundle.x1[l] >= static_cast<float>(params.escape_radius) || (step > 2 && bundle.x1[l] >= 25.0f * m && bundle.p1[l] > 0.0f)) {
+								} else if (bundle.x1[l] >= static_cast<float>(params.escape_radius)) {
 									status[l] |= PixelFlags::CELESTIAL_HIT;
 									bundle.active_mask[l] = false;
 								}
@@ -1375,15 +1363,9 @@ public:
 
 						for (size_t l = 0; l < 8; ++l) {
 							if (bundle.active_mask[l]) {
-								float dt_step;
-								if (bundle.x1[l] > 15.0f * m) {
-									dt_step = (bundle.p1[l] > 0.0f) ? (0.40f * bundle.x1[l]) : (0.20f * bundle.x1[l]);
-								} else if (bundle.x1[l] > 5.0f * m) {
-									dt_step = 0.12f * bundle.x1[l];
-								} else {
-									dt_step = std::max(0.06f * (bundle.x1[l] - rh), 0.01f);
-								}
-								bundle.step_size[l] = -std::min(dt_step, 6.0f);
+								const float r_scale = std::max(bundle.x1[l] - rh, 0.02f * m);
+								const float smooth_dt = 0.06f * std::sqrt(bundle.x1[l] * r_scale);
+								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005f, 4.0f);
 							} else {
 								bundle.step_size[l] = -0.01f;
 							}

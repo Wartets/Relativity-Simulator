@@ -182,18 +182,20 @@ void main() {
 	for (uint step = 0; step < pc.max_steps && throughput > 0.01; ++step) {
 		iters = step + 1;
 
-		if (ray_r <= rh * 1.002) {
+		double delta_k = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
+		if (ray_r <= rh * 1.0001 || delta_k <= 0.0) {
 			status = 1;
 			throughput = 0.0;
 			break;
 		}
 
-		if (ray_r >= pc.escape_radius || (step > 4 && ray_r >= 30.0 * m && ray_pr > 0.0)) {
+		if (ray_r >= pc.escape_radius) {
 			status = 2;
 			break;
 		}
 
-		double dt = -clamp((ray_r > 15.0 * m) ? (0.2 * ray_r) : (0.08 * ray_r), 0.01, 3.0);
+		double r_scale = max(ray_r - rh, 0.02 * m);
+		double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5);
 		double prev_r = ray_r;
 		double prev_th = ray_th;
 		double prev_phi = ray_phi;
@@ -203,6 +205,7 @@ void main() {
 		double sin_t = sin(ray_th);
 		double cos_t = cos(ray_th);
 		double sin2_t = max(sin_t * sin_t, 1e-10);
+		double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
 		double r2 = ray_r * ray_r;
 
 		double g100 = (rs * f) / (2.0 * r2);
@@ -212,7 +215,7 @@ void main() {
 
 		double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
 		double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-		double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / sin_t) * ray_pth * ray_pphi);
+		double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
 
 		ray_r += dt * ray_pr;
 		ray_th += dt * ray_pth;

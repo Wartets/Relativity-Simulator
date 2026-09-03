@@ -9,6 +9,7 @@
 #include "relativistic/ui/scenario_selector_window.hpp"
 #include "relativistic/ui/performance_settings_window.hpp"
 #include "relativistic/ui/visual_diagnostics_window.hpp"
+#include "relativistic/ui/body_manager_window.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 
 #include <imgui.h>
@@ -47,6 +48,7 @@ private:
 	ControlPanelWindow control_panel_window_;
 	PerformanceSettingsWindow performance_window_;
 	VisualDiagnosticsWindow diagnostics_window_;
+	BodyManagerWindow body_manager_window_;
 	std::vector<SecondaryViewWindow> secondary_views_;
 
 	bool show_viewport_{true};
@@ -62,7 +64,8 @@ public:
 		  camera_controller_(orchestrator),
 		  control_panel_window_(orchestrator),
 		  performance_window_(orchestrator),
-		  diagnostics_window_(orchestrator) {}
+		  diagnostics_window_(orchestrator),
+		  body_manager_window_(orchestrator) {}
 
 	~UiManager() {
 		shutdown();
@@ -195,6 +198,10 @@ public:
 			diagnostics_window_.render();
 		}
 
+		if (body_manager_window_.open_state()) {
+			body_manager_window_.render();
+		}
+
 		for (auto& view : secondary_views_) {
 			view.render();
 		}
@@ -273,6 +280,9 @@ private:
 		if (ImGui::IsKeyPressed(ImGuiKey_F7, false)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
 		}
+		if (ImGui::IsKeyPressed(ImGuiKey_F8, false)) {
+			body_manager_window_.open_state() = !body_manager_window_.open_state();
+		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) {
 			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % 4;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
@@ -305,22 +315,25 @@ private:
 			const float top_h = std::clamp(screen_h * 0.68f, 450.0f, 780.0f);
 			const float bottom_h = screen_h - top_h - 45.0f;
 
-			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 35.0f, offset_y + 35.0f));
-			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h));
+			ImGui::SetWindowPos("Scenario Manager & Presets", ImVec2(offset_x + 20.0f, offset_y + 30.0f));
+			ImGui::SetWindowSize("Scenario Manager & Presets", ImVec2(left_col_w, top_h * 0.52f));
 
-			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + 35.0f));
+			ImGui::SetWindowPos("Celestial Body & N-Body Manager", ImVec2(offset_x + 20.0f, offset_y + 30.0f + top_h * 0.52f + 10.0f));
+			ImGui::SetWindowSize("Celestial Body & N-Body Manager", ImVec2(left_col_w, top_h * 0.48f - 10.0f));
+
+			ImGui::SetWindowPos("Master Simulation Controls", ImVec2(offset_x + screen_w - right_col_w - 15.0f, offset_y + 30.0f));
 			ImGui::SetWindowSize("Master Simulation Controls", ImVec2(right_col_w, top_h));
 
-			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 10.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowPos("Telemetry & Invariants", ImVec2(offset_x + 20.0f, offset_y + top_h + 35.0f));
 			ImGui::SetWindowSize("Telemetry & Invariants", ImVec2(left_col_w, bottom_h));
 
-			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 20.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowPos("Radiative Transfer & Spectrograph Monitor", ImVec2(offset_x + left_col_w + 30.0f, offset_y + top_h + 35.0f));
 			ImGui::SetWindowSize("Radiative Transfer & Spectrograph Monitor", ImVec2(center_w * 0.5f - 10.0f, bottom_h));
 
-			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 20.0f + center_w * 0.5f, offset_y + top_h + 40.0f));
-			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f, bottom_h));
+			ImGui::SetWindowPos("Performance & Engine Optimization", ImVec2(offset_x + left_col_w + 30.0f + center_w * 0.5f, offset_y + top_h + 35.0f));
+			ImGui::SetWindowSize("Performance & Engine Optimization", ImVec2(center_w * 0.5f - 10.0f, bottom_h));
 
-			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + top_h + 40.0f));
+			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 15.0f, offset_y + top_h + 35.0f));
 			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h));
 		} else if (current_layout_ == UiLayoutPreset::ViewportFocused) {
 			if (scenario_window_) scenario_window_->open_state() = false;
@@ -412,6 +425,7 @@ private:
 				}
 				ImGui::MenuItem("Master Controls", nullptr, &control_panel_window_.open_state());
 				ImGui::MenuItem("Performance Profiles", nullptr, &performance_window_.open_state());
+				ImGui::MenuItem("Celestial Body & N-Body Manager", "F8", &body_manager_window_.open_state());
 				ImGui::MenuItem("Curvature Diagnostics", nullptr, &diagnostics_window_.open_state());
 				ImGui::MenuItem("Curvature Telemetry", nullptr, &telemetry_window_.open_state());
 				ImGui::MenuItem("Spectrograph Monitor", nullptr, &spectrograph_window_.open_state());

@@ -318,11 +318,11 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
-		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
+		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
-				for (size_t x = 0; x < width; ++x) {
+				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
@@ -559,17 +559,53 @@ public:
 			}
 		};
 
+		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
+			render_rect(0, width, y_start, y_end);
+		};
+
+		auto render_tile_range = [&](size_t t_start, size_t t_end) noexcept {
+			constexpr size_t TILE = 32;
+			const size_t tiles_x = (width + TILE - 1) / TILE;
+			for (size_t t = t_start; t < t_end; ++t) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				const size_t tx = (t % tiles_x) * TILE;
+				const size_t ty = (t / tiles_x) * TILE;
+				render_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
+			}
+		};
+
+		const bool use_tiling = (params.render_flags & RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+		constexpr size_t TILE_DIM = 32;
+		const size_t total_tiles = ((width + TILE_DIM - 1) / TILE_DIM) * ((height + TILE_DIM - 1) / TILE_DIM);
+
 		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
-			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
-				render_slice(y_start, y_end);
-			});
+			if (use_tiling) {
+				pool->parallel_for(total_tiles, [&](size_t t_start, size_t t_end) noexcept {
+					render_tile_range(t_start, t_end);
+				});
+			} else {
+				pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+					render_slice(y_start, y_end);
+				});
+			}
 		} else {
-			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
-			for (size_t t = 0; t < num_threads; ++t) {
-				const size_t y_start = t * rows_per_thread;
-				const size_t y_end = std::min(y_start + rows_per_thread, height);
-				if (y_start < y_end) {
-					workers.emplace_back(render_slice, y_start, y_end);
+			if (use_tiling) {
+				const size_t tiles_per_thread = (total_tiles + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t t_start = t * tiles_per_thread;
+					const size_t t_end = std::min(t_start + tiles_per_thread, total_tiles);
+					if (t_start < t_end) {
+						workers.emplace_back(render_tile_range, t_start, t_end);
+					}
+				}
+			} else {
+				const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t y_start = t * rows_per_thread;
+					const size_t y_end = std::min(y_start + rows_per_thread, height);
+					if (y_start < y_end) {
+						workers.emplace_back(render_slice, y_start, y_end);
+					}
 				}
 			}
 		}
@@ -621,14 +657,14 @@ public:
 		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
 		const double fov_rad = params.field_of_view_rad;
 
-		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
+		auto render_simd_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 
-				for (size_t x = 0; x < width; x += 4) {
+				for (size_t x = x_start; x < x_end; x += 4) {
 					Core::GeodesicBundle4d bundle;
-					const size_t lanes = std::min(size_t{4}, width - x);
+					const size_t lanes = std::min(size_t{4}, x_end - x);
 
 					std::array<double, 4> accum_r{0.0, 0.0, 0.0, 0.0};
 					std::array<double, 4> accum_g{0.0, 0.0, 0.0, 0.0};
@@ -812,7 +848,7 @@ public:
 								.a = 1.0f,
 								.redshift = static_cast<float>(redshift_rec[l]),
 								.affine_parameter = static_cast<float>(iters[l] * 0.05),
-							.status_flags = status[l],
+								.status_flags = status[l],
 								.iterations_used = iters[l]
 							};
 						}
@@ -821,20 +857,56 @@ public:
 			}
 		};
 
+		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
+			render_simd_rect(0, width, y_start, y_end);
+		};
+
+		auto render_simd_tile_range = [&](size_t t_start, size_t t_end) noexcept {
+			constexpr size_t TILE = 32;
+			const size_t tiles_x = (width + TILE - 1) / TILE;
+			for (size_t t = t_start; t < t_end; ++t) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				const size_t tx = (t % tiles_x) * TILE;
+				const size_t ty = (t / tiles_x) * TILE;
+				render_simd_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
+			}
+		};
+
+		const bool use_tiling = (params.render_flags & RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+		constexpr size_t TILE_DIM = 32;
+		const size_t total_tiles = ((width + TILE_DIM - 1) / TILE_DIM) * ((height + TILE_DIM - 1) / TILE_DIM);
+
 		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
-			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
-				render_simd_slice(y_start, y_end);
-			});
+			if (use_tiling) {
+				pool->parallel_for(total_tiles, [&](size_t t_start, size_t t_end) noexcept {
+					render_simd_tile_range(t_start, t_end);
+				});
+			} else {
+				pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+					render_simd_slice(y_start, y_end);
+				});
+			}
 		} else {
 			const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
 			std::vector<std::jthread> workers;
 			workers.reserve(num_threads);
-			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
-			for (size_t t = 0; t < num_threads; ++t) {
-				const size_t y_start = t * rows_per_thread;
-				const size_t y_end = std::min(y_start + rows_per_thread, height);
-				if (y_start < y_end) {
-					workers.emplace_back(render_simd_slice, y_start, y_end);
+			if (use_tiling) {
+				const size_t tiles_per_thread = (total_tiles + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t t_start = t * tiles_per_thread;
+					const size_t t_end = std::min(t_start + tiles_per_thread, total_tiles);
+					if (t_start < t_end) {
+						workers.emplace_back(render_simd_tile_range, t_start, t_end);
+					}
+				}
+			} else {
+				const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t y_start = t * rows_per_thread;
+					const size_t y_end = std::min(y_start + rows_per_thread, height);
+					if (y_start < y_end) {
+						workers.emplace_back(render_simd_slice, y_start, y_end);
+					}
 				}
 			}
 		}
@@ -873,11 +945,11 @@ public:
 
 		const float pi_f = std::numbers::pi_v<float>;
 
-		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
+		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
-				for (size_t x = 0; x < width; ++x) {
+				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
 					const float u_norm = ((static_cast<float>(x) + 0.5f) / static_cast<float>(width) * 2.0f - 1.0f) * aspect;
@@ -1117,17 +1189,53 @@ public:
 			}
 		};
 
+		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
+			render_rect(0, width, y_start, y_end);
+		};
+
+		auto render_tile_range = [&](size_t t_start, size_t t_end) noexcept {
+			constexpr size_t TILE = 32;
+			const size_t tiles_x = (width + TILE - 1) / TILE;
+			for (size_t t = t_start; t < t_end; ++t) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				const size_t tx = (t % tiles_x) * TILE;
+				const size_t ty = (t / tiles_x) * TILE;
+				render_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
+			}
+		};
+
+		const bool use_tiling = (params.render_flags & RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+		constexpr size_t TILE_DIM = 32;
+		const size_t total_tiles = ((width + TILE_DIM - 1) / TILE_DIM) * ((height + TILE_DIM - 1) / TILE_DIM);
+
 		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
-			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
-				render_slice(y_start, y_end);
-			});
+			if (use_tiling) {
+				pool->parallel_for(total_tiles, [&](size_t t_start, size_t t_end) noexcept {
+					render_tile_range(t_start, t_end);
+				});
+			} else {
+				pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+					render_slice(y_start, y_end);
+				});
+			}
 		} else {
-			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
-			for (size_t t = 0; t < num_threads; ++t) {
-				const size_t y_start = t * rows_per_thread;
-				const size_t y_end = std::min(y_start + rows_per_thread, height);
-				if (y_start < y_end) {
-					workers.emplace_back(render_slice, y_start, y_end);
+			if (use_tiling) {
+				const size_t tiles_per_thread = (total_tiles + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t t_start = t * tiles_per_thread;
+					const size_t t_end = std::min(t_start + tiles_per_thread, total_tiles);
+					if (t_start < t_end) {
+						workers.emplace_back(render_tile_range, t_start, t_end);
+					}
+				}
+			} else {
+				const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t y_start = t * rows_per_thread;
+					const size_t y_end = std::min(y_start + rows_per_thread, height);
+					if (y_start < y_end) {
+						workers.emplace_back(render_slice, y_start, y_end);
+					}
 				}
 			}
 		}
@@ -1179,14 +1287,14 @@ public:
 		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
 		const float fov_rad = static_cast<float>(params.field_of_view_rad);
 
-		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
+		auto render_simd_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
 
-				for (size_t x = 0; x < width; x += 8) {
+				for (size_t x = x_start; x < x_end; x += 8) {
 					Core::GeodesicBundle8f bundle;
-					const size_t lanes = std::min(size_t{8}, width - x);
+					const size_t lanes = std::min(size_t{8}, x_end - x);
 
 					std::array<float, 8> accum_r{};
 					std::array<float, 8> accum_g{};
@@ -1382,20 +1490,56 @@ public:
 			}
 		};
 
+		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
+			render_simd_rect(0, width, y_start, y_end);
+		};
+
+		auto render_simd_tile_range = [&](size_t t_start, size_t t_end) noexcept {
+			constexpr size_t TILE = 32;
+			const size_t tiles_x = (width + TILE - 1) / TILE;
+			for (size_t t = t_start; t < t_end; ++t) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				const size_t tx = (t % tiles_x) * TILE;
+				const size_t ty = (t / tiles_x) * TILE;
+				render_simd_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
+			}
+		};
+
+		const bool use_tiling = (params.render_flags & RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+		constexpr size_t TILE_DIM = 32;
+		const size_t total_tiles = ((width + TILE_DIM - 1) / TILE_DIM) * ((height + TILE_DIM - 1) / TILE_DIM);
+
 		if (pool != nullptr && !(params.render_flags & RenderFlags::USE_PER_FRAME_THREADS)) {
-			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
-				render_simd_slice(y_start, y_end);
-			});
+			if (use_tiling) {
+				pool->parallel_for(total_tiles, [&](size_t t_start, size_t t_end) noexcept {
+					render_simd_tile_range(t_start, t_end);
+				});
+			} else {
+				pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept {
+					render_simd_slice(y_start, y_end);
+				});
+			}
 		} else {
 			const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
 			std::vector<std::jthread> workers;
 			workers.reserve(num_threads);
-			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
-			for (size_t t = 0; t < num_threads; ++t) {
-				const size_t y_start = t * rows_per_thread;
-				const size_t y_end = std::min(y_start + rows_per_thread, height);
-				if (y_start < y_end) {
-					workers.emplace_back(render_simd_slice, y_start, y_end);
+			if (use_tiling) {
+				const size_t tiles_per_thread = (total_tiles + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t t_start = t * tiles_per_thread;
+					const size_t t_end = std::min(t_start + tiles_per_thread, total_tiles);
+					if (t_start < t_end) {
+						workers.emplace_back(render_simd_tile_range, t_start, t_end);
+					}
+				}
+			} else {
+				const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+				for (size_t t = 0; t < num_threads; ++t) {
+					const size_t y_start = t * rows_per_thread;
+					const size_t y_end = std::min(y_start + rows_per_thread, height);
+					if (y_start < y_end) {
+						workers.emplace_back(render_simd_slice, y_start, y_end);
+					}
 				}
 			}
 		}

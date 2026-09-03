@@ -4,6 +4,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/render/gpu_types.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -49,6 +50,8 @@ struct PhysicalParameters {
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
+	uint32_t work_distribution_mode{0};
+	bool force_texture_reallocation{false};
 };
 
 struct CustomParameterEntry {
@@ -462,6 +465,22 @@ public:
 				break;
 			case ParameterType::SkyBackgroundB:
 				params_.sky_background_b = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::WorkDistributionMode:
+				params_.work_distribution_mode = static_cast<uint32_t>(val);
+				if (val > 0.5) {
+					params_.visual_overlays_flags |= Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION;
+				} else {
+					params_.visual_overlays_flags &= ~Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION;
+				}
+				break;
+			case ParameterType::ForceTextureReallocation:
+				params_.force_texture_reallocation = (val > 0.5);
+				if (val > 0.5) {
+					params_.visual_overlays_flags |= Relativistic::Render::RenderFlags::FORCE_TEXTURE_REALLOCATION;
+				} else {
+					params_.visual_overlays_flags &= ~Relativistic::Render::RenderFlags::FORCE_TEXTURE_REALLOCATION;
+				}
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

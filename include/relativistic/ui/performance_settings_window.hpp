@@ -95,6 +95,17 @@ public:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_PER_FRAME_THREADS, !use_pool)));
 			}
 
+			bool use_tiling = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+			if (ImGui::Checkbox("Tiled Work Distribution (32x32 Tiles)", &use_tiling)) {
+				preset_idx_ = 5;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WorkDistributionMode, use_tiling ? 1.0 : 0.0)));
+			}
+
+			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
+			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ForceTextureReallocation, force_tex_realloc ? 1.0 : 0.0)));
+			}
+
 			if (ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("dyn_res", enable_dynamic_resolution_ ? 1.0 : 0.0)));
 			}

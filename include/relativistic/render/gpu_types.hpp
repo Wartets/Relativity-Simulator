@@ -108,6 +108,8 @@ namespace RenderFlags {
 	static constexpr uint32_t USE_GRID_SKYBOX = 1U << 4;
 	static constexpr uint32_t USE_SCALAR_PIPELINE = 1U << 5;
 	static constexpr uint32_t USE_PER_FRAME_THREADS = 1U << 6;
+	static constexpr uint32_t USE_TILED_DISTRIBUTION = 1U << 7;
+	static constexpr uint32_t FORCE_TEXTURE_REALLOCATION = 1U << 8;
 }
 
 }

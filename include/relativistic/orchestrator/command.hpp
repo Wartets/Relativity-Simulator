@@ -73,7 +73,9 @@ enum class ParameterType : uint32_t {
 	SkySaturation = 30,
 	SkyBackgroundR = 31,
 	SkyBackgroundG = 32,
-	SkyBackgroundB = 33
+	SkyBackgroundB = 33,
+	WorkDistributionMode = 34,
+	ForceTextureReallocation = 35
 };
 
 struct Command {
@@ -582,6 +584,8 @@ public:
 			else if (iequals_sv(token2, "sky_bg_r")) ptype = ParameterType::SkyBackgroundR;
 			else if (iequals_sv(token2, "sky_bg_g")) ptype = ParameterType::SkyBackgroundG;
 			else if (iequals_sv(token2, "sky_bg_b")) ptype = ParameterType::SkyBackgroundB;
+			else if (iequals_sv(token2, "work_distribution") || iequals_sv(token2, "tiling")) ptype = ParameterType::WorkDistributionMode;
+			else if (iequals_sv(token2, "force_realloc") || iequals_sv(token2, "realloc_texture")) ptype = ParameterType::ForceTextureReallocation;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

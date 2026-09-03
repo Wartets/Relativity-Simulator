@@ -217,8 +217,9 @@ public:
 					color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
 					has_received_frame_ = true;
+					const bool force_realloc = (params.visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 					glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
-					if (fb_w != allocated_texture_w_ || fb_h != allocated_texture_h_) {
+					if (force_realloc || fb_w != allocated_texture_w_ || fb_h != allocated_texture_h_) {
 						glTexImage2D(
 							GL_TEXTURE_2D, 0, GL_RGBA32F,
 							static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h),

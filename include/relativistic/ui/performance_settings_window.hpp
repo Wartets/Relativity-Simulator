@@ -136,6 +136,38 @@ public:
 				ImGui::SetTooltip("Subdivide the screen into 32x32 pixel tiles for optimal CPU cache locality and balanced thread loads.");
 			}
 
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.9f, 1.0f), "Render Distance & Level of Detail");
+
+			float render_distance = static_cast<float>(orchestrator_.parameters().render_distance_scale);
+			if (ImGui::SliderFloat("Render Distance (M units, 0 = unbounded)", &render_distance, 0.0f, 5000.0f, "%.0f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RenderDistanceScale, static_cast<double>(render_distance))));
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Maximum radial distance from the origin, in units of central mass M, beyond which geodesics are treated as escaped to the sky. Set to 0 to disable the cutoff entirely and render arbitrarily distant structures.");
+			}
+
+			bool lod_enabled = orchestrator_.parameters().lod_enabled;
+			if (ImGui::Checkbox("Enable Distance-Based Level of Detail", &lod_enabled)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, lod_enabled ? 1.0 : 0.0)));
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Reduce geodesic integration step budget beyond the LOD threshold distance to save performance when observing very distant structures. Disabled by default.");
+			}
+
+			if (lod_enabled) {
+				float lod_threshold = static_cast<float>(orchestrator_.parameters().lod_distance_scale);
+				if (ImGui::SliderFloat("LOD Threshold Distance (M units)", &lod_threshold, 1.0f, 5000.0f, "%.0f")) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodDistanceThreshold, static_cast<double>(lod_threshold))));
+				}
+
+				int lod_steps = static_cast<int>(orchestrator_.parameters().lod_reduced_ray_steps);
+				if (ImGui::SliderInt("LOD Reduced Step Budget", &lod_steps, 16, 4096)) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodReducedSteps, static_cast<double>(lod_steps))));
+				}
+			}
+
 			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ForceTextureReallocation, force_tex_realloc ? 1.0 : 0.0)));

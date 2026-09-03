@@ -195,7 +195,8 @@ void main() {
 		}
 
 		double r_scale = max(ray_r - rh, 0.02 * m);
-		double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5);
+		double pole_guard = clamp(abs(sin(ray_th)) * 12.0, 0.15, 1.0);
+		double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
 		double prev_r = ray_r;
 		double prev_th = ray_th;
 		double prev_phi = ray_phi;
@@ -223,6 +224,16 @@ void main() {
 		ray_pr += dt * d_pr;
 		ray_pth += dt * d_pth;
 		ray_pphi += dt * d_pphi;
+
+		if (ray_th < 0.0) {
+			ray_th = -ray_th;
+			ray_phi += 3.14159265358979323846;
+			ray_pth = -ray_pth;
+		} else if (ray_th > 3.14159265358979323846) {
+			ray_th = 2.0 * 3.14159265358979323846 - ray_th;
+			ray_phi += 3.14159265358979323846;
+			ray_pth = -ray_pth;
+		}
 
 		double mid = 1.57079632679;
 		if ((prev_th - mid) * (ray_th - mid) <= 0.0) {

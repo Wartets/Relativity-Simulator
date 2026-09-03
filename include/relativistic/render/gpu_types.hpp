@@ -66,6 +66,10 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t projection_mode{0};
 	uint32_t padding1{0};
 
+	double lod_distance_threshold{0.0};
+	uint32_t lod_reduced_steps{256};
+	uint32_t padding2{0};
+
 	double sky_rotation_rad{0.0};
 	double sky_hue_shift_rad{0.0};
 	double sky_saturation{1.0};
@@ -112,6 +116,7 @@ namespace RenderFlags {
 	static constexpr uint32_t USE_PER_FRAME_THREADS = 1U << 6;
 	static constexpr uint32_t USE_TILED_DISTRIBUTION = 1U << 7;
 	static constexpr uint32_t FORCE_TEXTURE_REALLOCATION = 1U << 8;
+	static constexpr uint32_t USE_LOD_SYSTEM = 1U << 9;
 }
 
 }

@@ -113,6 +113,10 @@ public:
 		force_rerender_ = true;
 	}
 
+	[[nodiscard]] bool is_hovered() const noexcept {
+		return is_hovered_;
+	}
+
 	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
 		if (fullscreen_bg) {
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->WorkPos);
@@ -144,8 +148,7 @@ public:
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
 
 			const bool is_navigating = (is_hovered_ || is_focused_) && (
-				glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS ||
-				glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS ||
+				camera_controller_.is_actively_navigating() ||
 				glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
 				glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
 				glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
@@ -190,10 +193,19 @@ public:
 			cam_consts.camera_exposure = params.camera_exposure;
 			cam_consts.tonemapping_mode = params.tonemapping_mode;
 			cam_consts.horizon_radius = 2.0 * params.mass;
-			cam_consts.escape_radius = 100.0 * params.mass;
+			{
+				constexpr double kUnboundedRenderDistance = 1.0e7;
+				const double configured_distance = (params.render_distance_scale > 0.0) ? (params.render_distance_scale * params.mass) : kUnboundedRenderDistance;
+				cam_consts.escape_radius = std::max(configured_distance, cam.radius * 2.0);
+			}
 			cam_consts.projection_mode = params.projection_mode;
 			cam_consts.max_integration_steps = params.max_ray_steps;
 			cam_consts.render_flags = params.visual_overlays_flags;
+			if (params.lod_enabled) {
+				cam_consts.render_flags |= Render::RenderFlags::USE_LOD_SYSTEM;
+			}
+			cam_consts.lod_distance_threshold = params.lod_distance_scale * params.mass;
+			cam_consts.lod_reduced_steps = params.lod_reduced_ray_steps;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_saturation = params.sky_saturation;

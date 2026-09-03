@@ -93,7 +93,7 @@ public:
 		glfwSetWindowUserPointer(main_window_, this);
 		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) {
 			auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
-			if (self) {
+			if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
 				self->camera_controller_.handle_scroll(yoffset);
 			}
 		});

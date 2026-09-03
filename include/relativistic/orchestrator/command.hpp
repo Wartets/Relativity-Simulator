@@ -76,7 +76,11 @@ enum class ParameterType : uint32_t {
 	SkyBackgroundB = 33,
 	WorkDistributionMode = 34,
 	ForceTextureReallocation = 35,
-	RollingAverageFrameCount = 36
+	RollingAverageFrameCount = 36,
+	RenderDistanceScale = 37,
+	LodEnabled = 38,
+	LodDistanceThreshold = 39,
+	LodReducedSteps = 40
 };
 
 struct Command {

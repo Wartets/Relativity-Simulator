@@ -6,6 +6,7 @@
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
+#include "relativistic/core/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/geodesic_bundle.hpp"
 #include <vector>
@@ -32,6 +33,207 @@ private:
 
 	[[nodiscard]] static float hash_to_float(uint32_t x) noexcept {
 		return static_cast<float>(hash_u32(x) & 0x00FFFFFFU) * (1.0f / 16777216.0f);
+	}
+
+	[[nodiscard]] static bool requires_kerr_exact_path(const GpuCameraPushConstants& params) noexcept {
+		const bool is_kerr_family = (params.metric_type == 2U || params.metric_type == 3U || params.metric_type == 5U);
+		return is_kerr_family && std::abs(params.metric_spin) > 1e-9 * std::max(params.metric_mass, 1e-4);
+	}
+
+	[[nodiscard]] static double kerr_isco_radius(double m, double a_spin) noexcept {
+		const double a_star = std::clamp(a_spin / std::max(m, 1e-12), -0.9999999, 0.9999999);
+		const double abs_a = std::abs(a_star);
+		const double orbit_sign = (a_star >= 0.0) ? -1.0 : 1.0;
+		const double cbrt_term = std::cbrt(std::max(1.0 - abs_a * abs_a, 0.0));
+		const double z1 = 1.0 + cbrt_term * (std::cbrt(1.0 + abs_a) + std::cbrt(1.0 - abs_a));
+		const double z2 = std::sqrt(3.0 * abs_a * abs_a + z1 * z1);
+		const double r_isco_over_m = 3.0 + z2 + orbit_sign * std::sqrt(std::max((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0));
+		return r_isco_over_m * m;
+	}
+
+	[[nodiscard]] static GpuPixelOutput trace_kerr_photon_exact(
+		const Metrics::KerrMetric<double>& metric,
+		double n1, double n2, double n3,
+		double r_obs, double theta_obs, double phi_obs,
+		double m, double a_spin, double rs, double rh,
+		double escape_radius, uint32_t max_steps,
+		bool has_accretion_disk,
+		const GpuCameraPushConstants& params
+	) noexcept {
+		const auto tetrad = Observer::ObserverTetrad<double>::make_zamo(metric, Core::FourVector<double>(0.0, r_obs, theta_obs, phi_obs));
+
+		Core::FourVector<double> x(0.0, r_obs, theta_obs, phi_obs);
+		Core::FourVector<double> u = tetrad.construct_light_ray(n1, n2, n3);
+
+		const double isco = kerr_isco_radius(m, a_spin);
+		const double disk_outer = 24.0 * m;
+
+		auto compute_acc = [&](const Core::FourVector<double>& xs, const Core::FourVector<double>& us) noexcept -> Core::FourVector<double> {
+			const auto gamma = Core::compute_christoffel<Core::DerivativeOrder::EighthOrder, Metrics::KerrMetric<double>, double>(metric, xs);
+			Core::FourVector<double> acc;
+			acc.zero();
+			for (size_t mu = 0; mu < 4; ++mu) {
+				double sum = 0.0;
+				for (size_t alpha = 0; alpha < 4; ++alpha) {
+					const double u_a = us(alpha);
+					if (u_a == 0.0) continue;
+					sum -= gamma(mu, alpha, alpha) * u_a * u_a;
+					for (size_t beta = alpha + 1; beta < 4; ++beta) {
+						const double u_b = us(beta);
+						if (u_b != 0.0) {
+							sum -= 2.0 * gamma(mu, alpha, beta) * u_a * u_b;
+						}
+					}
+				}
+				acc(mu) = sum;
+			}
+			return acc;
+		};
+
+		double accum_r = 0.0, accum_g = 0.0, accum_b = 0.0;
+		double throughput = 1.0;
+		double redshift_rec = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+
+		for (uint32_t step = 0; step < max_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+
+			if (metric.is_inside_outer_horizon(x)) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+			if (x(1) >= escape_radius) {
+				status = PixelFlags::CELESTIAL_HIT;
+				break;
+			}
+
+			const double cur_r = x(1);
+			const double r_scale = std::max(cur_r - rh, 0.02 * m);
+			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0, 0.15, 1.0);
+			const double dt = -std::clamp(0.05 * std::sqrt(cur_r * r_scale), 0.004, 3.5) * pole_guard;
+
+			const double prev_r = x(1);
+			const double prev_theta = x(2);
+			const double prev_phi = x(3);
+
+			const auto k1_x = u;
+			const auto k1_u = compute_acc(x, u);
+
+			Core::FourVector<double> x2 = x, u2 = u;
+			for (size_t i = 0; i < 4; ++i) {
+				x2(i) += 0.5 * dt * k1_x(i);
+				u2(i) += 0.5 * dt * k1_u(i);
+			}
+			const auto k2_x = u2;
+			const auto k2_u = compute_acc(x2, u2);
+
+			Core::FourVector<double> x3 = x, u3 = u;
+			for (size_t i = 0; i < 4; ++i) {
+				x3(i) += 0.5 * dt * k2_x(i);
+				u3(i) += 0.5 * dt * k2_u(i);
+			}
+			const auto k3_x = u3;
+			const auto k3_u = compute_acc(x3, u3);
+
+			Core::FourVector<double> x4 = x, u4 = u;
+			for (size_t i = 0; i < 4; ++i) {
+				x4(i) += dt * k3_x(i);
+				u4(i) += dt * k3_u(i);
+			}
+			const auto k4_x = u4;
+			const auto k4_u = compute_acc(x4, u4);
+
+			const double sixth_dt = dt / 6.0;
+			for (size_t i = 0; i < 4; ++i) {
+				x(i) += sixth_dt * (k1_x(i) + 2.0 * k2_x(i) + 2.0 * k3_x(i) + k4_x(i));
+				u(i) += sixth_dt * (k1_u(i) + 2.0 * k2_u(i) + 2.0 * k3_u(i) + k4_u(i));
+			}
+
+			if (x(2) < 0.0) {
+				x(2) = -x(2);
+				x(3) += std::numbers::pi_v<double>;
+				u(2) = -u(2);
+			} else if (x(2) > std::numbers::pi_v<double>) {
+				x(2) = 2.0 * std::numbers::pi_v<double> - x(2);
+				x(3) += std::numbers::pi_v<double>;
+				u(2) = -u(2);
+			}
+
+			const double mid_plane = std::numbers::pi_v<double> * 0.5;
+			if (has_accretion_disk && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
+				const double d_th_span = std::abs(x(2) - prev_theta);
+				const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
+				const double r_cross = prev_r + s_cross * (x(1) - prev_r);
+				const double phi_cross = prev_phi + s_cross * (x(3) - prev_phi);
+
+				if (r_cross >= isco && r_cross <= disk_outer && r_cross > rh * 1.02) {
+					status |= PixelFlags::ACCRETION_DISK_HIT;
+
+					const double v_orb = std::sqrt(m / r_cross);
+					const double omega_orb = v_orb / r_cross;
+					const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * m / r_cross, 1e-4));
+
+					const double sin2_x = std::max(std::sin(x(2)) * std::sin(x(2)), 1e-8);
+					const double lz_val = u(3) * (r_cross * r_cross * sin2_x);
+					const double e_val = 1.0;
+					const double l_over_e = lz_val / std::max(std::abs(e_val), 1e-12);
+					const double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
+					const double g_doppler = (std::abs(denom_g) > 1e-12) ? (std::sqrt(std::max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+					redshift_rec = g_doppler;
+
+					const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
+					const double t_eff_k = 18000.0 * t_norm + 1200.0;
+					const double t_obs = t_eff_k * g_doppler;
+
+					const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
+					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+					const double turbulence = 0.88 + 0.12 * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
+					const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
+
+					const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
+					const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+
+					accum_r += throughput * static_cast<double>(disk_rgb[0]);
+					accum_g += throughput * static_cast<double>(disk_rgb[1]);
+					accum_b += throughput * static_cast<double>(disk_rgb[2]);
+					throughput *= (1.0 - alpha_opacity);
+				}
+			}
+		}
+
+		if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01) {
+			const double sin_t = std::sin(x(2));
+			const double cos_t = std::cos(x(2));
+			const double sin_p = std::sin(x(3));
+			const double cos_p = std::cos(x(3));
+
+			const double px = u(1) * sin_t * cos_p + x(1) * u(2) * cos_t * cos_p - x(1) * sin_t * u(3) * sin_p;
+			const double py = u(1) * sin_t * sin_p + x(1) * u(2) * cos_t * sin_p + x(1) * sin_t * u(3) * cos_p;
+			const double pz = u(1) * cos_t - x(1) * u(2) * sin_t;
+
+			const double p_len = std::sqrt(px * px + py * py + pz * pz);
+			const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
+
+			const auto sky_rgb = compute_sky_radiance(px * inv_plen, py * inv_plen, pz * inv_plen, params);
+			accum_r += throughput * static_cast<double>(sky_rgb[0]);
+			accum_g += throughput * static_cast<double>(sky_rgb[1]);
+			accum_b += throughput * static_cast<double>(sky_rgb[2]);
+		}
+
+		const auto mapped_srgb = apply_tonemapping({accum_r, accum_g, accum_b}, params.tonemapping_mode, params.camera_exposure);
+
+		return GpuPixelOutput{
+			.r = mapped_srgb[0],
+			.g = mapped_srgb[1],
+			.b = mapped_srgb[2],
+			.a = 1.0f,
+			.redshift = static_cast<float>(redshift_rec),
+			.affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status,
+			.iterations_used = iters
+		};
 	}
 
 	[[nodiscard]] static std::array<double, 3> rotate_direction_around_z(double x, double y, double z, double angle_rad) noexcept {
@@ -331,6 +533,17 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
+		const bool use_kerr_exact_path = requires_kerr_exact_path(params);
+		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
+		const double r_obs_frame = std::max(params.observer_position[1], rh * 1.02);
+		const uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
+			? std::min(params.max_integration_steps, params.lod_reduced_steps)
+			: params.max_integration_steps;
+
+		const double angular_pixel_size = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
+		const double bh_angular_diameter = (2.0 * rh) / r_obs_frame;
+		const double turbulence_aa_factor = std::clamp(bh_angular_diameter / std::max(angular_pixel_size * 24.0, 1e-9), 0.0, 1.0);
+
 		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
@@ -368,6 +581,18 @@ public:
 					const double n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
 					const double n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
 
+					if (use_kerr_exact_path) {
+						const Metrics::KerrMetric<double> kerr_metric(m, a_spin, 1.0, 1.0);
+						output_framebuffer[pixel_idx] = trace_kerr_photon_exact(
+							kerr_metric, n_r, n_th, n_ph,
+							r_obs, theta_obs, phi_obs,
+							m, a_spin, rs, rh,
+							params.escape_radius, effective_max_steps,
+							has_accretion_disk, params
+						);
+						continue;
+					}
+
 					const double factor_obs = std::max(1.0 - rs / r_obs, 1e-6);
 					const double sqrt_factor_obs = std::sqrt(factor_obs);
 
@@ -395,7 +620,7 @@ public:
 					uint32_t status = 0;
 					uint32_t iters = 0;
 
-					for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01; ++step) {
+					for (uint32_t step = 0; step < effective_max_steps && throughput > 0.01; ++step) {
 						iters = step + 1;
 
 						const double delta_kerr = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
@@ -412,7 +637,8 @@ public:
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
 						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
-						const double dt = -std::clamp(smooth_dt, 0.004, 3.5);
+						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0, 0.15, 1.0);
+						const double dt = -std::clamp(smooth_dt, 0.004, 3.5) * pole_guard;
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;
@@ -515,7 +741,7 @@ public:
 
 								const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
 								const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-								const double turbulence = 0.88 + 0.12 * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
+								const double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
 								const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
 								const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -654,6 +880,12 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
+		const bool lod_active_simd = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
+		const double r_obs_pre = std::max(params.observer_position[1], rh * 1.02);
+		const uint32_t effective_max_steps_simd = (lod_active_simd && r_obs_pre > params.lod_distance_threshold)
+			? std::min(params.max_integration_steps, params.lod_reduced_steps)
+			: params.max_integration_steps;
+
 		const double r_obs = std::max(params.observer_position[1], rh * 1.02);
 		const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
 		const double phi_obs = params.observer_position[3];
@@ -733,7 +965,7 @@ public:
 						}
 					}
 
-					const uint32_t step_limit = params.max_integration_steps;
+					const uint32_t step_limit = effective_max_steps_simd;
 					for (uint32_t step = 0; step < step_limit && bundle.active_mask.any(); ++step) {
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.active_mask[l]) {
@@ -756,7 +988,8 @@ public:
 							if (bundle.active_mask[l]) {
 								const double r_scale = std::max(bundle.x1[l] - rh, 0.02 * m);
 								const double smooth_dt = 0.06 * std::sqrt(bundle.x1[l] * r_scale);
-								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005, 4.0);
+								const double pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0, 0.15, 1.0);
+								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005, 4.0) * pole_guard;
 							} else {
 								bundle.step_size[l] = -0.01;
 							}
@@ -963,6 +1196,17 @@ public:
 
 		const float pi_f = std::numbers::pi_v<float>;
 
+		const bool use_kerr_exact_path = requires_kerr_exact_path(params);
+		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
+		const double r_obs_frame = std::max(params.observer_position[1], static_cast<double>(rh) * 1.02);
+		const uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
+			? std::min(params.max_integration_steps, params.lod_reduced_steps)
+			: params.max_integration_steps;
+
+		const double angular_pixel_size_d = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
+		const double bh_angular_diameter_d = (2.0 * static_cast<double>(rh)) / r_obs_frame;
+		const float turbulence_aa_factor = static_cast<float>(std::clamp(bh_angular_diameter_d / std::max(angular_pixel_size_d * 24.0, 1e-9), 0.0, 1.0));
+
 		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
@@ -1000,6 +1244,19 @@ public:
 					const float n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
 					const float n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
 
+					if (use_kerr_exact_path) {
+						const Metrics::KerrMetric<double> kerr_metric(static_cast<double>(m), static_cast<double>(a_spin), 1.0, 1.0);
+						output_framebuffer[pixel_idx] = trace_kerr_photon_exact(
+							kerr_metric,
+							static_cast<double>(n_r), static_cast<double>(n_th), static_cast<double>(n_ph),
+							static_cast<double>(r_obs), static_cast<double>(theta_obs), static_cast<double>(phi_obs),
+							static_cast<double>(m), static_cast<double>(a_spin), static_cast<double>(rs), static_cast<double>(rh),
+							params.escape_radius, effective_max_steps,
+							has_accretion_disk, params
+						);
+						continue;
+					}
+
 					const float factor_obs = std::max(1.0f - rs / r_obs, 1e-4f);
 					const float sqrt_factor_obs = std::sqrt(factor_obs);
 
@@ -1027,7 +1284,7 @@ public:
 					uint32_t status = 0;
 					uint32_t iters = 0;
 
-					for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01f; ++step) {
+					for (uint32_t step = 0; step < effective_max_steps && throughput > 0.01f; ++step) {
 						iters = step + 1;
 
 						const float delta_kerr_f = ray_r * ray_r - 2.0f * m * ray_r + a_spin * a_spin;
@@ -1044,7 +1301,8 @@ public:
 
 						const float r_scale = std::max(ray_r - rh, 0.02f * m);
 						const float smooth_dt = 0.05f * std::sqrt(ray_r * r_scale);
-						const float dt = -std::clamp(smooth_dt, 0.004f, 3.5f);
+						const float pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0f, 0.15f, 1.0f);
+						const float dt = -std::clamp(smooth_dt, 0.004f, 3.5f) * pole_guard;
 
 						const float prev_r = ray_r;
 						const float prev_theta = ray_theta;
@@ -1147,7 +1405,7 @@ public:
 
 								const float g4 = g_doppler * g_doppler * g_doppler * g_doppler;
 								const float radial_envelope = std::clamp((disk_outer - r_cross) / (1.5f * m), 0.0f, 1.0f) * std::clamp((r_cross - isco) / (0.8f * m), 0.0f, 1.0f);
-								const float turbulence = 0.88f + 0.12f * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
+								const float turbulence = 1.0f - (0.12f * turbulence_aa_factor) + (0.12f * turbulence_aa_factor) * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
 								const float flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0f) * 1.5f;
 
 								const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -1289,6 +1547,12 @@ public:
 		const float rgt_x = static_cast<float>(params.tetrad_e2[1]), rgt_y = static_cast<float>(params.tetrad_e2[2]), rgt_z = static_cast<float>(params.tetrad_e2[3]);
 		const float up_x  = static_cast<float>(params.tetrad_e3[1]), up_y  = static_cast<float>(params.tetrad_e3[2]), up_z  = static_cast<float>(params.tetrad_e3[3]);
 
+		const bool lod_active_simd = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
+		const double r_obs_pre_f = std::max(params.observer_position[1], static_cast<double>(rh) * 1.02);
+		const uint32_t effective_max_steps_simd = (lod_active_simd && r_obs_pre_f > params.lod_distance_threshold)
+			? std::min(params.max_integration_steps, params.lod_reduced_steps)
+			: params.max_integration_steps;
+
 		const float r_obs = std::max(static_cast<float>(params.observer_position[1]), rh * 1.02f);
 		const float theta_obs = std::clamp(static_cast<float>(params.observer_position[2]), 0.001f, std::numbers::pi_v<float> - 0.001f);
 		const float phi_obs = static_cast<float>(params.observer_position[3]);
@@ -1370,7 +1634,7 @@ public:
 						}
 					}
 
-					const uint32_t step_limit = params.max_integration_steps;
+					const uint32_t step_limit = effective_max_steps_simd;
 					for (uint32_t step = 0; step < step_limit && bundle.active_mask.any(); ++step) {
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.active_mask[l]) {
@@ -1393,7 +1657,8 @@ public:
 							if (bundle.active_mask[l]) {
 								const float r_scale = std::max(bundle.x1[l] - rh, 0.02f * m);
 								const float smooth_dt = 0.06f * std::sqrt(bundle.x1[l] * r_scale);
-								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005f, 4.0f);
+								const float pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0f, 0.15f, 1.0f);
+								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005f, 4.0f) * pole_guard;
 							} else {
 								bundle.step_size[l] = -0.01f;
 							}
@@ -1567,7 +1832,8 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
-		if (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) {
+		const bool requires_exact_kerr = requires_kerr_exact_path(params);
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {
 			dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
@@ -1580,7 +1846,8 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
-		if (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) {
+		const bool requires_exact_kerr = requires_kerr_exact_path(params);
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {
 			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag);

@@ -54,6 +54,10 @@ struct PhysicalParameters {
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
 	uint32_t rolling_average_frame_count{10};
+	double render_distance_scale{100.0};
+	bool lod_enabled{false};
+	double lod_distance_scale{400.0};
+	uint32_t lod_reduced_ray_steps{256};
 };
 
 struct CustomParameterEntry {
@@ -518,6 +522,18 @@ public:
 				break;
 			case ParameterType::RollingAverageFrameCount:
 				params_.rolling_average_frame_count = static_cast<uint32_t>(std::clamp(val, 2.0, 120.0));
+				break;
+			case ParameterType::RenderDistanceScale:
+				params_.render_distance_scale = std::max(val, 0.0);
+				break;
+			case ParameterType::LodEnabled:
+				params_.lod_enabled = (val > 0.5);
+				break;
+			case ParameterType::LodDistanceThreshold:
+				params_.lod_distance_scale = std::max(val, 1.0);
+				break;
+			case ParameterType::LodReducedSteps:
+				params_.lod_reduced_ray_steps = static_cast<uint32_t>(std::clamp(val, 16.0, 4096.0));
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

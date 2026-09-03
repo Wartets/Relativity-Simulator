@@ -30,6 +30,10 @@ private:
 	double crawl_multiplier_{0.2};
 	bool invert_y_{false};
 	bool smooth_interpolation_{true};
+	double press_mouse_x_{0.0};
+	double press_mouse_y_{0.0};
+	bool drag_threshold_exceeded_{false};
+	static constexpr double kClickDragThresholdPixels = 4.0;
 
 public:
 	explicit InteractiveCameraController(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept
@@ -50,6 +54,10 @@ public:
 
 	[[nodiscard]] double mouse_sensitivity() const noexcept {
 		return mouse_sensitivity_;
+	}
+
+	[[nodiscard]] bool is_actively_navigating() const noexcept {
+		return is_dragging_ && drag_threshold_exceeded_;
 	}
 
 	void set_move_speed(double speed) noexcept {
@@ -374,21 +382,33 @@ private:
 		if ((right_down || left_down) && (is_hovered || is_dragging_)) {
 			if (!is_dragging_) {
 				is_dragging_ = true;
+				drag_threshold_exceeded_ = false;
 				last_mouse_x_ = mx;
 				last_mouse_y_ = my;
+				press_mouse_x_ = mx;
+				press_mouse_y_ = my;
 			} else {
 				const double dx = mx - last_mouse_x_;
 				const double dy = my - last_mouse_y_;
 				last_mouse_x_ = mx;
 				last_mouse_y_ = my;
 
-				auto& cam = orchestrator_.camera();
-				cam.yaw += dx * mouse_sensitivity_;
-				const double pitch_delta = (invert_y_ ? -dy : dy) * mouse_sensitivity_;
-				cam.pitch = std::clamp(cam.pitch - pitch_delta, -89.0, 89.0);
+				const double total_dx = mx - press_mouse_x_;
+				const double total_dy = my - press_mouse_y_;
+				if (!drag_threshold_exceeded_ && std::sqrt(total_dx * total_dx + total_dy * total_dy) > kClickDragThresholdPixels) {
+					drag_threshold_exceeded_ = true;
+				}
+
+				if (drag_threshold_exceeded_) {
+					auto& cam = orchestrator_.camera();
+					cam.yaw += dx * mouse_sensitivity_;
+					const double pitch_delta = (invert_y_ ? -dy : dy) * mouse_sensitivity_;
+					cam.pitch = std::clamp(cam.pitch - pitch_delta, -89.0, 89.0);
+				}
 			}
 		} else {
 			is_dragging_ = false;
+			drag_threshold_exceeded_ = false;
 		}
 	}
 

@@ -19,6 +19,7 @@ private:
 	double time_{0.0};
 	uint64_t step_count_{0};
 	GravitationalWaveEmission latest_gw_emission_{};
+	std::vector<PostNewtonianAccelerations> accelerations_buffer_{};
 
 public:
 	explicit PostNewtonianSystem(const PNOrderConfig& config = {}) noexcept
@@ -93,10 +94,12 @@ public:
 				bodies_[1].acceleration[c] = f2 * acc_rel.a_total[c];
 			}
 		} else {
-			std::vector<PostNewtonianAccelerations> accs(n);
-			PostNewtonianSolver::compute_nbody_accelerations(bodies_, config_, accs);
+			if (accelerations_buffer_.size() != n) {
+				accelerations_buffer_.resize(n);
+			}
+			PostNewtonianSolver::compute_nbody_accelerations(bodies_, config_, accelerations_buffer_);
 			for (size_t i = 0; i < n; ++i) {
-				bodies_[i].acceleration = accs[i].a_total;
+				bodies_[i].acceleration = accelerations_buffer_[i].a_total;
 			}
 		}
 

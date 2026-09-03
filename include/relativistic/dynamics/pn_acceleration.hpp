@@ -261,6 +261,28 @@ public:
 		const double g = config.gravitational_constant;
 		const double c2 = c * c;
 
+		std::vector<double> sum_u(n, 0.0);
+		if (config.enable_1pn || config.enable_newtonian) {
+			for (size_t i = 0; i < n; ++i) {
+				for (size_t j = i + 1; j < n; ++j) {
+					const std::array<double, 3> r_ij = sub3(bodies[i].position, bodies[j].position);
+					const double r2 = dot3(r_ij, r_ij);
+					if (r2 <= 0.0) continue;
+					const double inv_r = 1.0 / std::sqrt(r2);
+					if (config.enable_newtonian) {
+						const double an_j = g * bodies[j].mass / r2;
+						const double an_i = g * bodies[i].mass / r2;
+						out_accelerations[i].a_newton = add3(out_accelerations[i].a_newton, mul3(r_ij, -inv_r * an_j));
+						out_accelerations[j].a_newton = add3(out_accelerations[j].a_newton, mul3(r_ij, inv_r * an_i));
+					}
+					if (config.enable_1pn) {
+						sum_u[i] += g * bodies[j].mass * inv_r;
+						sum_u[j] += g * bodies[i].mass * inv_r;
+					}
+				}
+			}
+		}
+
 		for (size_t i = 0; i < n; ++i) {
 			const auto& bi = bodies[i];
 			const double vi2 = bi.speed_squared();
@@ -282,11 +304,6 @@ public:
 				const double vj2 = bj.speed_squared();
 				const double vi_dot_vj = dot3(bi.velocity, bj.velocity);
 				const double n_dot_vj = dot3(n_ij, bj.velocity);
-
-				if (config.enable_newtonian) {
-					const double an_mag = g * bj.mass / r2;
-					out_accelerations[i].a_newton = add3(out_accelerations[i].a_newton, mul3(n_ji, an_mag));
-				}
 
 				if (config.enable_spherical_harmonics && (bj.j2 != 0.0 || bj.j3 != 0.0 || bj.j4 != 0.0)) {
 					const double r_ref = bj.reference_radius;
@@ -328,19 +345,8 @@ public:
 				}
 
 				if (config.enable_1pn) {
-					double sum_u_i = 0.0;
-					for (size_t k = 0; k < n; ++k) {
-						if (k == i) continue;
-						const double r_ik = std::sqrt(std::max(dot3(sub3(bi.position, bodies[k].position), sub3(bi.position, bodies[k].position)), 1e-30));
-						sum_u_i += g * bodies[k].mass / r_ik;
-					}
-
-					double sum_u_j = 0.0;
-					for (size_t k = 0; k < n; ++k) {
-						if (k == j) continue;
-						const double r_jk = std::sqrt(std::max(dot3(sub3(bj.position, bodies[k].position), sub3(bj.position, bodies[k].position)), 1e-30));
-						sum_u_j += g * bodies[k].mass / r_jk;
-					}
+					const double sum_u_i = sum_u[i];
+					const double sum_u_j = sum_u[j];
 
 					const double term_eih_n = vi2 + 2.0 * vj2 - 4.0 * vi_dot_vj - 1.5 * n_dot_vj * n_dot_vj - 4.0 * sum_u_i - sum_u_j;
 					const double term_eih_v = dot3(n_ji, sub3(mul3(bi.velocity, 4.0), mul3(bj.velocity, 3.0)));
@@ -352,16 +358,8 @@ public:
 					);
 					out_accelerations[i].a_1pn = add3(out_accelerations[i].a_1pn, a_pair_1pn);
 
-					for (size_t k = 0; k < n; ++k) {
-						if (k == j) continue;
-						const auto r_jk_vec = sub3(bj.position, bodies[k].position);
-						const double r_jk2 = dot3(r_jk_vec, r_jk_vec);
-						if (r_jk2 <= 0.0) continue;
-						const double r_jk = std::sqrt(r_jk2);
-						const std::array<double, 3> n_kj = mul3(r_jk_vec, -1.0 / r_jk);
-						const double mag = (7.0 * g * g * bj.mass * bodies[k].mass) / (2.0 * c2 * r * r_jk2);
-						out_accelerations[i].a_1pn = add3(out_accelerations[i].a_1pn, mul3(n_kj, mag));
-					}
+					const double mag_3body = (3.5 * g * bj.mass) / (c2 * r);
+					out_accelerations[i].a_1pn = add3(out_accelerations[i].a_1pn, mul3(out_accelerations[j].a_newton, mag_3body));
 				}
 			}
 		}

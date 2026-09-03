@@ -87,6 +87,10 @@ public:
 		initialize_presets();
 	}
 
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
+	}
+
 	void render() {
 		if (!is_open_) return;
 

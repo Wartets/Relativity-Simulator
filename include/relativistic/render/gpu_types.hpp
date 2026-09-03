@@ -104,6 +104,8 @@ namespace RenderFlags {
 	static constexpr uint32_t SKYBOX_GRID = 1U;
 	static constexpr uint32_t SKYBOX_COMPOSITE = 2U;
 	static constexpr uint32_t SKYBOX_VOID = 3U;
+	static constexpr uint32_t SKYBOX_STARS_NO_NEBULA = 4U;
+	static constexpr uint32_t SKYBOX_GRID_STARS = 5U;
 	static constexpr uint32_t SKYBOX_MODE_MASK = 0x0FU;
 	static constexpr uint32_t USE_GRID_SKYBOX = 1U << 4;
 	static constexpr uint32_t USE_SCALAR_PIPELINE = 1U << 5;

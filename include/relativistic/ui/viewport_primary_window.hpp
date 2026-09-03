@@ -38,6 +38,7 @@ private:
 	bool is_hovered_{false};
 	bool is_focused_{false};
 	bool show_telemetry_overlay_{true};
+	bool window_visible_{true};
 	uint32_t allocated_texture_w_{0};
 	uint32_t allocated_texture_h_{0};
 	Render::GpuCameraPushConstants last_camera_constants_{};
@@ -94,12 +95,22 @@ public:
 			ImGui::SetNextWindowSize(ImGui::GetMainViewport()->WorkSize);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-			ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+			window_visible_ = ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
 		} else {
 			ImGui::SetNextWindowPos(ImVec2(340.0f, 35.0f), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(1130.0f, 705.0f), ImGuiCond_FirstUseEver);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-			ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+			window_visible_ = ImGui::Begin("Primary Relativistic Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		}
+
+		if (!window_visible_) {
+			ImGui::End();
+			if (fullscreen_bg) {
+				ImGui::PopStyleVar(2);
+			} else {
+				ImGui::PopStyleVar(1);
+			}
+			return;
 		}
 
 		is_hovered_ = ImGui::IsWindowHovered();
@@ -341,15 +352,34 @@ public:
 		const bool is_loading = pipeline_.is_rendering() || !has_received_frame_;
 		if (!is_loading) return;
 
-		const ImVec2 center(avail.x - 36.0f, avail.y - 36.0f);
+		const char* label = "Calculating Geodesics...";
+		const ImVec2 text_size = ImGui::CalcTextSize(label);
 		const float radius = 14.0f;
-		const double time = ImGui::GetTime();
-		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		const float spinner_diameter = radius * 2.0f;
+		const float gap = 12.0f;
+		const float padding = 10.0f;
+
+		const float panel_w = spinner_diameter + gap + text_size.x + padding * 2.0f;
+		const float panel_h = std::max(spinner_diameter, text_size.y) + padding * 2.0f;
+
+		const ImVec2 panel_top_left(avail.x - panel_w - 16.0f, avail.y - panel_h - 16.0f);
 		const ImVec2 window_pos = ImGui::GetWindowPos();
-		const ImVec2 draw_center(window_pos.x + center.x, window_pos.y + center.y);
+		const ImVec2 draw_panel_top_left(window_pos.x + panel_top_left.x, window_pos.y + panel_top_left.y);
 
-		draw_list->AddCircleFilled(draw_center, radius + 8.0f, IM_COL32(15, 15, 25, 200));
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(
+			draw_panel_top_left,
+			ImVec2(draw_panel_top_left.x + panel_w, draw_panel_top_left.y + panel_h),
+			IM_COL32(15, 15, 25, 200),
+			6.0f
+		);
 
+		const ImVec2 spinner_center(
+			draw_panel_top_left.x + padding + radius,
+			draw_panel_top_left.y + panel_h * 0.5f
+		);
+
+		const double time = ImGui::GetTime();
 		const int num_segments = 24;
 		const float start_angle = static_cast<float>(time * 8.0);
 		const float arc_len = static_cast<float>(std::numbers::pi * 1.3);
@@ -360,17 +390,17 @@ public:
 			const float alpha = static_cast<float>(i + 1) / static_cast<float>(num_segments);
 			const ImU32 col = IM_COL32(50 + static_cast<int>(180 * alpha), 150 + static_cast<int>(105 * alpha), 255, static_cast<int>(255 * alpha));
 			draw_list->AddLine(
-				ImVec2(draw_center.x + std::cos(a1) * radius, draw_center.y + std::sin(a1) * radius),
-				ImVec2(draw_center.x + std::cos(a2) * radius, draw_center.y + std::sin(a2) * radius),
+				ImVec2(spinner_center.x + std::cos(a1) * radius, spinner_center.y + std::sin(a1) * radius),
+				ImVec2(spinner_center.x + std::cos(a2) * radius, spinner_center.y + std::sin(a2) * radius),
 				col, 3.0f
 			);
 		}
 
-		draw_list->AddText(
-			ImVec2(draw_center.x - 145.0f, draw_center.y - 7.0f),
-			IM_COL32(200, 225, 255, 240),
-			"Calculating Geodesics..."
+		const ImVec2 text_pos(
+			spinner_center.x + radius + gap,
+			draw_panel_top_left.y + (panel_h - text_size.y) * 0.5f
 		);
+		draw_list->AddText(text_pos, IM_COL32(200, 225, 255, 240), label);
 	}
 
 private:

@@ -50,12 +50,6 @@ private:
 	std::vector<SecondaryViewWindow> secondary_views_;
 
 	bool show_viewport_{true};
-	bool show_scenarios_{true};
-	bool show_telemetry_{false};
-	bool show_spectrograph_{false};
-	bool show_controls_{true};
-	bool show_performance_{true};
-	bool show_diagnostics_{false};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
@@ -130,6 +124,13 @@ public:
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		last_frame_time_ = std::chrono::steady_clock::now();
 
+		telemetry_window_.open_state() = false;
+		spectrograph_window_.open_state() = false;
+		diagnostics_window_.open_state() = false;
+		control_panel_window_.open_state() = true;
+		performance_window_.open_state() = true;
+		scenario_window_->open_state() = true;
+
 		apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
 	}
 
@@ -170,27 +171,27 @@ public:
 			viewport_window_->render(main_window_, dt, multi_window_mode_);
 		}
 
-		if (show_scenarios_ && scenario_window_) {
+		if (scenario_window_ && scenario_window_->open_state()) {
 			scenario_window_->render();
 		}
 
-		if (show_controls_) {
+		if (control_panel_window_.open_state()) {
 			control_panel_window_.render();
 		}
 
-		if (show_telemetry_) {
+		if (telemetry_window_.open_state()) {
 			telemetry_window_.render(orchestrator_);
 		}
 
-		if (show_spectrograph_) {
+		if (spectrograph_window_.open_state()) {
 			spectrograph_window_.render();
 		}
 
-		if (show_performance_) {
+		if (performance_window_.open_state()) {
 			performance_window_.render();
 		}
 
-		if (show_diagnostics_) {
+		if (diagnostics_window_.open_state()) {
 			diagnostics_window_.render();
 		}
 
@@ -248,7 +249,7 @@ private:
 		if (io.WantCaptureKeyboard) return;
 
 		if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) {
-			show_controls_ = !show_controls_;
+			control_panel_window_.open_state() = !control_panel_window_.open_state();
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
 			apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
@@ -277,11 +278,11 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) {
-			show_telemetry_ = !show_telemetry_;
+			telemetry_window_.open_state() = !telemetry_window_.open_state();
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) {
-			show_performance_ = !show_performance_;
-			show_diagnostics_ = !show_diagnostics_;
+			performance_window_.open_state() = !performance_window_.open_state();
+			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) {
 			camera_controller_.snap_to_equatorial_front(50.0);
@@ -322,20 +323,20 @@ private:
 			ImGui::SetWindowPos("Curvature Diagnostics & Tensor Inspector", ImVec2(offset_x + screen_w - right_col_w - 10.0f, offset_y + top_h + 40.0f));
 			ImGui::SetWindowSize("Curvature Diagnostics & Tensor Inspector", ImVec2(right_col_w, bottom_h));
 		} else if (current_layout_ == UiLayoutPreset::ViewportFocused) {
-			show_scenarios_ = false;
-			show_telemetry_ = false;
-			show_spectrograph_ = false;
-			show_performance_ = false;
-			show_diagnostics_ = false;
+			if (scenario_window_) scenario_window_->open_state() = false;
+			telemetry_window_.open_state() = false;
+			spectrograph_window_.open_state() = false;
+			performance_window_.open_state() = false;
+			diagnostics_window_.open_state() = false;
 		} else {
 			multi_window_mode_ = false;
 			show_viewport_ = true;
-			show_scenarios_ = true;
-			show_telemetry_ = true;
-			show_spectrograph_ = true;
-			show_controls_ = true;
-			show_performance_ = true;
-			show_diagnostics_ = true;
+			if (scenario_window_) scenario_window_->open_state() = true;
+			telemetry_window_.open_state() = true;
+			spectrograph_window_.open_state() = true;
+			control_panel_window_.open_state() = true;
+			performance_window_.open_state() = true;
+			diagnostics_window_.open_state() = true;
 		}
 	}
 
@@ -406,12 +407,14 @@ private:
 
 			if (ImGui::BeginMenu("View Windows")) {
 				ImGui::MenuItem("3D Primary Viewport", nullptr, &show_viewport_);
-				ImGui::MenuItem("Scenario Catalog", nullptr, &show_scenarios_);
-				ImGui::MenuItem("Master Controls", nullptr, &show_controls_);
-				ImGui::MenuItem("Performance Profiles", nullptr, &show_performance_);
-				ImGui::MenuItem("Curvature Diagnostics", nullptr, &show_diagnostics_);
-				ImGui::MenuItem("Curvature Telemetry", nullptr, &show_telemetry_);
-				ImGui::MenuItem("Spectrograph Monitor", nullptr, &show_spectrograph_);
+				if (scenario_window_) {
+					ImGui::MenuItem("Scenario Catalog", nullptr, &scenario_window_->open_state());
+				}
+				ImGui::MenuItem("Master Controls", nullptr, &control_panel_window_.open_state());
+				ImGui::MenuItem("Performance Profiles", nullptr, &performance_window_.open_state());
+				ImGui::MenuItem("Curvature Diagnostics", nullptr, &diagnostics_window_.open_state());
+				ImGui::MenuItem("Curvature Telemetry", nullptr, &telemetry_window_.open_state());
+				ImGui::MenuItem("Spectrograph Monitor", nullptr, &spectrograph_window_.open_state());
 				ImGui::EndMenu();
 			}
 

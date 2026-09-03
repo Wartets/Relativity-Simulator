@@ -135,6 +135,7 @@ public:
 
 	~GeodesicComputePipeline() noexcept {
 		is_running_.store(false, std::memory_order_release);
+		cancel_render_.store(true, std::memory_order_release);
 		cv_.notify_all();
 	}
 

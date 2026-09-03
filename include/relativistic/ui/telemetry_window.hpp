@@ -18,13 +18,22 @@ private:
 	double last_r_{-1.0};
 
 public:
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
+	}
+
 	void render(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 		if (!is_open_) return;
 
 		ImGui::SetNextWindowPos(ImVec2(15.0f, 705.0f), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(315.0f, 335.0f), ImGuiCond_FirstUseEver);
 
-		if (ImGui::Begin("Telemetry & Invariants", &is_open_)) {
+		if (!ImGui::Begin("Telemetry & Invariants", &is_open_)) {
+			ImGui::End();
+			return;
+		}
+
+		{
 			const auto& params = orchestrator.parameters();
 			const auto& cam = orchestrator.camera();
 			const double cur_time = ImGui::GetTime();

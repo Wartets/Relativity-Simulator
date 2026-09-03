@@ -27,6 +27,10 @@ public:
 		sync_from_orchestrator();
 	}
 
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
+	}
+
 	void sync_from_orchestrator() noexcept {
 		const auto& p = orchestrator_.parameters();
 		preset_idx_ = static_cast<int>(p.performance_preset);
@@ -64,7 +68,7 @@ public:
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Rasterization & Ray Budget Configuration");
 
-			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.25f, 2.00f, "%.2fx")) {
+			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.10f, 2.00f, "%.2fx")) {
 				preset_idx_ = 5;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(static_cast<double>(res_scale_))));
 			}

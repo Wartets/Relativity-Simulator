@@ -6,6 +6,9 @@
 #include "relativistic/render/gpu_types.hpp"
 #include <string>
 #include <array>
+#include <cmath>
+#include <numbers>
+#include <algorithm>
 
 namespace Relativistic::UI {
 
@@ -26,6 +29,11 @@ private:
 	float camera_exposure_{0.0f};
 	int projection_mode_{0};
 	int tonemapping_mode_{0};
+
+	int camera_coord_system_{0};
+	float manual_cartesian_position_[3]{0.0f, 32.0f, 0.0f};
+	float manual_spherical_position_[3]{32.0f, 1.5707963267948966f, 1.5707963267948966f};
+	float manual_orientation_[3]{0.0f, 180.0f, 0.0f};
 
 	int metric_selection_{1};
 	int integrator_selection_{0};
@@ -49,6 +57,10 @@ public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator) {
 		sync_from_orchestrator();
+	}
+
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
 	}
 
 	void sync_from_orchestrator() noexcept {
@@ -137,28 +149,52 @@ private:
 
 		ImGui::Separator();
 
-		if (ImGui::SliderFloat("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
+		const bool needs_mass = (metric_selection_ == 1 || metric_selection_ == 2 || metric_selection_ == 3 || metric_selection_ == 4 || metric_selection_ == 5);
+		const bool needs_spin = (metric_selection_ == 2 || metric_selection_ == 4);
+		const bool needs_charge = (metric_selection_ == 3 || metric_selection_ == 4);
+		const bool needs_lambda = (metric_selection_ == 5);
+		const bool needs_throat = (metric_selection_ == 7);
+		const bool needs_warp_velocity = (metric_selection_ == 8);
+		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
+
+		if (needs_mass) {
+			if (ImGui::SliderFloat("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
+			}
 		}
 
-		if (ImGui::SliderFloat("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
+		if (needs_spin) {
+			if (ImGui::SliderFloat("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
+			}
 		}
 
-		if (ImGui::SliderFloat("Electric Charge (Q)", &charge_, -1.0f, 1.0f, "%.3f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
+		if (needs_charge) {
+			if (ImGui::SliderFloat("Electric Charge (Q)", &charge_, -1.0f, 1.0f, "%.3f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
+			}
 		}
 
-		if (ImGui::InputFloat("Cosmological Lambda", &lambda_, 1e-6f, 1e-4f, "%.6e")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
+		if (needs_lambda) {
+			if (ImGui::InputFloat("Cosmological Lambda", &lambda_, 1e-6f, 1e-4f, "%.6e")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
+			}
 		}
 
-		if (ImGui::SliderFloat("Wormhole Throat (b0)", &throat_, 0.1f, 20.0f, "%.2f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
+		if (needs_throat) {
+			if (ImGui::SliderFloat("Wormhole Throat (b0)", &throat_, 0.1f, 20.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
+			}
 		}
 
-		if (ImGui::SliderFloat("Warp Bubble Velocity (vs)", &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
+		if (needs_warp_velocity) {
+			if (ImGui::SliderFloat("Warp Bubble Velocity (vs)", &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
+			}
+		}
+
+		if (!has_any_param) {
+			ImGui::TextDisabled("This spacetime model exposes no adjustable parameters here.");
 		}
 	}
 
@@ -189,11 +225,6 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(tonemapping_mode_))));
 		}
 
-		// bool use_grid_skybox = (orchestrator_.parameters().visual_overlays_flags & 0x10U) != 0U;
-		// if (ImGui::Checkbox("Distant Grid Sphere Skybox", &use_grid_skybox)) {
-		// 	static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(0x10U, use_grid_skybox)));
-		// }
-
 		ImGui::Separator();
 
 		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Cockpit View"};
@@ -213,6 +244,60 @@ private:
 		if (ImGui::SliderFloat("Exposure Compensation (EV)", &camera_exposure_, -6.0f, 6.0f, "%.2f EV")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
 		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
+
+		const char* coord_systems[] = {"Cartesian (x, y, z)", "Spherical (r, theta, phi)"};
+		ImGui::Combo("Coordinate System", &camera_coord_system_, coord_systems, IM_ARRAYSIZE(coord_systems));
+
+		if (camera_coord_system_ == 0) {
+			ImGui::InputFloat3("Position (x, y, z)", manual_cartesian_position_);
+		} else {
+			ImGui::InputFloat("Radius (r)", &manual_spherical_position_[0]);
+			ImGui::SliderAngle("Polar Angle (theta)", &manual_spherical_position_[1], 0.1f, 179.9f);
+			ImGui::SliderAngle("Azimuthal Angle (phi)", &manual_spherical_position_[2], -180.0f, 180.0f);
+		}
+
+		ImGui::InputFloat3("Orientation (pitch, yaw, roll)", manual_orientation_);
+
+		if (ImGui::Button("Apply Camera Placement", ImVec2(220.0f, 28.0f))) {
+			apply_manual_camera_placement();
+		}
+	}
+
+	void apply_manual_camera_placement() noexcept {
+		auto& cam = orchestrator_.camera();
+
+		if (camera_coord_system_ == 0) {
+			cam.position = {
+				static_cast<double>(manual_cartesian_position_[0]),
+				static_cast<double>(manual_cartesian_position_[1]),
+				static_cast<double>(manual_cartesian_position_[2])
+			};
+		} else {
+			const double r = static_cast<double>(manual_spherical_position_[0]);
+			const double theta = static_cast<double>(manual_spherical_position_[1]);
+			const double phi = static_cast<double>(manual_spherical_position_[2]);
+			cam.position = {
+				r * std::sin(theta) * std::cos(phi),
+				r * std::sin(theta) * std::sin(phi),
+				r * std::cos(theta)
+			};
+		}
+
+		cam.pitch = std::clamp(static_cast<double>(manual_orientation_[0]), -89.0, 89.0);
+		cam.yaw = static_cast<double>(manual_orientation_[1]);
+		cam.roll = static_cast<double>(manual_orientation_[2]);
+
+		const double x = cam.position[0];
+		const double y = cam.position[1];
+		const double z = cam.position[2];
+		const double r_new = std::sqrt(x * x + y * y + z * z);
+		cam.radius = std::max(r_new, 1e-6);
+		cam.theta = (r_new > 0.0) ? std::acos(std::clamp(z / r_new, -1.0, 1.0)) : (std::numbers::pi_v<double> / 2.0);
+		cam.phi = std::atan2(y, x);
+		cam.orbit_distance = cam.radius;
 	}
 
 	void render_skybox_tab() noexcept {
@@ -220,10 +305,15 @@ private:
 			"Full Starfield",
 			"Grid Sphere",
 			"Composite Overlay (Starfield + Grid Overlay)",
-			"Dark Cosmic Void"
+			"Dark Cosmic Void",
+			"Starfield without Nebula",
+			"Grid Sphere with Stars"
 		};
 
 		int current_sky = static_cast<int>(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK);
+		if (current_sky < 0 || current_sky > 5) {
+			current_sky = static_cast<int>(Render::RenderFlags::SKYBOX_STARS);
+		}
 		if (ImGui::Combo("Skybox Style", &current_sky, sky_modes, IM_ARRAYSIZE(sky_modes))) {
 			uint32_t flags = orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK;
 			flags |= static_cast<uint32_t>(current_sky);
@@ -233,22 +323,32 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Skybox Presets:");
-		if (ImGui::Button("Full Starfield", ImVec2(120.0f, 26.0f))) {
-			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_STARS;
+		auto apply_sky_mode = [&](uint32_t mode) noexcept {
+			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | mode;
 			orchestrator_.parameters().visual_overlays_flags = flags;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+		};
+		if (ImGui::Button("Full Starfield", ImVec2(120.0f, 26.0f))) {
+			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS);
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Grid Sphere", ImVec2(110.0f, 26.0f))) {
-			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_GRID;
-			orchestrator_.parameters().visual_overlays_flags = flags;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID);
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Composite Overlay", ImVec2(130.0f, 26.0f))) {
-			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | Render::RenderFlags::SKYBOX_COMPOSITE;
-			orchestrator_.parameters().visual_overlays_flags = flags;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
+			apply_sky_mode(Render::RenderFlags::SKYBOX_COMPOSITE);
+		}
+		if (ImGui::Button("Dark Void", ImVec2(120.0f, 26.0f))) {
+			apply_sky_mode(Render::RenderFlags::SKYBOX_VOID);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Starfield (No Nebula)", ImVec2(170.0f, 26.0f))) {
+			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS_NO_NEBULA);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Grid + Stars", ImVec2(110.0f, 26.0f))) {
+			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID_STARS);
 		}
 
 		ImGui::Separator();
@@ -280,26 +380,45 @@ private:
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sky Style Customization:");
 
-		if (ImGui::SliderFloat("Star Density", &sky_star_density_, 0.0f, 4.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, static_cast<double>(sky_star_density_))));
+		const bool has_stars = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS_NO_NEBULA)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID_STARS));
+		const bool has_nebula = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE));
+		const bool has_grid = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE)) ||
+			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID_STARS));
+		const bool has_rotation_hue = (current_sky != static_cast<int>(Render::RenderFlags::SKYBOX_VOID));
+
+		if (has_stars) {
+			if (ImGui::SliderFloat("Star Density", &sky_star_density_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, static_cast<double>(sky_star_density_))));
+			}
+			if (ImGui::SliderFloat("Star Brightness", &sky_star_brightness_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, static_cast<double>(sky_star_brightness_))));
+			}
 		}
-		if (ImGui::SliderFloat("Star Brightness", &sky_star_brightness_, 0.0f, 4.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, static_cast<double>(sky_star_brightness_))));
+		if (has_nebula) {
+			if (ImGui::SliderFloat("Nebula Glow Intensity", &sky_nebula_intensity_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, static_cast<double>(sky_nebula_intensity_))));
+			}
 		}
-		if (ImGui::SliderFloat("Nebula Glow Intensity", &sky_nebula_intensity_, 0.0f, 4.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, static_cast<double>(sky_nebula_intensity_))));
+		if (has_grid) {
+			if (ImGui::SliderFloat("Coordinate Grid Opacity", &sky_grid_opacity_, 0.0f, 2.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, static_cast<double>(sky_grid_opacity_))));
+			}
 		}
-		if (ImGui::SliderFloat("Coordinate Grid Opacity", &sky_grid_opacity_, 0.0f, 2.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, static_cast<double>(sky_grid_opacity_))));
-		}
-		if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
-		}
-		if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
-		}
-		if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
+		if (has_rotation_hue) {
+			if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
+			}
+			if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
+			}
+			if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
+			}
 		}
 		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));

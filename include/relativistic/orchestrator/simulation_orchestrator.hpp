@@ -39,7 +39,7 @@ struct PhysicalParameters {
 	uint32_t max_ray_steps{1024};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
-	uint32_t visual_overlays_flags{0x0F};
+	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_SCALAR_PIPELINE | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION};
 	double sky_star_density{1.0};
 	double sky_star_brightness{1.0};
 	double sky_nebula_intensity{1.0};

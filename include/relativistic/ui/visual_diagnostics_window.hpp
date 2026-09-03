@@ -23,13 +23,22 @@ public:
 	explicit VisualDiagnosticsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator) {}
 
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
+	}
+
 	void render() {
 		if (!is_open_) return;
 
 		ImGui::SetNextWindowPos(ImVec2(1480.0f, 750.0f), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(425.0f, 290.0f), ImGuiCond_FirstUseEver);
 
-		if (ImGui::Begin("Curvature Diagnostics & Tensor Inspector", &is_open_)) {
+		if (!ImGui::Begin("Curvature Diagnostics & Tensor Inspector", &is_open_)) {
+			ImGui::End();
+			return;
+		}
+
+		{
 			const auto& cam = orchestrator_.camera();
 			const auto& params = orchestrator_.parameters();
 			const double cur_time = ImGui::GetTime();

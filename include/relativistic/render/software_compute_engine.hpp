@@ -177,6 +177,12 @@ private:
 			sky_rgb = {stars[0] + grid[0] * 0.7f, stars[1] + grid[1] * 0.7f, stars[2] + grid[2] * 0.7f};
 		} else if (sky_mode == RenderFlags::SKYBOX_STARS) {
 			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, params.sky_nebula_intensity);
+		} else if (sky_mode == RenderFlags::SKYBOX_STARS_NO_NEBULA) {
+			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0);
+		} else if (sky_mode == RenderFlags::SKYBOX_GRID_STARS) {
+			const auto stars = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0);
+			const auto grid = sample_celestial_grid_sphere(rotated[0], rotated[1], rotated[2], params.sky_grid_opacity);
+			sky_rgb = {stars[0] + grid[0], stars[1] + grid[1], stars[2] + grid[2]};
 		}
 
 		sky_rgb = apply_hue_saturation(sky_rgb, params.sky_hue_shift_rad, params.sky_saturation);

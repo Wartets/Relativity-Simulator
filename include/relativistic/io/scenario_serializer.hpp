@@ -56,6 +56,7 @@ struct ScenarioValidationResult {
 };
 
 struct ScenarioDefinition {
+	uint32_t format_version{1};
 	std::string scenario_name{"RelativisticSimulation"};
 	std::string description{"Physical Spacetime Simulation Scenario"};
 	std::string metric_type{"Schwarzschild"};
@@ -79,6 +80,7 @@ public:
 	[[nodiscard]] static std::string to_yaml(const ScenarioDefinition& s) {
 		std::ostringstream ss;
 		ss << std::setprecision(15);
+		ss << "format_version: " << s.format_version << "\n";
 		ss << "scenario_name: \"" << s.scenario_name << "\"\n";
 		ss << "description: \"" << s.description << "\"\n";
 		ss << "spacetime:\n";
@@ -131,6 +133,9 @@ public:
 	}
 
 	[[nodiscard]] static ScenarioValidationResult validate(const ScenarioDefinition& s) noexcept {
+		if (s.format_version == 0 || s.format_version > 1) {
+			return {false, "Scenario file format version is incompatible with this build."};
+		}
 		if (s.scenario_name.empty()) {
 			return {false, "Scenario name cannot be empty."};
 		}
@@ -289,6 +294,7 @@ public:
 				continue;
 			}
 
+			if (key == "format_version") { s.format_version = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10)); continue; }
 			if (key == "scenario_name") s.scenario_name = unquote(val);
 			else if (key == "description") s.description = unquote(val);
 			else if (key == "metric_type") s.metric_type = unquote(val);

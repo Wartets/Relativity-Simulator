@@ -2,6 +2,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/repl.hpp"
 #include "relativistic/ui/ui_manager.hpp"
+#include "relativistic/io/user_settings.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -63,7 +64,10 @@ int main(int argc, char* argv[]) {
 			else if (result.message[0] != '\0') std::cout << "OK: " << result.message << "\n";
 		}
 	} else {
-		Relativistic::UI::UiManager ui_manager(*orchestrator);
+		Relativistic::IO::UserSettings user_settings = Relativistic::IO::UserSettings::load_or_default();
+		Relativistic::IO::UserSettings::mark_session_started();
+
+		Relativistic::UI::UiManager ui_manager(*orchestrator, user_settings);
 		ui_manager.initialize();
 
 		for (int i = 1; i <= 2; ++i) {
@@ -74,6 +78,10 @@ int main(int argc, char* argv[]) {
 			ui_manager.render_frame();
 		}
 		orchestrator->stop();
+
+		ui_manager.export_runtime_settings();
+		user_settings.save();
+		Relativistic::IO::UserSettings::mark_session_ended_cleanly();
 	}
 
 	orchestrator->stop();

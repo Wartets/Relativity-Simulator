@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
+#include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
@@ -111,6 +112,17 @@ public:
 
 	void request_rerender() noexcept {
 		force_rerender_ = true;
+	}
+
+	void request_screenshot(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format) {
+		std::vector<Render::GpuPixelOutput> fb;
+		uint32_t fb_w = 0, fb_h = 0;
+		pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+		if (fb_w == 0 || fb_h == 0 || fb.empty()) {
+			return;
+		}
+		const std::string stem = IO::ScreenshotExporter::expand_filename_pattern(filename_pattern);
+		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format);
 	}
 
 	[[nodiscard]] bool is_hovered() const noexcept {
@@ -411,7 +423,7 @@ public:
 		}
 
 		ImGui::SameLine();
-		const char* cam_modes[] = {"Free Fly", "Orbit Center", "Cockpit"};
+		const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket"};
 		int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
 		ImGui::SetNextItemWidth(95.0f);
 		if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {

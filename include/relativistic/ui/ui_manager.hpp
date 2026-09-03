@@ -1,5 +1,7 @@
 #pragma once
 
+#include "relativistic/io/user_settings.hpp"
+#include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/ui/telemetry_window.hpp"
 #include "relativistic/ui/spectrograph_window.hpp"
@@ -39,6 +41,7 @@ class UiManager {
 private:
 	GLFWwindow* main_window_{nullptr};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	IO::UserSettings& user_settings_;
 	InteractiveCameraController camera_controller_;
 
 	std::unique_ptr<ViewportPrimaryWindow> viewport_window_;
@@ -59,10 +62,11 @@ private:
 	std::chrono::steady_clock::time_point last_frame_time_;
 
 public:
-	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
+	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
 		: orchestrator_(orchestrator),
+		  user_settings_(user_settings),
 		  camera_controller_(orchestrator),
-		  control_panel_window_(orchestrator),
+		  control_panel_window_(orchestrator, camera_controller_),
 		  performance_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator) {}
@@ -134,11 +138,34 @@ public:
 		performance_window_.open_state() = true;
 		scenario_window_->open_state() = true;
 
-		apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
+		camera_controller_.config() = user_settings_.camera_controls;
+		multi_window_mode_ = user_settings_.multi_window_mode;
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
+
+		apply_multi_window_layout_preset(static_cast<UiLayoutPreset>(user_settings_.last_window_layout));
 	}
 
 	void add_secondary_view(const std::string& name) {
 		secondary_views_.emplace_back(name);
+	}
+
+	void trigger_screenshot_capture() noexcept {
+		if (viewport_window_) {
+			viewport_window_->request_screenshot(
+				user_settings_.screenshot_output_directory,
+				user_settings_.screenshot_filename_pattern,
+				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format)
+			);
+		}
+	}
+
+	void export_runtime_settings() const noexcept {
+		user_settings_.camera_controls = camera_controller_.config();
+		user_settings_.multi_window_mode = multi_window_mode_;
+		user_settings_.last_window_layout = static_cast<uint32_t>(current_layout_);
+		user_settings_.default_camera_mode = orchestrator_.parameters().camera_mode;
+		user_settings_.default_performance_preset = orchestrator_.parameters().performance_preset;
 	}
 
 	void apply_multi_window_layout_preset(UiLayoutPreset preset) noexcept {
@@ -295,7 +322,7 @@ private:
 			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) {
-			camera_controller_.snap_to_equatorial_front(50.0);
+			trigger_screenshot_capture();
 		}
 	}
 

@@ -29,6 +29,8 @@ enum class BodyPresetTemplate : uint32_t {
 
 class BodyManagerWindow {
 private:
+	static constexpr int kCentralObjectIndex = -2;
+
 	bool is_open_{false};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 
@@ -59,7 +61,7 @@ public:
 		if (!is_open_) return;
 
 		ImGui::SetNextWindowPos(ImVec2(15.0f, 400.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(460.0f, 580.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(480.0f, 620.0f), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Celestial Body & N-Body Manager", &is_open_)) {
 			ImGui::End();
@@ -98,107 +100,215 @@ public:
 	}
 
 private:
+	[[nodiscard]] std::array<double, 3> compute_circular_orbit_velocity(const std::array<double, 3>& pos, double central_mass) const noexcept {
+		const double r2 = pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2];
+		const double r = std::sqrt(std::max(r2, 1e-12));
+		const double speed = std::sqrt(std::max(central_mass, 0.0) / r);
+		const std::array<double, 3> up{0.0, 0.0, 1.0};
+		std::array<double, 3> tangent{
+			up[1] * pos[2] - up[2] * pos[1],
+			up[2] * pos[0] - up[0] * pos[2],
+			up[0] * pos[1] - up[1] * pos[0]
+		};
+		const double t_len = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]);
+		if (t_len < 1e-9) {
+			return {0.0, speed, 0.0};
+		}
+		return {tangent[0] / t_len * speed, tangent[1] / t_len * speed, tangent[2] / t_len * speed};
+	}
+
 	void render_body_list_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
 		auto bodies = sys.bodies();
 		const size_t n = bodies.size();
 
-		if (n == 0) {
-			ImGui::TextDisabled("No celestial bodies currently populated.");
-			ImGui::Spacing();
-			if (ImGui::Button("Spawn Solar System Archetype", ImVec2(240.0f, 28.0f))) {
-				populate_solar_system_archetype();
+		ImGui::Columns(2, "BodyColumns", true);
+		ImGui::SetColumnWidth(0, 190.0f);
+
+		ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Spacetime Source:");
+		{
+			const bool is_selected_central = (selected_body_index_ == kCentralObjectIndex);
+			const auto& params = orchestrator_.parameters();
+			const std::string central_label = "Central Object (M=" + std::to_string(params.mass).substr(0, 5) + ", a=" + std::to_string(params.spin).substr(0, 5) + ")";
+			if (ImGui::Selectable(central_label.c_str(), is_selected_central)) {
+				selected_body_index_ = kCentralObjectIndex;
 			}
-			return;
 		}
 
-		ImGui::Columns(2, "BodyColumns", true);
-		ImGui::SetColumnWidth(0, 160.0f);
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "N-Body Catalog:");
 
-		for (size_t i = 0; i < n; ++i) {
-			const bool is_selected = (selected_body_index_ == static_cast<int>(i));
-			std::string label = "Body #" + std::to_string(bodies[i].id) + " (M=" + std::to_string(bodies[i].mass).substr(0, 4) + ")";
-			if (ImGui::Selectable(label.c_str(), is_selected)) {
-				selected_body_index_ = static_cast<int>(i);
+		if (n == 0) {
+			ImGui::TextDisabled("No orbiting bodies populated.");
+			ImGui::Spacing();
+			if (ImGui::Button("Spawn Solar System Archetype", ImVec2(180.0f, 26.0f))) {
+				populate_solar_system_archetype();
+			}
+		} else {
+			for (size_t i = 0; i < n; ++i) {
+				const bool is_selected = (selected_body_index_ == static_cast<int>(i));
+				const double dist = std::sqrt(bodies[i].position[0] * bodies[i].position[0] + bodies[i].position[1] * bodies[i].position[1] + bodies[i].position[2] * bodies[i].position[2]);
+				std::string label = "#" + std::to_string(bodies[i].id) + " (M=" + std::to_string(bodies[i].mass).substr(0, 4) + ", r=" + std::to_string(dist).substr(0, 5) + ")";
+				if (ImGui::Selectable(label.c_str(), is_selected)) {
+					selected_body_index_ = static_cast<int>(i);
+				}
 			}
 		}
 
 		ImGui::NextColumn();
 
-		if (selected_body_index_ >= 0 && selected_body_index_ < static_cast<int>(n)) {
-			auto& b = bodies[selected_body_index_];
-
-			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Body ID: %u", b.id);
-			ImGui::Separator();
-
-			float m = static_cast<float>(b.mass);
-			if (ImGui::InputFloat("Mass", &m, 0.01f, 1.0f, "%.4e")) {
-				b.mass = std::max(0.0, static_cast<double>(m));
-			}
-
-			float r = static_cast<float>(b.radius);
-			if (ImGui::InputFloat("Physical Radius", &r, 0.01f, 1.0f, "%.4e")) {
-				b.radius = std::max(1e-6, static_cast<double>(r));
-			}
-
-			float pos[3] = {static_cast<float>(b.position[0]), static_cast<float>(b.position[1]), static_cast<float>(b.position[2])};
-			if (ImGui::InputFloat3("Position (x, y, z)", pos)) {
-				b.position = {static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2])};
-			}
-
-			float vel[3] = {static_cast<float>(b.velocity[0]), static_cast<float>(b.velocity[1]), static_cast<float>(b.velocity[2])};
-			if (ImGui::InputFloat3("Velocity (vx, vy, vz)", vel)) {
-				b.velocity = {static_cast<double>(vel[0]), static_cast<double>(vel[1]), static_cast<double>(vel[2])};
-			}
-
-			float spin[3] = {static_cast<float>(b.spin[0]), static_cast<float>(b.spin[1]), static_cast<float>(b.spin[2])};
-			if (ImGui::InputFloat3("Spin Vector", spin)) {
-				b.spin = {static_cast<double>(spin[0]), static_cast<double>(spin[1]), static_cast<double>(spin[2])};
-			}
-
-			float j2 = static_cast<float>(b.j2);
-			if (ImGui::InputFloat("Zonal J2 Moment", &j2, 1e-5f, 1e-3f, "%.6e")) {
-				b.j2 = static_cast<double>(j2);
-			}
-
-			float j3 = static_cast<float>(b.j3);
-			if (ImGui::InputFloat("Zonal J3 Moment", &j3, 1e-6f, 1e-4f, "%.6e")) {
-				b.j3 = static_cast<double>(j3);
-			}
-
-			float j4 = static_cast<float>(b.j4);
-			if (ImGui::InputFloat("Zonal J4 Moment", &j4, 1e-6f, 1e-4f, "%.6e")) {
-				b.j4 = static_cast<double>(j4);
-			}
-
-			ImGui::Spacing();
-			if (ImGui::Button("Look At This Body", ImVec2(160.0f, 24.0f))) {
-				orchestrator_.camera().target = b.position;
-				const double dx = b.position[0] - orchestrator_.camera().position[0];
-				const double dy = b.position[1] - orchestrator_.camera().position[1];
-				const double dz = b.position[2] - orchestrator_.camera().position[2];
-				const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
-				if (d_tot > 1e-6) {
-					orchestrator_.camera().yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi);
-					orchestrator_.camera().pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
-				}
-			}
-
-			ImGui::SameLine();
-			if (ImGui::Button("Delete Body")) {
-				std::vector<Dynamics::PostNewtonianBody> updated;
-				for (size_t k = 0; k < n; ++k) {
-					if (k != static_cast<size_t>(selected_body_index_)) {
-						updated.push_back(bodies[k]);
-					}
-				}
-				sys.clear_bodies();
-				for (auto& ub : updated) sys.add_body(ub);
-				selected_body_index_ = -1;
-			}
+		if (selected_body_index_ == kCentralObjectIndex) {
+			render_central_object_panel();
+		} else if (selected_body_index_ >= 0 && selected_body_index_ < static_cast<int>(n)) {
+			render_selected_nbody_panel(sys, bodies, n);
+		} else {
+			ImGui::TextDisabled("Select a body from the catalog to inspect or edit its parameters.");
 		}
 
 		ImGui::Columns(1);
+	}
+
+	void render_central_object_panel() noexcept {
+		auto& params = orchestrator_.parameters();
+
+		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Central Spacetime Source");
+		ImGui::TextDisabled("Metric: %s", orchestrator_.active_metric_name().c_str());
+		ImGui::Separator();
+
+		float mass = static_cast<float>(params.mass);
+		if (ImGui::InputFloat("Central Mass (M)", &mass, 0.1f, 10.0f, "%.4e")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, static_cast<double>(mass)))));
+		}
+
+		float spin = static_cast<float>(params.spin);
+		if (ImGui::InputFloat("Spin Parameter (a)", &spin, 0.01f, 0.1f, "%.4f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, std::clamp(static_cast<double>(spin), -0.999 * params.mass, 0.999 * params.mass))));
+		}
+
+		float charge = static_cast<float>(params.charge);
+		if (ImGui::InputFloat("Electric Charge (Q)", &charge, 0.01f, 0.1f, "%.4f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge))));
+		}
+
+		ImGui::Spacing();
+		if (ImGui::Button("Look At Central Object", ImVec2(190.0f, 26.0f))) {
+			orchestrator_.camera().target = {0.0, 0.0, 0.0};
+		}
+	}
+
+	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, auto bodies, size_t n) noexcept {
+		auto& b = bodies[static_cast<size_t>(selected_body_index_)];
+		bool changed = false;
+
+		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Body ID: %u", b.id);
+		ImGui::Separator();
+
+		float m = static_cast<float>(b.mass);
+		if (ImGui::InputFloat("Mass", &m, 0.01f, 1.0f, "%.4e")) {
+			b.mass = std::max(0.0, static_cast<double>(m));
+			changed = true;
+		}
+
+		float r = static_cast<float>(b.radius);
+		if (ImGui::InputFloat("Physical Radius", &r, 0.01f, 1.0f, "%.4e")) {
+			b.radius = std::max(1e-6, static_cast<double>(r));
+			changed = true;
+		}
+
+		float pos[3] = {static_cast<float>(b.position[0]), static_cast<float>(b.position[1]), static_cast<float>(b.position[2])};
+		if (ImGui::InputFloat3("Position (x, y, z)", pos)) {
+			b.position = {static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2])};
+			changed = true;
+		}
+
+		float vel[3] = {static_cast<float>(b.velocity[0]), static_cast<float>(b.velocity[1]), static_cast<float>(b.velocity[2])};
+		if (ImGui::InputFloat3("Velocity (vx, vy, vz)", vel)) {
+			b.velocity = {static_cast<double>(vel[0]), static_cast<double>(vel[1]), static_cast<double>(vel[2])};
+			changed = true;
+		}
+
+		if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(210.0f, 24.0f))) {
+			b.velocity = compute_circular_orbit_velocity(b.position, orchestrator_.parameters().mass);
+			changed = true;
+		}
+
+		float spin[3] = {static_cast<float>(b.spin[0]), static_cast<float>(b.spin[1]), static_cast<float>(b.spin[2])};
+		if (ImGui::InputFloat3("Spin Vector", spin)) {
+			b.spin = {static_cast<double>(spin[0]), static_cast<double>(spin[1]), static_cast<double>(spin[2])};
+			changed = true;
+		}
+
+		float quad = static_cast<float>(b.quadrupole_moment);
+		if (ImGui::InputFloat("Quadrupole Moment (Q)", &quad, 1e-4f, 1e-2f, "%.6e")) {
+			b.quadrupole_moment = static_cast<double>(quad);
+			changed = true;
+		}
+
+		float j2 = static_cast<float>(b.j2);
+		if (ImGui::InputFloat("Zonal J2 Moment", &j2, 1e-5f, 1e-3f, "%.6e")) {
+			b.j2 = static_cast<double>(j2);
+			changed = true;
+		}
+
+		float j3 = static_cast<float>(b.j3);
+		if (ImGui::InputFloat("Zonal J3 Moment", &j3, 1e-6f, 1e-4f, "%.6e")) {
+			b.j3 = static_cast<double>(j3);
+			changed = true;
+		}
+
+		float j4 = static_cast<float>(b.j4);
+		if (ImGui::InputFloat("Zonal J4 Moment", &j4, 1e-6f, 1e-4f, "%.6e")) {
+			b.j4 = static_cast<double>(j4);
+			changed = true;
+		}
+
+		float r_ref = static_cast<float>(b.reference_radius);
+		if (ImGui::InputFloat("Multipole Reference Radius", &r_ref, 0.01f, 1.0f, "%.4e")) {
+			b.reference_radius = std::max(1e-6, static_cast<double>(r_ref));
+			changed = true;
+		}
+
+		ImGui::Text("Speed: %.6e | Kinetic Energy: %.6e", b.speed(), b.kinetic_energy());
+
+		ImGui::Spacing();
+		if (ImGui::Button("Look At This Body", ImVec2(150.0f, 24.0f))) {
+			orchestrator_.camera().target = b.position;
+			const double dx = b.position[0] - orchestrator_.camera().position[0];
+			const double dy = b.position[1] - orchestrator_.camera().position[1];
+			const double dz = b.position[2] - orchestrator_.camera().position[2];
+			const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+			if (d_tot > 1e-6) {
+				orchestrator_.camera().yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi);
+				orchestrator_.camera().pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Duplicate Body")) {
+			Dynamics::PostNewtonianBody clone = b;
+			clone.id = static_cast<uint32_t>(sys.body_count() + 1);
+			clone.position[0] += clone.radius * 4.0;
+			sys.add_body(clone);
+			changed = true;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Delete Body")) {
+			std::vector<Dynamics::PostNewtonianBody> updated;
+			for (size_t k = 0; k < n; ++k) {
+				if (k != static_cast<size_t>(selected_body_index_)) {
+					updated.push_back(bodies[k]);
+				}
+			}
+			sys.clear_bodies();
+			for (auto& ub : updated) sys.add_body(ub);
+			selected_body_index_ = -1;
+			changed = true;
+		}
+
+		if (changed) {
+			sys.update_accelerations();
+		}
 	}
 
 	void render_creation_tab() noexcept {
@@ -225,10 +335,18 @@ private:
 		ImGui::InputFloat("Physical Radius", &new_body_radius_, 0.1f, 10.0f, "%.4e");
 		ImGui::InputFloat3("Initial Position (x, y, z)", new_body_pos_);
 		ImGui::InputFloat3("Initial Velocity (vx, vy, vz)", new_body_vel_);
+		if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(270.0f, 24.0f))) {
+			const std::array<double, 3> pos{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])};
+			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass);
+			new_body_vel_[0] = static_cast<float>(v[0]);
+			new_body_vel_[1] = static_cast<float>(v[1]);
+			new_body_vel_[2] = static_cast<float>(v[2]);
+		}
 		ImGui::InputFloat3("Initial Spin Vector", new_body_spin_);
 
 		ImGui::Separator();
 		ImGui::TextDisabled("Gravitational Multipolar Moments:");
+		ImGui::InputFloat("Quadrupole Moment (Q)", &new_body_quadrupole_, 1e-4f, 1e-2f, "%.6e");
 		ImGui::InputFloat("Zonal J2", &new_body_j2_, 1e-5f, 1e-3f, "%.6e");
 		ImGui::InputFloat("Zonal J3", &new_body_j3_, 1e-6f, 1e-4f, "%.6e");
 		ImGui::InputFloat("Zonal J4", &new_body_j4_, 1e-6f, 1e-4f, "%.6e");
@@ -267,6 +385,11 @@ private:
 			ImGui::TextDisabled("System is empty.");
 			return;
 		}
+
+		if (ImGui::Button("Recompute System State", ImVec2(200.0f, 26.0f))) {
+			sys.update_accelerations();
+		}
+		ImGui::Separator();
 
 		ImGui::Text("Total System Mass:     %.6e", sys.total_mass());
 		const auto cm = sys.center_of_mass();

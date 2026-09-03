@@ -69,6 +69,7 @@ struct CustomParameterEntry {
 struct CameraState {
 	std::array<double, 3> position{0.0, 32.0, 0.0};
 	std::array<double, 3> target{0.0, 0.0, 0.0};
+	std::array<double, 3> velocity{0.0, 0.0, 0.0};
 	double pitch{0.0};
 	double yaw{180.0};
 	double roll{0.0};

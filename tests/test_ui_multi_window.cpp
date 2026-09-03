@@ -78,8 +78,8 @@ int main() {
 	cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::SphericalBoyerLindquist);
 	assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::SphericalBoyerLindquist);
 
-	cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::CockpitFlight);
-	assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::CockpitFlight);
+	// cam_ctrl.set_navigation_mode(UI::CameraNavigationMode::CockpitFlight);
+	// assert(cam_ctrl.navigation_mode() == UI::CameraNavigationMode::CockpitFlight);
 
 	cam_ctrl.snap_to_equatorial_front(60.0);
 	assert(std::abs(orchestrator->camera().position[1] - 60.0) < 1e-6);

@@ -4,6 +4,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/ui/interactive_camera_controller.hpp"
 #include <string>
 #include <array>
 #include <cmath>
@@ -26,6 +27,7 @@ class ControlPanelWindow {
 private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	InteractiveCameraController& camera_controller_;
 
 	float mass_{1.0f};
 	float spin_{0.0f};
@@ -65,8 +67,8 @@ private:
 	uint64_t last_synced_version_{0};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
-		: orchestrator_(orchestrator) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller) {
 		sync_from_orchestrator();
 	}
 
@@ -153,6 +155,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Optics & Camera")) {
 					render_camera_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Camera Controls")) {
+					render_camera_controls_tab();
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem("Skybox & Environment")) {
@@ -286,7 +292,7 @@ private:
 
 		ImGui::Separator();
 
-		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Cockpit View"};
+		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust"};
 		int mode = static_cast<int>(orchestrator_.parameters().camera_mode);
 		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
@@ -300,6 +306,7 @@ private:
 
 		if (ImGui::SliderFloat("Navigation Speed", &camera_speed_, 0.1f, 100.0f, "%.1f m/s")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_speed(static_cast<double>(camera_speed_))));
+			camera_controller_.set_uniform_speed(static_cast<double>(camera_speed_));
 		}
 		render_setting_tooltip("Translational observer traversal speed in coordinate units per second. Hold Shift to sprint, Ctrl to crawl.");
 
@@ -327,6 +334,90 @@ private:
 		if (ImGui::Button("Apply Camera Placement", ImVec2(220.0f, 28.0f))) {
 			apply_manual_camera_placement();
 		}
+	}
+
+	void render_camera_controls_tab() noexcept {
+		auto& cfg = camera_controller_.config();
+
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Mouse Look:");
+		float mouse_sens = static_cast<float>(cfg.free_fly.mouse_sensitivity);
+		if (ImGui::SliderFloat("Mouse Sensitivity", &mouse_sens, 0.01f, 1.0f, "%.3f")) {
+			cfg.free_fly.mouse_sensitivity = static_cast<double>(mouse_sens);
+		}
+		bool invert_mouse_y = cfg.free_fly.invert_mouse_y;
+		if (ImGui::Checkbox("Invert Mouse Y", &invert_mouse_y)) {
+			cfg.free_fly.invert_mouse_y = invert_mouse_y;
+		}
+		ImGui::SameLine();
+		bool invert_mouse_x = cfg.free_fly.invert_mouse_x;
+		if (ImGui::Checkbox("Invert Mouse X", &invert_mouse_x)) {
+			cfg.free_fly.invert_mouse_x = invert_mouse_x;
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Free Fly 6-DOF Axis Speeds:");
+		float ff_fwd = static_cast<float>(cfg.free_fly.forward_speed);
+		if (ImGui::SliderFloat("Forward/Back Speed", &ff_fwd, 0.1f, 200.0f, "%.1f")) cfg.free_fly.forward_speed = static_cast<double>(ff_fwd);
+		float ff_lat = static_cast<float>(cfg.free_fly.lateral_speed);
+		if (ImGui::SliderFloat("Left/Right Speed", &ff_lat, 0.1f, 200.0f, "%.1f")) cfg.free_fly.lateral_speed = static_cast<double>(ff_lat);
+		float ff_vert = static_cast<float>(cfg.free_fly.vertical_speed);
+		if (ImGui::SliderFloat("Up/Down Speed", &ff_vert, 0.1f, 200.0f, "%.1f")) cfg.free_fly.vertical_speed = static_cast<double>(ff_vert);
+		bool ff_invert_vert = cfg.free_fly.invert_vertical;
+		if (ImGui::Checkbox("Invert Up/Down Keys", &ff_invert_vert)) cfg.free_fly.invert_vertical = ff_invert_vert;
+		ImGui::SameLine();
+		bool ff_invert_lat = cfg.free_fly.invert_lateral;
+		if (ImGui::Checkbox("Invert Left/Right Keys", &ff_invert_lat)) cfg.free_fly.invert_lateral = ff_invert_lat;
+		float ff_sprint = static_cast<float>(cfg.free_fly.sprint_multiplier);
+		if (ImGui::SliderFloat("Sprint Multiplier", &ff_sprint, 1.0f, 20.0f, "%.1fx")) cfg.free_fly.sprint_multiplier = static_cast<double>(ff_sprint);
+		float ff_crawl = static_cast<float>(cfg.free_fly.crawl_multiplier);
+		if (ImGui::SliderFloat("Crawl Multiplier", &ff_crawl, 0.01f, 1.0f, "%.2fx")) cfg.free_fly.crawl_multiplier = static_cast<double>(ff_crawl);
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Orbit Center Mode:");
+		float orb_dist = static_cast<float>(cfg.orbit.orbit_distance_speed);
+		if (ImGui::SliderFloat("Zoom Speed", &orb_dist, 0.1f, 200.0f, "%.1f")) cfg.orbit.orbit_distance_speed = static_cast<double>(orb_dist);
+		float orb_pitch = static_cast<float>(cfg.orbit.pitch_speed_deg_s);
+		if (ImGui::SliderFloat("Pitch Speed", &orb_pitch, 1.0f, 180.0f, "%.1f deg/s")) cfg.orbit.pitch_speed_deg_s = static_cast<double>(orb_pitch);
+		float orb_yaw = static_cast<float>(cfg.orbit.yaw_speed_deg_s);
+		if (ImGui::SliderFloat("Yaw Speed", &orb_yaw, 1.0f, 180.0f, "%.1f deg/s")) cfg.orbit.yaw_speed_deg_s = static_cast<double>(orb_yaw);
+		bool orb_invert_pitch = cfg.orbit.invert_pitch;
+		if (ImGui::Checkbox("Invert Orbit Pitch Keys", &orb_invert_pitch)) cfg.orbit.invert_pitch = orb_invert_pitch;
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Rocket 6-DOF Thrust Mode:");
+		ImGui::TextDisabled("Thrust integrates only while simulation time is running (unpaused).");
+		float rk_main = static_cast<float>(cfg.rocket.main_thrust_accel);
+		if (ImGui::SliderFloat("Main Thrust Accel", &rk_main, 0.1f, 500.0f, "%.1f")) cfg.rocket.main_thrust_accel = static_cast<double>(rk_main);
+		float rk_lat = static_cast<float>(cfg.rocket.lateral_thrust_accel);
+		if (ImGui::SliderFloat("Lateral Thrust Accel", &rk_lat, 0.1f, 500.0f, "%.1f")) cfg.rocket.lateral_thrust_accel = static_cast<double>(rk_lat);
+		float rk_vert = static_cast<float>(cfg.rocket.vertical_thrust_accel);
+		if (ImGui::SliderFloat("Vertical Thrust Accel", &rk_vert, 0.1f, 500.0f, "%.1f")) cfg.rocket.vertical_thrust_accel = static_cast<double>(rk_vert);
+		float rk_ang = static_cast<float>(cfg.rocket.angular_rate_deg_s);
+		if (ImGui::SliderFloat("Roll Rate", &rk_ang, 1.0f, 360.0f, "%.1f deg/s")) cfg.rocket.angular_rate_deg_s = static_cast<double>(rk_ang);
+		bool rk_invert_vert = cfg.rocket.invert_vertical;
+		if (ImGui::Checkbox("Invert Rocket Up/Down", &rk_invert_vert)) cfg.rocket.invert_vertical = rk_invert_vert;
+		ImGui::SameLine();
+		bool rk_invert_lat = cfg.rocket.invert_lateral;
+		if (ImGui::Checkbox("Invert Rocket Left/Right", &rk_invert_lat)) cfg.rocket.invert_lateral = rk_invert_lat;
+		bool rk_requires_time = cfg.rocket.requires_time_running;
+		if (ImGui::Checkbox("Require Unpaused Time For Thrust", &rk_requires_time)) cfg.rocket.requires_time_running = rk_requires_time;
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Reference:");
+		auto show_bind = [&](const char* label, CameraAction action) noexcept {
+			const auto& b = cfg.keybinds.get(action);
+			ImGui::Text("%s: %s / %s", label, CameraKeybindMap::key_name(b.primary_key), CameraKeybindMap::key_name(b.secondary_key));
+		};
+		show_bind("Forward", CameraAction::MoveForward);
+		show_bind("Backward", CameraAction::MoveBackward);
+		show_bind("Left", CameraAction::MoveLeft);
+		show_bind("Right", CameraAction::MoveRight);
+		show_bind("Up", CameraAction::MoveUp);
+		show_bind("Down", CameraAction::MoveDown);
+		show_bind("Roll Left", CameraAction::RollLeft);
+		show_bind("Roll Right", CameraAction::RollRight);
+		show_bind("Sprint", CameraAction::Sprint);
+		show_bind("Crawl", CameraAction::Crawl);
 	}
 
 	void apply_manual_camera_placement() noexcept {

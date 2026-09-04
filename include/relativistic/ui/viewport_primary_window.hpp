@@ -129,6 +129,10 @@ public:
 		return is_hovered_;
 	}
 
+	[[nodiscard]] Render::GeodesicComputePipeline& pipeline_ref() noexcept {
+		return pipeline_;
+	}
+
 	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
 		if (fullscreen_bg) {
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->WorkPos);
@@ -158,6 +162,7 @@ public:
 
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
+			pipeline_.set_gpu_compute_enabled(params.use_gpu_compute);
 
 			const bool is_navigating = (is_hovered_ || is_focused_) && (
 				camera_controller_.is_actively_navigating() ||

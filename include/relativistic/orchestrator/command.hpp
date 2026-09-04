@@ -80,7 +80,8 @@ enum class ParameterType : uint32_t {
 	RenderDistanceScale = 37,
 	LodEnabled = 38,
 	LodDistanceThreshold = 39,
-	LodReducedSteps = 40
+	LodReducedSteps = 40,
+	UseGpuCompute = 41
 };
 
 struct Command {

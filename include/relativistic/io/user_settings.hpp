@@ -23,6 +23,7 @@ struct UserSettings {
 
 	uint32_t default_camera_mode{0};
 	uint32_t default_performance_preset{1};
+	bool default_use_gpu_compute{false};
 	std::string default_scenario_path{};
 	std::string screenshot_output_directory{"./screenshots"};
 	std::string screenshot_filename_pattern{"relativistic_%Y%m%d_%H%M%S"};
@@ -107,6 +108,7 @@ struct UserSettings {
 
 		result.default_camera_mode = get_u32("default_camera_mode", result.default_camera_mode);
 		result.default_performance_preset = get_u32("default_performance_preset", result.default_performance_preset);
+		result.default_use_gpu_compute = get_u32("default_use_gpu_compute", result.default_use_gpu_compute ? 1 : 0) != 0;
 		result.default_scenario_path = get_str("default_scenario_path", result.default_scenario_path);
 		result.screenshot_output_directory = get_str("screenshot_output_directory", result.screenshot_output_directory);
 		result.screenshot_filename_pattern = get_str("screenshot_filename_pattern", result.screenshot_filename_pattern);
@@ -151,6 +153,7 @@ struct UserSettings {
 		out << "load_policy=" << static_cast<uint32_t>(load_policy) << "\n";
 		out << "default_camera_mode=" << default_camera_mode << "\n";
 		out << "default_performance_preset=" << default_performance_preset << "\n";
+		out << "default_use_gpu_compute=" << (default_use_gpu_compute ? 1 : 0) << "\n";
 		out << "default_scenario_path=" << default_scenario_path << "\n";
 		out << "screenshot_output_directory=" << screenshot_output_directory << "\n";
 		out << "screenshot_filename_pattern=" << screenshot_filename_pattern << "\n";

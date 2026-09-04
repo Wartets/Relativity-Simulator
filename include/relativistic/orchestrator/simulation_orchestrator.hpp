@@ -58,6 +58,7 @@ struct PhysicalParameters {
 	bool lod_enabled{false};
 	double lod_distance_scale{400.0};
 	uint32_t lod_reduced_ray_steps{256};
+	bool use_gpu_compute{false};
 };
 
 struct CustomParameterEntry {
@@ -535,6 +536,9 @@ public:
 				break;
 			case ParameterType::LodReducedSteps:
 				params_.lod_reduced_ray_steps = static_cast<uint32_t>(std::clamp(val, 16.0, 4096.0));
+				break;
+			case ParameterType::UseGpuCompute:
+				params_.use_gpu_compute = (val > 0.5);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

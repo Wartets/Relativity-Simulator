@@ -1,9 +1,10 @@
 #version 450
 #extension GL_ARB_gpu_shader_fp64 : enable
+#extension GL_EXT_scalar_block_layout : require
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
+layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
 	dvec4 tetrad_e1;
@@ -15,17 +16,17 @@ layout(push_constant) uniform PushConstants {
 	uint metric_type;
 	uint precision_mode;
 
-	double fov_rad;
+	double field_of_view_rad;
 	double metric_mass;
 	double metric_spin;
 	double metric_charge;
 
 	double speed_of_light;
-	double g_constant;
-	double initial_step;
-	double min_step;
+	double gravitational_constant;
+	double initial_step_size;
+	double min_step_size;
 
-	double max_step;
+	double max_step_size;
 	double horizon_radius;
 	double escape_radius;
 	double cosmological_lambda;
@@ -35,10 +36,25 @@ layout(push_constant) uniform PushConstants {
 	double camera_exposure;
 	uint tonemapping_mode;
 
-	uint max_steps;
+	uint max_integration_steps;
 	uint render_flags;
 	uint projection_mode;
-	uint pad1;
+	uint padding1;
+
+	double lod_distance_threshold;
+	uint lod_reduced_steps;
+	uint padding2;
+
+	double sky_rotation_rad;
+	double sky_hue_shift_rad;
+	double sky_saturation;
+	double sky_star_density;
+	double sky_star_brightness;
+	double sky_nebula_intensity;
+	double sky_grid_opacity;
+	double sky_background_r;
+	double sky_background_g;
+	double sky_background_b;
 } pc;
 
 struct PixelOutput {
@@ -49,9 +65,11 @@ struct PixelOutput {
 	uint iterations_used;
 };
 
-layout(std430, binding = 0) buffer OutputBuffer {
+layout(std430, binding = 1) buffer OutputBuffer {
 	PixelOutput pixels[];
 };
+
+const double PI_D = 3.14159265358979323846;
 
 uint hash_u32(uint x) {
 	x ^= x >> 16;
@@ -66,213 +84,522 @@ float hash_to_float(uint x) {
 	return float(hash_u32(x) & 0x00FFFFFFU) * (1.0 / 16777216.0);
 }
 
-vec3 sample_sky(vec3 dir) {
+dvec3 compute_pinhole_ray(double u, double v, double fov) {
+	double tan_half = tan(fov * 0.5);
+	double n1 = 1.0;
+	double n2 = -v * tan_half;
+	double n3 = u * tan_half;
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_fisheye_stereographic_ray(double u, double v, double fov) {
+	double max_fov = clamp(fov * 1.6, 0.1, 260.0 * 0.017453292519943295);
+	double r = sqrt(u * u + v * v);
+	if (r < 1e-15) return dvec3(1.0, 0.0, 0.0);
+	double half_max_fov = max_fov * 0.5;
+	double theta = 2.0 * atan(r * tan(half_max_fov * 0.5));
+	double sin_t = sin(theta);
+	double cos_t = cos(theta);
+	double n1 = cos_t;
+	double n2 = -v * (sin_t / r);
+	double n3 = u * (sin_t / r);
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_fisheye_equidistant_ray(double u, double v, double fov) {
+	double r = sqrt(u * u + v * v);
+	if (r < 1e-15) return dvec3(1.0, 0.0, 0.0);
+	double theta = min(r * fov * 0.5, PI_D);
+	double sin_t = sin(theta);
+	double cos_t = cos(theta);
+	double n1 = cos_t;
+	double n2 = -v * (sin_t / r);
+	double n3 = u * (sin_t / r);
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_fisheye_orthographic_ray(double u, double v, double fov) {
+	double r = sqrt(u * u + v * v);
+	double sin_half_fov = sin(clamp(fov * 0.5, 0.01, PI_D * 0.499));
+	double sin_t = clamp(r * sin_half_fov, 0.0, 1.0);
+	double cos_t = sqrt(max(1.0 - sin_t * sin_t, 0.0));
+	if (r < 1e-15) return dvec3(1.0, 0.0, 0.0);
+	double n1 = cos_t;
+	double n2 = -v * (sin_t / r);
+	double n3 = u * (sin_t / r);
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_panini_cylindrical_ray(double u, double v, double fov) {
+	double d = 1.0;
+	double tan_h = tan(fov * 0.5);
+	double px = u * tan_h;
+	double py = -v * tan_h;
+	double s = (d + 1.0) / (d + sqrt(max(1.0 + (1.0 - d * d) * px * px / ((d + 1.0) * (d + 1.0)), 1e-15)));
+	double sin_phi = (px * s) / (d + 1.0);
+	double cos_phi = sqrt(max(1.0 - sin_phi * sin_phi, 0.0));
+	double n1 = cos_phi;
+	double n2 = py;
+	double n3 = sin_phi;
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_hammer_aitoff_ray(double u, double v, double fov) {
+	double zoom = (60.0 * 0.017453292519943295) / max(fov, 0.01);
+	double sqrt2 = 1.4142135623730951;
+	double x = clamp(u * zoom * sqrt2, -sqrt2, sqrt2);
+	double y = clamp(-v * zoom * sqrt2 * 0.5, -sqrt2 * 0.5, sqrt2 * 0.5);
+	double z = sqrt(max(1.0 - (x * x * 0.25) - (y * y), 1e-15));
+	double phi = 2.0 * atan(z * x, 2.0 * (2.0 * z * z - 1.0));
+	double theta = (PI_D * 0.5) - asin(clamp(z * y * sqrt2, -1.0, 1.0));
+	double sin_t = sin(theta);
+	double cos_t = cos(theta);
+	double sin_p = sin(phi);
+	double cos_p = cos(phi);
+	return dvec3(sin_t * cos_p, cos_t, sin_t * sin_p);
+}
+
+dvec3 compute_equirectangular_360_ray(double u, double v, double fov) {
+	double fov_scale = fov / (60.0 * 0.017453292519943295);
+	double phi = u * PI_D * fov_scale;
+	double theta = clamp((PI_D * 0.5) - v * (PI_D * 0.5) * fov_scale, 0.0001, PI_D - 0.0001);
+	double sin_t = sin(theta);
+	double cos_t = cos(theta);
+	double sin_p = sin(phi);
+	double cos_p = cos(phi);
+	double n1 = sin_t * cos_p;
+	double n2 = cos_t;
+	double n3 = sin_t * sin_p;
+	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
+	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
+	return dvec3(n1 * inv_len, n2 * inv_len, n3 * inv_len);
+}
+
+dvec3 compute_ray_direction(uint mode, double u, double v, double fov) {
+	if (mode == 2u) return compute_fisheye_stereographic_ray(u, v, fov);
+	if (mode == 3u) return compute_equirectangular_360_ray(u, v, fov);
+	if (mode == 4u) return compute_fisheye_equidistant_ray(u, v, fov);
+	if (mode == 5u) return compute_fisheye_orthographic_ray(u, v, fov);
+	if (mode == 6u) return compute_panini_cylindrical_ray(u, v, fov);
+	if (mode == 7u) return compute_hammer_aitoff_ray(u, v, fov);
+	return compute_pinhole_ray(u, v, fov);
+}
+
+vec3 sample_celestial_starfield(vec3 dir, float star_density, float star_brightness, float nebula_intensity) {
 	float theta = acos(clamp(dir.z, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-
-	float u = (phi + 3.141592653589793) * (1.0 / (2.0 * 3.141592653589793));
-	float v = theta * (1.0 / 3.141592653589793);
+	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
+	float v = theta * (1.0 / 3.14159265);
 
 	float gal_lat = 0.5 - v;
 	float gal_band = exp(-(gal_lat * gal_lat) / 0.015);
 	float gal_core = exp(-(gal_lat * gal_lat) / 0.008) * exp(-pow(u - 0.5, 2.0) / 0.05);
+	float nebula_scale = max(nebula_intensity, 0.0);
 
-	vec3 col = vec3(0.015 * gal_band + 0.12 * gal_core,
-					0.020 * gal_band + 0.09 * gal_core,
-					0.045 * gal_band + 0.06 * gal_core);
+	vec3 col = vec3(
+		(0.015 * gal_band + 0.12 * gal_core) * nebula_scale,
+		(0.020 * gal_band + 0.09 * gal_core) * nebula_scale,
+		(0.045 * gal_band + 0.06 * gal_core) * nebula_scale
+	);
 
 	float u_grid = u * 720.0;
 	float v_grid = v * 360.0;
 	int iu = int(floor(u_grid));
 	int iv = int(floor(v_grid));
+	uint cell_seed = uint(iu * 73856093 ^ iv * 19349663);
+	float star_prob = hash_to_float(cell_seed);
+	float star_threshold = clamp(1.0 - 0.12 * max(star_density, 0.0), 0.0, 0.999);
 
-	uint seed = uint(iu * 73856093 ^ iv * 19349663);
-	float prob = hash_to_float(seed);
-
-	if (prob > 0.88) {
-		float off_u = hash_to_float(seed + 101U);
-		float off_v = hash_to_float(seed + 202U);
+	if (star_prob > star_threshold) {
+		float off_u = hash_to_float(cell_seed + 101u);
+		float off_v = hash_to_float(cell_seed + 202u);
 		float du = (u_grid - float(iu)) - off_u;
 		float dv = (v_grid - float(iv)) - off_v;
 		float d2 = du * du + dv * dv;
 		if (d2 < 0.35) {
-			float bright = pow(hash_to_float(seed + 303U), 6.0) * 4.5;
-			float fall = exp(-d2 * 10.0);
-			col += vec3(bright * fall);
+			float base = pow(hash_to_float(cell_seed + 303u), 6.0) * 4.5;
+			float falloff = exp(-d2 * 10.0);
+			float color_temp = hash_to_float(cell_seed + 404u);
+			vec3 star_tint = vec3(1.0);
+			if (color_temp < 0.3) star_tint = vec3(0.8, 0.85, 1.3);
+			else if (color_temp > 0.7) star_tint = vec3(1.3, 0.85, 0.6);
+			float lum = base * falloff * max(star_brightness, 0.0);
+			col += star_tint * lum;
 		}
 	}
 	return col;
 }
 
-vec3 temp_to_rgb(float t, float intensity) {
-	float r = 1.0, g = 1.0, b = 1.0;
-	if (t <= 6600.0) {
-		g = clamp(0.39008 * log(t / 100.0) - 0.63184, 0.0, 1.0);
-		b = (t <= 1900.0) ? 0.0 : clamp(0.54320 * log(t / 100.0 - 10.0) - 1.19625, 0.0, 1.0);
-	} else {
-		r = clamp(1.29293 * pow(t / 100.0 - 60.0, -0.13320), 0.0, 1.0);
-		g = clamp(1.12989 * pow(t / 100.0 - 60.0, -0.07551), 0.0, 1.0);
+vec3 sample_celestial_grid_sphere(vec3 dir, float grid_opacity) {
+	float theta = acos(clamp(dir.z, -1.0, 1.0));
+	float phi = atan(dir.y, dir.x);
+	float lat_deg = 90.0 - theta * (180.0 / 3.14159265);
+	float lon_deg = phi * (180.0 / 3.14159265);
+	float lat_line = abs(mod(lat_deg + 7.5, 15.0) - 7.5);
+	float lon_line = abs(mod(lon_deg + 7.5, 15.0) - 7.5);
+	const float line_width = 0.35;
+	bool on_major_lat = abs(mod(lat_deg + 45.0, 90.0) - 45.0) < line_width;
+	bool on_major_lon = abs(mod(lon_deg + 45.0, 90.0) - 45.0) < line_width;
+	bool on_minor_line = (lat_line < line_width) || (lon_line < line_width);
+	float opacity = max(grid_opacity, 0.0);
+	if (on_major_lat || on_major_lon) return vec3(0.14, 0.20, 0.28) * opacity;
+	if (on_minor_line) return vec3(0.05, 0.07, 0.10) * opacity;
+	return vec3(0.008, 0.009, 0.012) * opacity;
+}
+
+vec3 apply_hue_saturation(vec3 rgb, double hue_shift_rad, double saturation) {
+	if (hue_shift_rad == 0.0 && saturation == 1.0) return rgb;
+	float r = rgb.r, g = rgb.g, b = rgb.b;
+	float max_c = max(r, max(g, b));
+	float min_c = min(r, min(g, b));
+	float delta = max_c - min_c;
+	float h = 0.0;
+	if (delta > 1e-8) {
+		if (max_c == r) h = mod((g - b) / delta, 6.0);
+		else if (max_c == g) h = (b - r) / delta + 2.0;
+		else h = (r - g) / delta + 4.0;
+		h *= 60.0;
+		if (h < 0.0) h += 360.0;
 	}
-	return vec3(r, g, b) * intensity;
+	float s_val = (max_c > 1e-8) ? (delta / max_c) : 0.0;
+	float v_val = max_c;
+
+	h += float(hue_shift_rad * (180.0 / PI_D));
+	h = mod(h, 360.0);
+	if (h < 0.0) h += 360.0;
+	float s_new = clamp(s_val * float(saturation), 0.0, 1.0);
+
+	float c_val = v_val * s_new;
+	float x_val = c_val * (1.0 - abs(mod(h / 60.0, 2.0) - 1.0));
+	float m_val = v_val - c_val;
+
+	float r2 = 0.0, g2 = 0.0, b2 = 0.0;
+	if (h < 60.0) { r2 = c_val; g2 = x_val; b2 = 0.0; }
+	else if (h < 120.0) { r2 = x_val; g2 = c_val; b2 = 0.0; }
+	else if (h < 180.0) { r2 = 0.0; g2 = c_val; b2 = x_val; }
+	else if (h < 240.0) { r2 = 0.0; g2 = x_val; b2 = c_val; }
+	else if (h < 300.0) { r2 = x_val; g2 = 0.0; b2 = c_val; }
+	else { r2 = c_val; g2 = 0.0; b2 = x_val; }
+
+	return vec3(r2 + m_val, g2 + m_val, b2 + m_val);
+}
+
+vec3 compute_sky_radiance(dvec3 dir_d, double sky_rotation_rad) {
+	double cos_r = cos(sky_rotation_rad);
+	double sin_r = sin(sky_rotation_rad);
+	dvec3 rotated = dvec3(
+		dir_d.x * cos_r - dir_d.y * sin_r,
+		dir_d.x * sin_r + dir_d.y * cos_r,
+		dir_d.z
+	);
+	vec3 dir = vec3(rotated);
+
+	uint sky_mode = pc.render_flags & 0x0Fu;
+	vec3 sky_rgb = vec3(0.0);
+
+	if (sky_mode == 1u || (pc.render_flags & (1u << 4)) != 0u) {
+		sky_rgb = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
+	} else if (sky_mode == 2u) {
+		vec3 stars = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), float(pc.sky_nebula_intensity));
+		vec3 grid = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
+		sky_rgb = stars + grid * 0.7;
+	} else if (sky_mode == 0u) {
+		sky_rgb = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), float(pc.sky_nebula_intensity));
+	} else if (sky_mode == 4u) {
+		sky_rgb = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), 0.0);
+	} else if (sky_mode == 5u) {
+		vec3 stars = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), 0.0);
+		vec3 grid = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
+		sky_rgb = stars + grid;
+	}
+
+	sky_rgb = apply_hue_saturation(sky_rgb, pc.sky_hue_shift_rad, pc.sky_saturation);
+	sky_rgb.r = max(0.0, sky_rgb.r + float(pc.sky_background_r));
+	sky_rgb.g = max(0.0, sky_rgb.g + float(pc.sky_background_g));
+	sky_rgb.b = max(0.0, sky_rgb.b + float(pc.sky_background_b));
+	return sky_rgb;
+}
+
+dvec3 temperature_to_linear_rgb(double t_kelvin, double intensity) {
+	double t = clamp(t_kelvin, 800.0, 60000.0);
+	const double h = 6.62607015e-34;
+	const double c = 299792458.0;
+	const double kb = 1.380649e-23;
+
+	double lambda_r = 680e-9;
+	double lambda_g = 540e-9;
+	double lambda_b = 440e-9;
+
+	double exp_r = (h * c) / (lambda_r * kb * t);
+	double exp_g = (h * c) / (lambda_g * kb * t);
+	double exp_b = (h * c) / (lambda_b * kb * t);
+
+	double i_r = (exp_r > 80.0) ? 0.0 : (2.0 * h * c * c) / (pow(lambda_r, 5.0) * (exp(exp_r) - 1.0));
+	double i_g = (exp_g > 80.0) ? 0.0 : (2.0 * h * c * c) / (pow(lambda_g, 5.0) * (exp(exp_g) - 1.0));
+	double i_b = (exp_b > 80.0) ? 0.0 : (2.0 * h * c * c) / (pow(lambda_b, 5.0) * (exp(exp_b) - 1.0));
+
+	const double ref_t = 6500.0;
+	double norm_r = (2.0 * h * c * c) / (pow(lambda_r, 5.0) * (exp((h * c) / (lambda_r * kb * ref_t)) - 1.0));
+	double norm_g = (2.0 * h * c * c) / (pow(lambda_g, 5.0) * (exp((h * c) / (lambda_g * kb * ref_t)) - 1.0));
+	double norm_b = (2.0 * h * c * c) / (pow(lambda_b, 5.0) * (exp((h * c) / (lambda_b * kb * ref_t)) - 1.0));
+
+	double r = i_r / max(norm_r, 1e-300);
+	double g = i_g / max(norm_g, 1e-300);
+	double b = i_b / max(norm_b, 1e-300);
+
+	double max_c = max(max(r, g), max(b, 1e-12));
+	r /= max_c;
+	g /= max_c;
+	b /= max_c;
+
+	double scale = max(intensity, 0.0);
+	return dvec3(r * scale, g * scale, b * scale);
+}
+
+float aces_curve(float x) {
+	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
+	float exp_scale = exp2(float(exposure_ev));
+	float r = max(0.0, linear_color.r * exp_scale);
+	float g = max(0.0, linear_color.g * exp_scale);
+	float b = max(0.0, linear_color.b * exp_scale);
+
+	if (mode == 1u) {
+		r = aces_curve(r); g = aces_curve(g); b = aces_curve(b);
+	} else if (mode == 2u) {
+		float lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		if (lum > 0.0) {
+			float mapped_lum = log(1.0 + lum * 100.0) / log(1.0 + 10000.0);
+			float scale = clamp(mapped_lum / lum, 0.0, 1.0);
+			r = clamp(r * scale, 0.0, 1.0);
+			g = clamp(g * scale, 0.0, 1.0);
+			b = clamp(b * scale, 0.0, 1.0);
+		} else {
+			r = 0.0; g = 0.0; b = 0.0;
+		}
+	} else if (mode == 3u) {
+		r = (r * (1.0 + r / 25.0)) / (1.0 + r);
+		g = (g * (1.0 + g / 25.0)) / (1.0 + g);
+		b = (b * (1.0 + b / 25.0)) / (1.0 + b);
+	} else {
+		r = clamp(r, 0.0, 1.0);
+		g = clamp(g, 0.0, 1.0);
+		b = clamp(b, 0.0, 1.0);
+	}
+
+	vec3 out_col;
+	out_col.r = (r <= 0.0031308) ? (12.92 * r) : (1.055 * pow(r, 1.0 / 2.4) - 0.055);
+	out_col.g = (g <= 0.0031308) ? (12.92 * g) : (1.055 * pow(g, 1.0 / 2.4) - 0.055);
+	out_col.b = (b <= 0.0031308) ? (12.92 * b) : (1.055 * pow(b, 1.0 / 2.4) - 0.055);
+	return out_col;
 }
 
 void main() {
 	uint px = gl_GlobalInvocationID.x;
 	uint py = gl_GlobalInvocationID.y;
-
 	if (px >= pc.screen_width || py >= pc.screen_height) {
 		return;
 	}
-
 	uint pixel_index = py * pc.screen_width + px;
 
-	double u_norm = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
-	double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
 	double aspect = double(pc.screen_width) / double(pc.screen_height);
-	u_norm *= aspect;
+	double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
+	bool is_allsky = (pc.projection_mode == 3u || pc.projection_mode == 7u);
+	double u_raw = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
+	double u_coord = is_allsky ? u_raw : (u_raw * aspect);
 
-	double tan_half_fov = tan(pc.fov_rad * 0.5);
-	double n1 = 1.0;
-	double n2 = -v_norm * tan_half_fov;
-	double n3 = u_norm * tan_half_fov;
+	dvec3 n_local = compute_ray_direction(pc.projection_mode, u_coord, v_norm, pc.field_of_view_rad);
 
-	double n_len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
-	if (n_len > 0.0) {
-		n1 /= n_len;
-		n2 /= n_len;
-		n3 /= n_len;
-	}
+	dvec3 fwd = pc.tetrad_e1.yzw;
+	dvec3 rgt = pc.tetrad_e2.yzw;
+	dvec3 up  = pc.tetrad_e3.yzw;
+
+	dvec3 ray_dir = n_local.x * fwd + n_local.z * rgt + n_local.y * up;
 
 	double m = max(pc.metric_mass, 1e-4);
-	double a_spin = pc.metric_spin;
+	double a_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
 	double rs = 2.0 * m;
 	double rh = (abs(a_spin) > 1e-12) ? (m + sqrt(max(m * m - a_spin * a_spin, 0.0))) : rs;
-	double isco = (abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
-	double disk_outer = 24.0 * m;
 
-	double r_obs = max(pc.observer_position.y, rh * 1.02);
-	double th_obs = clamp(pc.observer_position.z, 0.01, 3.1415926535 - 0.01);
-	double phi_obs = pc.observer_position.w;
+	uint status = 0u;
+	uint iters = 0u;
+	dvec3 accum = dvec3(0.0);
+	double redshift_rec = 1.0;
 
-	double sin_to = sin(th_obs);
-	double f_obs = max(1.0 - rs / r_obs, 1e-6);
-	double sqrt_f_obs = sqrt(f_obs);
+	if (pc.metric_type == 0u) {
+		iters = 1u;
+		vec3 sky = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
+		accum = dvec3(sky);
+	} else {
+		bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
+		double isco = (abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
+		double disk_outer = 24.0 * m;
 
-	double e0_t = 1.0 / sqrt_f_obs;
-	double e1_r = sqrt_f_obs;
-	double e2_th = 1.0 / r_obs;
-	double e3_phi = 1.0 / (r_obs * sin_to);
+		double r_obs = max(pc.observer_position.y, rh * 1.02);
+		double theta_obs = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
+		double phi_obs = pc.observer_position.w;
 
-	double ray_r = r_obs;
-	double ray_th = th_obs;
-	double ray_phi = phi_obs;
-	double ray_pr = n1 * e1_r;
-	double ray_pth = n2 * e2_th;
-	double ray_pphi = n3 * e3_phi;
+		double sin_to = sin(theta_obs);
+		double cos_to = cos(theta_obs);
+		double sin_po = sin(phi_obs);
+		double cos_po = cos(phi_obs);
 
-	double E_cons = e0_t * f_obs;
-	double Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
+		dvec3 er = dvec3(sin_to * cos_po, sin_to * sin_po, cos_to);
+		dvec3 eth = dvec3(cos_to * cos_po, cos_to * sin_po, -sin_to);
+		dvec3 eph = dvec3(-sin_po, cos_po, 0.0);
 
-	vec3 acc_col = vec3(0.0);
-	float throughput = 1.0;
-	float redshift = 1.0;
-	uint status = 0;
-	uint iters = 0;
+		double n_r = dot(ray_dir, er);
+		double n_th = dot(ray_dir, eth);
+		double n_ph = dot(ray_dir, eph);
 
-	for (uint step = 0; step < pc.max_steps && throughput > 0.01; ++step) {
-		iters = step + 1;
+		double factor_obs = max(1.0 - rs / r_obs, 1e-6);
+		double sqrt_factor_obs = sqrt(factor_obs);
 
-		double delta_k = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
-		if (ray_r <= rh * 1.0001 || delta_k <= 0.0) {
-			status = 1;
-			throughput = 0.0;
-			break;
+		double ray_r = r_obs;
+		double ray_th = theta_obs;
+		double ray_phi = phi_obs;
+		double ray_pr = n_r / sqrt_factor_obs;
+		double ray_pth = n_th / r_obs;
+		double ray_pphi = n_ph / (r_obs * sin_to);
+
+		double E_cons = 1.0;
+		double Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
+
+		double throughput = 1.0;
+
+		uint effective_max_steps = pc.max_integration_steps;
+		if ((pc.render_flags & (1u << 9)) != 0u && pc.lod_distance_threshold > 0.0 && r_obs > pc.lod_distance_threshold) {
+			effective_max_steps = min(pc.max_integration_steps, pc.lod_reduced_steps);
 		}
 
-		if (ray_r >= pc.escape_radius) {
-			status = 2;
-			break;
-		}
+		for (uint step = 0u; step < effective_max_steps && throughput > 0.01; ++step) {
+			iters = step + 1u;
 
-		double r_scale = max(ray_r - rh, 0.02 * m);
-		double pole_guard = clamp(abs(sin(ray_th)) * 12.0, 0.15, 1.0);
-		double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
-		double prev_r = ray_r;
-		double prev_th = ray_th;
-		double prev_phi = ray_phi;
+			double delta_kerr = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
+			if (ray_r <= rh * 1.0001 || delta_kerr <= 0.0) {
+				status = 1u;
+				throughput = 0.0;
+				break;
+			}
+			if (ray_r >= pc.escape_radius) {
+				status = 2u;
+				break;
+			}
 
-		double f = max(1.0 - rs / ray_r, 1e-6);
-		double p_t = E_cons / f;
-		double sin_t = sin(ray_th);
-		double cos_t = cos(ray_th);
-		double sin2_t = max(sin_t * sin_t, 1e-10);
-		double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-		double r2 = ray_r * ray_r;
+			double r_scale = max(ray_r - rh, 0.02 * m);
+			double pole_guard = clamp(abs(sin(ray_th)) * 12.0, 0.15, 1.0);
+			double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
 
-		double g100 = (rs * f) / (2.0 * r2);
-		double g111 = -rs / (2.0 * r2 * f);
-		double g122 = -ray_r * f;
-		double g133 = -ray_r * f * sin2_t;
+			double prev_r = ray_r;
+			double prev_th = ray_th;
+			double prev_phi = ray_phi;
 
-		double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
-		double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-		double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
+			double f = max(1.0 - rs / ray_r, 1e-6);
+			double p_t = E_cons / f;
+			double sin_t = sin(ray_th);
+			double cos_t = cos(ray_th);
+			double sin2_t = max(sin_t * sin_t, 1e-10);
+			double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
+			double r2 = ray_r * ray_r;
 
-		ray_r += dt * ray_pr;
-		ray_th += dt * ray_pth;
-		ray_phi += dt * ray_pphi;
-		ray_pr += dt * d_pr;
-		ray_pth += dt * d_pth;
-		ray_pphi += dt * d_pphi;
+			double g100 = (rs * f) / (2.0 * r2);
+			double g111 = -rs / (2.0 * r2 * f);
+			double g122 = -ray_r * f;
+			double g133 = -ray_r * f * sin2_t;
 
-		if (ray_th < 0.0) {
-			ray_th = -ray_th;
-			ray_phi += 3.14159265358979323846;
-			ray_pth = -ray_pth;
-		} else if (ray_th > 3.14159265358979323846) {
-			ray_th = 2.0 * 3.14159265358979323846 - ray_th;
-			ray_phi += 3.14159265358979323846;
-			ray_pth = -ray_pth;
-		}
+			double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
+			double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+			double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
 
-		double mid = 1.57079632679;
-		if ((prev_th - mid) * (ray_th - mid) <= 0.0) {
-			double s = clamp(abs(prev_th - mid) / max(abs(ray_th - prev_th), 1e-10), 0.0, 1.0);
-			double r_cross = mix(prev_r, ray_r, s);
-			double phi_cross = mix(prev_phi, ray_phi, s);
+			ray_r += dt * ray_pr;
+			ray_th += dt * ray_pth;
+			ray_phi += dt * ray_pphi;
+			ray_pr += dt * d_pr;
+			ray_pth += dt * d_pth;
+			ray_pphi += dt * d_pphi;
 
-			if (r_cross >= isco && r_cross <= disk_outer) {
-				status = 4;
-				double v_orb = sqrt(m / r_cross);
-				double omega_orb = v_orb / r_cross;
-				double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
-				double l_e = Lz_cons / max(abs(E_cons), 1e-10);
-				double g_dop = sqrt(max(1.0 - rs / r_cross, 1e-4)) / (gamma_orb * (1.0 - omega_orb * l_e));
-				redshift = float(g_dop);
+			if (ray_th < 0.0) {
+				ray_th = -ray_th;
+				ray_phi += PI_D;
+				ray_pth = -ray_pth;
+			} else if (ray_th > PI_D) {
+				ray_th = 2.0 * PI_D - ray_th;
+				ray_phi += PI_D;
+				ray_pth = -ray_pth;
+			}
 
-				double t_norm = pow(isco / r_cross, 0.75) * pow(max(1.0 - sqrt(isco / r_cross), 0.0), 0.25);
-				float t_obs = float((18000.0 * t_norm + 1200.0) * g_dop);
+			double mid_plane = PI_D * 0.5;
+			if (has_accretion_disk && (prev_th - mid_plane) * (ray_th - mid_plane) <= 0.0) {
+				double d_th_span = abs(ray_th - prev_th);
+				double s_cross = (d_th_span > 1e-12) ? clamp(abs(prev_th - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
+				double r_cross = prev_r + s_cross * (ray_r - prev_r);
+				double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
 
-				float flux = float(pow(g_dop, 4.0) * t_norm * clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * 1.5);
-				vec3 col = temp_to_rgb(t_obs, flux);
-				acc_col += throughput * col;
-				throughput *= 0.1;
+				if (r_cross >= isco && r_cross <= disk_outer) {
+					status |= 4u;
+
+					double v_orb = sqrt(m / r_cross);
+					double omega_orb = v_orb / r_cross;
+					double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
+					double l_over_e = Lz_cons / max(abs(E_cons), 1e-12);
+					double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
+					double g_doppler = (abs(denom_g) > 1e-12) ? (sqrt(max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+					redshift_rec = g_doppler;
+
+					double t_norm = pow(isco / r_cross, 0.75) * pow(max(1.0 - sqrt(isco / r_cross), 0.0), 0.25);
+					double t_eff_k = 18000.0 * t_norm + 1200.0;
+					double t_obs = t_eff_k * g_doppler;
+
+					double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
+					double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+					double turbulence = 0.88 + 0.12 * sin(8.0 * phi_cross - 4.0 * log(r_cross / isco));
+					double flux_intensity = max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
+
+					dvec3 disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
+					double alpha_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
+
+					accum += throughput * disk_rgb;
+					throughput *= (1.0 - alpha_opacity);
+				}
 			}
 		}
+
+		if ((status & 2u) != 0u || throughput > 0.01) {
+			double sin_t = sin(ray_th);
+			double cos_t = cos(ray_th);
+			double sin_p = sin(ray_phi);
+			double cos_p = cos(ray_phi);
+
+			double pxr = ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
+			double pyr = ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
+			double pzr = ray_pr * cos_t - ray_r * ray_pth * sin_t;
+
+			double p_len = sqrt(pxr * pxr + pyr * pyr + pzr * pzr);
+			double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
+			dvec3 dir_out = dvec3(pxr * inv_plen, pyr * inv_plen, pzr * inv_plen);
+
+			vec3 sky = compute_sky_radiance(dir_out, pc.sky_rotation_rad);
+			accum += throughput * dvec3(sky);
+		}
 	}
 
-	if (throughput > 0.01) {
-		vec3 dir = vec3(sin(float(ray_th)) * cos(float(ray_phi)),
-						sin(float(ray_th)) * sin(float(ray_phi)),
-						cos(float(ray_th)));
-		acc_col += throughput * sample_sky(dir);
-	}
+	vec3 mapped = apply_tonemapping(vec3(accum), pc.tonemapping_mode, pc.camera_exposure);
 
-	acc_col *= exp2(float(pc.camera_exposure));
-	vec3 mapped_col = clamp((acc_col * (2.51 * acc_col + 0.03)) / (acc_col * (2.43 * acc_col + 0.59) + 0.14), 0.0, 1.0);
-
-	pixels[pixel_index].rgba = vec4(mapped_col, 1.0);
-	pixels[pixel_index].redshift = redshift;
+	pixels[pixel_index].rgba = vec4(mapped, 1.0);
+	pixels[pixel_index].redshift = float(redshift_rec);
 	pixels[pixel_index].affine_parameter = float(iters) * 0.05;
 	pixels[pixel_index].status_flags = status;
 	pixels[pixel_index].iterations_used = iters;

@@ -35,10 +35,13 @@ private:
 		return static_cast<float>(hash_u32(x) & 0x00FFFFFFU) * (1.0f / 16777216.0f);
 	}
 
+public:
 	[[nodiscard]] static bool requires_kerr_exact_path(const GpuCameraPushConstants& params) noexcept {
 		const bool is_kerr_family = (params.metric_type == 2U || params.metric_type == 3U || params.metric_type == 5U);
 		return is_kerr_family && std::abs(params.metric_spin) > 1e-9 * std::max(params.metric_mass, 1e-4);
 	}
+
+private:
 
 	[[nodiscard]] static double kerr_isco_radius(double m, double a_spin) noexcept {
 		const double a_star = std::clamp(a_spin / std::max(m, 1e-12), -0.9999999, 0.9999999);

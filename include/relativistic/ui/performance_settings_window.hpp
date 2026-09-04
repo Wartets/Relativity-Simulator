@@ -4,6 +4,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include <algorithm>
 #include <array>
 
@@ -13,6 +14,7 @@ class PerformanceSettingsWindow {
 private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 
 	int preset_idx_{2};
 	float res_scale_{1.0f};
@@ -30,6 +32,10 @@ public:
 
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;
+	}
+
+	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
+		render_pipeline_ = &pipeline;
 	}
 
 	void sync_from_orchestrator() noexcept {
@@ -191,6 +197,34 @@ public:
 				if (ImGui::SliderFloat("Target Frame Rate", &target_framerate_, 30.0f, 144.0f, "%.0f FPS")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("target_fps", target_framerate_)));
 				}
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "GPU Compute Offload (Vulkan)");
+
+			const bool gpu_platform_supported = Render::VulkanComputeExecutor::is_platform_supported();
+			bool use_gpu = orchestrator_.parameters().use_gpu_compute;
+
+			if (!gpu_platform_supported) {
+				ImGui::BeginDisabled(true);
+			}
+			if (ImGui::Checkbox("Enable Native GPU Ray Tracing (Vulkan Compute Dispatch)", &use_gpu)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, use_gpu ? 1.0 : 0.0)));
+			}
+			if (!gpu_platform_supported) {
+				ImGui::EndDisabled();
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
+			}
+
+			if (!gpu_platform_supported) {
+				ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "No Vulkan compute-capable device with double-precision shader and scalar block layout support was detected on this system.");
+			} else if (render_pipeline_ != nullptr) {
+				const bool gpu_ready = render_pipeline_->gpu_compute_available();
+				ImGui::TextColored(gpu_ready ? ImVec4(0.3f, 1.0f, 0.4f, 1.0f) : ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Compute Device Status: %s", gpu_ready ? "Ready" : "Unavailable");
+				ImGui::TextColored(ImVec4(0.8f, 0.85f, 0.9f, 0.9f), "Active Render Path (Last Frame): %s", render_pipeline_->telemetry().used_gpu_path ? "GPU Vulkan Compute" : "CPU SIMD / Scalar");
 			}
 
 			ImGui::Spacing();

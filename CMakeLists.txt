@@ -90,6 +90,8 @@ include_directories(
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+find_package(Vulkan REQUIRED)
+
 add_library(relativistic_core INTERFACE)
 target_include_directories(relativistic_core INTERFACE
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -97,6 +99,20 @@ target_include_directories(relativistic_core INTERFACE
 )
 target_compile_features(relativistic_core INTERFACE cxx_std_23)
 target_compile_options(relativistic_core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
+target_link_libraries(relativistic_core INTERFACE Vulkan::Vulkan)
+
+if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
+	set(RELATIVISTIC_COMPUTE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp)
+	set(RELATIVISTIC_COMPUTE_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp.spv)
+	add_custom_command(
+		OUTPUT ${RELATIVISTIC_COMPUTE_SHADER_SPV}
+		COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 ${RELATIVISTIC_COMPUTE_SHADER_SRC} -o ${RELATIVISTIC_COMPUTE_SHADER_SPV}
+		DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SRC}
+		COMMENT "Compiling geodesic_tracer_fp64.comp to SPIR-V"
+		VERBATIM
+	)
+	add_custom_target(relativistic_compute_shaders ALL DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SPV})
+endif()
 
 include(CTest)
 enable_testing()
@@ -433,6 +449,11 @@ target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)
 add_executable(headless_exporter apps/headless_exporter/main.cpp)
 target_link_libraries(headless_exporter PRIVATE relativistic_core)
 
+if (TARGET relativistic_compute_shaders)
+	add_dependencies(engine_cli relativistic_compute_shaders)
+	add_dependencies(headless_exporter relativistic_compute_shaders)
+endif()
+
 include(GNUInstallDirs)
 
 install(TARGETS engine_cli headless_exporter
@@ -449,7 +470,7 @@ install(DIRECTORY include/relativistic
 install(DIRECTORY shaders
 	DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine/shaders
 	COMPONENT RuntimeData
-	FILES_MATCHING PATTERN "*.comp"
+	FILES_MATCHING PATTERN "*.comp" PATTERN "*.spv"
 )
 
 install(DIRECTORY scenarios

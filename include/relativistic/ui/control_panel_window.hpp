@@ -5,6 +5,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
 #include <array>
 #include <cmath>
@@ -12,16 +13,6 @@
 #include <algorithm>
 
 namespace Relativistic::UI {
-
-inline void render_setting_tooltip(const char* text) noexcept {
-	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-		ImGui::BeginTooltip();
-		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
-		ImGui::TextUnformatted(text);
-		ImGui::PopTextWrapPos();
-		ImGui::EndTooltip();
-	}
-}
 
 class ControlPanelWindow {
 private:
@@ -46,6 +37,7 @@ private:
 	float manual_cartesian_position_[3]{0.0f, 32.0f, 0.0f};
 	float manual_spherical_position_[3]{32.0f, 1.5707963267948966f, 1.5707963267948966f};
 	float manual_orientation_[3]{0.0f, 180.0f, 0.0f};
+	bool manual_placement_dirty_{false};
 
 	int metric_selection_{1};
 	int integrator_selection_{0};
@@ -142,8 +134,8 @@ public:
 		if (current_ver != last_synced_version_) {
 			sync_from_orchestrator();
 			last_synced_version_ = current_ver;
-		} else if (!ImGui::IsAnyItemActive()) {
-			sync_from_orchestrator(false);
+		} else if (!ImGui::IsAnyItemActive() && !manual_placement_dirty_) {
+			sync_from_orchestrator(true);
 		}
 
 		ImGui::SetNextWindowPos(ImVec2(1450.0f, 30.0f), ImGuiCond_FirstUseEver);
@@ -324,17 +316,28 @@ private:
 		ImGui::Combo("Coordinate System", &camera_coord_system_, coord_systems, IM_ARRAYSIZE(coord_systems));
 
 		if (camera_coord_system_ == 0) {
-			ImGui::InputFloat3("Position (x, y, z)", manual_cartesian_position_);
+			if (ImGui::InputFloat3("Position (x, y, z)", manual_cartesian_position_)) {
+				manual_placement_dirty_ = true;
+			}
 		} else {
-			ImGui::InputFloat("Radius (r)", &manual_spherical_position_[0]);
-			ImGui::SliderAngle("Polar Angle (theta)", &manual_spherical_position_[1], 0.1f, 179.9f);
-			ImGui::SliderAngle("Azimuthal Angle (phi)", &manual_spherical_position_[2], -180.0f, 180.0f);
+			if (ImGui::InputFloat("Radius (r)", &manual_spherical_position_[0])) {
+				manual_placement_dirty_ = true;
+			}
+			if (ImGui::SliderAngle("Polar Angle (theta)", &manual_spherical_position_[1], 0.1f, 179.9f)) {
+				manual_placement_dirty_ = true;
+			}
+			if (ImGui::SliderAngle("Azimuthal Angle (phi)", &manual_spherical_position_[2], -180.0f, 180.0f)) {
+				manual_placement_dirty_ = true;
+			}
 		}
 
-		ImGui::InputFloat3("Orientation (pitch, yaw, roll)", manual_orientation_);
+		if (ImGui::InputFloat3("Orientation (pitch, yaw, roll)", manual_orientation_)) {
+			manual_placement_dirty_ = true;
+		}
 
 		if (ImGui::Button("Apply Camera Placement", ImVec2(220.0f, 28.0f))) {
 			apply_manual_camera_placement();
+			manual_placement_dirty_ = false;
 		}
 	}
 

@@ -5,6 +5,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <algorithm>
 #include <array>
 
@@ -86,29 +87,23 @@ public:
 					sync_from_orchestrator();
 				}
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Quick preset configuring internal render scale, maximum geodesic integration steps, and tolerances.");
-			}
+			render_setting_tooltip("Quick preset configuring internal render scale, maximum geodesic integration steps, and tolerances.");
 
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Rasterization & Ray Budget Configuration");
 
 			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.10f, 2.00f, "%.2fx")) {
-				preset_idx_ = 5;
+				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(static_cast<double>(res_scale_))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Resolution scaling factor relative to the viewport window size. Lower values improve rendering framerates.");
-			}
+			render_setting_tooltip("Resolution scaling factor relative to the viewport window size. Lower values improve rendering framerates.");
 
 			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 64, 8192)) {
-				preset_idx_ = 5;
+				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps_))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Maximum numerical integration steps allowed per ray before terminating trajectory evaluation.");
-			}
+			render_setting_tooltip("Maximum numerical integration steps allowed per ray before terminating trajectory evaluation.");
 
 			const char* precisions[] = {
 				"IEEE 754 Float64 (Hardware Native)",
@@ -116,38 +111,30 @@ public:
 			};
 
 			if (ImGui::Combo("Arithmetic Precision", &precision_mode_, precisions, IM_ARRAYSIZE(precisions))) {
-				preset_idx_ = 5;
+				preset_idx_ = 6;
 				orchestrator_.set_physical_param(Orchestrator::ParameterType::Custom, static_cast<double>(precision_mode_), "precision_mode");
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Select native 64-bit IEEE 754 floating point arithmetic or compensated double-single emulation.");
-			}
+			render_setting_tooltip("Select native 64-bit IEEE 754 floating point arithmetic or compensated double-single emulation.");
 
 			bool use_simd = !(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_SCALAR_PIPELINE);
 			if (ImGui::Checkbox("SIMD Vector Geodesic Bundles (4x Lanes)", &use_simd)) {
-				preset_idx_ = 5;
+				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_SCALAR_PIPELINE, !use_simd)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Evaluate bundles of 4 geodesic rays simultaneously using AVX2/AVX-512 vector registers.");
-			}
+			render_setting_tooltip("Evaluate bundles of 4 geodesic rays simultaneously using AVX2/AVX-512 vector registers.");
 
 			bool use_pool = !(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_PER_FRAME_THREADS);
 			if (ImGui::Checkbox("Persistent Thread Pool Work Distribution", &use_pool)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_PER_FRAME_THREADS, !use_pool)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Use persistent worker threads synchronized via condition variables instead of spawning new threads per frame.");
-			}
+			render_setting_tooltip("Use persistent worker threads synchronized via condition variables instead of spawning new threads per frame.");
 
 			bool use_tiling = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
 			if (ImGui::Checkbox("Tiled Work Distribution (32x32 Tiles)", &use_tiling)) {
-				preset_idx_ = 5;
+				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WorkDistributionMode, use_tiling ? 1.0 : 0.0)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Subdivide the screen into 32x32 pixel tiles for optimal CPU cache locality and balanced thread loads.");
-			}
+			render_setting_tooltip("Subdivide the screen into 32x32 pixel tiles for optimal CPU cache locality and balanced thread loads.");
 
 			ImGui::Spacing();
 			ImGui::Separator();
@@ -157,17 +144,13 @@ public:
 			if (ImGui::SliderFloat("Render Distance (M units, 0 = unbounded)", &render_distance, 0.0f, 5000.0f, "%.0f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RenderDistanceScale, static_cast<double>(render_distance))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Maximum radial distance from the origin, in units of central mass M, beyond which geodesics are treated as escaped to the sky. Set to 0 to disable the cutoff entirely and render arbitrarily distant structures.");
-			}
+			render_setting_tooltip("Maximum radial distance from the origin, in units of central mass M, beyond which geodesics are treated as escaped to the sky. Set to 0 to disable the cutoff entirely and render arbitrarily distant structures.");
 
 			bool lod_enabled = orchestrator_.parameters().lod_enabled;
 			if (ImGui::Checkbox("Enable Distance-Based Level of Detail", &lod_enabled)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, lod_enabled ? 1.0 : 0.0)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Reduce geodesic integration step budget beyond the LOD threshold distance to save performance when observing very distant structures. Disabled by default.");
-			}
+			render_setting_tooltip("Reduce geodesic integration step budget beyond the LOD threshold distance to save performance when observing very distant structures. Disabled by default.");
 
 			if (lod_enabled) {
 				float lod_threshold = static_cast<float>(orchestrator_.parameters().lod_distance_scale);
@@ -189,43 +172,37 @@ public:
 			if (ImGui::Checkbox("Enable Adaptive Space-Skipping", &space_skip_enabled_ui)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, space_skip_enabled_ui ? 1.0 : 0.0)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Analytically leaps rays across the weak-field region using straight-line ray-sphere geometry instead of stepping the geodesic integrator, skipping tens to hundreds of numerical steps for distant or escaping rays with no visible accuracy loss.");
-			}
+			render_setting_tooltip("Analytically leaps rays across the weak-field region using straight-line ray-sphere geometry instead of stepping the geodesic integrator, skipping tens to hundreds of numerical steps for distant or escaping rays with no visible accuracy loss.");
 
 			if (space_skip_enabled_ui) {
 				float space_skip_radius_ui = static_cast<float>(orchestrator_.parameters().space_skip_radius_scale);
 				if (ImGui::SliderFloat("Space Skip Radius (M units)", &space_skip_radius_ui, 25.0f, 300.0f, "%.0f M")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkipRadiusScale, static_cast<double>(space_skip_radius_ui))));
 				}
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-					ImGui::SetTooltip("Radius, in units of central mass M, beyond which spacetime curvature is treated as negligible and rays are advanced analytically. Automatically clamped above the accretion disk outer edge to avoid skipping over visible structures.");
-				}
+				render_setting_tooltip("Radius, in units of central mass M, beyond which spacetime curvature is treated as negligible and rays are advanced analytically. Automatically clamped above the accretion disk outer edge to avoid skipping over visible structures.");
 			}
 
 			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ForceTextureReallocation, force_tex_realloc ? 1.0 : 0.0)));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Force full OpenGL texture memory reallocation each frame instead of in-place sub-image updates.");
-			}
+			render_setting_tooltip("Force full OpenGL texture memory reallocation each frame instead of in-place sub-image updates.");
 
 			int rolling_count = static_cast<int>(orchestrator_.parameters().rolling_average_frame_count);
 			if (ImGui::SliderInt("HUD Rolling Frame Count (N)", &rolling_count, 2, 60)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RollingAverageFrameCount, static_cast<double>(rolling_count))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Number of historical frame times used to calculate the smoothed rolling average FPS on the HUD overlay.");
-			}
+			render_setting_tooltip("Number of historical frame times used to calculate the smoothed rolling average FPS on the HUD overlay.");
 
 			if (ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("dyn_res", enable_dynamic_resolution_ ? 1.0 : 0.0)));
-			}
+				}
+				render_setting_tooltip("Dynamically adjusts the internal render scale to maintain a target framerate.");
 			if (enable_dynamic_resolution_) {
 				if (ImGui::SliderFloat("Target Frame Rate", &target_framerate_, 30.0f, 144.0f, "%.0f FPS")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("target_fps", target_framerate_)));
 				}
+				render_setting_tooltip("Reduces resolution when the framerate drops below the target and increases it when the framerate exceeds the target.");
 			}
 
 			ImGui::Spacing();
@@ -244,9 +221,7 @@ public:
 			if (!gpu_platform_supported) {
 				ImGui::EndDisabled();
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
-			}
+			render_setting_tooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
 
 			if (!gpu_platform_supported) {
 				ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "No Vulkan compute-capable device with double-precision shader and scalar block layout support was detected on this system.");
@@ -268,9 +243,7 @@ public:
 			if (ImGui::Combo("Camera Motion Quality Mode", &motion_quality_mode_, motion_modes, IM_ARRAYSIZE(motion_modes))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityMode, static_cast<double>(motion_quality_mode_))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Controls the render scale used while actively navigating the camera. Automatic reduces quality proportionally to the base render scale and never exceeds it; Fixed lets you set an explicit render scale used only during motion.");
-			}
+			render_setting_tooltip("Controls the render scale used while actively navigating the camera. Automatic reduces quality proportionally to the base render scale and never exceeds it; Fixed lets you set an explicit render scale used only during motion.");
 
 			if (motion_quality_mode_ == static_cast<int>(Orchestrator::MotionQualityMode::Fixed)) {
 				if (ImGui::SliderFloat("Motion Render Scale", &motion_quality_scale_, 0.05f, 2.0f, "%.2fx")) {
@@ -290,9 +263,7 @@ public:
 			if (ImGui::Combo("Geodesic Step Controller", &step_controller_mode_, step_controllers, IM_ARRAYSIZE(step_controllers))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(step_controller_mode_))));
 			}
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-				ImGui::SetTooltip("Selects the adaptive step-size regulation strategy for RK45, Cash-Karp, and Vernier 9(8) geodesic integrators. PI and PID controllers use recent error history to damp step-size oscillations near strong gravitational gradients, reducing rejected steps.");
-			}
+			render_setting_tooltip("Selects the adaptive step-size regulation strategy for RK45, Cash-Karp, and Vernier 9(8) geodesic integrators. PI and PID controllers use recent error history to damp step-size oscillations near strong gravitational gradients, reducing rejected steps.");
 
 			ImGui::Spacing();
 			ImGui::Separator();

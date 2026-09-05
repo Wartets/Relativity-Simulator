@@ -60,6 +60,103 @@ private:
 		return r_isco_over_m * m;
 	}
 
+	template <typename Scalar>
+	[[nodiscard]] static bool attempt_analytic_space_skip(
+		Scalar& ray_r, Scalar& ray_theta, Scalar& ray_phi,
+		Scalar& ray_pr, Scalar& ray_ptheta, Scalar& ray_pphi,
+		Scalar space_skip_radius, Scalar escape_radius
+	) noexcept {
+		if (ray_r <= space_skip_radius) {
+			return false;
+		}
+
+		const Scalar sin_t = std::sin(ray_theta);
+		const Scalar cos_t = std::cos(ray_theta);
+		const Scalar sin_p = std::sin(ray_phi);
+		const Scalar cos_p = std::cos(ray_phi);
+
+		const Scalar px = ray_r * sin_t * cos_p;
+		const Scalar py = ray_r * sin_t * sin_p;
+		const Scalar pz = ray_r * cos_t;
+
+		const Scalar dx = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
+		const Scalar dy = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
+		const Scalar dz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
+
+		const Scalar dir_norm_sq = dx * dx + dy * dy + dz * dz;
+		if (dir_norm_sq <= static_cast<Scalar>(1e-30)) {
+			return false;
+		}
+
+		const Scalar p_dot_d = px * dx + py * dy + pz * dz;
+		const Scalar p_dot_p = px * px + py * py + pz * pz;
+
+		auto sphere_hit = [&](Scalar radius, Scalar& t_out) noexcept -> bool {
+			const Scalar c_coeff = p_dot_p - radius * radius;
+			const Scalar b_coeff = static_cast<Scalar>(2) * p_dot_d;
+			const Scalar discr = b_coeff * b_coeff - static_cast<Scalar>(4) * dir_norm_sq * c_coeff;
+			if (discr < static_cast<Scalar>(0)) {
+				return false;
+			}
+			const Scalar sqrt_discr = std::sqrt(discr);
+			const Scalar t1 = (-b_coeff - sqrt_discr) / (static_cast<Scalar>(2) * dir_norm_sq);
+			const Scalar t2 = (-b_coeff + sqrt_discr) / (static_cast<Scalar>(2) * dir_norm_sq);
+			Scalar best = static_cast<Scalar>(-1);
+			if (t1 > static_cast<Scalar>(1e-9)) best = t1;
+			if (t2 > static_cast<Scalar>(1e-9) && (best < static_cast<Scalar>(0) || t2 < best)) best = t2;
+			if (best <= static_cast<Scalar>(0)) return false;
+			t_out = best;
+			return true;
+		};
+
+		Scalar t_skip = static_cast<Scalar>(0);
+		Scalar t_escape = static_cast<Scalar>(0);
+		const bool hits_skip_boundary = sphere_hit(space_skip_radius, t_skip);
+		const bool hits_escape = sphere_hit(escape_radius, t_escape);
+
+		Scalar t_leap;
+		if (hits_skip_boundary && hits_escape) {
+			t_leap = std::min(t_skip, t_escape);
+		} else if (hits_skip_boundary) {
+			t_leap = t_skip;
+		} else if (hits_escape) {
+			t_leap = t_escape;
+		} else {
+			return false;
+		}
+
+		if (t_leap <= static_cast<Scalar>(1e-6)) {
+			return false;
+		}
+
+		const Scalar new_px = px + t_leap * dx;
+		const Scalar new_py = py + t_leap * dy;
+		const Scalar new_pz = pz + t_leap * dz;
+
+		const Scalar new_r = std::sqrt(new_px * new_px + new_py * new_py + new_pz * new_pz);
+		if (new_r <= static_cast<Scalar>(1e-9)) {
+			return false;
+		}
+
+		const Scalar new_theta = std::acos(std::clamp(new_pz / new_r, static_cast<Scalar>(-1), static_cast<Scalar>(1)));
+		const Scalar new_phi = std::atan2(new_py, new_px);
+		const Scalar new_sin_t = std::sin(new_theta);
+		const Scalar safe_sin_t = (std::abs(new_sin_t) > static_cast<Scalar>(1e-9)) ? new_sin_t : ((new_sin_t >= static_cast<Scalar>(0)) ? static_cast<Scalar>(1e-9) : static_cast<Scalar>(-1e-9));
+
+		const Scalar new_pr = (new_px * dx + new_py * dy + new_pz * dz) / new_r;
+		const Scalar new_ptheta = (new_pr * (new_pz / new_r) - dz) / (new_r * safe_sin_t);
+		const Scalar r2_sin2 = new_r * new_r * new_sin_t * new_sin_t;
+		const Scalar new_pphi = (std::abs(r2_sin2) > static_cast<Scalar>(1e-12)) ? ((new_px * dy - new_py * dx) / r2_sin2) : static_cast<Scalar>(0);
+
+		ray_r = new_r;
+		ray_theta = new_theta;
+		ray_phi = new_phi;
+		ray_pr = new_pr;
+		ray_ptheta = new_ptheta;
+		ray_pphi = new_pphi;
+		return true;
+	}
+
 	template <typename MetricType>
 		requires Metrics::SpacetimeMetric<MetricType, double>
 	[[nodiscard]] static GpuPixelOutput trace_exact_photon(
@@ -118,6 +215,15 @@ private:
 			if (x(1) >= escape_radius) {
 				status = PixelFlags::CELESTIAL_HIT;
 				break;
+			}
+
+			if ((params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U) {
+				const double effective_skip_r = has_accretion_disk
+					? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
+					: std::max(params.space_skip_radius_scale * m, rh * 2.0);
+				if (x(1) > effective_skip_r && attempt_analytic_space_skip(x(1), x(2), x(3), u(1), u(2), u(3), effective_skip_r, escape_radius)) {
+					continue;
+				}
 			}
 
 			const double cur_r = x(1);
@@ -572,6 +678,11 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
+		const bool space_skip_enabled = (params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U;
+		const double effective_space_skip_radius = has_accretion_disk
+			? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
+			: std::max(params.space_skip_radius_scale * m, rh * 2.0);
+
 		const bool use_exact_metric_path = requires_exact_metric_path(params);
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], rh * 1.02);
@@ -671,6 +782,11 @@ public:
 						if (ray_r >= params.escape_radius) {
 							status = PixelFlags::CELESTIAL_HIT;
 							break;
+						}
+
+						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
+							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius)) {
+							continue;
 						}
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
@@ -918,6 +1034,11 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
+		const bool space_skip_enabled = (params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U;
+		const double effective_space_skip_radius = has_accretion_disk
+			? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
+			: std::max(params.space_skip_radius_scale * m, rh * 2.0);
+
 		const bool lod_active_simd = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_pre = std::max(params.observer_position[1], rh * 1.02);
 		const uint32_t effective_max_steps_simd = (lod_active_simd && r_obs_pre > params.lod_distance_threshold)
@@ -1025,6 +1146,14 @@ public:
 						}
 
 						if (!bundle.active_mask.any()) break;
+
+						if (space_skip_enabled) {
+							for (size_t l = 0; l < lanes; ++l) {
+								if (bundle.active_mask[l] && bundle.x1[l] > effective_space_skip_radius) {
+									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, params.escape_radius));
+								}
+							}
+						}
 
 						for (size_t l = 0; l < 4; ++l) {
 							if (bundle.active_mask[l]) {
@@ -1238,6 +1367,11 @@ public:
 
 		const float pi_f = std::numbers::pi_v<float>;
 
+		const bool space_skip_enabled = (params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U;
+		const float effective_space_skip_radius = has_accretion_disk
+			? std::max(static_cast<float>(params.space_skip_radius_scale) * m, disk_outer * 1.05f)
+			: std::max(static_cast<float>(params.space_skip_radius_scale) * m, rh * 2.0f);
+
 		const bool use_exact_metric_path = requires_exact_metric_path(params);
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], static_cast<double>(rh) * 1.02);
@@ -1337,6 +1471,11 @@ public:
 						if (ray_r >= static_cast<float>(params.escape_radius)) {
 							status = PixelFlags::CELESTIAL_HIT;
 							break;
+						}
+
+						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
+							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, static_cast<float>(params.escape_radius))) {
+							continue;
 						}
 
 						const float r_scale = std::max(ray_r - rh, 0.02f * m);
@@ -1587,6 +1726,11 @@ public:
 		const float rgt_x = static_cast<float>(params.tetrad_e2[1]), rgt_y = static_cast<float>(params.tetrad_e2[2]), rgt_z = static_cast<float>(params.tetrad_e2[3]);
 		const float up_x  = static_cast<float>(params.tetrad_e3[1]), up_y  = static_cast<float>(params.tetrad_e3[2]), up_z  = static_cast<float>(params.tetrad_e3[3]);
 
+		const bool space_skip_enabled = (params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U;
+		const float effective_space_skip_radius = has_accretion_disk
+			? std::max(static_cast<float>(params.space_skip_radius_scale) * m, disk_outer * 1.05f)
+			: std::max(static_cast<float>(params.space_skip_radius_scale) * m, rh * 2.0f);
+
 		const bool lod_active_simd = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_pre_f = std::max(params.observer_position[1], static_cast<double>(rh) * 1.02);
 		const uint32_t effective_max_steps_simd = (lod_active_simd && r_obs_pre_f > params.lod_distance_threshold)
@@ -1696,6 +1840,14 @@ public:
 						}
 
 						if (!bundle.active_mask.any()) break;
+
+						if (space_skip_enabled) {
+							for (size_t l = 0; l < lanes; ++l) {
+								if (bundle.active_mask[l] && bundle.x1[l] > effective_space_skip_radius) {
+									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, static_cast<float>(params.escape_radius)));
+								}
+							}
+						}
 
 						for (size_t l = 0; l < 8; ++l) {
 							if (bundle.active_mask[l]) {

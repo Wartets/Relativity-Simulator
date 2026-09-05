@@ -235,6 +235,10 @@ public:
 			}
 			cam_consts.lod_distance_threshold = params.lod_distance_scale * params.mass;
 			cam_consts.lod_reduced_steps = params.lod_reduced_ray_steps;
+			if (params.space_skipping_enabled) {
+				cam_consts.render_flags |= Render::RenderFlags::SPACE_SKIP_ENABLED;
+			}
+			cam_consts.space_skip_radius_scale = params.space_skip_radius_scale;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_saturation = params.sky_saturation;

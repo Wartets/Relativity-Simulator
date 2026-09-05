@@ -181,6 +181,28 @@ public:
 				}
 			}
 
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.7f, 1.0f), "Adaptive Space-Skipping (Asymptotic Leap)");
+
+			bool space_skip_enabled_ui = orchestrator_.parameters().space_skipping_enabled;
+			if (ImGui::Checkbox("Enable Adaptive Space-Skipping", &space_skip_enabled_ui)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, space_skip_enabled_ui ? 1.0 : 0.0)));
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Analytically leaps rays across the weak-field region using straight-line ray-sphere geometry instead of stepping the geodesic integrator, skipping tens to hundreds of numerical steps for distant or escaping rays with no visible accuracy loss.");
+			}
+
+			if (space_skip_enabled_ui) {
+				float space_skip_radius_ui = static_cast<float>(orchestrator_.parameters().space_skip_radius_scale);
+				if (ImGui::SliderFloat("Space Skip Radius (M units)", &space_skip_radius_ui, 25.0f, 300.0f, "%.0f M")) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkipRadiusScale, static_cast<double>(space_skip_radius_ui))));
+				}
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+					ImGui::SetTooltip("Radius, in units of central mass M, beyond which spacetime curvature is treated as negligible and rays are advanced analytically. Automatically clamped above the accretion disk outer edge to avoid skipping over visible structures.");
+				}
+			}
+
 			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ForceTextureReallocation, force_tex_realloc ? 1.0 : 0.0)));

@@ -68,6 +68,8 @@ struct PhysicalParameters {
 	uint32_t motion_quality_mode{1};
 	double motion_quality_scale{0.65};
 	uint32_t step_controller_mode{1};
+	bool space_skipping_enabled{false};
+	double space_skip_radius_scale{25.0};
 };
 
 struct CustomParameterEntry {
@@ -309,6 +311,8 @@ public:
 			case ParameterType::MotionQualityMode:
 			case ParameterType::MotionQualityScale:
 			case ParameterType::StepControllerMode:
+			case ParameterType::SpaceSkippingEnabled:
+			case ParameterType::SpaceSkipRadiusScale:
 			case ParameterType::Custom:
 				return true;
 			default:
@@ -602,6 +606,12 @@ public:
 				break;
 			case ParameterType::StepControllerMode:
 				params_.step_controller_mode = static_cast<uint32_t>(std::clamp(val, 0.0, 2.0));
+				break;
+			case ParameterType::SpaceSkippingEnabled:
+				params_.space_skipping_enabled = (val > 0.5);
+				break;
+			case ParameterType::SpaceSkipRadiusScale:
+				params_.space_skip_radius_scale = std::clamp(val, 5.0, 500.0);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

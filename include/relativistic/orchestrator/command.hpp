@@ -84,7 +84,9 @@ enum class ParameterType : uint32_t {
 	UseGpuCompute = 41,
 	MotionQualityMode = 42,
 	MotionQualityScale = 43,
-	StepControllerMode = 44
+	StepControllerMode = 44,
+	SpaceSkippingEnabled = 45,
+	SpaceSkipRadiusScale = 46
 };
 
 struct Command {
@@ -595,6 +597,8 @@ public:
 			else if (iequals_sv(token2, "sky_bg_b")) ptype = ParameterType::SkyBackgroundB;
 			else if (iequals_sv(token2, "work_distribution") || iequals_sv(token2, "tiling")) ptype = ParameterType::WorkDistributionMode;
 			else if (iequals_sv(token2, "force_realloc") || iequals_sv(token2, "realloc_texture")) ptype = ParameterType::ForceTextureReallocation;
+			else if (iequals_sv(token2, "space_skip") || iequals_sv(token2, "space_skip_enabled")) ptype = ParameterType::SpaceSkippingEnabled;
+			else if (iequals_sv(token2, "space_skip_radius")) ptype = ParameterType::SpaceSkipRadiusScale;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

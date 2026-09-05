@@ -55,6 +55,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double sky_background_r;
 	double sky_background_g;
 	double sky_background_b;
+	double space_skip_radius_scale;
 } pc;
 
 struct PixelOutput {
@@ -431,6 +432,108 @@ vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	return out_col;
 }
 
+bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double space_skip_radius, double escape_radius) {
+	if (ray_r <= space_skip_radius) {
+		return false;
+	}
+
+	dvec2 sincos_th = precise_sincos(ray_th);
+	double sin_t = sincos_th.x;
+	double cos_t = sincos_th.y;
+	float phi_f = float(ray_phi);
+	double sin_p = double(sin(phi_f));
+	double cos_p = double(cos(phi_f));
+
+	double px = ray_r * sin_t * cos_p;
+	double py = ray_r * sin_t * sin_p;
+	double pz = ray_r * cos_t;
+
+	double dx = ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
+	double dy = ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
+	double dz = ray_pr * cos_t - ray_r * ray_pth * sin_t;
+
+	double dir_norm_sq = dx * dx + dy * dy + dz * dz;
+	if (dir_norm_sq <= 1e-30) {
+		return false;
+	}
+
+	double p_dot_d = px * dx + py * dy + pz * dz;
+	double p_dot_p = px * px + py * py + pz * pz;
+
+	double t_skip = -1.0;
+	{
+		double c_coeff = p_dot_p - space_skip_radius * space_skip_radius;
+		double b_coeff = 2.0 * p_dot_d;
+		double discr = b_coeff * b_coeff - 4.0 * dir_norm_sq * c_coeff;
+		if (discr >= 0.0) {
+			double sqrt_discr = sqrt(discr);
+			double t1 = (-b_coeff - sqrt_discr) / (2.0 * dir_norm_sq);
+			double t2 = (-b_coeff + sqrt_discr) / (2.0 * dir_norm_sq);
+			if (t1 > 1e-9) t_skip = t1;
+			if (t2 > 1e-9 && (t_skip < 0.0 || t2 < t_skip)) t_skip = t2;
+		}
+	}
+
+	double t_escape = -1.0;
+	{
+		double c_coeff = p_dot_p - escape_radius * escape_radius;
+		double b_coeff = 2.0 * p_dot_d;
+		double discr = b_coeff * b_coeff - 4.0 * dir_norm_sq * c_coeff;
+		if (discr >= 0.0) {
+			double sqrt_discr = sqrt(discr);
+			double t1 = (-b_coeff - sqrt_discr) / (2.0 * dir_norm_sq);
+			double t2 = (-b_coeff + sqrt_discr) / (2.0 * dir_norm_sq);
+			if (t1 > 1e-9) t_escape = t1;
+			if (t2 > 1e-9 && (t_escape < 0.0 || t2 < t_escape)) t_escape = t2;
+		}
+	}
+
+	double t_leap;
+	if (t_skip > 0.0 && t_escape > 0.0) {
+		t_leap = min(t_skip, t_escape);
+	} else if (t_skip > 0.0) {
+		t_leap = t_skip;
+	} else if (t_escape > 0.0) {
+		t_leap = t_escape;
+	} else {
+		return false;
+	}
+
+	if (t_leap <= 1e-6) {
+		return false;
+	}
+
+	double new_px = px + t_leap * dx;
+	double new_py = py + t_leap * dy;
+	double new_pz = pz + t_leap * dz;
+
+	double new_r = sqrt(new_px * new_px + new_py * new_py + new_pz * new_pz);
+	if (new_r <= 1e-9) {
+		return false;
+	}
+
+	float new_cos_theta_f = float(clamp(new_pz / new_r, -1.0, 1.0));
+	double new_theta = double(acos(new_cos_theta_f));
+	double new_phi = double(atan(float(new_py), float(new_px)));
+
+	dvec2 sincos_new_th = precise_sincos(new_theta);
+	double new_sin_t = sincos_new_th.x;
+	double safe_sin_t = (abs(new_sin_t) > 1e-9) ? new_sin_t : ((new_sin_t >= 0.0) ? 1e-9 : -1e-9);
+
+	double new_pr = (new_px * dx + new_py * dy + new_pz * dz) / new_r;
+	double new_pth = (new_pr * (new_pz / new_r) - dz) / (new_r * safe_sin_t);
+	double r2_sin2 = new_r * new_r * new_sin_t * new_sin_t;
+	double new_pphi = (abs(r2_sin2) > 1e-12) ? ((new_px * dy - new_py * dx) / r2_sin2) : 0.0;
+
+	ray_r = new_r;
+	ray_th = new_theta;
+	ray_phi = new_phi;
+	ray_pr = new_pr;
+	ray_pth = new_pth;
+	ray_pphi = new_pphi;
+	return true;
+}
+
 void main() {
 	uint px = gl_GlobalInvocationID.x;
 	uint py = gl_GlobalInvocationID.y;
@@ -527,6 +630,13 @@ void main() {
 			if (ray_r >= pc.escape_radius) {
 				status = 2u;
 				break;
+			}
+
+			if ((pc.render_flags & (1u << 10)) != 0u) {
+				double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
+				if (ray_r > effective_skip_r && attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius)) {
+					continue;
+				}
 			}
 
 			double r_scale = max(ray_r - rh, 0.02 * m);

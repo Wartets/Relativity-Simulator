@@ -80,6 +80,7 @@ struct alignas(16) GpuCameraPushConstants {
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
+	double space_skip_radius_scale{25.0};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
@@ -117,6 +118,7 @@ namespace RenderFlags {
 	static constexpr uint32_t USE_TILED_DISTRIBUTION = 1U << 7;
 	static constexpr uint32_t FORCE_TEXTURE_REALLOCATION = 1U << 8;
 	static constexpr uint32_t USE_LOD_SYSTEM = 1U << 9;
+	static constexpr uint32_t SPACE_SKIP_ENABLED = 1U << 10;
 }
 
 }

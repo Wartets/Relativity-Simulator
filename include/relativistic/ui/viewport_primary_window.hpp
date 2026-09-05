@@ -3,6 +3,8 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
+#include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/schematic_view_renderer.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -30,7 +32,9 @@ class ViewportPrimaryWindow {
 private:
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
+	HudPreferences& hud_prefs_;
 	Render::GeodesicComputePipeline pipeline_;
+	SchematicViewRenderer schematic_renderer_{};
 	uint32_t gl_texture_id_{0};
 	uint32_t current_width_{1280};
 	uint32_t current_height_{720};
@@ -38,7 +42,7 @@ private:
 	std::vector<float> color_upload_buffer_{};
 	bool is_hovered_{false};
 	bool is_focused_{false};
-	bool show_telemetry_overlay_{true};
+	double zoom_level_{1.0};
 	bool window_visible_{true};
 	uint32_t allocated_texture_w_{0};
 	uint32_t allocated_texture_h_{0};
@@ -86,9 +90,11 @@ private:
 public:
 	ViewportPrimaryWindow(
 		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
-		InteractiveCameraController& cam_ctrl
+		InteractiveCameraController& cam_ctrl,
+		HudPreferences& hud_prefs
 	) : orchestrator_(orchestrator),
 	    camera_controller_(cam_ctrl),
+	    hud_prefs_(hud_prefs),
 	    pipeline_(Render::GeodesicPipelineConfig{
 	        .width = 1280,
 	        .height = 720,
@@ -112,6 +118,11 @@ public:
 
 	void request_rerender() noexcept {
 		force_rerender_ = true;
+	}
+
+	void handle_zoom_scroll(double yoffset) noexcept {
+		const auto& zoom_cfg = camera_controller_.config().zoom;
+		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
 	}
 
 	void request_screenshot(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format) {
@@ -207,6 +218,28 @@ public:
 			}
 
 			const auto& cam = orchestrator_.camera();
+
+			if (params.schematic_mode_enabled) {
+				const ImVec2 schematic_pos = ImGui::GetCursorScreenPos();
+				schematic_renderer_.configure(cam, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
+				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_);
+				ImGui::Dummy(avail);
+
+				if (hud_prefs_.show_viewport_toolbar) {
+					render_viewport_toolbar();
+				}
+				if (hud_prefs_.show_hud) {
+					render_hud_overlay(avail, window);
+				}
+
+				ImGui::End();
+				if (fullscreen_bg) {
+					ImGui::PopStyleVar(2);
+				} else {
+					ImGui::PopStyleVar(1);
+				}
+				return;
+			}
 
 			Render::GpuCameraPushConstants cam_consts{};
 			cam_consts.screen_width = current_width_;
@@ -323,15 +356,42 @@ public:
 				}
 			}
 
+			const ImVec2 viewport_image_pos = ImGui::GetCursorScreenPos();
+			const bool zoom_key_down = (window != nullptr) && (is_hovered_ || is_focused_) && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS);
+			if (!zoom_key_down) {
+				zoom_level_ = 1.0;
+			}
+			ImVec2 zoom_uv0(0.0f, 0.0f);
+			ImVec2 zoom_uv1(1.0f, 1.0f);
+			if (zoom_level_ > 1.0001) {
+				const auto& zoom_cfg = camera_controller_.config().zoom;
+				ImVec2 zoom_focus(0.5f, 0.5f);
+				if (zoom_cfg.zoom_center_on_cursor && avail.x > 0.0f && avail.y > 0.0f) {
+					const ImVec2 mouse_pos = ImGui::GetMousePos();
+					zoom_focus.x = (mouse_pos.x - viewport_image_pos.x) / avail.x;
+					zoom_focus.y = (mouse_pos.y - viewport_image_pos.y) / avail.y;
+				}
+				const float half_w = static_cast<float>(0.5 / zoom_level_);
+				const float half_h = static_cast<float>(0.5 / zoom_level_);
+				zoom_focus.x = std::clamp(zoom_focus.x, half_w, 1.0f - half_w);
+				zoom_focus.y = std::clamp(zoom_focus.y, half_h, 1.0f - half_h);
+				zoom_uv0 = ImVec2(zoom_focus.x - half_w, zoom_focus.y - half_h);
+				zoom_uv1 = ImVec2(zoom_focus.x + half_w, zoom_focus.y + half_h);
+			}
+
 			ImGui::Image(
 				reinterpret_cast<void*>(static_cast<intptr_t>(gl_texture_id_)),
-				avail, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f)
+				avail, zoom_uv0, zoom_uv1
 			);
 
-			render_viewport_toolbar();
-			render_loading_indicator(avail);
+			if (hud_prefs_.show_viewport_toolbar) {
+				render_viewport_toolbar();
+			}
+			if (hud_prefs_.show_loading_indicator) {
+				render_loading_indicator(avail);
+			}
 
-			if (show_telemetry_overlay_) {
+			if (hud_prefs_.show_hud) {
 				render_hud_overlay(avail, window);
 			}
 		
@@ -452,7 +512,7 @@ public:
 		}
 
 		ImGui::SameLine();
-		ImGui::Checkbox("HUD", &show_telemetry_overlay_);
+		ImGui::Checkbox("HUD", &hud_prefs_.show_hud);
 
 		ImGui::EndGroup();
 	}
@@ -536,17 +596,33 @@ private:
 
 		ImGui::SetCursorPos(ImVec2(16.0f, 48.0f));
 		ImGui::BeginGroup();
-		if (has_sufficient_rolling_frames_) {
-			ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
-		} else {
-			ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+		if (hud_prefs_.show_frame_time) {
+			if (hud_prefs_.show_rolling_average_fps && has_sufficient_rolling_frames_) {
+				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
+			} else if (hud_prefs_.show_rolling_average_fps) {
+				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+			} else {
+				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms", current_frame_time_ms_);
+			}
 		}
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera Distance (r): %.2f M | Angles (theta, phi): (%.2f, %.2f)", cam.radius, cam.theta, cam.phi);
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
-		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
-		ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 0.9f), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
+		if (hud_prefs_.show_camera_distance) {
+			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera Distance (r): %.2f M", cam.radius);
+		}
+		if (hud_prefs_.show_camera_angles) {
+			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Angles (theta, phi): (%.2f, %.2f)", cam.theta, cam.phi);
+		}
+		if (hud_prefs_.show_camera_orientation) {
+			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
+		}
+		if (hud_prefs_.show_metric_summary) {
+			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
+		}
+		if (hud_prefs_.show_ray_statistics) {
+			ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 0.9f), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
+		}
 		ImGui::EndGroup();
 
+		if (hud_prefs_.show_navigation_controls) {
 		ImGui::SetCursorPos(ImVec2(avail.x - 240.0f, 16.0f));
 		ImGui::BeginGroup();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Navigation Controls:");
@@ -579,6 +655,7 @@ private:
 		draw_keybind("Shift: Sprint", sprint);
 		draw_keybind("Mouse Drag: Look", rmb);
 		ImGui::EndGroup();
+		}
 	}
 };
 

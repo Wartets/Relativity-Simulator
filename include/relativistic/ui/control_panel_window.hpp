@@ -5,6 +5,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
+#include "relativistic/ui/hud_preferences.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
 #include <array>
@@ -19,6 +20,7 @@ private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
+	HudPreferences& hud_prefs_;
 
 	float mass_{1.0f};
 	float spin_{0.0f};
@@ -59,8 +61,8 @@ private:
 	uint64_t last_synced_version_{0};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller)
-		: orchestrator_(orchestrator), camera_controller_(camera_controller) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudPreferences& hud_prefs)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_prefs_(hud_prefs) {
 		sync_from_orchestrator();
 	}
 
@@ -169,6 +171,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Time & Execution")) {
 					render_execution_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("HUD & Overlay")) {
+					render_hud_tab();
 					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();
@@ -310,6 +316,13 @@ private:
 		render_setting_tooltip("Logarithmic optical sensitivity compensation in Exposure Values (EV). Higher values brighten dim accretion emission.");
 
 		ImGui::Separator();
+		bool schematic_mode = orchestrator_.parameters().schematic_mode_enabled;
+		if (ImGui::Checkbox("Schematic Orbital View (No Lensing)", &schematic_mode)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicModeEnabled, schematic_mode ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Replaces gravitational ray tracing with a simplified projection showing every body as a plain sphere against a coordinate grid backdrop, with orientation arrows for spin axes. Simulation time is frozen while this view is active.");
+
+		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
 
 		const char* coord_systems[] = {"Cartesian (x, y, z)", "Spherical (r, theta, phi)"};
@@ -357,6 +370,22 @@ private:
 		bool invert_mouse_x = cfg.free_fly.invert_mouse_x;
 		if (ImGui::Checkbox("Invert Mouse X", &invert_mouse_x)) {
 			cfg.free_fly.invert_mouse_x = invert_mouse_x;
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Hold-to-Zoom (W / Z Key):");
+		bool zoom_on_cursor = cfg.zoom.zoom_center_on_cursor;
+		if (ImGui::Checkbox("Zoom Toward Cursor Position", &zoom_on_cursor)) {
+			cfg.zoom.zoom_center_on_cursor = zoom_on_cursor;
+		}
+		render_setting_tooltip("When enabled, holding the zoom key magnifies the region under the mouse cursor. When disabled, zoom is always centered on the middle of the viewport.");
+		float zoom_sens = static_cast<float>(cfg.zoom.zoom_scroll_sensitivity);
+		if (ImGui::SliderFloat("Zoom Scroll Sensitivity", &zoom_sens, 0.02f, 1.0f, "%.2f")) {
+			cfg.zoom.zoom_scroll_sensitivity = static_cast<double>(zoom_sens);
+		}
+		float zoom_max = static_cast<float>(cfg.zoom.max_zoom);
+		if (ImGui::SliderFloat("Maximum Zoom Level", &zoom_max, 1.5f, 16.0f, "%.1fx")) {
+			cfg.zoom.max_zoom = static_cast<double>(zoom_max);
 		}
 
 		ImGui::Separator();
@@ -696,6 +725,37 @@ private:
 		ImGui::SameLine();
 		if (ImGui::Button("Reset Clock", ImVec2(110.0f, 28.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
+		}
+	}
+
+	void render_hud_tab() noexcept {
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Heads-Up Display Manager");
+		ImGui::TextDisabled("Choose which readouts and controls appear over the viewport.");
+		ImGui::Separator();
+
+		ImGui::Checkbox("Master HUD Visibility", &hud_prefs_.show_hud);
+		render_setting_tooltip("Master switch for all overlay elements drawn on top of the viewport.");
+
+		ImGui::BeginDisabled(!hud_prefs_.show_hud);
+		ImGui::Checkbox("Viewport Toolbar (Play/Pause/Look-At)", &hud_prefs_.show_viewport_toolbar);
+		ImGui::Checkbox("Rendering Progress Indicator", &hud_prefs_.show_loading_indicator);
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Telemetry Readouts:");
+		ImGui::Checkbox("Frame Time", &hud_prefs_.show_frame_time);
+		ImGui::Checkbox("Rolling Average FPS", &hud_prefs_.show_rolling_average_fps);
+		ImGui::Checkbox("Camera Distance", &hud_prefs_.show_camera_distance);
+		ImGui::Checkbox("Camera Angles (theta, phi)", &hud_prefs_.show_camera_angles);
+		ImGui::Checkbox("Camera Orientation (pitch, yaw, roll)", &hud_prefs_.show_camera_orientation);
+		ImGui::Checkbox("Active Metric Summary", &hud_prefs_.show_metric_summary);
+		ImGui::Checkbox("Ray Statistics", &hud_prefs_.show_ray_statistics);
+		ImGui::Checkbox("Navigation Keybind Panel", &hud_prefs_.show_navigation_controls);
+		ImGui::EndDisabled();
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		if (ImGui::Button("Restore All Defaults", ImVec2(200.0f, 26.0f))) {
+			hud_prefs_ = HudPreferences{};
 		}
 	}
 };

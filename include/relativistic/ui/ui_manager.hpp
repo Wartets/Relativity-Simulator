@@ -66,7 +66,7 @@ public:
 		: orchestrator_(orchestrator),
 		  user_settings_(user_settings),
 		  camera_controller_(orchestrator),
-		  control_panel_window_(orchestrator, camera_controller_),
+		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_preferences),
 		  performance_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator) {}
@@ -98,7 +98,11 @@ public:
 		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) {
 			auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
 			if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
-				self->camera_controller_.handle_scroll(yoffset);
+				if (glfwGetKey(win, GLFW_KEY_W) == GLFW_PRESS) {
+					self->viewport_window_->handle_zoom_scroll(yoffset);
+				} else {
+					self->camera_controller_.handle_scroll(yoffset);
+				}
 			}
 		});
 
@@ -127,7 +131,7 @@ public:
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
 
-		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_);
+		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_preferences);
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();

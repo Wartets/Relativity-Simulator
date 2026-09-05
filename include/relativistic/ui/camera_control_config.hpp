@@ -124,11 +124,19 @@ struct RocketControlProfile {
 	bool requires_time_running{true};
 };
 
+struct ZoomConfig {
+	bool zoom_center_on_cursor{true};
+	double zoom_scroll_sensitivity{0.18};
+	double min_zoom{1.0};
+	double max_zoom{8.0};
+};
+
 struct CameraControlConfig {
 	CameraKeybindMap keybinds{};
 	AxisSpeedProfile free_fly{};
 	AxisSpeedProfile orbit{};
 	RocketControlProfile rocket{};
+	ZoomConfig zoom{};
 };
 
 }

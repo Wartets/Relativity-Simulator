@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/ui/camera_control_config.hpp"
+#include "relativistic/ui/hud_preferences.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -30,6 +31,7 @@ struct UserSettings {
 	uint32_t screenshot_format{0};
 
 	UI::CameraControlConfig camera_controls{};
+	UI::HudPreferences hud_preferences{};
 
 	uint32_t last_window_layout{0};
 	bool multi_window_mode{true};
@@ -140,6 +142,18 @@ struct UserSettings {
 		result.camera_controls.rocket.invert_lateral = get_u32("cam_rocket_invert_lateral", 0) != 0;
 		result.camera_controls.rocket.requires_time_running = get_u32("cam_rocket_requires_time", 1) != 0;
 
+		result.hud_preferences.show_hud = get_u32("hud_show_hud", 1) != 0;
+		result.hud_preferences.show_viewport_toolbar = get_u32("hud_show_toolbar", 1) != 0;
+		result.hud_preferences.show_loading_indicator = get_u32("hud_show_loading", 1) != 0;
+		result.hud_preferences.show_frame_time = get_u32("hud_show_frame_time", 1) != 0;
+		result.hud_preferences.show_rolling_average_fps = get_u32("hud_show_rolling_fps", 1) != 0;
+		result.hud_preferences.show_camera_distance = get_u32("hud_show_cam_distance", 1) != 0;
+		result.hud_preferences.show_camera_angles = get_u32("hud_show_cam_angles", 1) != 0;
+		result.hud_preferences.show_camera_orientation = get_u32("hud_show_cam_orientation", 1) != 0;
+		result.hud_preferences.show_metric_summary = get_u32("hud_show_metric_summary", 1) != 0;
+		result.hud_preferences.show_ray_statistics = get_u32("hud_show_ray_stats", 1) != 0;
+		result.hud_preferences.show_navigation_controls = get_u32("hud_show_nav_controls", 1) != 0;
+
 		return result;
 	}
 
@@ -181,6 +195,17 @@ struct UserSettings {
 		out << "cam_rocket_invert_vertical=" << (camera_controls.rocket.invert_vertical ? 1 : 0) << "\n";
 		out << "cam_rocket_invert_lateral=" << (camera_controls.rocket.invert_lateral ? 1 : 0) << "\n";
 		out << "cam_rocket_requires_time=" << (camera_controls.rocket.requires_time_running ? 1 : 0) << "\n";
+		out << "hud_show_hud=" << (hud_preferences.show_hud ? 1 : 0) << "\n";
+		out << "hud_show_toolbar=" << (hud_preferences.show_viewport_toolbar ? 1 : 0) << "\n";
+		out << "hud_show_loading=" << (hud_preferences.show_loading_indicator ? 1 : 0) << "\n";
+		out << "hud_show_frame_time=" << (hud_preferences.show_frame_time ? 1 : 0) << "\n";
+		out << "hud_show_rolling_fps=" << (hud_preferences.show_rolling_average_fps ? 1 : 0) << "\n";
+		out << "hud_show_cam_distance=" << (hud_preferences.show_camera_distance ? 1 : 0) << "\n";
+		out << "hud_show_cam_angles=" << (hud_preferences.show_camera_angles ? 1 : 0) << "\n";
+		out << "hud_show_cam_orientation=" << (hud_preferences.show_camera_orientation ? 1 : 0) << "\n";
+		out << "hud_show_metric_summary=" << (hud_preferences.show_metric_summary ? 1 : 0) << "\n";
+		out << "hud_show_ray_stats=" << (hud_preferences.show_ray_statistics ? 1 : 0) << "\n";
+		out << "hud_show_nav_controls=" << (hud_preferences.show_navigation_controls ? 1 : 0) << "\n";
 	}
 };
 

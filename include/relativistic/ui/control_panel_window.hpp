@@ -6,6 +6,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
 #include <array>
@@ -21,6 +22,7 @@ private:
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
 	HudPreferences& hud_prefs_;
+	SchematicViewConfig& schematic_cfg_;
 
 	float mass_{1.0f};
 	float spin_{0.0f};
@@ -61,8 +63,8 @@ private:
 	uint64_t last_synced_version_{0};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudPreferences& hud_prefs)
-		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_prefs_(hud_prefs) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudPreferences& hud_prefs, SchematicViewConfig& schematic_cfg)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_prefs_(hud_prefs), schematic_cfg_(schematic_cfg) {
 		sync_from_orchestrator();
 	}
 
@@ -175,6 +177,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("HUD & Overlay")) {
 					render_hud_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Schematic View")) {
+					render_schematic_tab();
 					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();
@@ -726,6 +732,203 @@ private:
 		if (ImGui::Button("Reset Clock", ImVec2(110.0f, 28.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
 		}
+	}
+
+	void render_schematic_object_style(const char* label, SchematicObjectDisplayConfig& style) noexcept {
+		ImGui::PushID(label);
+		if (ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen)) {
+			const char* shapes[] = {"Point Marker", "Sphere (Fixed Radius)", "Sphere (By Parameter)"};
+			int shape_idx = static_cast<int>(style.shape);
+			if (ImGui::Combo("Render Shape", &shape_idx, shapes, IM_ARRAYSIZE(shapes))) {
+				style.shape = static_cast<SchematicObjectShape>(shape_idx);
+			}
+
+			if (style.shape == SchematicObjectShape::Point) {
+				float pr = static_cast<float>(style.point_pixel_radius);
+				if (ImGui::SliderFloat("Marker Pixel Radius", &pr, 1.0f, 20.0f, "%.1f")) style.point_pixel_radius = pr;
+			} else {
+				const char* sphere_styles[] = {"Opaque", "Translucent", "Wireframe Cage"};
+				int sphere_idx = static_cast<int>(style.sphere_style);
+				if (ImGui::Combo("Sphere Style", &sphere_idx, sphere_styles, IM_ARRAYSIZE(sphere_styles))) {
+					style.sphere_style = static_cast<SchematicSphereStyle>(sphere_idx);
+				}
+				if (style.sphere_style == SchematicSphereStyle::Translucent) {
+					float alpha = static_cast<float>(style.translucency_alpha);
+					if (ImGui::SliderFloat("Translucency Alpha", &alpha, 0.05f, 0.95f, "%.2f")) style.translucency_alpha = alpha;
+				}
+				if (style.sphere_style == SchematicSphereStyle::Wireframe) {
+					int rings = style.wireframe_rings;
+					if (ImGui::SliderInt("Wireframe Rings", &rings, 2, 16)) style.wireframe_rings = rings;
+					int segs = style.wireframe_segments;
+					if (ImGui::SliderInt("Wireframe Segments", &segs, 8, 64)) style.wireframe_segments = segs;
+				}
+
+				if (style.shape == SchematicObjectShape::SphereFixedRadius) {
+					float rscale = static_cast<float>(style.radius_scale);
+					if (ImGui::SliderFloat("Physical Radius Scale", &rscale, 0.1f, 10.0f, "%.2fx")) style.radius_scale = rscale;
+				} else {
+					const char* sources[] = {"Mass", "Speed", "Kinetic Energy", "Spin Magnitude", "Physical Radius"};
+					int src_idx = static_cast<int>(style.parameter_source);
+					if (ImGui::Combo("Radius Parameter Source", &src_idx, sources, IM_ARRAYSIZE(sources))) {
+						style.parameter_source = static_cast<SchematicSphereParameterSource>(src_idx);
+					}
+					float pscale = static_cast<float>(style.parameter_pixel_scale);
+					if (ImGui::SliderFloat("Parameter Pixel Scale", &pscale, 0.001f, 50.0f, "%.4f", ImGuiSliderFlags_Logarithmic)) style.parameter_pixel_scale = pscale;
+				}
+
+				float min_px = static_cast<float>(style.sphere_min_pixel_radius);
+				if (ImGui::SliderFloat("Min Pixel Radius", &min_px, 1.0f, 50.0f, "%.1f")) style.sphere_min_pixel_radius = min_px;
+				float max_px = static_cast<float>(style.sphere_max_pixel_radius);
+				if (ImGui::SliderFloat("Max Pixel Radius", &max_px, 10.0f, 400.0f, "%.1f")) style.sphere_max_pixel_radius = max_px;
+			}
+
+			const char* color_modes[] = {"Uniform Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy"};
+			int color_idx = static_cast<int>(style.color_mode);
+			if (ImGui::Combo("Color Coding", &color_idx, color_modes, IM_ARRAYSIZE(color_modes))) {
+				style.color_mode = static_cast<SchematicColorCodingMode>(color_idx);
+			}
+			ImGui::ColorEdit4("Base / Fallback Color", style.uniform_color.data());
+
+			ImGui::Separator();
+			ImGui::Checkbox("Show Tag", &style.show_tag);
+			if (style.show_tag) {
+				ImGui::Checkbox("Tag: Show ID", &style.show_id_in_tag);
+				ImGui::SameLine();
+				ImGui::Checkbox("Tag: Show Mass", &style.show_mass_in_tag);
+				ImGui::SameLine();
+				ImGui::Checkbox("Tag: Show Speed", &style.show_speed_in_tag);
+			}
+		}
+		ImGui::PopID();
+	}
+
+	void render_schematic_vector_style(const char* label, SchematicVectorStyle& style) noexcept {
+		ImGui::PushID(label);
+		if (ImGui::CollapsingHeader(label)) {
+			ImGui::Checkbox("Enabled", &style.enabled);
+			if (style.enabled) {
+				const char* placements[] = {"At Object Center", "At Object Surface"};
+				int p_idx = static_cast<int>(style.placement);
+				if (ImGui::Combo("Placement", &p_idx, placements, IM_ARRAYSIZE(placements))) {
+					style.placement = static_cast<SchematicVectorPlacement>(p_idx);
+				}
+				const char* orient_modes[] = {"From Physical Quantity", "Fixed World Axis"};
+				int o_idx = static_cast<int>(style.orientation_mode);
+				if (ImGui::Combo("Orientation Source", &o_idx, orient_modes, IM_ARRAYSIZE(orient_modes))) {
+					style.orientation_mode = static_cast<SchematicVectorOrientationMode>(o_idx);
+				}
+				if (style.orientation_mode == SchematicVectorOrientationMode::FixedWorldAxis) {
+					float dir[3] = {static_cast<float>(style.fixed_direction[0]), static_cast<float>(style.fixed_direction[1]), static_cast<float>(style.fixed_direction[2])};
+					if (ImGui::InputFloat3("Fixed Direction", dir)) {
+						style.fixed_direction = {dir[0], dir[1], dir[2]};
+					}
+				}
+				float length_scale = static_cast<float>(style.length_scale);
+				if (ImGui::SliderFloat("Length Scale", &length_scale, 0.001f, 20.0f, "%.4f", ImGuiSliderFlags_Logarithmic)) style.length_scale = length_scale;
+				float min_len = static_cast<float>(style.min_pixel_length);
+				if (ImGui::SliderFloat("Min Pixel Length", &min_len, 0.0f, 100.0f, "%.1f")) style.min_pixel_length = min_len;
+				float max_len = static_cast<float>(style.max_pixel_length);
+				if (ImGui::SliderFloat("Max Pixel Length", &max_len, 10.0f, 400.0f, "%.1f")) style.max_pixel_length = max_len;
+				float head_size = static_cast<float>(style.head_size_px);
+				if (ImGui::SliderFloat("Arrowhead Size", &head_size, 2.0f, 24.0f, "%.1f")) style.head_size_px = head_size;
+				float thickness = static_cast<float>(style.line_thickness_px);
+				if (ImGui::SliderFloat("Line Thickness", &thickness, 0.5f, 8.0f, "%.1f")) style.line_thickness_px = thickness;
+				ImGui::Checkbox("Automatic Color (Match Object Coding)", &style.use_automatic_color);
+				if (!style.use_automatic_color) {
+					ImGui::ColorEdit4("Manual Color", style.manual_color.data());
+				}
+			}
+		}
+		ImGui::PopID();
+	}
+
+	void render_schematic_tab() noexcept {
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Schematic Orbital View Configuration");
+		ImGui::TextDisabled("Controls the simplified non-lensed projection view used when Schematic Mode is active.");
+		ImGui::Separator();
+
+		ImGui::Checkbox("Respect Active Camera Projection Mode", &schematic_cfg_.respect_active_projection_mode);
+		render_setting_tooltip("When enabled, the schematic view reprojects geometry using the same projection (Pinhole, Fisheye, Equirectangular, etc.) selected in Optics & Camera. When disabled, a standard pinhole projection is always used.");
+
+		ImGui::Separator();
+		ImGui::Checkbox("Show Central Object", &schematic_cfg_.show_central_object);
+		ImGui::SameLine();
+		ImGui::Checkbox("Show N-Body Bodies", &schematic_cfg_.show_bodies);
+		ImGui::Checkbox("Show Background Grid", &schematic_cfg_.show_background_grid);
+		ImGui::SameLine();
+		ImGui::Checkbox("Show Field Lines", &schematic_cfg_.show_field_lines);
+		ImGui::Checkbox("Show Trajectory Trails", &schematic_cfg_.show_trails);
+		ImGui::SameLine();
+		ImGui::Checkbox("Show Orbit Predictions", &schematic_cfg_.show_orbit_predictions);
+		ImGui::Checkbox("Show Vectors", &schematic_cfg_.show_vectors);
+		ImGui::SameLine();
+		ImGui::Checkbox("Show Object Tags", &schematic_cfg_.show_tags);
+
+		if (schematic_cfg_.show_background_grid) {
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Background Grid:");
+			float grid_opacity = static_cast<float>(schematic_cfg_.grid_opacity);
+			if (ImGui::SliderFloat("Grid Opacity", &grid_opacity, 0.0f, 1.0f, "%.2f")) schematic_cfg_.grid_opacity = grid_opacity;
+			int lat = schematic_cfg_.grid_latitude_lines;
+			if (ImGui::SliderInt("Latitude Lines", &lat, 1, 24)) schematic_cfg_.grid_latitude_lines = lat;
+			int lon = schematic_cfg_.grid_longitude_lines;
+			if (ImGui::SliderInt("Longitude Lines", &lon, 1, 36)) schematic_cfg_.grid_longitude_lines = lon;
+			int segs = schematic_cfg_.grid_segments;
+			if (ImGui::SliderInt("Grid Segments", &segs, 8, 128)) schematic_cfg_.grid_segments = segs;
+			float grid_scale = static_cast<float>(schematic_cfg_.grid_radius_scale);
+			if (ImGui::SliderFloat("Grid Radius Scale", &grid_scale, 2.0f, 200.0f, "%.1fx")) schematic_cfg_.grid_radius_scale = grid_scale;
+		}
+
+		if (schematic_cfg_.show_field_lines) {
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Field Lines:");
+			int fl_count = schematic_cfg_.field_line_count;
+			if (ImGui::SliderInt("Field Line Count", &fl_count, 4, 200)) schematic_cfg_.field_line_count = fl_count;
+			float fl_opacity = static_cast<float>(schematic_cfg_.field_line_opacity);
+			if (ImGui::SliderFloat("Field Line Opacity", &fl_opacity, 0.0f, 1.0f, "%.2f")) schematic_cfg_.field_line_opacity = fl_opacity;
+			float fl_extent = static_cast<float>(schematic_cfg_.field_line_extent_scale);
+			if (ImGui::SliderFloat("Field Line Extent Scale", &fl_extent, 2.0f, 200.0f, "%.1fx")) schematic_cfg_.field_line_extent_scale = fl_extent;
+			ImGui::Checkbox("Inward Direction Arrows", &schematic_cfg_.field_line_inward_arrows);
+		}
+
+		if (schematic_cfg_.show_trails) {
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Trajectory Trails:");
+			float duration = static_cast<float>(schematic_cfg_.trail_duration_seconds);
+			if (ImGui::SliderFloat("Trail Duration (s)", &duration, 1.0f, 120.0f, "%.1f")) schematic_cfg_.trail_duration_seconds = duration;
+			int max_pts = schematic_cfg_.trail_max_points;
+			if (ImGui::SliderInt("Max Trail Points", &max_pts, 16, 2000)) schematic_cfg_.trail_max_points = max_pts;
+			float interval = static_cast<float>(schematic_cfg_.trail_sample_interval_seconds);
+			if (ImGui::SliderFloat("Sample Interval (s)", &interval, 0.01f, 2.0f, "%.3f")) schematic_cfg_.trail_sample_interval_seconds = interval;
+			float fade_power = static_cast<float>(schematic_cfg_.trail_fade_power);
+			if (ImGui::SliderFloat("Fade Curve Power", &fade_power, 0.2f, 5.0f, "%.2f")) schematic_cfg_.trail_fade_power = fade_power;
+			float thickness = static_cast<float>(schematic_cfg_.trail_line_thickness);
+			if (ImGui::SliderFloat("Trail Thickness", &thickness, 0.5f, 6.0f, "%.1f")) schematic_cfg_.trail_line_thickness = thickness;
+		}
+
+		if (schematic_cfg_.show_orbit_predictions) {
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Orbit Predictions:");
+			int segs = schematic_cfg_.orbit_prediction_segments;
+			if (ImGui::SliderInt("Ellipse Segments", &segs, 16, 400)) schematic_cfg_.orbit_prediction_segments = segs;
+			float op_opacity = static_cast<float>(schematic_cfg_.orbit_prediction_opacity);
+			if (ImGui::SliderFloat("Orbit Line Opacity", &op_opacity, 0.05f, 1.0f, "%.2f")) schematic_cfg_.orbit_prediction_opacity = op_opacity;
+			float op_thick = static_cast<float>(schematic_cfg_.orbit_prediction_thickness);
+			if (ImGui::SliderFloat("Orbit Line Thickness", &op_thick, 0.5f, 6.0f, "%.1f")) schematic_cfg_.orbit_prediction_thickness = op_thick;
+			float max_ecc = static_cast<float>(schematic_cfg_.orbit_prediction_max_eccentricity);
+			if (ImGui::SliderFloat("Max Eccentricity Shown", &max_ecc, 0.5f, 0.999f, "%.3f")) schematic_cfg_.orbit_prediction_max_eccentricity = max_ecc;
+		}
+
+		ImGui::Separator();
+		render_schematic_object_style("Central Object Appearance", schematic_cfg_.central_object_style);
+		render_schematic_object_style("Orbiting Bodies Appearance", schematic_cfg_.body_style);
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Vector Overlays:");
+		render_schematic_vector_style("Velocity Vector", schematic_cfg_.vector_style(SchematicVectorKind::Velocity));
+		render_schematic_vector_style("Total Force Vector", schematic_cfg_.vector_style(SchematicVectorKind::TotalForce));
+		render_schematic_vector_style("Spin Vector", schematic_cfg_.vector_style(SchematicVectorKind::Spin));
+		render_schematic_vector_style("Rotation Axis Vector (Surface)", schematic_cfg_.vector_style(SchematicVectorKind::RotationAxis));
 	}
 
 	void render_hud_tab() noexcept {

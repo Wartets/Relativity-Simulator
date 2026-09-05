@@ -2,6 +2,7 @@
 
 #include "relativistic/ui/camera_control_config.hpp"
 #include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/schematic_view_config.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -32,6 +33,7 @@ struct UserSettings {
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudPreferences hud_preferences{};
+	UI::SchematicViewConfig schematic_view{};
 
 	uint32_t last_window_layout{0};
 	bool multi_window_mode{true};

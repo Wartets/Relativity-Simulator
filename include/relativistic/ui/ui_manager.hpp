@@ -66,7 +66,7 @@ public:
 		: orchestrator_(orchestrator),
 		  user_settings_(user_settings),
 		  camera_controller_(orchestrator),
-		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_preferences),
+		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_preferences, user_settings_.schematic_view),
 		  performance_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator) {}
@@ -131,7 +131,7 @@ public:
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
 
-		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_preferences);
+		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_preferences, user_settings_.schematic_view);
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();

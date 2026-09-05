@@ -33,6 +33,7 @@ private:
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
 	HudPreferences& hud_prefs_;
+	SchematicViewConfig& schematic_cfg_;
 	Render::GeodesicComputePipeline pipeline_;
 	SchematicViewRenderer schematic_renderer_{};
 	uint32_t gl_texture_id_{0};
@@ -91,10 +92,12 @@ public:
 	ViewportPrimaryWindow(
 		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
 		InteractiveCameraController& cam_ctrl,
-		HudPreferences& hud_prefs
+		HudPreferences& hud_prefs,
+		SchematicViewConfig& schematic_cfg
 	) : orchestrator_(orchestrator),
 	    camera_controller_(cam_ctrl),
 	    hud_prefs_(hud_prefs),
+	    schematic_cfg_(schematic_cfg),
 	    pipeline_(Render::GeodesicPipelineConfig{
 	        .width = 1280,
 	        .height = 720,
@@ -221,8 +224,11 @@ public:
 
 			if (params.schematic_mode_enabled) {
 				const ImVec2 schematic_pos = ImGui::GetCursorScreenPos();
-				schematic_renderer_.configure(cam, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
-				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_);
+				const auto schematic_projection_mode = schematic_cfg_.respect_active_projection_mode
+					? static_cast<Observer::ProjectionMode>(params.projection_mode)
+					: Observer::ProjectionMode::Pinhole;
+				schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
+				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
 				ImGui::Dummy(avail);
 
 				if (hud_prefs_.show_viewport_toolbar) {

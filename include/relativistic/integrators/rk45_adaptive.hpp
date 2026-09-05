@@ -6,6 +6,7 @@
 #include "relativistic/metrics/spacetime_concept.hpp"
 #include "relativistic/integrators/geodesic_state.hpp"
 #include "relativistic/integrators/horizon_manager.hpp"
+#include "relativistic/integrators/step_controller.hpp"
 #include <cmath>
 #include <algorithm>
 #include <optional>
@@ -29,6 +30,7 @@ struct RK45Config {
 	Scalar invariant_tolerance = static_cast<Scalar>(1e-12);
 	HorizonCrossingMode crossing_mode = HorizonCrossingMode::Continuity;
 	Scalar singularity_threshold = static_cast<Scalar>(1e-4);
+	StepControllerMode step_controller_mode = StepControllerMode::Standard;
 };
 
 template <typename Scalar = double>
@@ -51,6 +53,7 @@ private:
 	RK45Config<Scalar> config_;
 	GeodesicType type_;
 	mutable RK45Stats<Scalar> stats_;
+	mutable AdaptiveStepController<Scalar> step_controller_;
 
 	struct Derivatives {
 		Core::FourVector<Scalar> dx;
@@ -141,7 +144,7 @@ public:
 		GeodesicType type,
 		const RK45Config<Scalar>& config = {}
 	) noexcept
-		: metric_(metric), config_(config), type_(type), stats_{} {}
+		: metric_(metric), config_(config), type_(type), stats_{}, step_controller_(config.step_controller_mode) {}
 
 	[[nodiscard]] constexpr const RK45Stats<Scalar>& statistics() const noexcept {
 		return stats_;
@@ -149,6 +152,7 @@ public:
 
 	constexpr void reset_statistics() noexcept {
 		stats_ = RK45Stats<Scalar>{};
+		step_controller_.reset_history();
 	}
 
 	[[nodiscard]] std::optional<Scalar> step(GeodesicState<Scalar>& state, Scalar& current_dt) const noexcept {
@@ -287,7 +291,7 @@ public:
 				}
 				
 				const Scalar dt_actual = current_dt;
-				const Scalar factor = (max_error == static_cast<Scalar>(0)) ? static_cast<Scalar>(5.0) : std::pow(max_error, static_cast<Scalar>(-0.2));
+				const Scalar factor = (max_error == static_cast<Scalar>(0)) ? static_cast<Scalar>(5.0) : step_controller_.next_factor(max_error, static_cast<Scalar>(5.0));
 				const Scalar scale = config_.safety_factor * factor;
 				const Scalar sign = (current_dt < static_cast<Scalar>(0)) ? static_cast<Scalar>(-1) : static_cast<Scalar>(1);
 				Scalar abs_dt = std::abs(current_dt);
@@ -298,7 +302,7 @@ public:
 				return dt_actual;
 			} else {
 				++stats_.rejected_steps;
-				const Scalar factor = std::pow(max_error, static_cast<Scalar>(-0.25));
+				const Scalar factor = step_controller_.next_factor(max_error, static_cast<Scalar>(4.0));
 				const Scalar scale = config_.safety_factor * factor;
 				const Scalar sign = (current_dt < static_cast<Scalar>(0)) ? static_cast<Scalar>(-1) : static_cast<Scalar>(1);
 				Scalar abs_dt = std::abs(current_dt);

@@ -76,7 +76,7 @@ public:
 		return is_open_;
 	}
 
-	void sync_from_orchestrator() noexcept {
+	void sync_from_orchestrator(bool include_manual_placement = true) noexcept {
 		const auto& p = orchestrator_.parameters();
 		mass_ = static_cast<float>(p.mass);
 		spin_ = static_cast<float>(p.spin);
@@ -110,16 +110,18 @@ public:
 		else if (active_i.find("Hermite") != std::string::npos) integrator_selection_ = 5;
 		else integrator_selection_ = 0;
 
-		const auto& cam = orchestrator_.camera();
-		manual_cartesian_position_[0] = static_cast<float>(cam.position[0]);
-		manual_cartesian_position_[1] = static_cast<float>(cam.position[1]);
-		manual_cartesian_position_[2] = static_cast<float>(cam.position[2]);
-		manual_spherical_position_[0] = static_cast<float>(cam.radius);
-		manual_spherical_position_[1] = static_cast<float>(cam.theta);
-		manual_spherical_position_[2] = static_cast<float>(cam.phi);
-		manual_orientation_[0] = static_cast<float>(cam.pitch);
-		manual_orientation_[1] = static_cast<float>(cam.yaw);
-		manual_orientation_[2] = static_cast<float>(cam.roll);
+		if (include_manual_placement) {
+			const auto& cam = orchestrator_.camera();
+			manual_cartesian_position_[0] = static_cast<float>(cam.position[0]);
+			manual_cartesian_position_[1] = static_cast<float>(cam.position[1]);
+			manual_cartesian_position_[2] = static_cast<float>(cam.position[2]);
+			manual_spherical_position_[0] = static_cast<float>(cam.radius);
+			manual_spherical_position_[1] = static_cast<float>(cam.theta);
+			manual_spherical_position_[2] = static_cast<float>(cam.phi);
+			manual_orientation_[0] = static_cast<float>(cam.pitch);
+			manual_orientation_[1] = static_cast<float>(cam.yaw);
+			manual_orientation_[2] = static_cast<float>(cam.roll);
+		}
 
 		sky_star_density_ = static_cast<float>(p.sky_star_density);
 		sky_star_brightness_ = static_cast<float>(p.sky_star_brightness);
@@ -141,7 +143,7 @@ public:
 			sync_from_orchestrator();
 			last_synced_version_ = current_ver;
 		} else if (!ImGui::IsAnyItemActive()) {
-			sync_from_orchestrator();
+			sync_from_orchestrator(false);
 		}
 
 		ImGui::SetNextWindowPos(ImVec2(1450.0f, 30.0f), ImGuiCond_FirstUseEver);

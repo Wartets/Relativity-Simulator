@@ -19,6 +19,12 @@
 
 namespace Relativistic::Orchestrator {
 
+enum class MotionQualityMode : uint32_t {
+	Disabled = 0,
+	Automatic = 1,
+	Fixed = 2
+};
+
 struct PhysicalParameters {
 	double mass{1.0};
 	double spin{0.0};
@@ -59,6 +65,9 @@ struct PhysicalParameters {
 	double lod_distance_scale{400.0};
 	uint32_t lod_reduced_ray_steps{256};
 	bool use_gpu_compute{true};
+	uint32_t motion_quality_mode{1};
+	double motion_quality_scale{0.65};
+	uint32_t step_controller_mode{1};
 };
 
 struct CustomParameterEntry {
@@ -84,6 +93,9 @@ struct CameraState {
 
 template <size_t QueueCapacity = 1024>
 class SimulationOrchestrator {
+public:
+	static constexpr uint32_t CUSTOM_PERFORMANCE_PRESET = 6;
+
 private:
 	Core::SpscQueue<Command, QueueCapacity> command_queue_;
 	Core::SpscQueue<CommandResult, QueueCapacity> result_queue_;
@@ -267,41 +279,83 @@ public:
 				std::strncpy(res.message, "Unknown or unsupported command", sizeof(res.message) - 1);
 				break;
 		}
+
+		if (res.success && command_marks_custom_performance_preset(cmd)) {
+			params_.performance_preset = CUSTOM_PERFORMANCE_PRESET;
+		}
+	}
+
+	[[nodiscard]] static constexpr bool command_marks_custom_performance_preset(const Command& cmd) noexcept {
+		if (cmd.type == CommandType::SetResolutionScale || cmd.type == CommandType::SetRenderSteps || cmd.type == CommandType::SetVisualOverlay) {
+			return true;
+		}
+		if (cmd.type != CommandType::SetParam) {
+			return false;
+		}
+		switch (cmd.param_type) {
+			case ParameterType::ResolutionScale:
+			case ParameterType::MaxRaySteps:
+			case ParameterType::IntegrationRtol:
+			case ParameterType::IntegrationAtol:
+			case ParameterType::IntegrationMinStep:
+			case ParameterType::IntegrationMaxStep:
+			case ParameterType::UseGpuCompute:
+			case ParameterType::WorkDistributionMode:
+			case ParameterType::ForceTextureReallocation:
+			case ParameterType::RenderDistanceScale:
+			case ParameterType::LodEnabled:
+			case ParameterType::LodDistanceThreshold:
+			case ParameterType::LodReducedSteps:
+			case ParameterType::MotionQualityMode:
+			case ParameterType::MotionQualityScale:
+			case ParameterType::StepControllerMode:
+			case ParameterType::Custom:
+				return true;
+			default:
+				return false;
+		}
 	}
 
 	void apply_performance_preset(uint32_t preset_index) noexcept {
 		params_.performance_preset = preset_index;
 		switch (preset_index) {
 			case 0:
-				params_.resolution_scale = 0.50;
-				params_.max_ray_steps = 256;
+				params_.resolution_scale = 0.25;
+				params_.max_ray_steps = 512;
 				params_.integration_rtol = 1e-6;
-				params_.integration_atol = 1e-9;
+				params_.integration_atol = 1e-10;
 				break;
 			case 1:
 				params_.resolution_scale = 0.75;
-				params_.max_ray_steps = 512;
+				params_.max_ray_steps = 1024;
 				params_.integration_rtol = 1e-8;
 				params_.integration_atol = 1e-12;
 				break;
 			case 2:
 				params_.resolution_scale = 1.00;
-				params_.max_ray_steps = 1024;
-				params_.integration_rtol = 1e-10;
-				params_.integration_atol = 1e-14;
+				params_.max_ray_steps = 2048;
+				params_.integration_rtol = 1e-9;
+				params_.integration_atol = 1e-13;
 				break;
 			case 3:
 				params_.resolution_scale = 1.25;
-				params_.max_ray_steps = 2048;
+				params_.max_ray_steps = 4096;
+				params_.integration_rtol = 1e-10;
+				params_.integration_atol = 1e-14;
+				break;
+			case 4:
+				params_.resolution_scale = 1.50;
+				params_.max_ray_steps = 8192;
 				params_.integration_rtol = 1e-12;
 				params_.integration_atol = 1e-15;
 				break;
-			case 4:
-			default:
-				params_.resolution_scale = 1.50;
-				params_.max_ray_steps = 4096;
+			case 5:
+				params_.resolution_scale = 2.00;
+				params_.max_ray_steps = 16384;
 				params_.integration_rtol = 1e-14;
 				params_.integration_atol = 1e-17;
+				break;
+			default:
 				break;
 		}
 	}
@@ -539,6 +593,15 @@ public:
 				break;
 			case ParameterType::UseGpuCompute:
 				params_.use_gpu_compute = (val > 0.5);
+				break;
+			case ParameterType::MotionQualityMode:
+				params_.motion_quality_mode = static_cast<uint32_t>(std::clamp(val, 0.0, 2.0));
+				break;
+			case ParameterType::MotionQualityScale:
+				params_.motion_quality_scale = std::clamp(val, 0.05, 2.0);
+				break;
+			case ParameterType::StepControllerMode:
+				params_.step_controller_mode = static_cast<uint32_t>(std::clamp(val, 0.0, 2.0));
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

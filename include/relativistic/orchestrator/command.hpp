@@ -81,7 +81,10 @@ enum class ParameterType : uint32_t {
 	LodEnabled = 38,
 	LodDistanceThreshold = 39,
 	LodReducedSteps = 40,
-	UseGpuCompute = 41
+	UseGpuCompute = 41,
+	MotionQualityMode = 42,
+	MotionQualityScale = 43,
+	StepControllerMode = 44
 };
 
 struct Command {

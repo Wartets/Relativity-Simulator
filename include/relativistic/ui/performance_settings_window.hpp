@@ -23,6 +23,9 @@ private:
 	bool enable_dynamic_resolution_{false};
 	float target_framerate_{60.0f};
 	uint64_t last_synced_version_{0};
+	int motion_quality_mode_{1};
+	float motion_quality_scale_{0.65f};
+	int step_controller_mode_{1};
 
 public:
 	explicit PerformanceSettingsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -44,6 +47,9 @@ public:
 		res_scale_ = static_cast<float>(p.resolution_scale);
 		ray_steps_ = static_cast<int>(p.max_ray_steps);
 		precision_mode_ = static_cast<int>(orchestrator_.get_custom_param("precision_mode", 0.0));
+		motion_quality_mode_ = static_cast<int>(p.motion_quality_mode);
+		motion_quality_scale_ = static_cast<float>(p.motion_quality_scale);
+		step_controller_mode_ = static_cast<int>(p.step_controller_mode);
 	}
 
 	void render() {
@@ -65,11 +71,12 @@ public:
 			ImGui::Separator();
 
 			const char* presets[] = {
-				"Performance (0.5x scale, 512 steps)",
-				"Balanced (0.75x scale, 1024 steps)",
-				"Quality High (1.0x scale, 2048 steps)",
-				"Ultra Fidelity (1.25x scale, 4096 steps)",
-				"Scientific Extreme (1.5x scale, 8192 steps)",
+				"Potato (0.25x scale, 512 steps)",
+				"Performance (0.75x scale, 1024 steps)",
+				"Balanced (1.0x scale, 2048 steps)",
+				"Quality High (1.25x scale, 4096 steps)",
+				"Ultra Fidelity (1.5x scale, 8192 steps)",
+				"Scientific Extreme (2.0x scale, 16384 steps)",
 				"Custom (User Defined)"
 			};
 
@@ -225,6 +232,44 @@ public:
 				const bool gpu_ready = render_pipeline_->gpu_compute_available();
 				ImGui::TextColored(gpu_ready ? ImVec4(0.3f, 1.0f, 0.4f, 1.0f) : ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Compute Device Status: %s", gpu_ready ? "Ready" : "Unavailable");
 				ImGui::TextColored(ImVec4(0.8f, 0.85f, 0.9f, 0.9f), "Active Render Path (Last Frame): %s", render_pipeline_->telemetry().used_gpu_path ? "GPU Vulkan Compute" : "CPU SIMD / Scalar");
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Motion-Adaptive Render Quality");
+
+			const char* motion_modes[] = {
+				"Disabled (Always Full Quality)",
+				"Automatic (Scaled Relative to Base Quality)",
+				"Fixed Value"
+			};
+			if (ImGui::Combo("Camera Motion Quality Mode", &motion_quality_mode_, motion_modes, IM_ARRAYSIZE(motion_modes))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityMode, static_cast<double>(motion_quality_mode_))));
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Controls the render scale used while actively navigating the camera. Automatic reduces quality proportionally to the base render scale and never exceeds it; Fixed lets you set an explicit render scale used only during motion.");
+			}
+
+			if (motion_quality_mode_ == static_cast<int>(Orchestrator::MotionQualityMode::Fixed)) {
+				if (ImGui::SliderFloat("Motion Render Scale", &motion_quality_scale_, 0.05f, 2.0f, "%.2fx")) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityScale, static_cast<double>(motion_quality_scale_))));
+				}
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Adaptive Step-Size Controller");
+
+			const char* step_controllers[] = {
+				"Standard (Classic Integral Controller)",
+				"PI-30 (Proportional-Integral, Stabilized)",
+				"PID-42 (Proportional-Integral-Derivative)"
+			};
+			if (ImGui::Combo("Geodesic Step Controller", &step_controller_mode_, step_controllers, IM_ARRAYSIZE(step_controllers))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(step_controller_mode_))));
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+				ImGui::SetTooltip("Selects the adaptive step-size regulation strategy for RK45, Cash-Karp, and Vernier 9(8) geodesic integrators. PI and PID controllers use recent error history to damp step-size oscillations near strong gravitational gradients, reducing rejected steps.");
 			}
 
 			ImGui::Spacing();

@@ -174,7 +174,19 @@ public:
 
 			float active_scale = resolution_scale_;
 			if (is_navigating) {
-				active_scale = std::clamp(resolution_scale_ * 0.65f, 0.25f, 1.0f);
+				switch (static_cast<Orchestrator::MotionQualityMode>(params.motion_quality_mode)) {
+					case Orchestrator::MotionQualityMode::Disabled:
+						active_scale = resolution_scale_;
+						break;
+					case Orchestrator::MotionQualityMode::Fixed:
+						active_scale = static_cast<float>(params.motion_quality_scale);
+						break;
+					case Orchestrator::MotionQualityMode::Automatic:
+					default:
+						active_scale = std::clamp(resolution_scale_ * 0.65f, 0.1f, resolution_scale_);
+						break;
+				}
+				active_scale = std::clamp(active_scale, 0.1f, 2.0f);
 			}
 
 			const ImVec2 avail = ImGui::GetContentRegionAvail();

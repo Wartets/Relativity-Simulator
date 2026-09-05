@@ -6,6 +6,8 @@
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
+#include "relativistic/metrics/reissner_nordstrom.hpp"
+#include "relativistic/metrics/kerr_newman.hpp"
 #include "relativistic/core/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/geodesic_bundle.hpp"
@@ -36,9 +38,13 @@ private:
 	}
 
 public:
-	[[nodiscard]] static bool requires_kerr_exact_path(const GpuCameraPushConstants& params) noexcept {
-		const bool is_kerr_family = (params.metric_type == 2U || params.metric_type == 3U || params.metric_type == 5U);
-		return is_kerr_family && std::abs(params.metric_spin) > 1e-9 * std::max(params.metric_mass, 1e-4);
+	[[nodiscard]] static bool requires_exact_metric_path(const GpuCameraPushConstants& params) noexcept {
+		const double mass_scale = std::max(params.metric_mass, 1e-4);
+		const bool is_spin_family = (params.metric_type == 2U || params.metric_type == 3U || params.metric_type == 5U);
+		const bool has_significant_spin = is_spin_family && std::abs(params.metric_spin) > 1e-9 * mass_scale;
+		const bool is_charge_family = (params.metric_type == 4U || params.metric_type == 5U);
+		const bool has_significant_charge = is_charge_family && std::abs(params.metric_charge) > 1e-9 * mass_scale;
+		return has_significant_spin || has_significant_charge;
 	}
 
 private:
@@ -54,13 +60,16 @@ private:
 		return r_isco_over_m * m;
 	}
 
-	[[nodiscard]] static GpuPixelOutput trace_kerr_photon_exact(
-		const Metrics::KerrMetric<double>& metric,
+	template <typename MetricType>
+		requires Metrics::SpacetimeMetric<MetricType, double>
+	[[nodiscard]] static GpuPixelOutput trace_exact_photon(
+		const MetricType& metric,
 		double n1, double n2, double n3,
 		double r_obs, double theta_obs, double phi_obs,
-		double m, double a_spin, double rs, double rh,
+		double m, double rs, double rh, double isco,
 		double escape_radius, uint32_t max_steps,
 		bool has_accretion_disk,
+		double turbulence_aa_factor,
 		const GpuCameraPushConstants& params
 	) noexcept {
 		const auto tetrad = Observer::ObserverTetrad<double>::make_zamo(metric, Core::FourVector<double>(0.0, r_obs, theta_obs, phi_obs));
@@ -68,11 +77,10 @@ private:
 		Core::FourVector<double> x(0.0, r_obs, theta_obs, phi_obs);
 		Core::FourVector<double> u = tetrad.construct_light_ray(n1, n2, n3);
 
-		const double isco = kerr_isco_radius(m, a_spin);
 		const double disk_outer = 24.0 * m;
 
 		auto compute_acc = [&](const Core::FourVector<double>& xs, const Core::FourVector<double>& us) noexcept -> Core::FourVector<double> {
-			const auto gamma = Core::compute_christoffel<Core::DerivativeOrder::EighthOrder, Metrics::KerrMetric<double>, double>(metric, xs);
+			const auto gamma = Core::compute_christoffel<Core::DerivativeOrder::EighthOrder, MetricType, double>(metric, xs);
 			Core::FourVector<double> acc;
 			acc.zero();
 			for (size_t mu = 0; mu < 4; ++mu) {
@@ -102,7 +110,7 @@ private:
 		for (uint32_t step = 0; step < max_steps && throughput > 0.01; ++step) {
 			iters = step + 1;
 
-			if (metric.is_inside_outer_horizon(x)) {
+			if (x(1) <= rh) {
 				status = PixelFlags::HORIZON_ABSORBED;
 				throughput = 0.0;
 				break;
@@ -192,7 +200,7 @@ private:
 
 					const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
 					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-					const double turbulence = 0.88 + 0.12 * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
+					const double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
 					const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
 					const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -237,6 +245,34 @@ private:
 			.status_flags = status,
 			.iterations_used = iters
 		};
+	}
+
+	[[nodiscard]] static GpuPixelOutput trace_exact_photon_dispatch(
+		uint32_t metric_type,
+		double m, double a_spin, double charge,
+		double n1, double n2, double n3,
+		double r_obs, double theta_obs, double phi_obs,
+		double rs, double escape_radius, uint32_t max_steps,
+		bool has_accretion_disk,
+		double turbulence_aa_factor,
+		const GpuCameraPushConstants& params
+	) noexcept {
+		if (metric_type == 4U) {
+			const Metrics::ReissnerNordstromMetric<double> metric(m, charge, 1.0, 1.0, 1.0);
+			const double rh = metric.outer_horizon_radius();
+			const double isco = kerr_isco_radius(m, 0.0);
+			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params);
+		}
+		if (metric_type == 5U) {
+			const Metrics::KerrNewmanMetric<double> metric(m, a_spin, charge, 1.0, 1.0, 1.0);
+			const double rh = metric.outer_horizon_radius();
+			const double isco = kerr_isco_radius(m, a_spin);
+			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params);
+		}
+		const Metrics::KerrMetric<double> metric(m, a_spin, 1.0, 1.0);
+		const double rh = metric.outer_horizon_radius();
+		const double isco = kerr_isco_radius(m, a_spin);
+		return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params);
 	}
 
 	[[nodiscard]] static std::array<double, 3> rotate_direction_around_z(double x, double y, double z, double angle_rad) noexcept {
@@ -536,7 +572,7 @@ public:
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
 		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
 
-		const bool use_kerr_exact_path = requires_kerr_exact_path(params);
+		const bool use_exact_metric_path = requires_exact_metric_path(params);
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], rh * 1.02);
 		const uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
@@ -584,14 +620,13 @@ public:
 					const double n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
 					const double n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
 
-					if (use_kerr_exact_path) {
-						const Metrics::KerrMetric<double> kerr_metric(m, a_spin, 1.0, 1.0);
-						output_framebuffer[pixel_idx] = trace_kerr_photon_exact(
-							kerr_metric, n_r, n_th, n_ph,
+					if (use_exact_metric_path) {
+						output_framebuffer[pixel_idx] = trace_exact_photon_dispatch(
+							params.metric_type, m, a_spin, params.metric_charge,
+							n_r, n_th, n_ph,
 							r_obs, theta_obs, phi_obs,
-							m, a_spin, rs, rh,
-							params.escape_radius, effective_max_steps,
-							has_accretion_disk, params
+							rs, params.escape_radius, effective_max_steps,
+							has_accretion_disk, turbulence_aa_factor, params
 						);
 						continue;
 					}
@@ -893,6 +928,10 @@ public:
 		const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
 		const double phi_obs = params.observer_position[3];
 
+		const double angular_pixel_size_simd = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
+		const double bh_angular_diameter_simd = (2.0 * rh) / r_obs;
+		const double turbulence_aa_factor_simd = std::clamp(bh_angular_diameter_simd / std::max(angular_pixel_size_simd * 24.0, 1e-9), 0.0, 1.0);
+
 		const double sin_to = std::sin(theta_obs);
 		const double cos_to = std::cos(theta_obs);
 		const double sin_po = std::sin(phi_obs);
@@ -1042,7 +1081,7 @@ public:
 
 									const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
 									const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-									const double turbulence = 0.88 + 0.12 * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
+									const double turbulence = 1.0 - (0.12 * turbulence_aa_factor_simd) + (0.12 * turbulence_aa_factor_simd) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
 									const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
 									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -1199,7 +1238,7 @@ public:
 
 		const float pi_f = std::numbers::pi_v<float>;
 
-		const bool use_kerr_exact_path = requires_kerr_exact_path(params);
+		const bool use_exact_metric_path = requires_exact_metric_path(params);
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], static_cast<double>(rh) * 1.02);
 		const uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
@@ -1247,15 +1286,13 @@ public:
 					const float n_th = ray_dir_x * eth_x + ray_dir_y * eth_y + ray_dir_z * eth_z;
 					const float n_ph = ray_dir_x * eph_x + ray_dir_y * eph_y + ray_dir_z * eph_z;
 
-					if (use_kerr_exact_path) {
-						const Metrics::KerrMetric<double> kerr_metric(static_cast<double>(m), static_cast<double>(a_spin), 1.0, 1.0);
-						output_framebuffer[pixel_idx] = trace_kerr_photon_exact(
-							kerr_metric,
+					if (use_exact_metric_path) {
+						output_framebuffer[pixel_idx] = trace_exact_photon_dispatch(
+							params.metric_type, static_cast<double>(m), static_cast<double>(a_spin), params.metric_charge,
 							static_cast<double>(n_r), static_cast<double>(n_th), static_cast<double>(n_ph),
 							static_cast<double>(r_obs), static_cast<double>(theta_obs), static_cast<double>(phi_obs),
-							static_cast<double>(m), static_cast<double>(a_spin), static_cast<double>(rs), static_cast<double>(rh),
-							params.escape_radius, effective_max_steps,
-							has_accretion_disk, params
+							static_cast<double>(rs), params.escape_radius, effective_max_steps,
+							has_accretion_disk, static_cast<double>(turbulence_aa_factor), params
 						);
 						continue;
 					}
@@ -1560,6 +1597,10 @@ public:
 		const float theta_obs = std::clamp(static_cast<float>(params.observer_position[2]), 0.001f, std::numbers::pi_v<float> - 0.001f);
 		const float phi_obs = static_cast<float>(params.observer_position[3]);
 
+		const double angular_pixel_size_simd_f = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
+		const double bh_angular_diameter_simd_f = (2.0 * static_cast<double>(rh)) / static_cast<double>(r_obs);
+		const float turbulence_aa_factor_simd_f = static_cast<float>(std::clamp(bh_angular_diameter_simd_f / std::max(angular_pixel_size_simd_f * 24.0, 1e-9), 0.0, 1.0));
+
 		const float sin_to = std::sin(theta_obs);
 		const float cos_to = std::cos(theta_obs);
 		const float sin_po = std::sin(phi_obs);
@@ -1712,7 +1753,7 @@ public:
 
 									const float g4 = g_doppler * g_doppler * g_doppler * g_doppler;
 									const float radial_envelope = std::clamp((disk_outer - r_cross) / (1.5f * m), 0.0f, 1.0f) * std::clamp((r_cross - isco) / (0.8f * m), 0.0f, 1.0f);
-									const float turbulence = 0.88f + 0.12f * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
+									const float turbulence = 1.0f - (0.12f * turbulence_aa_factor_simd_f) + (0.12f * turbulence_aa_factor_simd_f) * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
 									const float flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0f) * 1.5f;
 
 									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -1835,7 +1876,7 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
-		const bool requires_exact_kerr = requires_kerr_exact_path(params);
+		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {
@@ -1849,7 +1890,7 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
-		const bool requires_exact_kerr = requires_kerr_exact_path(params);
+		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {

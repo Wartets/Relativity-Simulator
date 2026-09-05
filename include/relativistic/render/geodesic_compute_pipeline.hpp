@@ -82,7 +82,7 @@ private:
 		if (!is_metric_gpu_accelerable(params)) {
 			return false;
 		}
-		if (SoftwareComputeEngine::requires_kerr_exact_path(params)) {
+		if (SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
 		}
 		return gpu_executor_->dispatch_and_readback(params, output);

@@ -84,6 +84,18 @@ float hash_to_float(uint x) {
 	return float(hash_u32(x) & 0x00FFFFFFU) * (1.0 / 16777216.0);
 }
 
+dvec2 precise_sincos(double theta) {
+	double h = theta * 0.25;
+	double h2 = h * h;
+	double sin_h = h * (1.0 - h2 * (1.0 / 6.0 - h2 * (1.0 / 120.0 - h2 * (1.0 / 5040.0 - h2 / 362880.0))));
+	double cos_h = 1.0 - h2 * (0.5 - h2 * (1.0 / 24.0 - h2 * (1.0 / 720.0 - h2 / 40320.0)));
+	double sin_2h = 2.0 * sin_h * cos_h;
+	double cos_2h = 1.0 - 2.0 * sin_h * sin_h;
+	double sin_4h = 2.0 * sin_2h * cos_2h;
+	double cos_4h = 1.0 - 2.0 * sin_2h * sin_2h;
+	return dvec2(sin_4h, cos_4h);
+}
+
 dvec3 compute_pinhole_ray(double u, double v, double fov) {
 	double tan_half = double(tan(float(fov * 0.5)));
 	double n1 = 1.0;
@@ -464,10 +476,14 @@ void main() {
 		double theta_obs = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
 		double phi_obs = pc.observer_position.w;
 
-		float theta_obs_f = float(theta_obs);
+		double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
+		double bh_angular_diameter = (2.0 * rh) / r_obs;
+		double turbulence_aa_factor = clamp(bh_angular_diameter / max(angular_pixel_size * 24.0, 1e-9), 0.0, 1.0);
+
 		float phi_obs_f = float(phi_obs);
-		double sin_to = double(sin(theta_obs_f));
-		double cos_to = double(cos(theta_obs_f));
+		dvec2 sincos_theta_obs = precise_sincos(theta_obs);
+		double sin_to = sincos_theta_obs.x;
+		double cos_to = sincos_theta_obs.y;
 		double sin_po = double(sin(phi_obs_f));
 		double cos_po = double(cos(phi_obs_f));
 
@@ -514,9 +530,9 @@ void main() {
 			}
 
 			double r_scale = max(ray_r - rh, 0.02 * m);
-			float ray_th_f = float(ray_th);
-			double sin_t = double(sin(ray_th_f));
-			double cos_t = double(cos(ray_th_f));
+			dvec2 sincos_ray_th = precise_sincos(ray_th);
+			double sin_t = sincos_ray_th.x;
+			double cos_t = sincos_ray_th.y;
 			double pole_guard = clamp(abs(sin_t) * 12.0, 0.15, 1.0);
 			double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
 
@@ -588,7 +604,7 @@ void main() {
 					double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
 					double log_ratio = double(log(float(r_cross / isco)));
 					double turbulence_phase = 8.0 * phi_cross - 4.0 * log_ratio;
-					double turbulence = 0.88 + 0.12 * double(sin(float(turbulence_phase)));
+					double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * double(sin(float(turbulence_phase)));
 					double flux_intensity = max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
 					dvec3 disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
@@ -601,10 +617,10 @@ void main() {
 		}
 
 		if ((status & 2u) != 0u || throughput > 0.01) {
-			float ray_th_f2 = float(ray_th);
 			float ray_phi_f2 = float(ray_phi);
-			double sin_t = double(sin(ray_th_f2));
-			double cos_t = double(cos(ray_th_f2));
+			dvec2 sincos_exit_th = precise_sincos(ray_th);
+			double sin_t = sincos_exit_th.x;
+			double cos_t = sincos_exit_th.y;
 			double sin_p = double(sin(ray_phi_f2));
 			double cos_p = double(cos(ray_phi_f2));
 

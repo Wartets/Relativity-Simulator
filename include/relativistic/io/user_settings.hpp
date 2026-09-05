@@ -23,7 +23,7 @@ struct UserSettings {
 
 	uint32_t default_camera_mode{0};
 	uint32_t default_performance_preset{1};
-	bool default_use_gpu_compute{false};
+	bool default_use_gpu_compute{true};
 	std::string default_scenario_path{};
 	std::string screenshot_output_directory{"./screenshots"};
 	std::string screenshot_filename_pattern{"relativistic_%Y%m%d_%H%M%S"};

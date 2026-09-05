@@ -58,7 +58,7 @@ struct PhysicalParameters {
 	bool lod_enabled{false};
 	double lod_distance_scale{400.0};
 	uint32_t lod_reduced_ray_steps{256};
-	bool use_gpu_compute{false};
+	bool use_gpu_compute{true};
 };
 
 struct CustomParameterEntry {

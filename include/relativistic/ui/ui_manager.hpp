@@ -129,6 +129,7 @@ public:
 
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_);
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
+		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();
 
 		telemetry_window_.open_state() = false;

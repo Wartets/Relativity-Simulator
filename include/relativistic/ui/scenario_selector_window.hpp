@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <vector>
 #include <string>
@@ -12,6 +13,10 @@
 #include <sstream>
 #include <algorithm>
 #include <cfloat>
+#include <cctype>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 
 namespace Relativistic::UI {
 
@@ -34,6 +39,10 @@ private:
 	int sort_mode_{0};
 	float left_pane_width_{300.0f};
 	char custom_path_buffer_[256]{"scenarios/custom_scenario.yaml"};
+	char save_preset_name_[96]{"My Scenario"};
+	char save_preset_author_[64]{"Unknown"};
+	std::string save_feedback_message_{};
+	bool save_feedback_is_error_{false};
 
 public:
 	void scan_scenario_directory() {
@@ -210,6 +219,10 @@ public:
 				if (item.is_compatible) {
 					ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", def.scenario_name.c_str());
 					ImGui::TextDisabled("File: %s", item.filename.c_str());
+					ImGui::TextDisabled("Author: %s", def.author.empty() ? "Unknown" : def.author.c_str());
+					if (!def.created_at.empty()) {
+						ImGui::TextDisabled("Created: %s", def.created_at.c_str());
+					}
 					ImGui::Spacing();
 					ImGui::TextWrapped("%s", def.description.c_str());
 					ImGui::Spacing();
@@ -219,8 +232,24 @@ public:
 					ImGui::Text("Central Mass:     %.2f M", def.central_mass);
 					ImGui::Text("Central Spin:     %.2f a", def.central_spin);
 					ImGui::Text("Electric Charge:  %.2f Q", def.central_charge);
+					if (def.metric_type.find("de Sitter") != std::string::npos) {
+						ImGui::Text("Cosmological Lambda: %.4e", def.cosmological_lambda);
+					}
+					if (def.metric_type.find("Wormhole") != std::string::npos || def.metric_type.find("Morris") != std::string::npos) {
+						ImGui::Text("Wormhole Throat:  %.2f b0", def.wormhole_throat);
+					}
+					if (def.metric_type.find("Warp") != std::string::npos || def.metric_type.find("Alcubierre") != std::string::npos) {
+						ImGui::Text("Warp Bubble Velocity: %.2f c", def.warp_velocity);
+					}
 					ImGui::Text("Integrator:       %s", def.integrator.scheme.c_str());
+					ImGui::Text("Rel/Abs Tolerance: %.2e / %.2e", def.integrator.relative_tolerance, def.integrator.absolute_tolerance);
 					ImGui::Text("Bodies:           %zu", def.bodies.size());
+					if (!def.bodies.empty() && ImGui::TreeNode("BodyPreview", "Body Preview")) {
+						for (const auto& b : def.bodies) {
+							ImGui::BulletText("%s (M=%.3e, r=%.3f)", b.name.c_str(), b.mass, std::sqrt(b.initial_position[1] * b.initial_position[1] + b.initial_position[2] * b.initial_position[2] + b.initial_position[3] * b.initial_position[3]));
+						}
+						ImGui::TreePop();
+					}
 					ImGui::Text("Observers:        %zu", def.observers.size());
 
 					ImGui::Spacing();
@@ -267,8 +296,119 @@ public:
 			if (ImGui::Button("Save Current to File")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario(custom_path_buffer_)));
 			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Save Current Simulation As New Preset");
+			ImGui::TextDisabled("Captures the active metric, central parameters, integrator settings, camera position, and every current N-body body into a new scenario file in the scenarios folder.");
+
+			ImGui::InputText("Preset Name", save_preset_name_, sizeof(save_preset_name_));
+			render_setting_tooltip("Display name stored inside the scenario file. The filename on disk is derived from this automatically.");
+			ImGui::InputText("Author", save_preset_author_, sizeof(save_preset_author_));
+			render_setting_tooltip("Attribution stored inside the scenario file and shown in the detail pane when the preset is later selected.");
+
+			if (ImGui::Button("Save As New Preset", ImVec2(220.0f, 30.0f))) {
+				save_current_as_new_preset();
+			}
+			render_setting_tooltip("Writes the current simulation state to a new scenario file, automatically avoiding any name collision with existing presets.");
+
+			if (!save_feedback_message_.empty()) {
+				ImGui::TextColored(save_feedback_is_error_ ? ImVec4(1.0f, 0.4f, 0.35f, 1.0f) : ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "%s", save_feedback_message_.c_str());
+			}
 		}
 		ImGui::End();
+	}
+
+private:
+	[[nodiscard]] static std::string sanitize_filename_stem(std::string_view name) {
+		std::string stem;
+		stem.reserve(name.size());
+		for (const char c : name) {
+			if (std::isalnum(static_cast<unsigned char>(c))) {
+				stem.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+			} else if (c == ' ' || c == '-' || c == '_') {
+				stem.push_back('_');
+			}
+		}
+		while (!stem.empty() && stem.back() == '_') {
+			stem.pop_back();
+		}
+		if (stem.empty()) {
+			stem = "scenario";
+		}
+		return stem;
+	}
+
+	[[nodiscard]] static std::string current_timestamp_string() {
+		const auto now = std::chrono::system_clock::now();
+		const std::time_t t = std::chrono::system_clock::to_time_t(now);
+		std::tm tm_buf{};
+#if defined(_WIN32)
+		localtime_s(&tm_buf, &t);
+#else
+		localtime_r(&t, &tm_buf);
+#endif
+		std::ostringstream ss;
+		ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
+		return ss.str();
+	}
+
+	void save_current_as_new_preset() {
+		std::string target_dir = "scenarios";
+		std::error_code ec;
+		if (!std::filesystem::exists(target_dir, ec)) {
+			std::filesystem::create_directories(target_dir, ec);
+		}
+
+		const std::string requested_name = (save_preset_name_[0] != '\0') ? std::string(save_preset_name_) : std::string("My Scenario");
+		const std::string base_stem = sanitize_filename_stem(requested_name);
+
+		std::string candidate_path;
+		std::string candidate_scenario_name = requested_name;
+		size_t suffix = 0;
+		for (;;) {
+			const std::string suffix_str = (suffix == 0) ? std::string() : ("_" + std::to_string(suffix));
+			candidate_path = target_dir + "/" + base_stem + suffix_str + ".yaml";
+			candidate_scenario_name = (suffix == 0) ? requested_name : (requested_name + " (" + std::to_string(suffix) + ")");
+
+			const bool file_exists = std::filesystem::exists(candidate_path, ec);
+			bool name_collides = false;
+			for (const auto& existing : presets_) {
+				if (existing.definition.scenario_name == candidate_scenario_name) {
+					name_collides = true;
+					break;
+				}
+			}
+			if (!file_exists && !name_collides) {
+				break;
+			}
+			++suffix;
+			if (suffix > 9999) {
+				save_feedback_message_ = "Unable to find an available preset name.";
+				save_feedback_is_error_ = true;
+				return;
+			}
+		}
+
+		orchestrator_.set_active_scenario_name(candidate_scenario_name);
+
+		Orchestrator::CommandResult res{};
+		orchestrator_.save_scenario_file(candidate_path.c_str(), res, save_preset_author_[0] != '\0' ? save_preset_author_ : "Unknown", current_timestamp_string());
+
+		save_feedback_is_error_ = !res.success;
+		save_feedback_message_ = res.success
+			? ("Saved preset '" + candidate_scenario_name + "' to " + candidate_path)
+			: std::string(res.message);
+
+		if (res.success) {
+			scan_scenario_directory();
+			for (size_t i = 0; i < presets_.size(); ++i) {
+				if (presets_[i].filepath == candidate_path) {
+					selected_index_ = static_cast<int>(i);
+					break;
+				}
+			}
+		}
 	}
 };
 

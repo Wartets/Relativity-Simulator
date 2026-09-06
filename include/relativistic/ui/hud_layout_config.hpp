@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include "relativistic/ui/input_actions.hpp"
 #include <array>
 #include <cstdint>
 #include <algorithm>
@@ -91,8 +92,13 @@ struct HudLayoutConfig {
 	bool master_enabled{true};
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
 	ToolbarButtonVisibility toolbar_buttons{};
+	std::array<bool, static_cast<size_t>(InputAction::Count)> keybind_summary_visible{};
 
 	HudLayoutConfig() noexcept {
+		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+			keybind_summary_visible[i] = (input_action_category(static_cast<InputAction>(i)) == InputActionCategory::Movement)
+				|| (static_cast<InputAction>(i) == InputAction::ZoomModifier);
+		}
 		element(HudElementId::FrameTimeReadout).offset_x = 16.0f;
 		element(HudElementId::FrameTimeReadout).offset_y = 48.0f;
 		element(HudElementId::FrameTimeReadout).text_color = {0.2f, 1.0f, 0.4f, 1.0f};

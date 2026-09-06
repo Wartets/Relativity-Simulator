@@ -295,6 +295,19 @@ public:
 	}
 
 private:
+	[[nodiscard]] std::string key_hint(InputAction action) const noexcept {
+		const auto& b = camera_controller_.config().keybinds.get(action);
+		if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) {
+			return "";
+		}
+		std::string s = glfw_key_display_name(b.primary_key);
+		if (b.secondary_key != GLFW_KEY_UNKNOWN) {
+			s += "/";
+			s += glfw_key_display_name(b.secondary_key);
+		}
+		return s;
+	}
+
 	void process_global_hotkeys() noexcept {
 		ImGuiIO& io = ImGui::GetIO();
 		if (io.WantCaptureKeyboard) return;
@@ -580,16 +593,15 @@ private:
 			if (ImGui::BeginMenu("View Windows")) {
 				ImGui::MenuItem("3D Primary Viewport", nullptr, &show_viewport_);
 				if (scenario_window_) {
-					ImGui::MenuItem("Scenario Catalog", nullptr, &scenario_window_->open_state());
+					ImGui::MenuItem("Scenario Catalog", key_hint(InputAction::ToggleScenarioWindow).c_str(), &scenario_window_->open_state());
 				}
-				ImGui::MenuItem("Master Controls", nullptr, &control_panel_window_.open_state());
-				ImGui::MenuItem("Performance Profiles", nullptr, &performance_window_.open_state());
-				ImGui::MenuItem("Celestial Body & N-Body Manager", "F8", &body_manager_window_.open_state());
-				ImGui::MenuItem("Curvature Diagnostics", nullptr, &diagnostics_window_.open_state());
-				ImGui::MenuItem("Curvature Telemetry", nullptr, &telemetry_window_.open_state());
-				ImGui::MenuItem("Spectrograph Monitor", nullptr, &spectrograph_window_.open_state());
-				ImGui::Separator();
-				ImGui::MenuItem("Keybind Settings", "B", &keybind_window_.open_state());
+				ImGui::MenuItem("Master Controls", key_hint(InputAction::ToggleControlPanel).c_str(), &control_panel_window_.open_state());
+				ImGui::MenuItem("Performance Profiles", key_hint(InputAction::TogglePerformanceWindow).c_str(), &performance_window_.open_state());
+				ImGui::MenuItem("Celestial Body & N-Body Manager", key_hint(InputAction::ToggleBodyManager).c_str(), &body_manager_window_.open_state());
+				ImGui::MenuItem("Curvature Diagnostics", key_hint(InputAction::ToggleDiagnosticsWindow).c_str(), &diagnostics_window_.open_state());
+				ImGui::MenuItem("Curvature Telemetry", key_hint(InputAction::ToggleTelemetryWindow).c_str(), &telemetry_window_.open_state());
+				ImGui::MenuItem("Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
+				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
 				ImGui::EndMenu();
 			}
 

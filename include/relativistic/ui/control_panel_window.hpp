@@ -1149,6 +1149,44 @@ private:
 		ImGui::BulletText("Telemetry Quick Readout mirrors observer lapse and gravitational time dilation from the Telemetry & Invariants window.");
 		ImGui::BulletText("Spectrograph Quick Readout mirrors Doppler factor and exposure from the Radiative Transfer & Spectrograph Monitor.");
 		ImGui::BulletText("Diagnostics Quick Readout mirrors the active metric and integrator from the Curvature Diagnostics window.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Keybind Summary Panel Contents:");
+		ImGui::TextDisabled("Choose which bound actions appear in the floating Keybind Summary panel on the viewport. Actions with no assigned key are hidden automatically and cannot be enabled here.");
+
+		const auto& keybinds_ref = camera_controller_.config().keybinds;
+		for (uint32_t cat_idx = 0; cat_idx < static_cast<uint32_t>(InputActionCategory::InterfaceWindows) + 1; ++cat_idx) {
+			const auto category = static_cast<InputActionCategory>(cat_idx);
+			bool any_in_category = false;
+			for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+				const auto action = static_cast<InputAction>(i);
+				if (input_action_category(action) != category) continue;
+				const auto& b = keybinds_ref.get(action);
+				if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) continue;
+				any_in_category = true;
+				break;
+			}
+			if (!any_in_category) continue;
+
+			ImGui::PushID(static_cast<int>(cat_idx) + 9000);
+			if (ImGui::CollapsingHeader(std::string(input_action_category_name(category)).c_str())) {
+				for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+					const auto action = static_cast<InputAction>(i);
+					if (input_action_category(action) != category) continue;
+					const auto& b = keybinds_ref.get(action);
+					if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) continue;
+
+					std::string key_str = glfw_key_display_name(b.primary_key);
+					if (b.secondary_key != GLFW_KEY_UNKNOWN) {
+						key_str += "/";
+						key_str += glfw_key_display_name(b.secondary_key);
+					}
+					const std::string label = std::string(input_action_name(action)) + " (" + key_str + ")";
+					ImGui::Checkbox(label.c_str(), &hud_layout_.keybind_summary_visible[i]);
+				}
+			}
+			ImGui::PopID();
+		}
 	}
 };
 

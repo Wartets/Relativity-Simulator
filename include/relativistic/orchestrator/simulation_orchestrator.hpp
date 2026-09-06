@@ -239,7 +239,7 @@ public:
 				break;
 			case CommandType::SaveScenario:
 				if (cmd.text_payload[0] != '\0') {
-					save_scenario_file(cmd.text_payload, res);
+					save_scenario_file(cmd.text_payload, res, "Unknown", "");
 				}
 				break;
 			case CommandType::Status:
@@ -422,12 +422,17 @@ public:
 
 		nbody_system_.clear_bodies();
 		for (const auto& b : s.bodies) {
-			nbody_system_.add_body(Dynamics::PostNewtonianBody(
+			Dynamics::PostNewtonianBody body(
 				b.body_id, b.mass, b.radius,
 				{b.initial_position[1], b.initial_position[2], b.initial_position[3]},
 				{b.initial_velocity[1], b.initial_velocity[2], b.initial_velocity[3]},
-				{0.0, 0.0, b.spin}, 0.0, 0.0, 0.0, 0.0, b.radius
-			));
+				{0.0, 0.0, b.spin}, b.quadrupole_moment, b.j2, b.j3, b.j4,
+				(b.reference_radius > 0.0) ? b.reference_radius : b.radius
+			);
+			if (!b.name.empty() && b.name != "CelestialBody") {
+				body.set_name(b.name);
+			}
+			nbody_system_.add_body(body);
 		}
 		if (!s.bodies.empty()) {
 			nbody_system_.update_accelerations();
@@ -438,10 +443,12 @@ public:
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
 	}
 
-	void save_scenario_file(const char* filepath, CommandResult& res) noexcept {
+	void save_scenario_file(const char* filepath, CommandResult& res, std::string_view author = "Unknown", std::string_view created_at = "") noexcept {
 		IO::ScenarioDefinition s;
 		s.scenario_name = active_scenario_name_;
 		s.metric_type = active_metric_name_;
+		s.author = std::string(author);
+		s.created_at = std::string(created_at);
 		s.central_mass = params_.mass;
 		s.central_spin = params_.spin;
 		s.central_charge = params_.charge;
@@ -456,6 +463,24 @@ public:
 		obs.position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
 		obs.field_of_view_deg = camera_.fov_deg;
 		s.observers.push_back(obs);
+
+		for (const auto& body : nbody_system_.bodies()) {
+			IO::ScenarioBodyConfig bc;
+			bc.name = body.has_name() ? std::string(body.name_view()) : ("Body_" + std::to_string(body.id));
+			bc.body_id = body.id;
+			bc.mass = body.mass;
+			bc.radius = body.radius;
+			bc.spin = std::sqrt(body.spin[0] * body.spin[0] + body.spin[1] * body.spin[1] + body.spin[2] * body.spin[2]);
+			bc.charge = 0.0;
+			bc.initial_position = {0.0, body.position[0], body.position[1], body.position[2]};
+			bc.initial_velocity = {0.0, body.velocity[0], body.velocity[1], body.velocity[2]};
+			bc.quadrupole_moment = body.quadrupole_moment;
+			bc.j2 = body.j2;
+			bc.j3 = body.j3;
+			bc.j4 = body.j4;
+			bc.reference_radius = body.reference_radius;
+			s.bodies.push_back(bc);
+		}
 
 		const std::string yaml_str = IO::ScenarioSerializer::to_yaml(s);
 		std::ofstream out(filepath);

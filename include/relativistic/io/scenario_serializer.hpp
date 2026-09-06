@@ -22,6 +22,11 @@ struct ScenarioBodyConfig {
 	double charge{0.0};
 	std::array<double, 4> initial_position{0.0, 10.0, std::numbers::pi_v<double> / 2.0, 0.0};
 	std::array<double, 4> initial_velocity{1.0, 0.0, 0.0, 0.1};
+	double quadrupole_moment{0.0};
+	double j2{0.0};
+	double j3{0.0};
+	double j4{0.0};
+	double reference_radius{0.0};
 };
 
 struct ScenarioObserverConfig {
@@ -59,6 +64,8 @@ struct ScenarioDefinition {
 	uint32_t format_version{1};
 	std::string scenario_name{"RelativisticSimulation"};
 	std::string description{"Physical Spacetime Simulation Scenario"};
+	std::string author{"Unknown"};
+	std::string created_at{};
 	std::string metric_type{"Schwarzschild"};
 	double central_mass{1.0};
 	double central_spin{0.0};
@@ -83,6 +90,8 @@ public:
 		ss << "format_version: " << s.format_version << "\n";
 		ss << "scenario_name: \"" << s.scenario_name << "\"\n";
 		ss << "description: \"" << s.description << "\"\n";
+		ss << "author: \"" << s.author << "\"\n";
+		ss << "created_at: \"" << s.created_at << "\"\n";
 		ss << "spacetime:\n";
 		ss << "  metric_type: \"" << s.metric_type << "\"\n";
 		ss << "  central_mass: " << s.central_mass << "\n";
@@ -118,6 +127,11 @@ public:
 			ss << "    charge: " << b.charge << "\n";
 			ss << "    position: [" << b.initial_position[0] << ", " << b.initial_position[1] << ", " << b.initial_position[2] << ", " << b.initial_position[3] << "]\n";
 			ss << "    velocity: [" << b.initial_velocity[0] << ", " << b.initial_velocity[1] << ", " << b.initial_velocity[2] << ", " << b.initial_velocity[3] << "]\n";
+			ss << "    quadrupole: " << b.quadrupole_moment << "\n";
+			ss << "    j2: " << b.j2 << "\n";
+			ss << "    j3: " << b.j3 << "\n";
+			ss << "    j4: " << b.j4 << "\n";
+			ss << "    reference_radius: " << b.reference_radius << "\n";
 		}
 
 		ss << "observers:\n";
@@ -270,6 +284,11 @@ public:
 					else if (key == "charge") s.bodies.back().charge = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "position") s.bodies.back().initial_position = parse_vec4(val);
 					else if (key == "velocity") s.bodies.back().initial_velocity = parse_vec4(val);
+					else if (key == "quadrupole") s.bodies.back().quadrupole_moment = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "j2") s.bodies.back().j2 = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "j3") s.bodies.back().j3 = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "j4") s.bodies.back().j4 = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "reference_radius") s.bodies.back().reference_radius = std::strtod(std::string(val).c_str(), nullptr);
 				}
 				continue;
 			}
@@ -297,6 +316,8 @@ public:
 			if (key == "format_version") { s.format_version = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10)); continue; }
 			if (key == "scenario_name") s.scenario_name = unquote(val);
 			else if (key == "description") s.description = unquote(val);
+			else if (key == "author") s.author = unquote(val);
+			else if (key == "created_at") s.created_at = unquote(val);
 			else if (key == "metric_type") s.metric_type = unquote(val);
 			else if (key == "central_mass") s.central_mass = std::strtod(std::string(val).c_str(), nullptr);
 			else if (key == "central_spin") s.central_spin = std::strtod(std::string(val).c_str(), nullptr);

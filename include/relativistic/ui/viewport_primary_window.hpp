@@ -522,14 +522,22 @@ public:
 		ImGui::SetCursorPos(pos);
 		ImGui::BeginGroup();
 
+		const auto& toolbar_keybinds = camera_controller_.config().keybinds;
+		auto toolbar_key_hint = [&](InputAction action) noexcept -> std::string {
+			const auto& b = toolbar_keybinds.get(action);
+			return (b.primary_key != GLFW_KEY_UNKNOWN) ? glfw_key_display_name(b.primary_key) : std::string(glfw_key_display_name(b.secondary_key));
+		};
+
 		if (tb.play_pause) {
 			if (schematic_locked) ImGui::BeginDisabled(true);
 			if (orchestrator_.scheduler().is_paused()) {
-				if (ImGui::Button("Play (P)", ImVec2(75.0f, 24.0f))) {
+				const std::string label = "Play (" + toolbar_key_hint(InputAction::TogglePausePlay) + ")";
+				if (ImGui::Button(label.c_str(), ImVec2(75.0f, 24.0f))) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 				}
 			} else {
-				if (ImGui::Button("Pause (P)", ImVec2(75.0f, 24.0f))) {
+				const std::string label = "Pause (" + toolbar_key_hint(InputAction::TogglePausePlay) + ")";
+				if (ImGui::Button(label.c_str(), ImVec2(75.0f, 24.0f))) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
 				}
 			}
@@ -542,7 +550,8 @@ public:
 
 		if (tb.step) {
 			if (schematic_locked) ImGui::BeginDisabled(true);
-			if (ImGui::Button("Step (F6)", ImVec2(68.0f, 24.0f))) {
+			const std::string step_label = "Step (" + toolbar_key_hint(InputAction::SingleStepTick) + ")";
+			if (ImGui::Button(step_label.c_str(), ImVec2(68.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
 			}
 			if (schematic_locked) {
@@ -796,6 +805,9 @@ private:
 			const auto& kb = camera_controller_.config().keybinds;
 			auto bind_str = [&](InputAction action) noexcept -> std::string {
 				const auto& b = kb.get(action);
+				if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) {
+					return "---";
+				}
 				std::string s = glfw_key_display_name(b.primary_key);
 				if (b.secondary_key != GLFW_KEY_UNKNOWN) {
 					s += "/";
@@ -803,26 +815,24 @@ private:
 				}
 				return s;
 			};
-			auto action_line = [&](InputAction action, const char* label) noexcept -> HudTextLine {
-				const bool active = (window != nullptr) && kb.is_pressed(action, window);
-				const ImU32 col = active ? IM_COL32(255, 242, 51, 255) : IM_COL32(178, 191, 204, 204);
-				return HudTextLine{bind_str(action) + ": " + label, col};
-			};
 
 			std::vector<HudTextLine> nav_lines;
-			nav_lines.push_back(HudTextLine{"Navigation Controls:", IM_COL32(102, 204, 255, 255)});
-			nav_lines.push_back(action_line(InputAction::MoveForward, "Forward"));
-			nav_lines.push_back(action_line(InputAction::MoveBackward, "Backward"));
-			nav_lines.push_back(action_line(InputAction::MoveLeft, "Left"));
-			nav_lines.push_back(action_line(InputAction::MoveRight, "Right"));
-			nav_lines.push_back(action_line(InputAction::MoveUp, "Up"));
-			nav_lines.push_back(action_line(InputAction::MoveDown, "Down"));
-			nav_lines.push_back(action_line(InputAction::RollLeft, "Roll Left"));
-			nav_lines.push_back(action_line(InputAction::RollRight, "Roll Right"));
-			nav_lines.push_back(action_line(InputAction::Sprint, "Sprint"));
-			nav_lines.push_back(action_line(InputAction::ZoomModifier, "Hold + Scroll to Zoom"));
+			nav_lines.push_back(HudTextLine{"Keybind Summary:", IM_COL32(102, 204, 255, 255)});
+			for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+				const auto action = static_cast<InputAction>(i);
+				const auto& b = kb.get(action);
+				const bool bound = (b.primary_key != GLFW_KEY_UNKNOWN) || (b.secondary_key != GLFW_KEY_UNKNOWN);
+				if (!bound || !hud_layout_.keybind_summary_visible[i]) {
+					continue;
+				}
+				const bool active = (window != nullptr) && kb.is_pressed(action, window);
+				const ImU32 col = active ? IM_COL32(255, 242, 51, 255) : IM_COL32(178, 191, 204, 204);
+				nav_lines.push_back(HudTextLine{bind_str(action) + ": " + std::string(input_action_name(action)), col});
+			}
 
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::NavigationControlsPanel), nav_lines);
+			if (nav_lines.size() > 1) {
+				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::NavigationControlsPanel), nav_lines);
+			}
 		}
 	}
 };

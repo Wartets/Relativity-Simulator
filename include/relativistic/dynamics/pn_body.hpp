@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <algorithm>
+#include <string_view>
 
 namespace Relativistic::Dynamics {
 
@@ -21,6 +22,23 @@ struct alignas(64) PostNewtonianBody {
 	double j3{0.0};
 	double j4{0.0};
 	double reference_radius{0.0};
+	std::array<char, 32> name{};
+
+	void set_name(std::string_view new_name) noexcept {
+		const size_t len = std::min(new_name.size(), name.size() - 1);
+		for (size_t i = 0; i < len; ++i) {
+			name[i] = new_name[i];
+		}
+		name[len] = '\0';
+	}
+
+	[[nodiscard]] bool has_name() const noexcept {
+		return name[0] != '\0';
+	}
+
+	[[nodiscard]] std::string_view name_view() const noexcept {
+		return std::string_view(name.data());
+	}
 
 	constexpr PostNewtonianBody() noexcept = default;
 

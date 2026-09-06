@@ -378,6 +378,27 @@ private:
 		set(InputAction::CaptureScreenshot, GLFW_KEY_F12, GLFW_KEY_UNKNOWN);
 		set(InputAction::ToggleHudManager, GLFW_KEY_H, GLFW_KEY_UNKNOWN);
 		set(InputAction::ToggleKeybindSettings, GLFW_KEY_B, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleMetric, GLFW_KEY_M, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleIntegrator, GLFW_KEY_I, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleProjectionMode, GLFW_KEY_V, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleTonemapper, GLFW_KEY_T, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleSkyboxStyle, GLFW_KEY_G, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleGpuCompute, GLFW_KEY_U, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleSpaceSkipping, GLFW_KEY_N, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleLodSystem, GLFW_KEY_L, GLFW_KEY_UNKNOWN);
+		set(InputAction::IncreaseExposure, GLFW_KEY_EQUAL, GLFW_KEY_UNKNOWN);
+		set(InputAction::DecreaseExposure, GLFW_KEY_MINUS, GLFW_KEY_UNKNOWN);
+		set(InputAction::IncreaseTimeWarp, GLFW_KEY_PERIOD, GLFW_KEY_UNKNOWN);
+		set(InputAction::DecreaseTimeWarp, GLFW_KEY_COMMA, GLFW_KEY_UNKNOWN);
+		set(InputAction::QuickSaveScenario, GLFW_KEY_INSERT, GLFW_KEY_UNKNOWN);
+		set(InputAction::QuickLoadScenario, GLFW_KEY_DELETE, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleFullscreenViewport, GLFW_KEY_GRAVE_ACCENT, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleWorkDistributionTiling, GLFW_KEY_R, GLFW_KEY_UNKNOWN);
+		set(InputAction::CycleStepController, GLFW_KEY_0, GLFW_KEY_UNKNOWN);
+		set(InputAction::ResetToDefaultPerformance, GLFW_KEY_9, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleScenarioWindow, GLFW_KEY_O, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleDiagnosticsWindow, GLFW_KEY_Y, GLFW_KEY_UNKNOWN);
+		set(InputAction::ToggleSpectrographWindow, GLFW_KEY_X, GLFW_KEY_UNKNOWN);
 	}
 
 public:

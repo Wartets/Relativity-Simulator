@@ -154,7 +154,8 @@ private:
 		ImGui::SameLine(260.0f);
 		const bool prim_conflict = conflicts.primary_conflict[idx];
 		if (prim_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
-		if (ImGui::Button(glfw_key_display_name(binding.primary_key), ImVec2(100.0f, 0.0f))) {
+		const std::string primary_label = std::string(glfw_key_display_name(binding.primary_key)) + "##primary";
+		if (ImGui::Button(primary_label.c_str(), ImVec2(100.0f, 0.0f))) {
 			listening_action_ = static_cast<int>(idx);
 			listening_slot_ = 0;
 			conflict_message_.clear();
@@ -164,7 +165,8 @@ private:
 		ImGui::SameLine();
 		const bool sec_conflict = conflicts.secondary_conflict[idx];
 		if (sec_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
-		if (ImGui::Button(glfw_key_display_name(binding.secondary_key), ImVec2(100.0f, 0.0f))) {
+		const std::string secondary_label = std::string(glfw_key_display_name(binding.secondary_key)) + "##secondary";
+		if (ImGui::Button(secondary_label.c_str(), ImVec2(100.0f, 0.0f))) {
 			listening_action_ = static_cast<int>(idx);
 			listening_slot_ = 1;
 			conflict_message_.clear();

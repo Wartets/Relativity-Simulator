@@ -359,11 +359,11 @@ private:
 		set(InputAction::SpeedDecrease, GLFW_KEY_LEFT_BRACKET, GLFW_KEY_UNKNOWN);
 		set(InputAction::SpeedIncrease, GLFW_KEY_RIGHT_BRACKET, GLFW_KEY_UNKNOWN);
 		set(InputAction::ZoomModifier, azerty ? GLFW_KEY_W : GLFW_KEY_Z, GLFW_KEY_UNKNOWN);
-		set(InputAction::SnapEquatorialFront, GLFW_KEY_KP_1, GLFW_KEY_1);
-		set(InputAction::SnapEquatorialSide, GLFW_KEY_KP_3, GLFW_KEY_3);
-		set(InputAction::SnapNorthPole, GLFW_KEY_KP_7, GLFW_KEY_7);
-		set(InputAction::SnapSouthPole, GLFW_KEY_KP_9, GLFW_KEY_9);
-		set(InputAction::SnapIsco, GLFW_KEY_KP_5, GLFW_KEY_5);
+		set(InputAction::SnapEquatorialFront, GLFW_KEY_KP_1);
+		set(InputAction::SnapEquatorialSide, GLFW_KEY_KP_3);
+		set(InputAction::SnapNorthPole, GLFW_KEY_KP_7);
+		set(InputAction::SnapSouthPole, GLFW_KEY_KP_9);
+		set(InputAction::SnapIsco, GLFW_KEY_KP_5);
 		set(InputAction::TogglePausePlay, GLFW_KEY_F5, GLFW_KEY_P);
 		set(InputAction::SingleStepTick, GLFW_KEY_F6, GLFW_KEY_UNKNOWN);
 		set(InputAction::ResetClock, GLFW_KEY_F7, GLFW_KEY_UNKNOWN);

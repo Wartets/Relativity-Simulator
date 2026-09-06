@@ -11,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cfloat>
 
 namespace Relativistic::UI {
 
@@ -29,6 +30,9 @@ private:
 	InteractiveCameraController* camera_controller_{nullptr};
 	std::vector<ScenarioFileItem> presets_{};
 	int selected_index_{0};
+	char search_filter_[64]{};
+	int sort_mode_{0};
+	float left_pane_width_{300.0f};
 	char custom_path_buffer_[256]{"scenarios/custom_scenario.yaml"};
 
 public:
@@ -105,41 +109,70 @@ public:
 		if (!is_open_) return;
 
 		ImGui::SetNextWindowPos(ImVec2(15.0f, 35.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(315.0f, 660.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(360.0f, 660.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 260.0f), ImVec2(FLT_MAX, FLT_MAX));
 
 		if (ImGui::Begin("Scenario Manager & Presets", &is_open_)) {
 			ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Scientific Scenario Catalog");
 			ImGui::Separator();
 
-			static char search_filter[64] = "";
-			ImGui::InputTextWithHint("Search", "Filter scenarios by keyword...", search_filter, sizeof(search_filter));
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+			ImGui::InputTextWithHint("##ScenarioSearch", "Filter scenarios by keyword...", search_filter_, sizeof(search_filter_));
+			ImGui::SameLine();
+			const char* sort_options[] = {"Sort: Compatible First", "Sort: Alphabetical", "Sort: Metric Type", "Sort: Recently Scanned"};
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+			ImGui::Combo("##ScenarioSortMode", &sort_mode_, sort_options, IM_ARRAYSIZE(sort_options));
 
-			ImGui::Columns(2, "ScenarioColumns", true);
-			ImGui::SetColumnWidth(0, 300.0f);
-
-			for (int i = 0; i < static_cast<int>(presets_.size()); ++i) {
+			std::vector<size_t> visible_indices;
+			visible_indices.reserve(presets_.size());
+			for (size_t i = 0; i < presets_.size(); ++i) {
 				const auto& item = presets_[i];
-				if (search_filter[0] != '\0') {
-					if (item.definition.scenario_name.find(search_filter) == std::string::npos &&
-					    item.filename.find(search_filter) == std::string::npos &&
-					    item.definition.metric_type.find(search_filter) == std::string::npos) {
+				if (search_filter_[0] != '\0') {
+					if (item.definition.scenario_name.find(search_filter_) == std::string::npos &&
+					    item.filename.find(search_filter_) == std::string::npos &&
+					    item.definition.metric_type.find(search_filter_) == std::string::npos) {
 						continue;
 					}
 				}
+				visible_indices.push_back(i);
+			}
 
-				const bool is_selected = (selected_index_ == i);
+			if (sort_mode_ == 1) {
+				std::sort(visible_indices.begin(), visible_indices.end(), [&](size_t a, size_t b) {
+					const auto& na = presets_[a].definition.scenario_name.empty() ? presets_[a].filename : presets_[a].definition.scenario_name;
+					const auto& nb = presets_[b].definition.scenario_name.empty() ? presets_[b].filename : presets_[b].definition.scenario_name;
+					return na < nb;
+				});
+			} else if (sort_mode_ == 2) {
+				std::sort(visible_indices.begin(), visible_indices.end(), [&](size_t a, size_t b) {
+					if (presets_[a].definition.metric_type != presets_[b].definition.metric_type) {
+						return presets_[a].definition.metric_type < presets_[b].definition.metric_type;
+					}
+					return presets_[a].filename < presets_[b].filename;
+				});
+			} else if (sort_mode_ == 3) {
+				std::sort(visible_indices.begin(), visible_indices.end(), [](size_t a, size_t b) { return a < b; });
+			} else {
+				std::sort(visible_indices.begin(), visible_indices.end(), [&](size_t a, size_t b) {
+					if (presets_[a].is_compatible != presets_[b].is_compatible) return presets_[a].is_compatible && !presets_[b].is_compatible;
+					return presets_[a].filename < presets_[b].filename;
+				});
+			}
+
+			const float total_width = ImGui::GetContentRegionAvail().x;
+			left_pane_width_ = std::clamp(left_pane_width_, 160.0f, std::max(180.0f, total_width - 160.0f));
+
+			ImGui::BeginChild("ScenarioListPane", ImVec2(left_pane_width_, ImGui::GetContentRegionAvail().y - 40.0f), true);
+			for (const size_t idx : visible_indices) {
+				const auto& item = presets_[idx];
+				const bool is_selected = (selected_index_ == static_cast<int>(idx));
 				const std::string label = item.is_compatible
 					? (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name)
 					: ("[Incompatible] " + item.filename);
 
-				if (!item.is_compatible) {
-					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
-				} else {
-					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 1.0f, 0.5f, 1.0f));
-				}
-
+				ImGui::PushStyleColor(ImGuiCol_Text, item.is_compatible ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
 				if (ImGui::Selectable(label.c_str(), is_selected)) {
-					selected_index_ = i;
+					selected_index_ = static_cast<int>(idx);
 				}
 				ImGui::PopStyleColor();
 
@@ -154,11 +187,24 @@ public:
 					ImGui::EndTooltip();
 				}
 			}
+			if (visible_indices.empty()) {
+				ImGui::TextDisabled("No scenarios match the current filter.");
+			}
+			ImGui::EndChild();
 
-			ImGui::NextColumn();
+			ImGui::SameLine();
+			ImGui::InvisibleButton("ScenarioSplitter", ImVec2(6.0f, ImGui::GetContentRegionAvail().y - 40.0f));
+			if (ImGui::IsItemActive()) {
+				left_pane_width_ += ImGui::GetIO().MouseDelta.x;
+			}
+			if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+			}
+			ImGui::SameLine();
 
+			ImGui::BeginChild("ScenarioDetailPane", ImVec2(0.0f, ImGui::GetContentRegionAvail().y - 40.0f), true);
 			if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size())) {
-				const auto& item = presets_[selected_index_];
+				const auto& item = presets_[static_cast<size_t>(selected_index_)];
 				const auto& def = item.definition;
 
 				if (item.is_compatible) {
@@ -195,9 +241,11 @@ public:
 					ImGui::Button("Cannot Load (Incompatible)", ImVec2(240.0f, 32.0f));
 					ImGui::EndDisabled();
 				}
+			} else {
+				ImGui::TextDisabled("Select a scenario from the list to inspect its details.");
 			}
+			ImGui::EndChild();
 
-			ImGui::Columns(1);
 			ImGui::Spacing();
 			ImGui::Separator();
 

@@ -87,7 +87,8 @@ enum class ParameterType : uint32_t {
 	StepControllerMode = 44,
 	SpaceSkippingEnabled = 45,
 	SpaceSkipRadiusScale = 46,
-	SchematicModeEnabled = 47
+	SchematicModeEnabled = 47,
+	SchematicAllowSimulation = 48
 };
 
 struct Command {

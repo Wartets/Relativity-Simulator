@@ -188,12 +188,6 @@ public:
 			}
 			render_setting_tooltip("Force full OpenGL texture memory reallocation each frame instead of in-place sub-image updates.");
 
-			int rolling_count = static_cast<int>(orchestrator_.parameters().rolling_average_frame_count);
-			if (ImGui::SliderInt("HUD Rolling Frame Count (N)", &rolling_count, 2, 60)) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RollingAverageFrameCount, static_cast<double>(rolling_count))));
-			}
-			render_setting_tooltip("Number of historical frame times used to calculate the smoothed rolling average FPS on the HUD overlay.");
-
 			if (ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("dyn_res", enable_dynamic_resolution_ ? 1.0 : 0.0)));
 				}

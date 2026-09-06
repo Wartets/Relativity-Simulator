@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 namespace Relativistic::UI {
 
@@ -125,6 +126,12 @@ struct SchematicViewConfig {
 
 	SchematicObjectDisplayConfig central_object_style{};
 	SchematicObjectDisplayConfig body_style{};
+	std::unordered_map<uint32_t, SchematicObjectDisplayConfig> body_style_overrides{};
+
+	[[nodiscard]] const SchematicObjectDisplayConfig& effective_body_style(uint32_t body_id) const noexcept {
+		const auto it = body_style_overrides.find(body_id);
+		return (it != body_style_overrides.end()) ? it->second : body_style;
+	}
 
 	std::array<SchematicVectorStyle, SCHEMATIC_VECTOR_KIND_COUNT> vectors{
 		SchematicVectorStyle{},

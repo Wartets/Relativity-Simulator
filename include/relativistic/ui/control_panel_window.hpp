@@ -9,6 +9,9 @@
 #include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
+#include <string_view>
+#include <vector>
+#include <cctype>
 #include <array>
 #include <cmath>
 #include <numbers>
@@ -322,13 +325,6 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
 		}
 		render_setting_tooltip("Logarithmic optical sensitivity compensation in Exposure Values (EV). Higher values brighten dim accretion emission.");
-
-		ImGui::Separator();
-		bool schematic_mode = orchestrator_.parameters().schematic_mode_enabled;
-		if (ImGui::Checkbox("Schematic Orbital View (No Lensing)", &schematic_mode)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicModeEnabled, schematic_mode ? 1.0 : 0.0)));
-		}
-		render_setting_tooltip("Replaces gravitational ray tracing with a simplified projection showing every body as a plain sphere against a coordinate grid backdrop, with orientation arrows for spin axes. Simulation time is frozen while this view is active.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
@@ -698,9 +694,15 @@ private:
 
 	void render_execution_tab() noexcept {
 		const auto snap = orchestrator_.scheduler().snapshot();
+		const auto& params = orchestrator_.parameters();
+		const bool schematic_locked = params.schematic_mode_enabled && !params.schematic_allow_simulation;
 
 		ImGui::Text("Simulation Cycle: #%llu", static_cast<unsigned long long>(snap.tick_index));
 		ImGui::Text("Logical Time:     %.4f s", snap.logical_time);
+
+		if (schematic_locked) {
+			ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Simulation clock is frozen: Schematic Orbital View is active and 'Allow Simulation Clock To Run In Schematic View' is disabled.");
+		}
 
 		float warp = static_cast<float>(snap.warp_factor);
 		if (ImGui::SliderFloat("Warp Factor", &warp, 0.1f, 100.0f, "%.2fx")) {
@@ -715,6 +717,8 @@ private:
 		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");
 
 		ImGui::Separator();
+
+		if (schematic_locked) ImGui::BeginDisabled(true);
 
 		if (snap.is_paused) {
 			if (ImGui::Button("Resume (F5)", ImVec2(110.0f, 28.0f))) {
@@ -734,6 +738,11 @@ private:
 		ImGui::SameLine();
 		if (ImGui::Button("Reset Clock", ImVec2(110.0f, 28.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
+		}
+
+		if (schematic_locked) {
+			ImGui::EndDisabled();
+			render_setting_tooltip_warning("Simulation clock controls.", "Disabled while Schematic Orbital View is active. Enable 'Allow Simulation Clock To Run In Schematic View' in the Schematic View tab to unlock.");
 		}
 	}
 
@@ -850,6 +859,19 @@ private:
 		ImGui::TextDisabled("Controls the simplified non-lensed projection view used when Schematic Mode is active.");
 		ImGui::Separator();
 
+		bool schematic_mode = orchestrator_.parameters().schematic_mode_enabled;
+		if (ImGui::Checkbox("Enable Schematic Orbital View (No Lensing)", &schematic_mode)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicModeEnabled, schematic_mode ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Replaces gravitational ray tracing with a simplified projection showing every body as a plain sphere against a coordinate grid backdrop, with orientation arrows for spin axes.");
+
+		bool allow_sim_in_schematic = orchestrator_.parameters().schematic_allow_simulation;
+		if (ImGui::Checkbox("Allow Simulation Clock To Run In Schematic View", &allow_sim_in_schematic)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicAllowSimulation, allow_sim_in_schematic ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Disabled by default. When left unchecked, entering Schematic View freezes the simulation clock and disables Play, Step, and Reset controls, since the simplified projection is intended as a static structural overview rather than a live playback mode. Enable this to keep bodies orbiting and the clock advancing while viewing the schematic projection.");
+
+		ImGui::Separator();
 		ImGui::Checkbox("Respect Active Camera Projection Mode", &schematic_cfg_.respect_active_projection_mode);
 		render_setting_tooltip("When enabled, the schematic view reprojects geometry using the same projection (Pinhole, Fisheye, Equirectangular, etc.) selected in Optics & Camera. When disabled, a standard pinhole projection is always used.");
 
@@ -932,24 +954,201 @@ private:
 		render_schematic_vector_style("Total Force Vector", schematic_cfg_.vector_style(SchematicVectorKind::TotalForce));
 		render_schematic_vector_style("Spin Vector", schematic_cfg_.vector_style(SchematicVectorKind::Spin));
 		render_schematic_vector_style("Rotation Axis Vector (Surface)", schematic_cfg_.vector_style(SchematicVectorKind::RotationAxis));
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Per-Body Appearance Overrides:");
+		ImGui::TextDisabled("Assign a distinct display style to any individual body currently present in the N-Body system, overriding the shared 'Orbiting Bodies Appearance' style above for that body only.");
+
+		auto& sys = orchestrator_.nbody_system();
+		const auto bodies = sys.bodies();
+
+		static int override_target_body_id = -1;
+		std::vector<uint32_t> body_ids;
+		body_ids.reserve(bodies.size());
+		for (const auto& b : bodies) body_ids.push_back(b.id);
+
+		if (body_ids.empty()) {
+			ImGui::TextDisabled("No bodies present in the N-Body system. Add bodies from the Celestial Body & N-Body Manager to enable per-body overrides.");
+		} else {
+			std::vector<std::string> combo_labels;
+			combo_labels.reserve(body_ids.size());
+			for (const uint32_t id : body_ids) {
+				const bool has_override = schematic_cfg_.body_style_overrides.contains(id);
+				combo_labels.push_back("#" + std::to_string(id) + (has_override ? " (overridden)" : ""));
+			}
+
+			int selected_idx = 0;
+			for (size_t i = 0; i < body_ids.size(); ++i) {
+				if (static_cast<int>(body_ids[i]) == override_target_body_id) {
+					selected_idx = static_cast<int>(i);
+					break;
+				}
+			}
+
+			std::vector<const char*> label_ptrs;
+			label_ptrs.reserve(combo_labels.size());
+			for (const auto& s : combo_labels) label_ptrs.push_back(s.c_str());
+
+			if (ImGui::Combo("Target Body", &selected_idx, label_ptrs.data(), static_cast<int>(label_ptrs.size()))) {
+				override_target_body_id = static_cast<int>(body_ids[static_cast<size_t>(selected_idx)]);
+			}
+			if (override_target_body_id < 0 && !body_ids.empty()) {
+				override_target_body_id = static_cast<int>(body_ids.front());
+			}
+
+			const uint32_t target_id = static_cast<uint32_t>(override_target_body_id);
+			const bool has_override = schematic_cfg_.body_style_overrides.contains(target_id);
+
+			if (!has_override) {
+				if (ImGui::Button("Create Override For This Body", ImVec2(240.0f, 26.0f))) {
+					schematic_cfg_.body_style_overrides[target_id] = schematic_cfg_.body_style;
+				}
+			} else {
+				if (ImGui::Button("Remove Override (Use Shared Style)", ImVec2(260.0f, 26.0f))) {
+					schematic_cfg_.body_style_overrides.erase(target_id);
+				}
+				ImGui::Spacing();
+				render_schematic_object_style(("Override Style For Body #" + std::to_string(target_id)).c_str(), schematic_cfg_.body_style_overrides[target_id]);
+			}
+		}
 	}
 
 	void render_hud_tab() noexcept {
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Heads-Up Display Manager");
-		ImGui::TextDisabled("Enable, position, resize, recolor, and style every individual HUD element from the dedicated HUD Manager window.");
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Heads-Up Display Configuration");
+		ImGui::TextDisabled("Enable, position, resize, recolor, and style every individual HUD element directly from this tab.");
 		ImGui::Separator();
 
 		ImGui::Checkbox("Master HUD Visibility", &hud_layout_.master_enabled);
-		render_setting_tooltip("Master switch for the telemetry and navigation overlay elements. The toolbar and loading indicator each have their own independent toggle in the HUD Manager.");
+		render_setting_tooltip("Master switch for every overlay element, including the viewport toolbar and loading indicator. Disabling this hides the entire HUD.");
 
-		ImGui::Spacing();
-		if (ImGui::Button("Open HUD Manager", ImVec2(200.0f, 28.0f))) {
-			hud_manager_open_ = true;
-		}
 		ImGui::SameLine();
-		if (ImGui::Button("Restore All HUD Defaults", ImVec2(200.0f, 28.0f))) {
+		if (ImGui::Button("Restore All HUD Defaults", ImVec2(200.0f, 24.0f))) {
 			hud_layout_ = HudLayoutConfig{};
 		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Global Refresh & Averaging Settings:");
+
+		int rolling_count = static_cast<int>(orchestrator_.parameters().rolling_average_frame_count);
+		if (ImGui::SliderInt("Frame Time Rolling Average Window (N)", &rolling_count, 2, 120)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RollingAverageFrameCount, static_cast<double>(rolling_count))));
+		}
+		render_setting_tooltip("Number of historical frame times averaged into the HUD frame-time and FPS readouts. Larger windows produce smoother, slower-reacting numbers.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Viewport Toolbar Buttons:");
+		auto& tb = hud_layout_.toolbar_buttons;
+		ImGui::Checkbox("Play / Pause Button", &tb.play_pause);
+		ImGui::SameLine();
+		ImGui::Checkbox("Step Button", &tb.step);
+		ImGui::SameLine();
+		ImGui::Checkbox("Reset View Button", &tb.reset_view);
+		ImGui::Checkbox("Look-At Target Combo + Button", &tb.look_at_target_combo);
+		ImGui::SameLine();
+		ImGui::Checkbox("Jump-To-Target Button", &tb.jump_to_target);
+		ImGui::Checkbox("Camera Mode Combo", &tb.camera_mode_combo);
+		ImGui::SameLine();
+		ImGui::Checkbox("HUD Master Toggle Checkbox", &tb.hud_master_toggle);
+		render_setting_tooltip("Individually enable or disable each control exposed in the floating viewport toolbar without affecting the rest of the HUD.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Individual HUD Elements:");
+
+		static char hud_search[64] = "";
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputTextWithHint("##HudSearch", "Search HUD elements...", hud_search, sizeof(hud_search));
+		ImGui::SameLine();
+		static int hud_sort_mode = 0;
+		const char* hud_sort_options[] = {"Sort: Default Order", "Sort: Alphabetical", "Sort: Enabled First"};
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::Combo("##HudSortMode", &hud_sort_mode, hud_sort_options, IM_ARRAYSIZE(hud_sort_options));
+		ImGui::SameLine();
+		static bool hud_show_disabled_only = false;
+		ImGui::Checkbox("Disabled Only", &hud_show_disabled_only);
+
+		std::vector<HudElementId> visible_elements;
+		visible_elements.reserve(static_cast<size_t>(HudElementId::Count));
+		const std::string_view search_view(hud_search);
+		auto to_lower = [](std::string s) {
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return s;
+		};
+		const std::string needle = to_lower(std::string(search_view));
+
+		for (size_t i = 0; i < static_cast<size_t>(HudElementId::Count); ++i) {
+			const auto id = static_cast<HudElementId>(i);
+			if (!needle.empty()) {
+				const std::string haystack = to_lower(std::string(hud_element_name(id)));
+				if (haystack.find(needle) == std::string::npos) continue;
+			}
+			if (hud_show_disabled_only && hud_layout_.element(id).enabled) continue;
+			visible_elements.push_back(id);
+		}
+
+		if (hud_sort_mode == 1) {
+			std::sort(visible_elements.begin(), visible_elements.end(), [](HudElementId a, HudElementId b) {
+				return std::string_view(hud_element_name(a)) < std::string_view(hud_element_name(b));
+			});
+		} else if (hud_sort_mode == 2) {
+			std::sort(visible_elements.begin(), visible_elements.end(), [&](HudElementId a, HudElementId b) {
+				const bool ea = hud_layout_.element(a).enabled;
+				const bool eb = hud_layout_.element(b).enabled;
+				if (ea != eb) return ea && !eb;
+				return std::string_view(hud_element_name(a)) < std::string_view(hud_element_name(b));
+			});
+		}
+
+		if (visible_elements.empty()) {
+			ImGui::TextDisabled("No HUD elements match the current search and filter.");
+		}
+
+		const char* anchor_names[] = {"Top Left", "Top Right", "Bottom Left", "Bottom Right", "Top Center", "Bottom Center"};
+		const char* display_mode_names[] = {"Compact", "Standard", "Extended"};
+
+		for (const auto id : visible_elements) {
+			auto& elem = hud_layout_.element(id);
+			ImGui::PushID(static_cast<int>(id));
+			std::string header_label = hud_element_name(id);
+			if (!elem.enabled) header_label += " (disabled)";
+			if (ImGui::CollapsingHeader(header_label.c_str())) {
+				ImGui::Checkbox("Enabled", &elem.enabled);
+
+				int anchor_idx = static_cast<int>(elem.anchor);
+				if (ImGui::Combo("Anchor Corner", &anchor_idx, anchor_names, IM_ARRAYSIZE(anchor_names))) {
+					elem.anchor = static_cast<HudAnchor>(anchor_idx);
+				}
+
+				ImGui::DragFloat("Offset X", &elem.offset_x, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				ImGui::DragFloat("Offset Y", &elem.offset_y, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				ImGui::SliderFloat("Text Scale", &elem.scale, 0.5f, 3.0f, "%.2fx");
+				ImGui::ColorEdit4("Text Color", elem.text_color.data());
+				ImGui::Checkbox("Show Background Panel", &elem.show_background);
+				if (elem.show_background) {
+					ImGui::SliderFloat("Background Opacity", &elem.background_opacity, 0.0f, 1.0f, "%.2f");
+				}
+
+				int display_mode_idx = static_cast<int>(elem.display_mode);
+				if (ImGui::Combo("Display Format", &display_mode_idx, display_mode_names, IM_ARRAYSIZE(display_mode_names))) {
+					elem.display_mode = static_cast<HudDisplayMode>(display_mode_idx);
+				}
+				render_setting_tooltip("Compact shows the minimal essential value, Standard shows the default readout, Extended shows the full breakdown with additional derived figures where supported by this element.");
+
+				ImGui::Checkbox("Show Descriptive Label", &elem.show_label);
+				ImGui::Checkbox("Lay Out Lines Horizontally", &elem.horizontal_layout);
+				render_setting_tooltip("Only applies to multi-line panels such as Navigation Controls; arranges entries side by side instead of stacked vertically.");
+
+				ImGui::InputInt("Draw Priority", &elem.draw_priority);
+				render_setting_tooltip("Higher values are considered more important when multiple elements are sorted together; purely informational bookkeeping for your own layout planning.");
+			}
+			ImGui::PopID();
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "Linked Widget Readouts:");
+		ImGui::TextDisabled("These HUD elements mirror a summary of live data from their corresponding analysis windows directly onto the viewport, without needing to open those windows.");
+		ImGui::BulletText("Telemetry Quick Readout mirrors observer lapse and gravitational time dilation from the Telemetry & Invariants window.");
+		ImGui::BulletText("Spectrograph Quick Readout mirrors Doppler factor and exposure from the Radiative Transfer & Spectrograph Monitor.");
+		ImGui::BulletText("Diagnostics Quick Readout mirrors the active metric and integrator from the Curvature Diagnostics window.");
 	}
 };
 

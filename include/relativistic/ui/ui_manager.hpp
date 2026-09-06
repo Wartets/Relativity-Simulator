@@ -246,10 +246,6 @@ public:
 			keybind_window_.render(main_window_);
 		}
 
-		if (hud_manager_window_.open_state()) {
-			hud_manager_window_.render();
-		}
-
 		for (auto& view : secondary_views_) {
 			view.render();
 		}
@@ -348,7 +344,7 @@ private:
 			trigger_screenshot_capture();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleHudManager, main_window_)) {
-			hud_manager_window_.open_state() = !hud_manager_window_.open_state();
+			user_settings_.hud_layout.master_enabled = !user_settings_.hud_layout.master_enabled;
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleKeybindSettings, main_window_)) {
 			keybind_window_.open_state() = !keybind_window_.open_state();
@@ -594,7 +590,6 @@ private:
 				ImGui::MenuItem("Spectrograph Monitor", nullptr, &spectrograph_window_.open_state());
 				ImGui::Separator();
 				ImGui::MenuItem("Keybind Settings", "B", &keybind_window_.open_state());
-				ImGui::MenuItem("HUD Manager", "H", &hud_manager_window_.open_state());
 				ImGui::EndMenu();
 			}
 

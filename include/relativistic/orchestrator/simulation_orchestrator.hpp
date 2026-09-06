@@ -71,6 +71,7 @@ struct PhysicalParameters {
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{25.0};
 	bool schematic_mode_enabled{false};
+	bool schematic_allow_simulation{false};
 };
 
 struct CustomParameterEntry {
@@ -616,6 +617,9 @@ public:
 				break;
 			case ParameterType::SchematicModeEnabled:
 				params_.schematic_mode_enabled = (val > 0.5);
+				break;
+			case ParameterType::SchematicAllowSimulation:
+				params_.schematic_allow_simulation = (val > 0.5);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

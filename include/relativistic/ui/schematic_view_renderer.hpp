@@ -500,7 +500,7 @@ private:
 	}
 
 	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val) const {
-		const auto& style = cfg.body_style;
+		const auto& style = cfg.effective_body_style(body.id);
 		const auto proj = project(body.position);
 
 		if (!proj.visible) {

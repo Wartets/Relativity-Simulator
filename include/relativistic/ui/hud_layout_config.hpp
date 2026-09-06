@@ -16,6 +16,12 @@ enum class HudAnchor : uint32_t {
 	BottomCenter = 5
 };
 
+enum class HudDisplayMode : uint32_t {
+	Compact = 0,
+	Standard = 1,
+	Extended = 2
+};
+
 enum class HudElementId : uint32_t {
 	FrameTimeReadout = 0,
 	CameraDistanceReadout,
@@ -29,6 +35,9 @@ enum class HudElementId : uint32_t {
 	SimulationClockReadout,
 	WarpFactorReadout,
 	PerformancePresetReadout,
+	TelemetryQuickReadout,
+	SpectrographQuickReadout,
+	DiagnosticsQuickReadout,
 	Count
 };
 
@@ -46,6 +55,9 @@ enum class HudElementId : uint32_t {
 		case HudElementId::SimulationClockReadout: return "Simulation Clock";
 		case HudElementId::WarpFactorReadout: return "Warp Factor";
 		case HudElementId::PerformancePresetReadout: return "Performance Preset";
+		case HudElementId::TelemetryQuickReadout: return "Telemetry Quick Readout";
+		case HudElementId::SpectrographQuickReadout: return "Spectrograph Quick Readout";
+		case HudElementId::DiagnosticsQuickReadout: return "Diagnostics Quick Readout";
 		default: return "Unknown Element";
 	}
 }
@@ -59,11 +71,26 @@ struct HudElementStyle {
 	std::array<float, 4> text_color{0.9f, 0.9f, 0.9f, 1.0f};
 	bool show_background{false};
 	float background_opacity{0.55f};
+	HudDisplayMode display_mode{HudDisplayMode::Standard};
+	bool show_label{true};
+	bool horizontal_layout{false};
+	int draw_priority{0};
+};
+
+struct ToolbarButtonVisibility {
+	bool play_pause{true};
+	bool step{true};
+	bool reset_view{true};
+	bool look_at_target_combo{true};
+	bool jump_to_target{true};
+	bool camera_mode_combo{true};
+	bool hud_master_toggle{true};
 };
 
 struct HudLayoutConfig {
 	bool master_enabled{true};
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
+	ToolbarButtonVisibility toolbar_buttons{};
 
 	HudLayoutConfig() noexcept {
 		element(HudElementId::FrameTimeReadout).offset_x = 16.0f;
@@ -116,6 +143,24 @@ struct HudLayoutConfig {
 		preset.anchor = HudAnchor::BottomLeft;
 		preset.offset_x = 16.0f;
 		preset.offset_y = 60.0f;
+
+		auto& telemetry_ro = element(HudElementId::TelemetryQuickReadout);
+		telemetry_ro.enabled = false;
+		telemetry_ro.anchor = HudAnchor::BottomLeft;
+		telemetry_ro.offset_x = 16.0f;
+		telemetry_ro.offset_y = 82.0f;
+
+		auto& spectro_ro = element(HudElementId::SpectrographQuickReadout);
+		spectro_ro.enabled = false;
+		spectro_ro.anchor = HudAnchor::BottomLeft;
+		spectro_ro.offset_x = 16.0f;
+		spectro_ro.offset_y = 104.0f;
+
+		auto& diag_ro = element(HudElementId::DiagnosticsQuickReadout);
+		diag_ro.enabled = false;
+		diag_ro.anchor = HudAnchor::BottomLeft;
+		diag_ro.offset_x = 16.0f;
+		diag_ro.offset_y = 126.0f;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

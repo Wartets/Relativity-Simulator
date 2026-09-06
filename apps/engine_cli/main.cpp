@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 			orchestrator->scheduler().add_real_time_nanoseconds(elapsed_ns);
 			orchestrator->process_incoming_commands();
 
-			if (!orchestrator->parameters().schematic_mode_enabled) {
+			if (!orchestrator->parameters().schematic_mode_enabled || orchestrator->parameters().schematic_allow_simulation) {
 				while (orchestrator->scheduler().can_advance_tick()) {
 					orchestrator->scheduler().advance_tick();
 				}

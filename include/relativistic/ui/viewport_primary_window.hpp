@@ -6,6 +6,8 @@
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/input_actions.hpp"
 #include "relativistic/ui/schematic_view_renderer.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/metrics/kerr.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -99,13 +101,27 @@ private:
 		if (!style.enabled || lines.empty()) return;
 
 		const float font_size = ImGui::GetFontSize() * style.scale;
+		const float line_height = font_size + 3.0f;
+		constexpr float horizontal_gap = 18.0f;
+
+		std::vector<ImVec2> line_sizes;
+		line_sizes.reserve(lines.size());
 		float max_width = 0.0f;
+		float total_width = 0.0f;
 		for (const auto& line : lines) {
 			const ImVec2 sz = ImGui::CalcTextSize(line.text.c_str());
-			max_width = std::max(max_width, sz.x * style.scale);
+			const ImVec2 scaled(sz.x * style.scale, sz.y * style.scale);
+			line_sizes.push_back(scaled);
+			max_width = std::max(max_width, scaled.x);
+			total_width += scaled.x;
 		}
-		const float line_height = font_size + 3.0f;
-		const ImVec2 block_size(max_width, line_height * static_cast<float>(lines.size()));
+		if (style.horizontal_layout && lines.size() > 1) {
+			total_width += horizontal_gap * static_cast<float>(lines.size() - 1);
+		}
+
+		const ImVec2 block_size = style.horizontal_layout
+			? ImVec2(total_width, line_height)
+			: ImVec2(max_width, line_height * static_cast<float>(lines.size()));
 		const ImVec2 local_pos = hud_anchor_resolve(style.anchor, avail, block_size, style.offset_x, style.offset_y);
 		const ImVec2 screen_pos(window_pos.x + local_pos.x, window_pos.y + local_pos.y);
 
@@ -118,12 +134,19 @@ private:
 			);
 		}
 
+		float cursor_x = screen_pos.x;
 		for (size_t i = 0; i < lines.size(); ++i) {
 			const ImU32 col = (lines[i].color != 0)
 				? lines[i].color
 				: ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
-			const ImVec2 line_pos(screen_pos.x, screen_pos.y + line_height * static_cast<float>(i));
-			draw_list->AddText(nullptr, font_size, line_pos, col, lines[i].text.c_str());
+			if (style.horizontal_layout) {
+				const ImVec2 line_pos(cursor_x, screen_pos.y);
+				draw_list->AddText(nullptr, font_size, line_pos, col, lines[i].text.c_str());
+				cursor_x += line_sizes[i].x + horizontal_gap;
+			} else {
+				const ImVec2 line_pos(screen_pos.x, screen_pos.y + line_height * static_cast<float>(i));
+				draw_list->AddText(nullptr, font_size, line_pos, col, lines[i].text.c_str());
+			}
 		}
 	}
 
@@ -488,35 +511,55 @@ public:
 
 	void render_viewport_toolbar(const ImVec2& avail) noexcept {
 		const auto& style = hud_layout_.element(HudElementId::ViewportToolbar);
-		if (!style.enabled) return;
+		if (!style.enabled || !hud_layout_.master_enabled) return;
+
+		const auto& tb = hud_layout_.toolbar_buttons;
+		const auto& params = orchestrator_.parameters();
+		const bool schematic_locked = params.schematic_mode_enabled && !params.schematic_allow_simulation;
 
 		const ImVec2 estimated_size(900.0f, 34.0f);
 		const ImVec2 pos = hud_anchor_resolve(style.anchor, avail, estimated_size, style.offset_x, style.offset_y);
 		ImGui::SetCursorPos(pos);
 		ImGui::BeginGroup();
-		
-		if (orchestrator_.scheduler().is_paused()) {
-			if (ImGui::Button("Play (P)", ImVec2(75.0f, 24.0f))) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
+
+		if (tb.play_pause) {
+			if (schematic_locked) ImGui::BeginDisabled(true);
+			if (orchestrator_.scheduler().is_paused()) {
+				if (ImGui::Button("Play (P)", ImVec2(75.0f, 24.0f))) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
+				}
+			} else {
+				if (ImGui::Button("Pause (P)", ImVec2(75.0f, 24.0f))) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
+				}
 			}
-		} else {
-			if (ImGui::Button("Pause (P)", ImVec2(75.0f, 24.0f))) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
+			if (schematic_locked) {
+				ImGui::EndDisabled();
+				render_setting_tooltip_warning("Simulation playback controls.", "Disabled while Schematic Orbital View is active. Enable 'Allow Simulation Clock To Run In Schematic View' in the Schematic View tab to unlock.");
 			}
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
-		if (ImGui::Button("Step (F6)", ImVec2(68.0f, 24.0f))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
+		if (tb.step) {
+			if (schematic_locked) ImGui::BeginDisabled(true);
+			if (ImGui::Button("Step (F6)", ImVec2(68.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
+			}
+			if (schematic_locked) {
+				ImGui::EndDisabled();
+				render_setting_tooltip_warning("Advance the simulation by one tick.", "Disabled while Schematic Orbital View is active. Enable 'Allow Simulation Clock To Run In Schematic View' in the Schematic View tab to unlock.");
+			}
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
-		if (ImGui::Button("Reset View", ImVec2(78.0f, 24.0f))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
-			camera_controller_.snap_to_equatorial_front(33.24);
+		if (tb.reset_view) {
+			if (ImGui::Button("Reset View", ImVec2(78.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
+				camera_controller_.snap_to_equatorial_front(33.24);
+			}
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
 		const auto dynamic_targets = build_dynamic_look_at_targets();
 		static int selected_target_idx = 0;
 		if (selected_target_idx >= static_cast<int>(dynamic_targets.size())) {
@@ -529,34 +572,44 @@ public:
 			target_labels.push_back(t.label.c_str());
 		}
 
-		ImGui::SetNextItemWidth(210.0f);
-		ImGui::Combo("##AimTargetCombo", &selected_target_idx, target_labels.data(), static_cast<int>(target_labels.size()));
-
-		ImGui::SameLine();
-		if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
-			camera_controller_.look_at_target(dynamic_targets[selected_target_idx].position);
+		if (tb.look_at_target_combo || tb.jump_to_target) {
+			ImGui::SetNextItemWidth(210.0f);
+			ImGui::Combo("##AimTargetCombo", &selected_target_idx, target_labels.data(), static_cast<int>(target_labels.size()));
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
-		if (ImGui::Button("Jump to Target", ImVec2(100.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
-			const auto& tgt = dynamic_targets[selected_target_idx];
-			camera_controller_.look_at_target(tgt.position);
-			auto& c = orchestrator_.camera();
-			c.position = {tgt.position[0], tgt.position[1] + tgt.recommended_distance, tgt.position[2]};
-			c.orbit_distance = tgt.recommended_distance;
-			c.radius = tgt.recommended_distance;
+		if (tb.look_at_target_combo) {
+			if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
+				camera_controller_.look_at_target(dynamic_targets[selected_target_idx].position);
+			}
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
-		const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket"};
-		int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
-		ImGui::SetNextItemWidth(95.0f);
-		if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
+		if (tb.jump_to_target) {
+			if (ImGui::Button("Jump to Target", ImVec2(100.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
+				const auto& tgt = dynamic_targets[selected_target_idx];
+				camera_controller_.look_at_target(tgt.position);
+				auto& c = orchestrator_.camera();
+				c.position = {tgt.position[0], tgt.position[1] + tgt.recommended_distance, tgt.position[2]};
+				c.orbit_distance = tgt.recommended_distance;
+				c.radius = tgt.recommended_distance;
+			}
+			ImGui::SameLine();
 		}
 
-		ImGui::SameLine();
-		ImGui::Checkbox("HUD", &hud_layout_.master_enabled);
+		if (tb.camera_mode_combo) {
+			const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket"};
+			int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
+			ImGui::SetNextItemWidth(95.0f);
+			if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
+			}
+			ImGui::SameLine();
+		}
+
+		if (tb.hud_master_toggle) {
+			ImGui::Checkbox("HUD", &hud_layout_.master_enabled);
+		}
 
 		ImGui::EndGroup();
 	}
@@ -647,13 +700,25 @@ private:
 		}
 
 		{
+			const auto& ft_style = hud_layout_.element(HudElementId::FrameTimeReadout);
 			char buf[192];
-			if (has_sufficient_rolling_frames_) {
-				std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
+			const double instant_fps = (current_frame_time_ms_ > 0.0) ? (1000.0 / current_frame_time_ms_) : 0.0;
+			if (ft_style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "%.0f FPS", has_sufficient_rolling_frames_ ? (1000.0 / rolling_average_time_ms_) : instant_fps);
+			} else if (ft_style.display_mode == HudDisplayMode::Extended) {
+				if (has_sufficient_rolling_frames_) {
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.3f ms | Instant: %.1f FPS | Avg[%u]: %.3f ms (%.1f FPS) | Samples: %zu", current_frame_time_ms_, instant_fps, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_, frame_times_history_.size());
+				} else {
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.3f ms | Instant: %.1f FPS | Avg: warming up %zu/%u", current_frame_time_ms_, instant_fps, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+				}
 			} else {
-				std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+				if (has_sufficient_rolling_frames_) {
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+				}
 			}
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::FrameTimeReadout), {HudTextLine{buf}});
+			draw_hud_block(draw_list, window_pos, avail, ft_style, {HudTextLine{buf}});
 		}
 
 		{
@@ -702,6 +767,29 @@ private:
 			char buf[48];
 			std::snprintf(buf, sizeof(buf), "Performance Preset: %u", params.performance_preset);
 			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::PerformancePresetReadout), {HudTextLine{buf}});
+		}
+
+		{
+			const double r_safe_link = std::max(cam.radius, 2.05 * params.mass);
+			Metrics::KerrMetric<double> tel_metric(params.mass, params.spin, 1.0, 1.0);
+			Core::FourVector<double> tel_pos(0.0, r_safe_link, cam.theta, cam.phi);
+			const auto tel_g = tel_metric.metric_tensor(tel_pos);
+			const double lapse = std::sqrt(std::max(-tel_g(0, 0), 1e-30));
+			char buf[128];
+			std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx", lapse, 1.0 / std::max(lapse, 1e-12));
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::TelemetryQuickReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[96];
+			std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV", params.camera_exposure);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::SpectrographQuickReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[96];
+			std::snprintf(buf, sizeof(buf), "Metric: %s | Integrator: %s", orchestrator_.active_metric_name().c_str(), orchestrator_.active_integrator_name().c_str());
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::DiagnosticsQuickReadout), {HudTextLine{buf}});
 		}
 
 		{

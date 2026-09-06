@@ -3,7 +3,8 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
-#include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/hud_layout_config.hpp"
+#include "relativistic/ui/input_actions.hpp"
 #include "relativistic/ui/schematic_view_renderer.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
@@ -14,9 +15,10 @@
 #include <GL/gl.h>
 #endif
 #include <vector>
+#include <string>
+#include <cstdio>
 #include <cmath>
 #include <algorithm>
-#include <string>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -30,9 +32,14 @@ namespace Relativistic::UI {
 
 class ViewportPrimaryWindow {
 private:
+	struct HudTextLine {
+		std::string text;
+		ImU32 color{0};
+	};
+
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
-	HudPreferences& hud_prefs_;
+	HudLayoutConfig& hud_layout_;
 	SchematicViewConfig& schematic_cfg_;
 	Render::GeodesicComputePipeline pipeline_;
 	SchematicViewRenderer schematic_renderer_{};
@@ -88,15 +95,47 @@ private:
 		}
 	}
 
+	static void draw_hud_block(ImDrawList* draw_list, const ImVec2& window_pos, const ImVec2& avail, const HudElementStyle& style, const std::vector<HudTextLine>& lines) noexcept {
+		if (!style.enabled || lines.empty()) return;
+
+		const float font_size = ImGui::GetFontSize() * style.scale;
+		float max_width = 0.0f;
+		for (const auto& line : lines) {
+			const ImVec2 sz = ImGui::CalcTextSize(line.text.c_str());
+			max_width = std::max(max_width, sz.x * style.scale);
+		}
+		const float line_height = font_size + 3.0f;
+		const ImVec2 block_size(max_width, line_height * static_cast<float>(lines.size()));
+		const ImVec2 local_pos = hud_anchor_resolve(style.anchor, avail, block_size, style.offset_x, style.offset_y);
+		const ImVec2 screen_pos(window_pos.x + local_pos.x, window_pos.y + local_pos.y);
+
+		if (style.show_background) {
+			draw_list->AddRectFilled(
+				ImVec2(screen_pos.x - 6.0f, screen_pos.y - 4.0f),
+				ImVec2(screen_pos.x + block_size.x + 6.0f, screen_pos.y + block_size.y + 4.0f),
+				IM_COL32(10, 12, 18, static_cast<int>(std::clamp(style.background_opacity, 0.0f, 1.0f) * 255.0f)),
+				4.0f
+			);
+		}
+
+		for (size_t i = 0; i < lines.size(); ++i) {
+			const ImU32 col = (lines[i].color != 0)
+				? lines[i].color
+				: ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+			const ImVec2 line_pos(screen_pos.x, screen_pos.y + line_height * static_cast<float>(i));
+			draw_list->AddText(nullptr, font_size, line_pos, col, lines[i].text.c_str());
+		}
+	}
+
 public:
 	ViewportPrimaryWindow(
 		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
 		InteractiveCameraController& cam_ctrl,
-		HudPreferences& hud_prefs,
+		HudLayoutConfig& hud_layout,
 		SchematicViewConfig& schematic_cfg
 	) : orchestrator_(orchestrator),
 	    camera_controller_(cam_ctrl),
-	    hud_prefs_(hud_prefs),
+	    hud_layout_(hud_layout),
 	    schematic_cfg_(schematic_cfg),
 	    pipeline_(Render::GeodesicPipelineConfig{
 	        .width = 1280,
@@ -178,12 +217,13 @@ public:
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
 			pipeline_.set_gpu_compute_enabled(params.use_gpu_compute);
 
+			const auto& active_keybinds = camera_controller_.config().keybinds;
 			const bool is_navigating = (is_hovered_ || is_focused_) && (
 				camera_controller_.is_actively_navigating() ||
-				glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
-				glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
-				glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
-				glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS
+				active_keybinds.is_pressed(InputAction::MoveForward, window) ||
+				active_keybinds.is_pressed(InputAction::MoveBackward, window) ||
+				active_keybinds.is_pressed(InputAction::MoveLeft, window) ||
+				active_keybinds.is_pressed(InputAction::MoveRight, window)
 			);
 
 			float active_scale = resolution_scale_;
@@ -231,12 +271,10 @@ public:
 				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
 				ImGui::Dummy(avail);
 
-				if (hud_prefs_.show_viewport_toolbar) {
-					render_viewport_toolbar();
+				if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
+					render_viewport_toolbar(avail);
 				}
-				if (hud_prefs_.show_hud) {
-					render_hud_overlay(avail, window);
-				}
+				render_hud_overlay(avail, window);
 
 				ImGui::End();
 				if (fullscreen_bg) {
@@ -363,7 +401,7 @@ public:
 			}
 
 			const ImVec2 viewport_image_pos = ImGui::GetCursorScreenPos();
-			const bool zoom_key_down = (window != nullptr) && (is_hovered_ || is_focused_) && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS);
+			const bool zoom_key_down = (window != nullptr) && (is_hovered_ || is_focused_) && camera_controller_.config().keybinds.is_pressed(InputAction::ZoomModifier, window);
 			if (!zoom_key_down) {
 				zoom_level_ = 1.0;
 			}
@@ -390,16 +428,11 @@ public:
 				avail, zoom_uv0, zoom_uv1
 			);
 
-			if (hud_prefs_.show_viewport_toolbar) {
-				render_viewport_toolbar();
+			if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
+				render_viewport_toolbar(avail);
 			}
-			if (hud_prefs_.show_loading_indicator) {
-				render_loading_indicator(avail);
-			}
-
-			if (hud_prefs_.show_hud) {
-				render_hud_overlay(avail, window);
-			}
+			render_loading_indicator(avail);
+			render_hud_overlay(avail, window);
 		
 		ImGui::End();
 		if (fullscreen_bg) {
@@ -453,8 +486,13 @@ public:
 		return targets;
 	}
 
-	void render_viewport_toolbar() noexcept {
-		ImGui::SetCursorPos(ImVec2(16.0f, 16.0f));
+	void render_viewport_toolbar(const ImVec2& avail) noexcept {
+		const auto& style = hud_layout_.element(HudElementId::ViewportToolbar);
+		if (!style.enabled) return;
+
+		const ImVec2 estimated_size(900.0f, 34.0f);
+		const ImVec2 pos = hud_anchor_resolve(style.anchor, avail, estimated_size, style.offset_x, style.offset_y);
+		ImGui::SetCursorPos(pos);
 		ImGui::BeginGroup();
 		
 		if (orchestrator_.scheduler().is_paused()) {
@@ -518,12 +556,15 @@ public:
 		}
 
 		ImGui::SameLine();
-		ImGui::Checkbox("HUD", &hud_prefs_.show_hud);
+		ImGui::Checkbox("HUD", &hud_layout_.master_enabled);
 
 		ImGui::EndGroup();
 	}
 
 	void render_loading_indicator(const ImVec2& avail) noexcept {
+		const auto& style = hud_layout_.element(HudElementId::LoadingIndicator);
+		if (!style.enabled) return;
+
 		const bool is_loading = pipeline_.is_rendering() || !has_received_frame_;
 		if (!is_loading) return;
 
@@ -537,7 +578,7 @@ public:
 		const float panel_w = spinner_diameter + gap + text_size.x + padding * 2.0f;
 		const float panel_h = std::max(spinner_diameter, text_size.y) + padding * 2.0f;
 
-		const ImVec2 panel_top_left(avail.x - panel_w - 16.0f, avail.y - panel_h - 16.0f);
+		const ImVec2 panel_top_left = hud_anchor_resolve(style.anchor, avail, ImVec2(panel_w, panel_h), style.offset_x, style.offset_y);
 		const ImVec2 window_pos = ImGui::GetWindowPos();
 		const ImVec2 draw_panel_top_left(window_pos.x + panel_top_left.x, window_pos.y + panel_top_left.y);
 
@@ -580,9 +621,14 @@ public:
 
 private:
 	void render_hud_overlay(const ImVec2& avail, GLFWwindow* window) noexcept {
+		if (!hud_layout_.master_enabled) return;
+
 		const auto& cam = orchestrator_.camera();
 		const auto& params = orchestrator_.parameters();
 		const auto& tel = pipeline_.telemetry();
+		const auto snap = orchestrator_.scheduler().snapshot();
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		const ImVec2 window_pos = ImGui::GetWindowPos();
 
 		current_frame_time_ms_ = tel.execution_time_ms;
 		if (current_frame_time_ms_ > 0.0) {
@@ -600,67 +646,95 @@ private:
 			rolling_average_time_ms_ = sum / static_cast<double>(frame_times_history_.size());
 		}
 
-		ImGui::SetCursorPos(ImVec2(16.0f, 48.0f));
-		ImGui::BeginGroup();
-		if (hud_prefs_.show_frame_time) {
-			if (hud_prefs_.show_rolling_average_fps && has_sufficient_rolling_frames_) {
-				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
-			} else if (hud_prefs_.show_rolling_average_fps) {
-				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+		{
+			char buf[192];
+			if (has_sufficient_rolling_frames_) {
+				std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
 			} else {
-				ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "Frame Time: %.2f ms", current_frame_time_ms_);
+				std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
 			}
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::FrameTimeReadout), {HudTextLine{buf}});
 		}
-		if (hud_prefs_.show_camera_distance) {
-			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Camera Distance (r): %.2f M", cam.radius);
-		}
-		if (hud_prefs_.show_camera_angles) {
-			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Angles (theta, phi): (%.2f, %.2f)", cam.theta, cam.phi);
-		}
-		if (hud_prefs_.show_camera_orientation) {
-			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
-		}
-		if (hud_prefs_.show_metric_summary) {
-			ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 0.9f), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
-		}
-		if (hud_prefs_.show_ray_statistics) {
-			ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 0.9f), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
-		}
-		ImGui::EndGroup();
 
-		if (hud_prefs_.show_navigation_controls) {
-		ImGui::SetCursorPos(ImVec2(avail.x - 240.0f, 16.0f));
-		ImGui::BeginGroup();
-		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Navigation Controls:");
+		{
+			char buf[96];
+			std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.2f M", cam.radius);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraDistanceReadout), {HudTextLine{buf}});
+		}
 
-		auto draw_keybind = [&](const char* label, bool is_active) noexcept {
-			if (is_active) {
-				ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.2f, 1.0f), "> %s <", label);
-			} else {
-				ImGui::TextColored(ImVec4(0.7f, 0.75f, 0.8f, 0.8f), "  %s", label);
-			}
-		};
+		{
+			char buf[96];
+			std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.2f, %.2f)", cam.theta, cam.phi);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraAnglesReadout), {HudTextLine{buf}});
+		}
 
-		const bool fwd = window && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS);
-		const bool back = window && (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS);
-		const bool left = window && (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS);
-		const bool right = window && (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS);
-		const bool up = window && (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
-		const bool down = window && (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS);
-		const bool roll = window && (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS);
-		const bool sprint = window && (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
-		const bool rmb = window && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS || glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+		{
+			char buf[128];
+			std::snprintf(buf, sizeof(buf), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraOrientationReadout), {HudTextLine{buf}});
+		}
 
-		draw_keybind("Z/W: Forward", fwd);
-		draw_keybind("S: Back", back);
-		draw_keybind("Q/A: Left", left);
-		draw_keybind("D: Right", right);
-		draw_keybind("Space: Up", up);
-		draw_keybind("Ctrl/C: Down", down);
-		draw_keybind("J/K: Roll", roll);
-		draw_keybind("Shift: Sprint", sprint);
-		draw_keybind("Mouse Drag: Look", rmb);
-		ImGui::EndGroup();
+		{
+			char buf[160];
+			std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::MetricSummaryReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[128];
+			std::snprintf(buf, sizeof(buf), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::RayStatisticsReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[80];
+			std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu", snap.logical_time, static_cast<unsigned long long>(snap.tick_index));
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::SimulationClockReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[48];
+			std::snprintf(buf, sizeof(buf), "Warp Factor: %.2fx", snap.warp_factor);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::WarpFactorReadout), {HudTextLine{buf}});
+		}
+
+		{
+			char buf[48];
+			std::snprintf(buf, sizeof(buf), "Performance Preset: %u", params.performance_preset);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::PerformancePresetReadout), {HudTextLine{buf}});
+		}
+
+		{
+			const auto& kb = camera_controller_.config().keybinds;
+			auto bind_str = [&](InputAction action) noexcept -> std::string {
+				const auto& b = kb.get(action);
+				std::string s = glfw_key_display_name(b.primary_key);
+				if (b.secondary_key != GLFW_KEY_UNKNOWN) {
+					s += "/";
+					s += glfw_key_display_name(b.secondary_key);
+				}
+				return s;
+			};
+			auto action_line = [&](InputAction action, const char* label) noexcept -> HudTextLine {
+				const bool active = (window != nullptr) && kb.is_pressed(action, window);
+				const ImU32 col = active ? IM_COL32(255, 242, 51, 255) : IM_COL32(178, 191, 204, 204);
+				return HudTextLine{bind_str(action) + ": " + label, col};
+			};
+
+			std::vector<HudTextLine> nav_lines;
+			nav_lines.push_back(HudTextLine{"Navigation Controls:", IM_COL32(102, 204, 255, 255)});
+			nav_lines.push_back(action_line(InputAction::MoveForward, "Forward"));
+			nav_lines.push_back(action_line(InputAction::MoveBackward, "Backward"));
+			nav_lines.push_back(action_line(InputAction::MoveLeft, "Left"));
+			nav_lines.push_back(action_line(InputAction::MoveRight, "Right"));
+			nav_lines.push_back(action_line(InputAction::MoveUp, "Up"));
+			nav_lines.push_back(action_line(InputAction::MoveDown, "Down"));
+			nav_lines.push_back(action_line(InputAction::RollLeft, "Roll Left"));
+			nav_lines.push_back(action_line(InputAction::RollRight, "Roll Right"));
+			nav_lines.push_back(action_line(InputAction::Sprint, "Sprint"));
+			nav_lines.push_back(action_line(InputAction::ZoomModifier, "Hold + Scroll to Zoom"));
+
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::NavigationControlsPanel), nav_lines);
 		}
 	}
 };

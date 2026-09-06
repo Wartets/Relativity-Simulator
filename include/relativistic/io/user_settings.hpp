@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/ui/camera_control_config.hpp"
-#include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
 #include <cstdint>
 #include <cstdlib>
@@ -12,7 +12,7 @@
 
 namespace Relativistic::IO {
 
-inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 1;
+inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 2;
 
 enum class SettingsLoadPolicy : uint32_t {
 	AlwaysResetToDefaults = 0,
@@ -32,7 +32,7 @@ struct UserSettings {
 	uint32_t screenshot_format{0};
 
 	UI::CameraControlConfig camera_controls{};
-	UI::HudPreferences hud_preferences{};
+	UI::HudLayoutConfig hud_layout{};
 	UI::SchematicViewConfig schematic_view{};
 
 	uint32_t last_window_layout{0};
@@ -88,9 +88,17 @@ struct UserSettings {
 			auto it = kv.find(key);
 			return (it != kv.end()) ? static_cast<uint32_t>(std::strtoul(it->second.c_str(), nullptr, 10)) : fallback;
 		};
+		auto get_i32 = [&](const char* key, int fallback) -> int {
+			auto it = kv.find(key);
+			return (it != kv.end()) ? static_cast<int>(std::strtol(it->second.c_str(), nullptr, 10)) : fallback;
+		};
 		auto get_dbl = [&](const char* key, double fallback) -> double {
 			auto it = kv.find(key);
 			return (it != kv.end()) ? std::strtod(it->second.c_str(), nullptr) : fallback;
+		};
+		auto get_bool = [&](const char* key, bool fallback) -> bool {
+			auto it = kv.find(key);
+			return (it != kv.end()) ? (std::strtoul(it->second.c_str(), nullptr, 10) != 0) : fallback;
 		};
 
 		const uint32_t file_version = get_u32("format_version", 0);
@@ -144,17 +152,39 @@ struct UserSettings {
 		result.camera_controls.rocket.invert_lateral = get_u32("cam_rocket_invert_lateral", 0) != 0;
 		result.camera_controls.rocket.requires_time_running = get_u32("cam_rocket_requires_time", 1) != 0;
 
-		result.hud_preferences.show_hud = get_u32("hud_show_hud", 1) != 0;
-		result.hud_preferences.show_viewport_toolbar = get_u32("hud_show_toolbar", 1) != 0;
-		result.hud_preferences.show_loading_indicator = get_u32("hud_show_loading", 1) != 0;
-		result.hud_preferences.show_frame_time = get_u32("hud_show_frame_time", 1) != 0;
-		result.hud_preferences.show_rolling_average_fps = get_u32("hud_show_rolling_fps", 1) != 0;
-		result.hud_preferences.show_camera_distance = get_u32("hud_show_cam_distance", 1) != 0;
-		result.hud_preferences.show_camera_angles = get_u32("hud_show_cam_angles", 1) != 0;
-		result.hud_preferences.show_camera_orientation = get_u32("hud_show_cam_orientation", 1) != 0;
-		result.hud_preferences.show_metric_summary = get_u32("hud_show_metric_summary", 1) != 0;
-		result.hud_preferences.show_ray_statistics = get_u32("hud_show_ray_stats", 1) != 0;
-		result.hud_preferences.show_navigation_controls = get_u32("hud_show_nav_controls", 1) != 0;
+		const auto loaded_layout = static_cast<UI::KeyboardLayout>(get_u32("cam_keyboard_layout", static_cast<uint32_t>(UI::KeyboardLayout::Qwerty)));
+		result.camera_controls.apply_keyboard_layout(loaded_layout);
+
+		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {
+			const std::string primary_key = "kb_" + std::to_string(i) + "_primary";
+			const std::string secondary_key = "kb_" + std::to_string(i) + "_secondary";
+			auto it_primary = kv.find(primary_key);
+			auto it_secondary = kv.find(secondary_key);
+			if (it_primary != kv.end() || it_secondary != kv.end()) {
+				const auto action = static_cast<UI::InputAction>(i);
+				const auto& current_bind = result.camera_controls.keybinds.get(action);
+				const int primary = (it_primary != kv.end()) ? get_i32(primary_key.c_str(), current_bind.primary_key) : current_bind.primary_key;
+				const int secondary = (it_secondary != kv.end()) ? get_i32(secondary_key.c_str(), current_bind.secondary_key) : current_bind.secondary_key;
+				result.camera_controls.keybinds.set(action, primary, secondary);
+			}
+		}
+
+		result.hud_layout.master_enabled = get_bool("hud_master_enabled", result.hud_layout.master_enabled);
+		for (size_t i = 0; i < static_cast<size_t>(UI::HudElementId::Count); ++i) {
+			const std::string prefix = "hud_el_" + std::to_string(i) + "_";
+			auto& style = result.hud_layout.element(static_cast<UI::HudElementId>(i));
+			style.enabled = get_bool((prefix + "enabled").c_str(), style.enabled);
+			style.anchor = static_cast<UI::HudAnchor>(get_u32((prefix + "anchor").c_str(), static_cast<uint32_t>(style.anchor)));
+			style.offset_x = static_cast<float>(get_dbl((prefix + "offset_x").c_str(), style.offset_x));
+			style.offset_y = static_cast<float>(get_dbl((prefix + "offset_y").c_str(), style.offset_y));
+			style.scale = static_cast<float>(get_dbl((prefix + "scale").c_str(), style.scale));
+			style.text_color[0] = static_cast<float>(get_dbl((prefix + "color_r").c_str(), style.text_color[0]));
+			style.text_color[1] = static_cast<float>(get_dbl((prefix + "color_g").c_str(), style.text_color[1]));
+			style.text_color[2] = static_cast<float>(get_dbl((prefix + "color_b").c_str(), style.text_color[2]));
+			style.text_color[3] = static_cast<float>(get_dbl((prefix + "color_a").c_str(), style.text_color[3]));
+			style.show_background = get_bool((prefix + "show_background").c_str(), style.show_background);
+			style.background_opacity = static_cast<float>(get_dbl((prefix + "background_opacity").c_str(), style.background_opacity));
+		}
 
 		return result;
 	}
@@ -197,17 +227,30 @@ struct UserSettings {
 		out << "cam_rocket_invert_vertical=" << (camera_controls.rocket.invert_vertical ? 1 : 0) << "\n";
 		out << "cam_rocket_invert_lateral=" << (camera_controls.rocket.invert_lateral ? 1 : 0) << "\n";
 		out << "cam_rocket_requires_time=" << (camera_controls.rocket.requires_time_running ? 1 : 0) << "\n";
-		out << "hud_show_hud=" << (hud_preferences.show_hud ? 1 : 0) << "\n";
-		out << "hud_show_toolbar=" << (hud_preferences.show_viewport_toolbar ? 1 : 0) << "\n";
-		out << "hud_show_loading=" << (hud_preferences.show_loading_indicator ? 1 : 0) << "\n";
-		out << "hud_show_frame_time=" << (hud_preferences.show_frame_time ? 1 : 0) << "\n";
-		out << "hud_show_rolling_fps=" << (hud_preferences.show_rolling_average_fps ? 1 : 0) << "\n";
-		out << "hud_show_cam_distance=" << (hud_preferences.show_camera_distance ? 1 : 0) << "\n";
-		out << "hud_show_cam_angles=" << (hud_preferences.show_camera_angles ? 1 : 0) << "\n";
-		out << "hud_show_cam_orientation=" << (hud_preferences.show_camera_orientation ? 1 : 0) << "\n";
-		out << "hud_show_metric_summary=" << (hud_preferences.show_metric_summary ? 1 : 0) << "\n";
-		out << "hud_show_ray_stats=" << (hud_preferences.show_ray_statistics ? 1 : 0) << "\n";
-		out << "hud_show_nav_controls=" << (hud_preferences.show_navigation_controls ? 1 : 0) << "\n";
+		out << "cam_keyboard_layout=" << static_cast<uint32_t>(camera_controls.keyboard_layout) << "\n";
+
+		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {
+			const auto& binding = camera_controls.keybinds.get(static_cast<UI::InputAction>(i));
+			out << "kb_" << i << "_primary=" << binding.primary_key << "\n";
+			out << "kb_" << i << "_secondary=" << binding.secondary_key << "\n";
+		}
+
+		out << "hud_master_enabled=" << (hud_layout.master_enabled ? 1 : 0) << "\n";
+		for (size_t i = 0; i < static_cast<size_t>(UI::HudElementId::Count); ++i) {
+			const auto& style = hud_layout.element(static_cast<UI::HudElementId>(i));
+			const std::string prefix = "hud_el_" + std::to_string(i) + "_";
+			out << prefix << "enabled=" << (style.enabled ? 1 : 0) << "\n";
+			out << prefix << "anchor=" << static_cast<uint32_t>(style.anchor) << "\n";
+			out << prefix << "offset_x=" << style.offset_x << "\n";
+			out << prefix << "offset_y=" << style.offset_y << "\n";
+			out << prefix << "scale=" << style.scale << "\n";
+			out << prefix << "color_r=" << style.text_color[0] << "\n";
+			out << prefix << "color_g=" << style.text_color[1] << "\n";
+			out << prefix << "color_b=" << style.text_color[2] << "\n";
+			out << prefix << "color_a=" << style.text_color[3] << "\n";
+			out << prefix << "show_background=" << (style.show_background ? 1 : 0) << "\n";
+			out << prefix << "background_opacity=" << style.background_opacity << "\n";
+		}
 	}
 };
 

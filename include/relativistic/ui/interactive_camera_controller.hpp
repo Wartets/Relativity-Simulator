@@ -155,9 +155,9 @@ public:
 		navigation_mode_ = static_cast<CameraNavigationMode>(orchestrator_.parameters().camera_mode);
 
 		double boost_multiplier = 1.0;
-		if (config_.keybinds.is_pressed(CameraAction::Sprint, window)) {
+		if (config_.keybinds.is_pressed(InputAction::Sprint, window)) {
 			boost_multiplier = config_.free_fly.sprint_multiplier;
-		} else if (config_.keybinds.is_pressed(CameraAction::Crawl, window)) {
+		} else if (config_.keybinds.is_pressed(InputAction::Crawl, window)) {
 			boost_multiplier = config_.free_fly.crawl_multiplier;
 		}
 
@@ -191,31 +191,31 @@ public:
 
 private:
 	void handle_global_shortcuts(GLFWwindow* window) noexcept {
-		if (config_.keybinds.is_pressed(CameraAction::ResetRoll, window)) {
+		if (config_.keybinds.is_pressed(InputAction::ResetRoll, window)) {
 			reset_roll();
 		}
-		if (config_.keybinds.is_pressed(CameraAction::LookAtOrigin, window)) {
+		if (config_.keybinds.is_pressed(InputAction::LookAtOrigin, window)) {
 			look_at_origin();
 		}
-		if (config_.keybinds.is_pressed(CameraAction::SpeedDecrease, window)) {
+		if (config_.keybinds.is_pressed(InputAction::SpeedDecrease, window)) {
 			set_uniform_speed(config_.free_fly.forward_speed * 0.95);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::SpeedIncrease, window)) {
+		if (config_.keybinds.is_pressed(InputAction::SpeedIncrease, window)) {
 			set_uniform_speed(config_.free_fly.forward_speed * 1.05);
 		}
-		if (glfwGetKey(window, GLFW_KEY_KP_1) == GLFW_PRESS || (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)) {
+		if (config_.keybinds.is_pressed(InputAction::SnapEquatorialFront, window)) {
 			snap_to_equatorial_front(50.0);
 		}
-		if (glfwGetKey(window, GLFW_KEY_KP_3) == GLFW_PRESS || (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)) {
+		if (config_.keybinds.is_pressed(InputAction::SnapEquatorialSide, window)) {
 			snap_to_equatorial_side(50.0);
 		}
-		if (glfwGetKey(window, GLFW_KEY_KP_7) == GLFW_PRESS || (glfwGetKey(window, GLFW_KEY_7) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)) {
+		if (config_.keybinds.is_pressed(InputAction::SnapNorthPole, window)) {
 			snap_to_north_pole(50.0);
 		}
-		if (glfwGetKey(window, GLFW_KEY_KP_9) == GLFW_PRESS || (glfwGetKey(window, GLFW_KEY_9) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)) {
+		if (config_.keybinds.is_pressed(InputAction::SnapSouthPole, window)) {
 			snap_to_south_pole(50.0);
 		}
-		if (glfwGetKey(window, GLFW_KEY_KP_5) == GLFW_PRESS || (glfwGetKey(window, GLFW_KEY_5) == GLFW_PRESS && glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)) {
+		if (config_.keybinds.is_pressed(InputAction::SnapIsco, window)) {
 			snap_to_isco();
 		}
 	}
@@ -241,29 +241,29 @@ private:
 
 		std::array<double, 3> accum{0.0, 0.0, 0.0};
 
-		if (config_.keybinds.is_pressed(CameraAction::MoveForward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveForward, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] += forward[i] * prof.forward_speed * fwd_sign;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveBackward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveBackward, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] -= forward[i] * prof.forward_speed * fwd_sign;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveRight, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveRight, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] += right[i] * prof.lateral_speed * lat_sign;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveLeft, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveLeft, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] -= right[i] * prof.lateral_speed * lat_sign;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveUp, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveUp, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] += up[i] * prof.vertical_speed * vert_sign;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveDown, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveDown, window)) {
 			for (size_t i = 0; i < 3; ++i) accum[i] -= up[i] * prof.vertical_speed * vert_sign;
 		}
 
-		if (config_.keybinds.is_pressed(CameraAction::RollLeft, window)) {
+		if (config_.keybinds.is_pressed(InputAction::RollLeft, window)) {
 			cam.roll -= prof.roll_speed_deg_s * dt;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::RollRight, window)) {
+		if (config_.keybinds.is_pressed(InputAction::RollRight, window)) {
 			cam.roll += prof.roll_speed_deg_s * dt;
 		}
 
@@ -300,22 +300,22 @@ private:
 			const double vert_sign = prof.invert_vertical ? -1.0 : 1.0;
 			std::array<double, 3> thrust{0.0, 0.0, 0.0};
 
-			if (config_.keybinds.is_pressed(CameraAction::MoveForward, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveForward, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] += forward[i] * prof.main_thrust_accel;
 			}
-			if (config_.keybinds.is_pressed(CameraAction::MoveBackward, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveBackward, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] -= forward[i] * prof.main_thrust_accel;
 			}
-			if (config_.keybinds.is_pressed(CameraAction::MoveRight, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveRight, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] += right[i] * prof.lateral_thrust_accel * lat_sign;
 			}
-			if (config_.keybinds.is_pressed(CameraAction::MoveLeft, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveLeft, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] -= right[i] * prof.lateral_thrust_accel * lat_sign;
 			}
-			if (config_.keybinds.is_pressed(CameraAction::MoveUp, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveUp, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] += up[i] * prof.vertical_thrust_accel * vert_sign;
 			}
-			if (config_.keybinds.is_pressed(CameraAction::MoveDown, window)) {
+			if (config_.keybinds.is_pressed(InputAction::MoveDown, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] -= up[i] * prof.vertical_thrust_accel * vert_sign;
 			}
 
@@ -337,10 +337,10 @@ private:
 			sync_spherical_from_cartesian();
 		}
 
-		if (config_.keybinds.is_pressed(CameraAction::RollLeft, window)) {
+		if (config_.keybinds.is_pressed(InputAction::RollLeft, window)) {
 			cam.roll -= prof.angular_rate_deg_s * dt;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::RollRight, window)) {
+		if (config_.keybinds.is_pressed(InputAction::RollRight, window)) {
 			cam.roll += prof.angular_rate_deg_s * dt;
 		}
 
@@ -351,24 +351,24 @@ private:
 		auto& cam = orchestrator_.camera();
 		const auto& prof = config_.orbit;
 
-		if (config_.keybinds.is_pressed(CameraAction::MoveForward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveForward, window)) {
 			cam.orbit_distance = std::max(2.0, cam.orbit_distance - prof.orbit_distance_speed * dt);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveBackward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveBackward, window)) {
 			cam.orbit_distance = std::min(5000.0, cam.orbit_distance + prof.orbit_distance_speed * dt);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveLeft, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveLeft, window)) {
 			cam.yaw += prof.yaw_speed_deg_s * dt;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveRight, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveRight, window)) {
 			cam.yaw -= prof.yaw_speed_deg_s * dt;
 		}
 
 		const double pitch_sign = prof.invert_pitch ? -1.0 : 1.0;
-		if (config_.keybinds.is_pressed(CameraAction::MoveUp, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveUp, window)) {
 			cam.pitch = std::clamp(cam.pitch + prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveDown, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveDown, window)) {
 			cam.pitch = std::clamp(cam.pitch - prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
 		}
 
@@ -387,22 +387,22 @@ private:
 		auto& cam = orchestrator_.camera();
 		const double speed = config_.free_fly.forward_speed * boost_multiplier;
 
-		if (config_.keybinds.is_pressed(CameraAction::MoveForward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveForward, window)) {
 			cam.radius = std::max(2.5, cam.radius - speed * dt);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveBackward, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveBackward, window)) {
 			cam.radius = std::min(5000.0, cam.radius + speed * dt);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveLeft, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveLeft, window)) {
 			cam.phi -= (speed / std::max(cam.radius, 1e-3)) * dt;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveRight, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveRight, window)) {
 			cam.phi += (speed / std::max(cam.radius, 1e-3)) * dt;
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveUp, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveUp, window)) {
 			cam.theta = std::clamp(cam.theta - (speed / std::max(cam.radius, 1e-3)) * dt, 0.01, std::numbers::pi - 0.01);
 		}
-		if (config_.keybinds.is_pressed(CameraAction::MoveDown, window)) {
+		if (config_.keybinds.is_pressed(InputAction::MoveDown, window)) {
 			cam.theta = std::clamp(cam.theta + (speed / std::max(cam.radius, 1e-3)) * dt, 0.01, std::numbers::pi - 0.01);
 		}
 

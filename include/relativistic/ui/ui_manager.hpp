@@ -13,6 +13,9 @@
 #include "relativistic/ui/visual_diagnostics_window.hpp"
 #include "relativistic/ui/body_manager_window.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
+#include "relativistic/ui/keybind_settings_window.hpp"
+#include "relativistic/ui/hud_manager_window.hpp"
+#include "relativistic/ui/input_actions.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -43,6 +46,9 @@ private:
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	IO::UserSettings& user_settings_;
 	InteractiveCameraController camera_controller_;
+	KeybindSettingsWindow keybind_window_;
+	HudManagerWindow hud_manager_window_;
+	ActionEdgeTracker global_action_tracker_{};
 
 	std::unique_ptr<ViewportPrimaryWindow> viewport_window_;
 	std::unique_ptr<ScenarioSelectorWindow> scenario_window_;
@@ -66,7 +72,9 @@ public:
 		: orchestrator_(orchestrator),
 		  user_settings_(user_settings),
 		  camera_controller_(orchestrator),
-		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_preferences, user_settings_.schematic_view),
+		  keybind_window_(camera_controller_.config()),
+		  hud_manager_window_(user_settings_.hud_layout),
+		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, hud_manager_window_.open_state(), keybind_window_.open_state()),
 		  performance_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator) {}
@@ -98,7 +106,7 @@ public:
 		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) {
 			auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
 			if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
-				if (glfwGetKey(win, GLFW_KEY_W) == GLFW_PRESS) {
+				if (self->camera_controller_.config().keybinds.is_pressed(InputAction::ZoomModifier, win)) {
 					self->viewport_window_->handle_zoom_scroll(yoffset);
 				} else {
 					self->camera_controller_.handle_scroll(yoffset);
@@ -131,7 +139,7 @@ public:
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
 
-		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_preferences, user_settings_.schematic_view);
+		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();
@@ -234,6 +242,14 @@ public:
 			body_manager_window_.render();
 		}
 
+		if (keybind_window_.open_state()) {
+			keybind_window_.render(main_window_);
+		}
+
+		if (hud_manager_window_.open_state()) {
+			hud_manager_window_.render();
+		}
+
 		for (auto& view : secondary_views_) {
 			view.render();
 		}
@@ -287,47 +303,55 @@ private:
 		ImGuiIO& io = ImGui::GetIO();
 		if (io.WantCaptureKeyboard) return;
 
-		if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) {
+		const auto& keybinds = camera_controller_.config().keybinds;
+
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleControlPanel, main_window_)) {
 			control_panel_window_.open_state() = !control_panel_window_.open_state();
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::LayoutMultiWindow, main_window_)) {
 			apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::LayoutDocked, main_window_)) {
 			apply_multi_window_layout_preset(UiLayoutPreset::DockedWorkspace);
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F4, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::LayoutViewportFocus, main_window_)) {
 			apply_multi_window_layout_preset(UiLayoutPreset::ViewportFocused);
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F5, false) || ImGui::IsKeyPressed(ImGuiKey_P, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::TogglePausePlay, main_window_)) {
 			if (orchestrator_.scheduler().is_paused()) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 			} else {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
 			}
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::SingleStepTick, main_window_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F7, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ResetClock, main_window_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F8, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleBodyManager, main_window_)) {
 			body_manager_window_.open_state() = !body_manager_window_.open_state();
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleCameraMode, main_window_)) {
 			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % 4;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleTelemetryWindow, main_window_)) {
 			telemetry_window_.open_state() = !telemetry_window_.open_state();
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::TogglePerformanceWindow, main_window_)) {
 			performance_window_.open_state() = !performance_window_.open_state();
 			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) {
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CaptureScreenshot, main_window_)) {
 			trigger_screenshot_capture();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleHudManager, main_window_)) {
+			hud_manager_window_.open_state() = !hud_manager_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleKeybindSettings, main_window_)) {
+			keybind_window_.open_state() = !keybind_window_.open_state();
 		}
 	}
 
@@ -426,10 +450,10 @@ private:
 					const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % 4;
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 				}
-				if (ImGui::MenuItem("Snap Camera to Equatorial (r=50)", "Alt+1")) {
+				if (ImGui::MenuItem("Snap Camera to Equatorial (r=50)")) {
 					camera_controller_.snap_to_equatorial_front(50.0);
 				}
-				if (ImGui::MenuItem("Snap Camera to ISCO Orbit", "Alt+5")) {
+				if (ImGui::MenuItem("Snap Camera to ISCO Orbit")) {
 					camera_controller_.snap_to_isco();
 				}
 				ImGui::EndMenu();
@@ -447,6 +471,28 @@ private:
 				}
 				ImGui::Separator();
 				ImGui::Checkbox("Multi-Window Viewport Separation", &multi_window_mode_);
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Input & HUD")) {
+				if (ImGui::MenuItem("Keybind Settings", "B")) {
+					keybind_window_.open_state() = !keybind_window_.open_state();
+				}
+				if (ImGui::MenuItem("HUD Manager", "H")) {
+					hud_manager_window_.open_state() = !hud_manager_window_.open_state();
+				}
+				ImGui::Separator();
+				if (ImGui::BeginMenu("Keyboard Layout")) {
+					bool is_qwerty = camera_controller_.config().keyboard_layout == KeyboardLayout::Qwerty;
+					bool is_azerty = camera_controller_.config().keyboard_layout == KeyboardLayout::Azerty;
+					if (ImGui::MenuItem("QWERTY", nullptr, is_qwerty)) {
+						camera_controller_.config().apply_keyboard_layout(KeyboardLayout::Qwerty);
+					}
+					if (ImGui::MenuItem("AZERTY", nullptr, is_azerty)) {
+						camera_controller_.config().apply_keyboard_layout(KeyboardLayout::Azerty);
+					}
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 

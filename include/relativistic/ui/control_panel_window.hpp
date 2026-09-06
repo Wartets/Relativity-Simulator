@@ -5,7 +5,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
-#include "relativistic/ui/hud_preferences.hpp"
+#include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
@@ -21,8 +21,10 @@ private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	InteractiveCameraController& camera_controller_;
-	HudPreferences& hud_prefs_;
+	HudLayoutConfig& hud_layout_;
 	SchematicViewConfig& schematic_cfg_;
+	bool& hud_manager_open_;
+	bool& keybind_settings_open_;
 
 	float mass_{1.0f};
 	float spin_{0.0f};
@@ -63,8 +65,8 @@ private:
 	uint64_t last_synced_version_{0};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudPreferences& hud_prefs, SchematicViewConfig& schematic_cfg)
-		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_prefs_(hud_prefs), schematic_cfg_(schematic_cfg) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, bool& hud_manager_open, bool& keybind_settings_open)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
 		sync_from_orchestrator();
 	}
 
@@ -443,21 +445,11 @@ private:
 		if (ImGui::Checkbox("Require Unpaused Time For Thrust", &rk_requires_time)) cfg.rocket.requires_time_running = rk_requires_time;
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Reference:");
-		auto show_bind = [&](const char* label, CameraAction action) noexcept {
-			const auto& b = cfg.keybinds.get(action);
-			ImGui::Text("%s: %s / %s", label, CameraKeybindMap::key_name(b.primary_key), CameraKeybindMap::key_name(b.secondary_key));
-		};
-		show_bind("Forward", CameraAction::MoveForward);
-		show_bind("Backward", CameraAction::MoveBackward);
-		show_bind("Left", CameraAction::MoveLeft);
-		show_bind("Right", CameraAction::MoveRight);
-		show_bind("Up", CameraAction::MoveUp);
-		show_bind("Down", CameraAction::MoveDown);
-		show_bind("Roll Left", CameraAction::RollLeft);
-		show_bind("Roll Right", CameraAction::RollRight);
-		show_bind("Sprint", CameraAction::Sprint);
-		show_bind("Crawl", CameraAction::Crawl);
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Configuration:");
+		ImGui::TextDisabled("Full rebinding, conflict handling, and keyboard layout presets (QWERTY/AZERTY) are managed in the dedicated Keybind Settings window.");
+		if (ImGui::Button("Open Keybind Settings", ImVec2(220.0f, 28.0f))) {
+			keybind_settings_open_ = true;
+		}
 	}
 
 	void apply_manual_camera_placement() noexcept {
@@ -933,32 +925,19 @@ private:
 
 	void render_hud_tab() noexcept {
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Heads-Up Display Manager");
-		ImGui::TextDisabled("Choose which readouts and controls appear over the viewport.");
+		ImGui::TextDisabled("Enable, position, resize, recolor, and style every individual HUD element from the dedicated HUD Manager window.");
 		ImGui::Separator();
 
-		ImGui::Checkbox("Master HUD Visibility", &hud_prefs_.show_hud);
-		render_setting_tooltip("Master switch for all overlay elements drawn on top of the viewport.");
-
-		ImGui::BeginDisabled(!hud_prefs_.show_hud);
-		ImGui::Checkbox("Viewport Toolbar (Play/Pause/Look-At)", &hud_prefs_.show_viewport_toolbar);
-		ImGui::Checkbox("Rendering Progress Indicator", &hud_prefs_.show_loading_indicator);
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Telemetry Readouts:");
-		ImGui::Checkbox("Frame Time", &hud_prefs_.show_frame_time);
-		ImGui::Checkbox("Rolling Average FPS", &hud_prefs_.show_rolling_average_fps);
-		ImGui::Checkbox("Camera Distance", &hud_prefs_.show_camera_distance);
-		ImGui::Checkbox("Camera Angles (theta, phi)", &hud_prefs_.show_camera_angles);
-		ImGui::Checkbox("Camera Orientation (pitch, yaw, roll)", &hud_prefs_.show_camera_orientation);
-		ImGui::Checkbox("Active Metric Summary", &hud_prefs_.show_metric_summary);
-		ImGui::Checkbox("Ray Statistics", &hud_prefs_.show_ray_statistics);
-		ImGui::Checkbox("Navigation Keybind Panel", &hud_prefs_.show_navigation_controls);
-		ImGui::EndDisabled();
+		ImGui::Checkbox("Master HUD Visibility", &hud_layout_.master_enabled);
+		render_setting_tooltip("Master switch for the telemetry and navigation overlay elements. The toolbar and loading indicator each have their own independent toggle in the HUD Manager.");
 
 		ImGui::Spacing();
-		ImGui::Separator();
-		if (ImGui::Button("Restore All Defaults", ImVec2(200.0f, 26.0f))) {
-			hud_prefs_ = HudPreferences{};
+		if (ImGui::Button("Open HUD Manager", ImVec2(200.0f, 28.0f))) {
+			hud_manager_open_ = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Restore All HUD Defaults", ImVec2(200.0f, 28.0f))) {
+			hud_layout_ = HudLayoutConfig{};
 		}
 	}
 };

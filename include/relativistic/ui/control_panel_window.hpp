@@ -447,8 +447,19 @@ private:
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Configuration:");
 		ImGui::TextDisabled("Full rebinding, conflict handling, and keyboard layout presets (QWERTY/AZERTY) are managed in the dedicated Keybind Settings window.");
-		if (ImGui::Button("Open Keybind Settings", ImVec2(220.0f, 28.0f))) {
+		const bool keybind_window_already_open = keybind_settings_open_;
+		if (keybind_window_already_open) {
+			ImGui::BeginDisabled(true);
+		}
+		if (ImGui::Button(keybind_window_already_open ? "Keybind Settings Open" : "Open Keybind Settings", ImVec2(220.0f, 28.0f))) {
 			keybind_settings_open_ = true;
+		}
+		if (keybind_window_already_open) {
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::Button("Focus Window", ImVec2(120.0f, 28.0f))) {
+				ImGui::SetWindowFocus("Keybind Settings");
+			}
 		}
 	}
 

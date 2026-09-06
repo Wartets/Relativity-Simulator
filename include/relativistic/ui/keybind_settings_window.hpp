@@ -1,9 +1,16 @@
 #pragma once
 
 #include "relativistic/ui/camera_control_config.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #include <string>
+#include <string_view>
+#include <vector>
+#include <array>
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 
 namespace Relativistic::UI {
 
@@ -14,6 +21,9 @@ private:
 	int listening_action_{-1};
 	int listening_slot_{0};
 	std::string conflict_message_{};
+	char search_buffer_[64]{};
+	int category_filter_{-1};
+	int sort_mode_{0};
 
 	static constexpr int kBindableKeys[] = {
 		GLFW_KEY_A, GLFW_KEY_B, GLFW_KEY_C, GLFW_KEY_D, GLFW_KEY_E, GLFW_KEY_F, GLFW_KEY_G, GLFW_KEY_H,
@@ -36,6 +46,139 @@ private:
 		GLFW_KEY_KP_ENTER, GLFW_KEY_DELETE, GLFW_KEY_INSERT
 	};
 
+	struct ConflictInfo {
+		std::array<bool, static_cast<size_t>(InputAction::Count)> primary_conflict{};
+		std::array<bool, static_cast<size_t>(InputAction::Count)> secondary_conflict{};
+		size_t total_conflicts{0};
+	};
+
+	[[nodiscard]] ConflictInfo compute_conflicts() const noexcept {
+		ConflictInfo info{};
+		const auto& bindings = config_->keybinds.raw_bindings();
+		for (size_t i = 0; i < bindings.size(); ++i) {
+			const int prim = bindings[i].primary_key;
+			if (prim != GLFW_KEY_UNKNOWN) {
+				for (size_t j = 0; j < bindings.size(); ++j) {
+					if (i == j) continue;
+					if (bindings[j].primary_key == prim || bindings[j].secondary_key == prim) {
+						info.primary_conflict[i] = true;
+						break;
+					}
+				}
+			}
+			const int sec = bindings[i].secondary_key;
+			if (sec != GLFW_KEY_UNKNOWN) {
+				for (size_t j = 0; j < bindings.size(); ++j) {
+					if (i == j) continue;
+					if (bindings[j].primary_key == sec || bindings[j].secondary_key == sec) {
+						info.secondary_conflict[i] = true;
+						break;
+					}
+				}
+			}
+			if (info.primary_conflict[i] || info.secondary_conflict[i]) {
+				++info.total_conflicts;
+			}
+		}
+		return info;
+	}
+
+	[[nodiscard]] static bool matches_search(InputAction action, std::string_view query) noexcept {
+		if (query.empty()) return true;
+		std::string haystack(input_action_name(action));
+		std::string needle(query);
+		std::transform(haystack.begin(), haystack.end(), haystack.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return haystack.find(needle) != std::string::npos;
+	}
+
+	void render_capture_banner(GLFWwindow* window) noexcept {
+		if (listening_action_ < 0) return;
+
+		ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Press any key to bind '%s' (%s slot). Press ESC to cancel.",
+			std::string(input_action_name(static_cast<InputAction>(listening_action_))).c_str(),
+			listening_slot_ == 0 ? "primary" : "secondary");
+
+		if (window == nullptr) return;
+
+		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+			listening_action_ = -1;
+			return;
+		}
+
+		for (int key : kBindableKeys) {
+			if (glfwGetKey(window, key) != GLFW_PRESS) continue;
+			const auto action = static_cast<InputAction>(listening_action_);
+			if (config_->keybinds.is_key_used_elsewhere(key, action)) {
+				auto& all_bindings = config_->keybinds.raw_bindings();
+				for (size_t i = 0; i < all_bindings.size(); ++i) {
+					if (static_cast<int>(i) == listening_action_) continue;
+					if (all_bindings[i].primary_key == key) all_bindings[i].primary_key = GLFW_KEY_UNKNOWN;
+					if (all_bindings[i].secondary_key == key) all_bindings[i].secondary_key = GLFW_KEY_UNKNOWN;
+				}
+				conflict_message_ = std::string("Reassigned '") + glfw_key_display_name(key) + "' from its previous action.";
+			} else {
+				conflict_message_.clear();
+			}
+			if (listening_slot_ == 0) {
+				config_->keybinds.set_primary(action, key);
+			} else {
+				config_->keybinds.set_secondary(action, key);
+			}
+			listening_action_ = -1;
+			break;
+		}
+	}
+
+	void render_action_row(InputAction action, const ConflictInfo& conflicts) noexcept {
+		const size_t idx = static_cast<size_t>(action);
+		const auto& binding = config_->keybinds.get(action);
+		const bool has_conflict = conflicts.primary_conflict[idx] || conflicts.secondary_conflict[idx];
+
+		ImGui::PushID(static_cast<int>(idx));
+
+		if (has_conflict) {
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.35f, 1.0f));
+		}
+		ImGui::TextUnformatted(std::string(input_action_name(action)).c_str());
+		if (has_conflict) {
+			ImGui::PopStyleColor();
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "[!]");
+			render_setting_tooltip_warning(
+				"This action shares a key with at least one other action.",
+				"Rebind one of the conflicting actions to avoid unpredictable input handling."
+			);
+		}
+
+		ImGui::SameLine(260.0f);
+		const bool prim_conflict = conflicts.primary_conflict[idx];
+		if (prim_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
+		if (ImGui::Button(glfw_key_display_name(binding.primary_key), ImVec2(100.0f, 0.0f))) {
+			listening_action_ = static_cast<int>(idx);
+			listening_slot_ = 0;
+			conflict_message_.clear();
+		}
+		if (prim_conflict) ImGui::PopStyleColor();
+
+		ImGui::SameLine();
+		const bool sec_conflict = conflicts.secondary_conflict[idx];
+		if (sec_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
+		if (ImGui::Button(glfw_key_display_name(binding.secondary_key), ImVec2(100.0f, 0.0f))) {
+			listening_action_ = static_cast<int>(idx);
+			listening_slot_ = 1;
+			conflict_message_.clear();
+		}
+		if (sec_conflict) ImGui::PopStyleColor();
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Clear")) {
+			config_->keybinds.set(action, GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN);
+		}
+
+		ImGui::PopID();
+	}
+
 public:
 	explicit KeybindSettingsWindow(CameraControlConfig& config) noexcept
 		: config_(&config) {}
@@ -44,10 +187,14 @@ public:
 		return is_open_;
 	}
 
+	[[nodiscard]] bool is_open() const noexcept {
+		return is_open_;
+	}
+
 	void render(GLFWwindow* window) {
 		if (!is_open_) return;
 
-		ImGui::SetNextWindowSize(ImVec2(640.0f, 660.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(660.0f, 620.0f), ImGuiCond_FirstUseEver);
 		if (!ImGui::Begin("Keybind Settings", &is_open_)) {
 			ImGui::End();
 			return;
@@ -61,94 +208,96 @@ public:
 			listening_action_ = -1;
 			conflict_message_.clear();
 		}
+		render_setting_tooltip("Applies the default movement bindings for the selected physical keyboard layout. Custom rebinds made afterward are preserved independently until this preset is reapplied.");
 		ImGui::TextWrapped("Switching layout resets every binding below to that layout's defaults. Individual bindings can still be customized afterward and are saved independently.");
 
 		ImGui::Separator();
 
-		if (listening_action_ >= 0) {
-			ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Press any key to bind '%s' (%s slot). Press ESC to cancel.",
-				std::string(input_action_name(static_cast<InputAction>(listening_action_))).c_str(),
-				listening_slot_ == 0 ? "primary" : "secondary");
-
-			if (window != nullptr) {
-				if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-					listening_action_ = -1;
-				} else {
-					for (int key : kBindableKeys) {
-						if (glfwGetKey(window, key) == GLFW_PRESS) {
-							const auto action = static_cast<InputAction>(listening_action_);
-							if (config_->keybinds.is_key_used_elsewhere(key, action)) {
-								auto& all_bindings = config_->keybinds.raw_bindings();
-								for (size_t i = 0; i < all_bindings.size(); ++i) {
-									if (static_cast<int>(i) == listening_action_) continue;
-									if (all_bindings[i].primary_key == key) all_bindings[i].primary_key = GLFW_KEY_UNKNOWN;
-									if (all_bindings[i].secondary_key == key) all_bindings[i].secondary_key = GLFW_KEY_UNKNOWN;
-								}
-								conflict_message_ = std::string("Reassigned '") + glfw_key_display_name(key) + "' from its previous action.";
-							} else {
-								conflict_message_.clear();
-							}
-							if (listening_slot_ == 0) {
-								config_->keybinds.set_primary(action, key);
-							} else {
-								config_->keybinds.set_secondary(action, key);
-							}
-							listening_action_ = -1;
-							break;
-						}
-					}
-				}
-			}
-		}
-
+		render_capture_banner(window);
 		if (!conflict_message_.empty()) {
 			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "%s", conflict_message_.c_str());
 		}
 
 		ImGui::Separator();
 
-		if (ImGui::BeginTable("KeybindTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0.0f, 480.0f))) {
-			ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Primary", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("Secondary", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("Clear", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-			ImGui::TableHeadersRow();
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputTextWithHint("##KeybindSearch", "Search actions or keys...", search_buffer_, sizeof(search_buffer_));
+		ImGui::SameLine();
 
-			for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
-				const auto action = static_cast<InputAction>(i);
-				const auto& binding = config_->keybinds.get(action);
+		const char* category_options[] = {
+			"All Categories", "Movement", "Camera Orientation", "Camera Framing",
+			"Quick Snap Positions", "Simulation Control", "Spacetime Model",
+			"Rendering Quality", "Interface Windows"
+		};
+		int category_combo_idx = category_filter_ + 1;
+		ImGui::SetNextItemWidth(200.0f);
+		if (ImGui::Combo("##CategoryFilter", &category_combo_idx, category_options, IM_ARRAYSIZE(category_options))) {
+			category_filter_ = category_combo_idx - 1;
+		}
+		ImGui::SameLine();
 
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(std::string(input_action_name(action)).c_str());
+		const char* sort_options[] = {"Sort: By Category", "Sort: Alphabetical", "Sort: Conflicts First"};
+		ImGui::SetNextItemWidth(190.0f);
+		ImGui::Combo("##SortMode", &sort_mode_, sort_options, IM_ARRAYSIZE(sort_options));
 
-				ImGui::TableSetColumnIndex(1);
-				ImGui::PushID(static_cast<int>(i) * 2);
-				if (ImGui::Button(glfw_key_display_name(binding.primary_key), ImVec2(-1.0f, 0.0f))) {
-					listening_action_ = static_cast<int>(i);
-					listening_slot_ = 0;
-					conflict_message_.clear();
+		const auto conflicts = compute_conflicts();
+		if (conflicts.total_conflicts > 0) {
+			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "%zu action(s) have conflicting key assignments.", conflicts.total_conflicts);
+		} else {
+			ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "No key conflicts detected.");
+		}
+
+		ImGui::Separator();
+
+		std::vector<InputAction> visible_actions;
+		visible_actions.reserve(static_cast<size_t>(InputAction::Count));
+		const std::string_view search_view(search_buffer_);
+		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+			const auto action = static_cast<InputAction>(i);
+			if (category_filter_ >= 0 && static_cast<int>(input_action_category(action)) != category_filter_) continue;
+			if (!matches_search(action, search_view)) continue;
+			visible_actions.push_back(action);
+		}
+
+		if (sort_mode_ == 1) {
+			std::sort(visible_actions.begin(), visible_actions.end(), [](InputAction a, InputAction b) {
+				return input_action_name(a) < input_action_name(b);
+			});
+		} else if (sort_mode_ == 2) {
+			std::sort(visible_actions.begin(), visible_actions.end(), [&](InputAction a, InputAction b) {
+				const size_t ia = static_cast<size_t>(a);
+				const size_t ib = static_cast<size_t>(b);
+				const bool ca = conflicts.primary_conflict[ia] || conflicts.secondary_conflict[ia];
+				const bool cb = conflicts.primary_conflict[ib] || conflicts.secondary_conflict[ib];
+				if (ca != cb) return ca && !cb;
+				return input_action_name(a) < input_action_name(b);
+			});
+		}
+
+		if (sort_mode_ == 0) {
+			for (uint32_t cat_idx = 0; cat_idx < static_cast<uint32_t>(InputActionCategory::InterfaceWindows) + 1; ++cat_idx) {
+				const auto category = static_cast<InputActionCategory>(cat_idx);
+				std::vector<InputAction> in_category;
+				for (auto action : visible_actions) {
+					if (input_action_category(action) == category) in_category.push_back(action);
 				}
-				ImGui::PopID();
+				if (in_category.empty()) continue;
 
-				ImGui::TableSetColumnIndex(2);
-				ImGui::PushID(static_cast<int>(i) * 2 + 1);
-				if (ImGui::Button(glfw_key_display_name(binding.secondary_key), ImVec2(-1.0f, 0.0f))) {
-					listening_action_ = static_cast<int>(i);
-					listening_slot_ = 1;
-					conflict_message_.clear();
+				const std::string header = std::string(input_action_category_name(category)) + " (" + std::to_string(in_category.size()) + ")";
+				if (ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+					for (auto action : in_category) {
+						render_action_row(action, conflicts);
+					}
 				}
-				ImGui::PopID();
-
-				ImGui::TableSetColumnIndex(3);
-				ImGui::PushID(static_cast<int>(i) + 10000);
-				if (ImGui::Button("X")) {
-					config_->keybinds.set(action, GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN);
-				}
-				ImGui::PopID();
 			}
+		} else {
+			for (auto action : visible_actions) {
+				render_action_row(action, conflicts);
+			}
+		}
 
-			ImGui::EndTable();
+		if (visible_actions.empty()) {
+			ImGui::TextDisabled("No actions match the current search and filter.");
 		}
 
 		ImGui::Separator();
@@ -156,6 +305,14 @@ public:
 			config_->keybinds.reset_to_layout_defaults(config_->keyboard_layout);
 			listening_action_ = -1;
 			conflict_message_.clear();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Clear All Bindings", ImVec2(160.0f, 28.0f))) {
+			auto& all_bindings = config_->keybinds.raw_bindings();
+			for (auto& b : all_bindings) {
+				b.primary_key = GLFW_KEY_UNKNOWN;
+				b.secondary_key = GLFW_KEY_UNKNOWN;
+			}
 		}
 
 		ImGui::End();

@@ -227,7 +227,7 @@ public:
 		}
 
 		if (spectrograph_window_.open_state()) {
-			spectrograph_window_.render();
+			spectrograph_window_.render(orchestrator_);
 		}
 
 		if (performance_window_.open_state()) {
@@ -353,6 +353,113 @@ private:
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleKeybindSettings, main_window_)) {
 			keybind_window_.open_state() = !keybind_window_.open_state();
 		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleScenarioWindow, main_window_)) {
+			if (scenario_window_) scenario_window_->open_state() = !scenario_window_->open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleDiagnosticsWindow, main_window_)) {
+			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleSpectrographWindow, main_window_)) {
+			spectrograph_window_.open_state() = !spectrograph_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleFullscreenViewport, main_window_)) {
+			multi_window_mode_ = !multi_window_mode_;
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleGpuCompute, main_window_)) {
+			const bool next_state = !orchestrator_.parameters().use_gpu_compute;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, next_state ? 1.0 : 0.0)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleSpaceSkipping, main_window_)) {
+			const bool next_state = !orchestrator_.parameters().space_skipping_enabled;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, next_state ? 1.0 : 0.0)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleLodSystem, main_window_)) {
+			const bool next_state = !orchestrator_.parameters().lod_enabled;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, next_state ? 1.0 : 0.0)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleWorkDistributionTiling, main_window_)) {
+			const bool next_state = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_TILED_DISTRIBUTION) == 0U;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WorkDistributionMode, next_state ? 1.0 : 0.0)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleStepController, main_window_)) {
+			const uint32_t next_mode = (orchestrator_.parameters().step_controller_mode + 1) % 3;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(next_mode))));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ResetToDefaultPerformance, main_window_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(2)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::IncreaseExposure, main_window_)) {
+			const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure + 0.25, -6.0, 6.0);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::DecreaseExposure, main_window_)) {
+			const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure - 0.25, -6.0, 6.0);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::IncreaseTimeWarp, main_window_)) {
+			const double next_warp = orchestrator_.scheduler().warp_factor() * 1.5;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::DecreaseTimeWarp, main_window_)) {
+			const double next_warp = std::max(orchestrator_.scheduler().warp_factor() / 1.5, 0.05);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::QuickSaveScenario, main_window_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario("scenarios/quicksave.yaml")));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::QuickLoadScenario, main_window_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario("scenarios/quicksave.yaml")));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleProjectionMode, main_window_)) {
+			const uint32_t next_mode = (orchestrator_.parameters().projection_mode + 1) % 8;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ProjectionMode, static_cast<double>(next_mode))));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleTonemapper, main_window_)) {
+			const uint32_t next_mode = (orchestrator_.parameters().tonemapping_mode + 1) % 4;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(next_mode))));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleSkyboxStyle, main_window_)) {
+			const uint32_t current_style = orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK;
+			const uint32_t next_style = (current_style + 1) % 6;
+			const uint32_t next_flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | next_style;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleMetric, main_window_)) {
+			static constexpr const char* kMetricCycle[] = {
+				"Flat Minkowski", "Schwarzschild Black Hole", "Kerr Rotating Black Hole",
+				"Reissner-Nordstrom Charged", "Kerr-Newman Charged Rotating",
+				"Schwarzschild-de Sitter (Lambda)", "FLRW Cosmological Expansion",
+				"Morris-Thorne Traversable Wormhole", "Alcubierre Warp Drive Bubble", "BSSN 3+1 Numerical Grid"
+			};
+			constexpr int metric_count = static_cast<int>(sizeof(kMetricCycle) / sizeof(kMetricCycle[0]));
+			int current_idx = 0;
+			for (int i = 0; i < metric_count; ++i) {
+				if (orchestrator_.active_metric_name() == kMetricCycle[i]) {
+					current_idx = i;
+					break;
+				}
+			}
+			const int next_idx = (current_idx + 1) % metric_count;
+			orchestrator_.set_active_metric_name(kMetricCycle[next_idx]);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(kMetricCycle[next_idx])));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleIntegrator, main_window_)) {
+			static constexpr const char* kIntegratorCycle[] = {
+				"Dormand-Prince RK45 (Adaptive)", "Cash-Karp 5(4) (Adaptive)", "Vernier 9(8) High-Order",
+				"Symplectic Gauss-Legendre 4th", "Symplectic Gauss-Legendre 6th", "Hermite 4th-Order (Aarseth)"
+			};
+			constexpr int integrator_count = static_cast<int>(sizeof(kIntegratorCycle) / sizeof(kIntegratorCycle[0]));
+			int current_idx = 0;
+			for (int i = 0; i < integrator_count; ++i) {
+				if (orchestrator_.active_integrator_name() == kIntegratorCycle[i]) {
+					current_idx = i;
+					break;
+				}
+			}
+			const int next_idx = (current_idx + 1) % integrator_count;
+			orchestrator_.set_active_integrator_name(kIntegratorCycle[next_idx]);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(kIntegratorCycle[next_idx])));
+		}
 	}
 
 	void dispatch_layout_reconfiguration() noexcept {
@@ -474,28 +581,6 @@ private:
 				ImGui::EndMenu();
 			}
 
-			if (ImGui::BeginMenu("Input & HUD")) {
-				if (ImGui::MenuItem("Keybind Settings", "B")) {
-					keybind_window_.open_state() = !keybind_window_.open_state();
-				}
-				if (ImGui::MenuItem("HUD Manager", "H")) {
-					hud_manager_window_.open_state() = !hud_manager_window_.open_state();
-				}
-				ImGui::Separator();
-				if (ImGui::BeginMenu("Keyboard Layout")) {
-					bool is_qwerty = camera_controller_.config().keyboard_layout == KeyboardLayout::Qwerty;
-					bool is_azerty = camera_controller_.config().keyboard_layout == KeyboardLayout::Azerty;
-					if (ImGui::MenuItem("QWERTY", nullptr, is_qwerty)) {
-						camera_controller_.config().apply_keyboard_layout(KeyboardLayout::Qwerty);
-					}
-					if (ImGui::MenuItem("AZERTY", nullptr, is_azerty)) {
-						camera_controller_.config().apply_keyboard_layout(KeyboardLayout::Azerty);
-					}
-					ImGui::EndMenu();
-				}
-				ImGui::EndMenu();
-			}
-
 			if (ImGui::BeginMenu("View Windows")) {
 				ImGui::MenuItem("3D Primary Viewport", nullptr, &show_viewport_);
 				if (scenario_window_) {
@@ -507,6 +592,9 @@ private:
 				ImGui::MenuItem("Curvature Diagnostics", nullptr, &diagnostics_window_.open_state());
 				ImGui::MenuItem("Curvature Telemetry", nullptr, &telemetry_window_.open_state());
 				ImGui::MenuItem("Spectrograph Monitor", nullptr, &spectrograph_window_.open_state());
+				ImGui::Separator();
+				ImGui::MenuItem("Keybind Settings", "B", &keybind_window_.open_state());
+				ImGui::MenuItem("HUD Manager", "H", &hud_manager_window_.open_state());
 				ImGui::EndMenu();
 			}
 

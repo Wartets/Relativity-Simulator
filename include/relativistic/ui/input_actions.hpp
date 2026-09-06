@@ -47,8 +47,123 @@ enum class InputAction : uint32_t {
 	CaptureScreenshot,
 	ToggleHudManager,
 	ToggleKeybindSettings,
+	CycleMetric,
+	CycleIntegrator,
+	CycleProjectionMode,
+	CycleTonemapper,
+	CycleSkyboxStyle,
+	ToggleGpuCompute,
+	ToggleSpaceSkipping,
+	ToggleLodSystem,
+	IncreaseExposure,
+	DecreaseExposure,
+	IncreaseTimeWarp,
+	DecreaseTimeWarp,
+	QuickSaveScenario,
+	QuickLoadScenario,
+	ToggleFullscreenViewport,
+	ToggleWorkDistributionTiling,
+	CycleStepController,
+	ResetToDefaultPerformance,
+	ToggleScenarioWindow,
+	ToggleDiagnosticsWindow,
+	ToggleSpectrographWindow,
 	Count
 };
+
+enum class InputActionCategory : uint32_t {
+	Movement = 0,
+	CameraOrientation,
+	CameraFraming,
+	QuickSnap,
+	SimulationControl,
+	SpacetimeModel,
+	RenderingQuality,
+	InterfaceWindows
+};
+
+[[nodiscard]] constexpr std::string_view input_action_category_name(InputActionCategory category) noexcept {
+	switch (category) {
+		case InputActionCategory::Movement: return "Movement";
+		case InputActionCategory::CameraOrientation: return "Camera Orientation";
+		case InputActionCategory::CameraFraming: return "Camera Framing";
+		case InputActionCategory::QuickSnap: return "Quick Snap Positions";
+		case InputActionCategory::SimulationControl: return "Simulation Control";
+		case InputActionCategory::SpacetimeModel: return "Spacetime Model";
+		case InputActionCategory::RenderingQuality: return "Rendering Quality";
+		case InputActionCategory::InterfaceWindows: return "Interface Windows";
+		default: return "Other";
+	}
+}
+
+[[nodiscard]] constexpr InputActionCategory input_action_category(InputAction action) noexcept {
+	switch (action) {
+		case InputAction::MoveForward:
+		case InputAction::MoveBackward:
+		case InputAction::MoveLeft:
+		case InputAction::MoveRight:
+		case InputAction::MoveUp:
+		case InputAction::MoveDown:
+		case InputAction::RollLeft:
+		case InputAction::RollRight:
+		case InputAction::Sprint:
+		case InputAction::Crawl:
+			return InputActionCategory::Movement;
+		case InputAction::LookAtOrigin:
+		case InputAction::ResetRoll:
+		case InputAction::ZoomModifier:
+			return InputActionCategory::CameraOrientation;
+		case InputAction::SpeedDecrease:
+		case InputAction::SpeedIncrease:
+		case InputAction::IncreaseExposure:
+		case InputAction::DecreaseExposure:
+		case InputAction::CycleProjectionMode:
+		case InputAction::CycleTonemapper:
+		case InputAction::CycleSkyboxStyle:
+			return InputActionCategory::CameraFraming;
+		case InputAction::SnapEquatorialFront:
+		case InputAction::SnapEquatorialSide:
+		case InputAction::SnapNorthPole:
+		case InputAction::SnapSouthPole:
+		case InputAction::SnapIsco:
+			return InputActionCategory::QuickSnap;
+		case InputAction::TogglePausePlay:
+		case InputAction::SingleStepTick:
+		case InputAction::ResetClock:
+		case InputAction::CycleCameraMode:
+		case InputAction::IncreaseTimeWarp:
+		case InputAction::DecreaseTimeWarp:
+		case InputAction::QuickSaveScenario:
+		case InputAction::QuickLoadScenario:
+			return InputActionCategory::SimulationControl;
+		case InputAction::CycleMetric:
+		case InputAction::CycleIntegrator:
+			return InputActionCategory::SpacetimeModel;
+		case InputAction::ToggleGpuCompute:
+		case InputAction::ToggleSpaceSkipping:
+		case InputAction::ToggleLodSystem:
+		case InputAction::ToggleWorkDistributionTiling:
+		case InputAction::CycleStepController:
+		case InputAction::ResetToDefaultPerformance:
+			return InputActionCategory::RenderingQuality;
+		case InputAction::ToggleControlPanel:
+		case InputAction::LayoutMultiWindow:
+		case InputAction::LayoutDocked:
+		case InputAction::LayoutViewportFocus:
+		case InputAction::ToggleBodyManager:
+		case InputAction::ToggleTelemetryWindow:
+		case InputAction::TogglePerformanceWindow:
+		case InputAction::CaptureScreenshot:
+		case InputAction::ToggleHudManager:
+		case InputAction::ToggleKeybindSettings:
+		case InputAction::ToggleFullscreenViewport:
+		case InputAction::ToggleScenarioWindow:
+		case InputAction::ToggleDiagnosticsWindow:
+		case InputAction::ToggleSpectrographWindow:
+		default:
+			return InputActionCategory::InterfaceWindows;
+	}
+}
 
 [[nodiscard]] constexpr std::string_view input_action_name(InputAction action) noexcept {
 	switch (action) {
@@ -86,6 +201,27 @@ enum class InputAction : uint32_t {
 		case InputAction::CaptureScreenshot: return "Capture Screenshot";
 		case InputAction::ToggleHudManager: return "Toggle HUD Manager";
 		case InputAction::ToggleKeybindSettings: return "Toggle Keybind Settings";
+		case InputAction::CycleMetric: return "Cycle Spacetime Metric";
+		case InputAction::CycleIntegrator: return "Cycle ODE Integrator";
+		case InputAction::CycleProjectionMode: return "Cycle Projection Mode";
+		case InputAction::CycleTonemapper: return "Cycle HDR Tonemapper";
+		case InputAction::CycleSkyboxStyle: return "Cycle Skybox Style";
+		case InputAction::ToggleGpuCompute: return "Toggle GPU Compute Offload";
+		case InputAction::ToggleSpaceSkipping: return "Toggle Adaptive Space-Skipping";
+		case InputAction::ToggleLodSystem: return "Toggle Distance-Based LOD";
+		case InputAction::IncreaseExposure: return "Increase Exposure (EV)";
+		case InputAction::DecreaseExposure: return "Decrease Exposure (EV)";
+		case InputAction::IncreaseTimeWarp: return "Increase Time Warp Factor";
+		case InputAction::DecreaseTimeWarp: return "Decrease Time Warp Factor";
+		case InputAction::QuickSaveScenario: return "Quick Save Scenario";
+		case InputAction::QuickLoadScenario: return "Quick Load Scenario";
+		case InputAction::ToggleFullscreenViewport: return "Toggle Fullscreen Viewport";
+		case InputAction::ToggleWorkDistributionTiling: return "Toggle Tiled Work Distribution";
+		case InputAction::CycleStepController: return "Cycle Adaptive Step Controller";
+		case InputAction::ResetToDefaultPerformance: return "Reset Performance To Balanced Preset";
+		case InputAction::ToggleScenarioWindow: return "Toggle Scenario Catalog Window";
+		case InputAction::ToggleDiagnosticsWindow: return "Toggle Curvature Diagnostics Window";
+		case InputAction::ToggleSpectrographWindow: return "Toggle Spectrograph Window";
 		default: return "Unknown Action";
 	}
 }
@@ -106,10 +242,51 @@ struct KeyBinding {
 	}
 };
 
+[[nodiscard]] constexpr const char* qwerty_reference_key_name(int key) noexcept {
+	switch (key) {
+		case GLFW_KEY_A: return "A";
+		case GLFW_KEY_B: return "B";
+		case GLFW_KEY_C: return "C";
+		case GLFW_KEY_D: return "D";
+		case GLFW_KEY_E: return "E";
+		case GLFW_KEY_F: return "F";
+		case GLFW_KEY_G: return "G";
+		case GLFW_KEY_H: return "H";
+		case GLFW_KEY_I: return "I";
+		case GLFW_KEY_J: return "J";
+		case GLFW_KEY_K: return "K";
+		case GLFW_KEY_L: return "L";
+		case GLFW_KEY_M: return "M";
+		case GLFW_KEY_N: return "N";
+		case GLFW_KEY_O: return "O";
+		case GLFW_KEY_P: return "P";
+		case GLFW_KEY_Q: return "Q";
+		case GLFW_KEY_R: return "R";
+		case GLFW_KEY_S: return "S";
+		case GLFW_KEY_T: return "T";
+		case GLFW_KEY_U: return "U";
+		case GLFW_KEY_V: return "V";
+		case GLFW_KEY_W: return "W";
+		case GLFW_KEY_X: return "X";
+		case GLFW_KEY_Y: return "Y";
+		case GLFW_KEY_Z: return "Z";
+		case GLFW_KEY_0: return "0";
+		case GLFW_KEY_1: return "1";
+		case GLFW_KEY_2: return "2";
+		case GLFW_KEY_3: return "3";
+		case GLFW_KEY_4: return "4";
+		case GLFW_KEY_5: return "5";
+		case GLFW_KEY_6: return "6";
+		case GLFW_KEY_7: return "7";
+		case GLFW_KEY_8: return "8";
+		case GLFW_KEY_9: return "9";
+		default: return nullptr;
+	}
+}
+
 [[nodiscard]] inline const char* glfw_key_display_name(int key) noexcept {
 	if (key == GLFW_KEY_UNKNOWN) return "---";
-	const char* name = glfwGetKeyName(key, 0);
-	if (name != nullptr) return name;
+	if (const char* canonical = qwerty_reference_key_name(key)) return canonical;
 	switch (key) {
 		case GLFW_KEY_SPACE: return "Space";
 		case GLFW_KEY_TAB: return "Tab";

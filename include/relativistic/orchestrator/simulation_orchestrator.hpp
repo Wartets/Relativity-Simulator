@@ -7,6 +7,7 @@
 #include "relativistic/io/scenario_serializer.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
+#include "relativistic/dynamics/pn_integrator.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -129,9 +130,115 @@ private:
 		camera_.phi = std::atan2(y, x);
 	}
 
+	void sync_central_body_with_system() noexcept {
+		if (params_.mass <= 0.0) {
+			nbody_system_.clear_central_body();
+			return;
+		}
+
+		bool body_at_center = false;
+		for (const auto& b : nbody_system_.bodies()) {
+			const double d2 = b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2];
+			if (d2 < 1e-12 && b.mass > 0.5 * params_.mass) {
+				body_at_center = true;
+				break;
+			}
+		}
+
+		if (!body_at_center) {
+			Dynamics::PostNewtonianBody cb(
+				0, params_.mass, 2.0 * params_.mass,
+				{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+				{0.0, 0.0, params_.spin * params_.mass}
+			);
+			cb.set_name("Central Object");
+			nbody_system_.set_central_body(cb, true);
+		} else {
+			nbody_system_.clear_central_body();
+		}
+	}
+
+	void handle_horizon_absorption() noexcept {
+		if (params_.mass <= 0.0) return;
+		const double r_g = params_.mass;
+		const double a = std::clamp(params_.spin, -0.999 * params_.mass, 0.999 * params_.mass);
+		const double r_h = r_g + std::sqrt(std::max(r_g * r_g - a * a, 0.0));
+
+		auto bodies = nbody_system_.bodies();
+		bool absorbed_any = false;
+		std::vector<Dynamics::PostNewtonianBody> survivors;
+		survivors.reserve(bodies.size());
+
+		for (size_t i = 0; i < bodies.size(); ++i) {
+			const auto& b = bodies[i];
+			const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
+			if (r <= r_h * 1.001) {
+				params_.mass += b.mass;
+				absorbed_any = true;
+			} else {
+				survivors.push_back(b);
+			}
+		}
+
+		if (absorbed_any) {
+			nbody_system_.clear_bodies();
+			for (auto& sb : survivors) {
+				nbody_system_.add_body(sb);
+			}
+			nbody_system_.update_accelerations();
+			sync_central_body_with_system();
+		}
+	}
+
+	void step_nbody_dynamics(double dt) noexcept {
+		if (dt <= 0.0 || nbody_system_.body_count() == 0) return;
+
+		double min_r = 1e30;
+		for (const auto& b : nbody_system_.bodies()) {
+			const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
+			if (r < min_r) min_r = r;
+		}
+
+		const double max_omega = std::sqrt(std::max(params_.mass, 1e-4) / std::max(min_r * min_r * min_r, 1e-6));
+		const double safe_sub_dt = (max_omega > 0.0) ? (0.2 / max_omega) : dt;
+		const size_t sub_steps = std::clamp(static_cast<size_t>(std::ceil(dt / std::max(safe_sub_dt, 1e-6))), size_t{1}, size_t{20});
+		const double sub_dt = dt / static_cast<double>(sub_steps);
+
+		const bool use_symplectic = (active_integrator_name_.find("Symplectic") != std::string::npos) ||
+		                            (active_integrator_name_.find("Gauss") != std::string::npos);
+
+		for (size_t s = 0; s < sub_steps; ++s) {
+			if (use_symplectic) {
+				Dynamics::SymplecticForestRuthPNIntegrator::step(nbody_system_, sub_dt);
+			} else {
+				Dynamics::RungeKutta4PNIntegrator::step(nbody_system_, sub_dt);
+			}
+			handle_horizon_absorption();
+		}
+	}
+
 public:
+	void advance_simulation(double dt) noexcept {
+		if (dt <= 0.0) return;
+
+		sync_central_body_with_system();
+
+		if (nbody_system_.body_count() > 0) {
+			step_nbody_dynamics(dt);
+		}
+
+		if (params_.camera_mode == 3 && !scheduler_.is_paused()) {
+			camera_.position[0] += camera_.velocity[0] * dt;
+			camera_.position[1] += camera_.velocity[1] * dt;
+			camera_.position[2] += camera_.velocity[2] * dt;
+			sync_camera_spherical_from_cartesian();
+		}
+
+		state_version_.fetch_add(1, std::memory_order_release);
+	}
 	SimulationOrchestrator() noexcept {
 		sync_camera_spherical_from_cartesian();
+		sync_central_body_with_system();
 	}
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {
@@ -180,6 +287,7 @@ public:
 				params_ = PhysicalParameters{};
 				camera_ = CameraState{};
 				sync_camera_spherical_from_cartesian();
+				sync_central_body_with_system();
 				for (auto& entry : custom_params_) {
 					entry.active = false;
 				}

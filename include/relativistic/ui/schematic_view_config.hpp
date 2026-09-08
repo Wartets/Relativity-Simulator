@@ -92,6 +92,7 @@ struct SchematicObjectDisplayConfig {
 
 struct SchematicViewConfig {
 	bool respect_active_projection_mode{true};
+	bool show_overlay_in_raytraced_view{true};
 
 	bool show_central_object{true};
 	bool show_bodies{true};

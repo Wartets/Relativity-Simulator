@@ -331,6 +331,15 @@ private:
 		}
 
 		if (time_running) {
+			if (orchestrator_.parameters().mass > 0.0) {
+				const double gm = orchestrator_.parameters().mass;
+				const double r2 = cam.position[0] * cam.position[0] + cam.position[1] * cam.position[1] + cam.position[2] * cam.position[2];
+				const double r = std::sqrt(std::max(r2, 1e-4));
+				const double a_grav = gm / r2;
+				cam.velocity[0] -= a_grav * (cam.position[0] / r) * dt;
+				cam.velocity[1] -= a_grav * (cam.position[1] / r) * dt;
+				cam.velocity[2] -= a_grav * (cam.position[2] / r) * dt;
+			}
 			cam.position[0] += cam.velocity[0] * dt;
 			cam.position[1] += cam.velocity[1] * dt;
 			cam.position[2] += cam.velocity[2] * dt;

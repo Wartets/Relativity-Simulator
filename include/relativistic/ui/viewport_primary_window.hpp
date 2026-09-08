@@ -455,6 +455,14 @@ public:
 				avail, zoom_uv0, zoom_uv1
 			);
 
+			if (schematic_cfg_.show_overlay_in_raytraced_view) {
+				const auto proj_mode = schematic_cfg_.respect_active_projection_mode
+					? static_cast<Observer::ProjectionMode>(params.projection_mode)
+					: Observer::ProjectionMode::Pinhole;
+				schematic_renderer_.configure(cam, proj_mode, cam.fov_deg * (std::numbers::pi / 180.0), viewport_image_pos, avail);
+				schematic_renderer_.render_overlay(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
+			}
+
 			if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
 				render_viewport_toolbar(avail);
 			}

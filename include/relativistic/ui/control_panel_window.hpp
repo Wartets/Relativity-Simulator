@@ -491,6 +491,7 @@ private:
 		cam.theta = (r_new > 0.0) ? std::acos(std::clamp(z / r_new, -1.0, 1.0)) : (std::numbers::pi_v<double> / 2.0);
 		cam.phi = std::atan2(y, x);
 		cam.orbit_distance = cam.radius;
+		orchestrator_.notify_state_changed();
 	}
 
 	void render_skybox_tab() noexcept {
@@ -874,6 +875,8 @@ private:
 		ImGui::Separator();
 		ImGui::Checkbox("Respect Active Camera Projection Mode", &schematic_cfg_.respect_active_projection_mode);
 		render_setting_tooltip("When enabled, the schematic view reprojects geometry using the same projection (Pinhole, Fisheye, Equirectangular, etc.) selected in Optics & Camera. When disabled, a standard pinhole projection is always used.");
+		ImGui::Checkbox("Show Body & Orbit Overlays In Raytraced View", &schematic_cfg_.show_overlay_in_raytraced_view);
+		render_setting_tooltip("When enabled, projects orbiting bodies, trails, tags, and vectors on top of the raytraced 3D viewport so you can see them orbiting the black hole without switching to Schematic View.");
 
 		ImGui::Separator();
 		ImGui::Checkbox("Show Central Object", &schematic_cfg_.show_central_object);

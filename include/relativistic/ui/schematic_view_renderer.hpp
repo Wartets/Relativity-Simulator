@@ -786,6 +786,43 @@ public:
 		tetrad_up_ = {-sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
 	}
 
+	void render_overlay(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
+		const auto& sys = orchestrator.nbody_system();
+		const auto bodies = sys.bodies();
+		if (bodies.empty()) return;
+
+		const auto& params = orchestrator.parameters();
+		const double mu = std::max(params.mass, 1e-6);
+
+		update_trails(bodies, cfg);
+		if (cfg.show_trails) {
+			draw_trails(draw_list, cfg);
+		}
+
+		if (cfg.show_orbit_predictions) {
+			for (const auto& body : bodies) {
+				const auto pts = compute_orbit_ellipse_points(body.position, body.velocity, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_max_eccentricity);
+				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), true);
+			}
+		}
+
+		double min_val = std::numeric_limits<double>::max();
+		double max_val = std::numeric_limits<double>::lowest();
+		if (cfg.body_style.color_mode != SchematicColorCodingMode::Uniform) {
+			for (const auto& body : bodies) {
+				const double v = body_scalar_value(body, cfg.body_style.color_mode);
+				min_val = std::min(min_val, v);
+				max_val = std::max(max_val, v);
+			}
+		}
+
+		if (cfg.show_bodies) {
+			for (const auto& body : bodies) {
+				draw_body(draw_list, body, cfg, min_val, max_val);
+			}
+		}
+	}
+
 	void render(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
 		draw_list->AddRectFilled(rect_min_, ImVec2(rect_min_.x + rect_size_.x, rect_min_.y + rect_size_.y), IM_COL32(5, 6, 10, 255));
 

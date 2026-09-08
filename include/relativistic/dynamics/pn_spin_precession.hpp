@@ -67,8 +67,8 @@ public:
 		const std::array<double, 3> l_orb = mul3(cross3(r_vec, v_vec), mu);
 
 		if (config.enable_spin_orbit) {
-			const double factor_so1 = g / (c2 * r3) * (2.0 + (1.5 * m2 / m1));
-			const double factor_so2 = g / (c2 * r3) * (2.0 + (1.5 * m1 / m2));
+			const double factor_so1 = (m1 > 0.0) ? (g / (c2 * r3) * (2.0 + (1.5 * m2 / m1))) : 0.0;
+			const double factor_so2 = (m2 > 0.0) ? (g / (c2 * r3) * (2.0 + (1.5 * m1 / m2))) : 0.0;
 
 			res.omega_1 = add3(res.omega_1, mul3(l_orb, factor_so1));
 			res.omega_2 = add3(res.omega_2, mul3(l_orb, factor_so2));

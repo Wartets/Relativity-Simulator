@@ -20,6 +20,9 @@ private:
 	uint64_t step_count_{0};
 	GravitationalWaveEmission latest_gw_emission_{};
 	std::vector<PostNewtonianAccelerations> accelerations_buffer_{};
+	bool has_central_body_{false};
+	bool central_body_stationary_{true};
+	PostNewtonianBody central_body_{};
 
 public:
 	explicit PostNewtonianSystem(const PNOrderConfig& config = {}) noexcept
@@ -37,6 +40,36 @@ public:
 		bodies_.clear();
 		time_ = 0.0;
 		step_count_ = 0;
+	}
+
+	void set_central_body(const PostNewtonianBody& cb, bool stationary = true) noexcept {
+		central_body_ = cb;
+		has_central_body_ = true;
+		central_body_stationary_ = stationary;
+	}
+
+	void clear_central_body() noexcept {
+		has_central_body_ = false;
+	}
+
+	[[nodiscard]] bool has_central_body() const noexcept {
+		return has_central_body_;
+	}
+
+	[[nodiscard]] const PostNewtonianBody& central_body() const noexcept {
+		return central_body_;
+	}
+
+	[[nodiscard]] PostNewtonianBody& central_body() noexcept {
+		return central_body_;
+	}
+
+	[[nodiscard]] bool is_central_body_stationary() const noexcept {
+		return central_body_stationary_;
+	}
+
+	void set_central_body_stationary(bool stationary) noexcept {
+		central_body_stationary_ = stationary;
 	}
 
 	[[nodiscard]] std::span<const PostNewtonianBody> bodies() const noexcept {
@@ -75,7 +108,7 @@ public:
 		const size_t n = bodies_.size();
 		if (n == 0) return;
 
-		if (n == 2) {
+		if (!has_central_body_ && n == 2) {
 			const auto& b1 = bodies_[0];
 			const auto& b2 = bodies_[1];
 			const std::array<double, 3> r_rel = {b1.position[0] - b2.position[0], b1.position[1] - b2.position[1], b1.position[2] - b2.position[2]};
@@ -97,9 +130,39 @@ public:
 			if (accelerations_buffer_.size() != n) {
 				accelerations_buffer_.resize(n);
 			}
-			PostNewtonianSolver::compute_nbody_accelerations(bodies_, config_, accelerations_buffer_);
-			for (size_t i = 0; i < n; ++i) {
-				bodies_[i].acceleration = accelerations_buffer_[i].a_total;
+			if (n >= 2) {
+				PostNewtonianSolver::compute_nbody_accelerations(bodies_, config_, accelerations_buffer_);
+				for (size_t i = 0; i < n; ++i) {
+					bodies_[i].acceleration = accelerations_buffer_[i].a_total;
+				}
+			} else {
+				for (size_t i = 0; i < n; ++i) {
+					bodies_[i].acceleration = {0.0, 0.0, 0.0};
+				}
+			}
+
+			if (has_central_body_ && central_body_.mass > 0.0) {
+				for (size_t i = 0; i < n; ++i) {
+					const std::array<double, 3> r_rel = {
+						central_body_.position[0] - bodies_[i].position[0],
+						central_body_.position[1] - bodies_[i].position[1],
+						central_body_.position[2] - bodies_[i].position[2]
+					};
+					const std::array<double, 3> v_rel = {
+						central_body_.velocity[0] - bodies_[i].velocity[0],
+						central_body_.velocity[1] - bodies_[i].velocity[1],
+						central_body_.velocity[2] - bodies_[i].velocity[2]
+					};
+					const auto acc_cen = PostNewtonianSolver::compute_binary_relative_acceleration(
+						r_rel, v_rel, central_body_.mass, bodies_[i].mass,
+						central_body_.spin, bodies_[i].spin, config_
+					);
+					const double m_tot = central_body_.mass + bodies_[i].mass;
+					const double f_i = (m_tot > 0.0) ? (-central_body_.mass / m_tot) : -1.0;
+					for (size_t c = 0; c < 3; ++c) {
+						bodies_[i].acceleration[c] += f_i * acc_cen.a_total[c];
+					}
+				}
 			}
 		}
 

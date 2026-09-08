@@ -177,7 +177,9 @@ public:
 
 		if (config.enable_spin_orbit) {
 			const std::array<double, 3> s_total = add3(s1, s2);
-			const std::array<double, 3> sigma = add3(mul3(s1, m2 / m1), mul3(s2, m1 / m2));
+			const std::array<double, 3> sig1 = (m1 > 0.0) ? mul3(s1, m2 / m1) : std::array<double, 3>{0.0, 0.0, 0.0};
+			const std::array<double, 3> sig2 = (m2 > 0.0) ? mul3(s2, m1 / m2) : std::array<double, 3>{0.0, 0.0, 0.0};
+			const std::array<double, 3> sigma = add3(sig1, sig2);
 			const std::array<double, 3> s_eff = add3(mul3(s_total, 2.0), sigma);
 
 			const std::array<double, 3> n_cross_seff = cross3(n, s_eff);
@@ -195,7 +197,7 @@ public:
 			res.a_spin_orbit = mul3(add3(term1, add3(term2, term3)), factor_so);
 		}
 
-		if (config.enable_spin_spin) {
+		if (config.enable_spin_spin && mu > 0.0) {
 			const double r4 = r2 * r2;
 			const double factor_ss = -3.0 * g / (mu * c2 * r4);
 
@@ -214,13 +216,13 @@ public:
 				const double s1_sq = dot3(s1, s1);
 				const double s2_sq = dot3(s2, s2);
 
-				const double factor_s1s1 = -1.5 * g * (m2 / m1) / (mu * c2 * r4);
+				const double factor_s1s1 = (m1 > 0.0) ? (-1.5 * g * (m2 / m1) / (mu * c2 * r4)) : 0.0;
 				const std::array<double, 3> s1s1_term = add3(
 					mul3(n, s1_sq - 5.0 * n_dot_s1 * n_dot_s1),
 					mul3(s1, 2.0 * n_dot_s1)
 				);
 
-				const double factor_s2s2 = -1.5 * g * (m1 / m2) / (mu * c2 * r4);
+				const double factor_s2s2 = (m2 > 0.0) ? (-1.5 * g * (m1 / m2) / (mu * c2 * r4)) : 0.0;
 				const std::array<double, 3> s2s2_term = add3(
 					mul3(n, s2_sq - 5.0 * n_dot_s2 * n_dot_s2),
 					mul3(s2, 2.0 * n_dot_s2)

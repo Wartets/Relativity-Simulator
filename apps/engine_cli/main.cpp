@@ -37,7 +37,10 @@ int main(int argc, char* argv[]) {
 
 			if (!orchestrator->parameters().schematic_mode_enabled || orchestrator->parameters().schematic_allow_simulation) {
 				while (orchestrator->scheduler().can_advance_tick()) {
-					orchestrator->scheduler().advance_tick();
+					if (orchestrator->scheduler().advance_tick()) {
+						const double tick_dt = orchestrator->scheduler().tick_dt() * orchestrator->scheduler().warp_factor();
+						orchestrator->advance_simulation(tick_dt);
+					}
 				}
 			}
 

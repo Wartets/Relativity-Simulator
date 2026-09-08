@@ -10,6 +10,12 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(ENGINE_PORTABLE_EXE "Build engine_cli as a self-contained Windows executable" OFF)
+
+if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
+endif()
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	set(STRICT_CXX_FLAGS
 		-Wall
@@ -449,6 +455,10 @@ endif()
 
 add_executable(engine_cli apps/engine_cli/main.cpp)
 target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)
+
+if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
+	target_link_options(engine_cli PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
 
 add_executable(headless_exporter apps/headless_exporter/main.cpp)
 target_link_libraries(headless_exporter PRIVATE relativistic_core)

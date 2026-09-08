@@ -40,6 +40,7 @@
 
 # Build directories
 build/
+build-release/
 Build/
 build-*/
 

@@ -155,9 +155,9 @@ public:
 		navigation_mode_ = static_cast<CameraNavigationMode>(orchestrator_.parameters().camera_mode);
 
 		double boost_multiplier = 1.0;
-		if (config_.keybinds.is_pressed(InputAction::Sprint, window)) {
+		if (config_.keybinds.is_active(InputAction::Sprint, window)) {
 			boost_multiplier = config_.free_fly.sprint_multiplier;
-		} else if (config_.keybinds.is_pressed(InputAction::Crawl, window)) {
+		} else if (config_.keybinds.is_active(InputAction::Crawl, window)) {
 			boost_multiplier = config_.free_fly.crawl_multiplier;
 		}
 

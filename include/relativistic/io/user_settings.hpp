@@ -167,6 +167,12 @@ struct UserSettings {
 				const int secondary = (it_secondary != kv.end()) ? get_i32(secondary_key.c_str(), current_bind.secondary_key) : current_bind.secondary_key;
 				result.camera_controls.keybinds.set(action, primary, secondary);
 			}
+			const std::string mode_key = "kb_" + std::to_string(i) + "_mode";
+			auto it_mode = kv.find(mode_key);
+			if (it_mode != kv.end()) {
+				const auto action = static_cast<UI::InputAction>(i);
+				result.camera_controls.keybinds.set_mode(action, static_cast<UI::InputActivationMode>(get_u32(mode_key.c_str(), 0)));
+			}
 		}
 
 		result.hud_layout.master_enabled = get_bool("hud_master_enabled", result.hud_layout.master_enabled);
@@ -233,6 +239,7 @@ struct UserSettings {
 			const auto& binding = camera_controls.keybinds.get(static_cast<UI::InputAction>(i));
 			out << "kb_" << i << "_primary=" << binding.primary_key << "\n";
 			out << "kb_" << i << "_secondary=" << binding.secondary_key << "\n";
+			out << "kb_" << i << "_mode=" << static_cast<uint32_t>(binding.mode) << "\n";
 		}
 
 		out << "hud_master_enabled=" << (hud_layout.master_enabled ? 1 : 0) << "\n";

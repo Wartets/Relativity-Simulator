@@ -287,6 +287,10 @@ public:
 		if (res.success && command_marks_custom_performance_preset(cmd)) {
 			params_.performance_preset = CUSTOM_PERFORMANCE_PRESET;
 		}
+
+		if (res.success && cmd.type != CommandType::Status && cmd.type != CommandType::None) {
+			state_version_.fetch_add(1, std::memory_order_release);
+		}
 	}
 
 	[[nodiscard]] static constexpr bool command_marks_custom_performance_preset(const Command& cmd) noexcept {

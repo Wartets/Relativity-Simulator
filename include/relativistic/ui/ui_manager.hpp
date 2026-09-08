@@ -106,7 +106,7 @@ public:
 		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) {
 			auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
 			if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
-				if (self->camera_controller_.config().keybinds.is_pressed(InputAction::ZoomModifier, win)) {
+				if (self->camera_controller_.config().keybinds.is_active(InputAction::ZoomModifier, win)) {
 					self->viewport_window_->handle_zoom_scroll(yoffset);
 				} else {
 					self->camera_controller_.handle_scroll(yoffset);

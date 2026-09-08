@@ -92,6 +92,10 @@ private:
 		return haystack.find(needle) != std::string::npos;
 	}
 
+	[[nodiscard]] static bool action_supports_activation_mode(InputAction action) noexcept {
+		return action == InputAction::ZoomModifier || action == InputAction::Sprint || action == InputAction::Crawl;
+	}
+
 	void render_capture_banner(GLFWwindow* window) noexcept {
 		if (listening_action_ < 0) return;
 
@@ -154,7 +158,7 @@ private:
 		ImGui::SameLine(260.0f);
 		const bool prim_conflict = conflicts.primary_conflict[idx];
 		if (prim_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
-		const std::string primary_label = std::string(glfw_key_display_name(binding.primary_key)) + "##primary";
+		const std::string primary_label = std::string(glfw_key_display_name(binding.primary_key, config_->keyboard_layout)) + "##primary";
 		if (ImGui::Button(primary_label.c_str(), ImVec2(100.0f, 0.0f))) {
 			listening_action_ = static_cast<int>(idx);
 			listening_slot_ = 0;
@@ -165,7 +169,7 @@ private:
 		ImGui::SameLine();
 		const bool sec_conflict = conflicts.secondary_conflict[idx];
 		if (sec_conflict) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.25f, 0.15f, 1.0f));
-		const std::string secondary_label = std::string(glfw_key_display_name(binding.secondary_key)) + "##secondary";
+		const std::string secondary_label = std::string(glfw_key_display_name(binding.secondary_key, config_->keyboard_layout)) + "##secondary";
 		if (ImGui::Button(secondary_label.c_str(), ImVec2(100.0f, 0.0f))) {
 			listening_action_ = static_cast<int>(idx);
 			listening_slot_ = 1;
@@ -176,6 +180,22 @@ private:
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Clear")) {
 			config_->keybinds.set(action, GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN);
+		}
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Default")) {
+			config_->keybinds.reset_to_default(action, config_->keyboard_layout);
+		}
+
+		if (action_supports_activation_mode(action)) {
+			ImGui::SameLine();
+			const char* mode_names[] = {"Hold", "Toggle"};
+			int mode_idx = (binding.mode == InputActivationMode::Toggle) ? 1 : 0;
+			ImGui::SetNextItemWidth(90.0f);
+			if (ImGui::Combo("##activation_mode", &mode_idx, mode_names, IM_ARRAYSIZE(mode_names))) {
+				config_->keybinds.set_mode(action, mode_idx == 1 ? InputActivationMode::Toggle : InputActivationMode::Hold);
+			}
+			render_setting_tooltip("Hold keeps this action active only while the key is held down. Toggle flips the action on and off each time the key is pressed.");
 		}
 
 		ImGui::PopID();

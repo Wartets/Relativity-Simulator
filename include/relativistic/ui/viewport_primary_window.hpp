@@ -424,7 +424,7 @@ public:
 			}
 
 			const ImVec2 viewport_image_pos = ImGui::GetCursorScreenPos();
-			const bool zoom_key_down = (window != nullptr) && (is_hovered_ || is_focused_) && camera_controller_.config().keybinds.is_pressed(InputAction::ZoomModifier, window);
+			const bool zoom_key_down = (window != nullptr) && (is_hovered_ || is_focused_) && camera_controller_.config().keybinds.is_active(InputAction::ZoomModifier, window);
 			if (!zoom_key_down) {
 				zoom_level_ = 1.0;
 			}

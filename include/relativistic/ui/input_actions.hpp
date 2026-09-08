@@ -12,6 +12,11 @@ enum class KeyboardLayout : uint32_t {
 	Azerty = 1
 };
 
+enum class InputActivationMode : uint32_t {
+	Hold = 0,
+	Toggle = 1
+};
+
 enum class InputAction : uint32_t {
 	MoveForward = 0,
 	MoveBackward,
@@ -229,6 +234,7 @@ enum class InputActionCategory : uint32_t {
 struct KeyBinding {
 	int primary_key{GLFW_KEY_UNKNOWN};
 	int secondary_key{GLFW_KEY_UNKNOWN};
+	InputActivationMode mode{InputActivationMode::Hold};
 
 	[[nodiscard]] bool matches(GLFWwindow* window) const noexcept {
 		if (window == nullptr) return false;
@@ -284,8 +290,43 @@ struct KeyBinding {
 	}
 }
 
-[[nodiscard]] inline const char* glfw_key_display_name(int key) noexcept {
+[[nodiscard]] constexpr const char* azerty_display_override(int key) noexcept {
+	switch (key) {
+		case GLFW_KEY_Q: return "A";
+		case GLFW_KEY_A: return "Q";
+		case GLFW_KEY_Z: return "W";
+		case GLFW_KEY_W: return "Z";
+		case GLFW_KEY_M: return ";";
+		case GLFW_KEY_SEMICOLON: return "M";
+		case GLFW_KEY_0: return "\xc3\xa0";
+		case GLFW_KEY_1: return "&";
+		case GLFW_KEY_2: return "\xc3\xa9";
+		case GLFW_KEY_3: return "\"";
+		case GLFW_KEY_4: return "'";
+		case GLFW_KEY_5: return "(";
+		case GLFW_KEY_6: return "-";
+		case GLFW_KEY_7: return "\xc3\xa8";
+		case GLFW_KEY_8: return "_";
+		case GLFW_KEY_9: return "\xc3\xa7";
+		case GLFW_KEY_COMMA: return ";";
+		case GLFW_KEY_PERIOD: return ":";
+		case GLFW_KEY_SLASH: return "!";
+		case GLFW_KEY_MINUS: return ")";
+		case GLFW_KEY_EQUAL: return "=";
+		case GLFW_KEY_LEFT_BRACKET: return "^";
+		case GLFW_KEY_RIGHT_BRACKET: return "$";
+		case GLFW_KEY_APOSTROPHE: return "\xc3\xb9";
+		case GLFW_KEY_GRAVE_ACCENT: return "\xc2\xb2";
+		case GLFW_KEY_BACKSLASH: return "*";
+		default: return nullptr;
+	}
+}
+
+[[nodiscard]] inline const char* glfw_key_display_name(int key, KeyboardLayout layout = KeyboardLayout::Qwerty) noexcept {
 	if (key == GLFW_KEY_UNKNOWN) return "---";
+	if (layout == KeyboardLayout::Azerty) {
+		if (const char* azerty_name = azerty_display_override(key)) return azerty_name;
+	}
 	if (const char* canonical = qwerty_reference_key_name(key)) return canonical;
 	switch (key) {
 		case GLFW_KEY_SPACE: return "Space";
@@ -331,6 +372,17 @@ struct KeyBinding {
 		case GLFW_KEY_KP_8: return "Num8";
 		case GLFW_KEY_KP_9: return "Num9";
 		case GLFW_KEY_KP_ENTER: return "NumEnter";
+		case GLFW_KEY_LEFT_BRACKET: return "[";
+		case GLFW_KEY_RIGHT_BRACKET: return "]";
+		case GLFW_KEY_MINUS: return "-";
+		case GLFW_KEY_EQUAL: return "=";
+		case GLFW_KEY_COMMA: return ",";
+		case GLFW_KEY_PERIOD: return ".";
+		case GLFW_KEY_SLASH: return "/";
+		case GLFW_KEY_BACKSLASH: return "\\";
+		case GLFW_KEY_SEMICOLON: return ";";
+		case GLFW_KEY_APOSTROPHE: return "'";
+		case GLFW_KEY_GRAVE_ACCENT: return "`";
 		default: return "?";
 	}
 }
@@ -339,69 +391,82 @@ class ActionKeybindMap {
 private:
 	std::array<KeyBinding, static_cast<size_t>(InputAction::Count)> bindings_{};
 	KeyboardLayout layout_{KeyboardLayout::Qwerty};
+	mutable std::array<bool, static_cast<size_t>(InputAction::Count)> toggle_state_{};
+	mutable std::array<bool, static_cast<size_t>(InputAction::Count)> toggle_prev_raw_{};
 
 	void apply_layout_defaults(KeyboardLayout layout) noexcept {
 		layout_ = layout;
-		const bool azerty = (layout == KeyboardLayout::Azerty);
-
-		set(InputAction::MoveForward, azerty ? GLFW_KEY_Z : GLFW_KEY_W, GLFW_KEY_UP);
-		set(InputAction::MoveBackward, GLFW_KEY_S, GLFW_KEY_DOWN);
-		set(InputAction::MoveLeft, azerty ? GLFW_KEY_Q : GLFW_KEY_A, GLFW_KEY_LEFT);
-		set(InputAction::MoveRight, GLFW_KEY_D, GLFW_KEY_RIGHT);
-		set(InputAction::MoveUp, GLFW_KEY_SPACE, GLFW_KEY_E);
-		set(InputAction::MoveDown, GLFW_KEY_C, GLFW_KEY_LEFT_CONTROL);
-		set(InputAction::RollLeft, GLFW_KEY_J, GLFW_KEY_PAGE_UP);
-		set(InputAction::RollRight, GLFW_KEY_K, GLFW_KEY_PAGE_DOWN);
-		set(InputAction::Sprint, GLFW_KEY_LEFT_SHIFT, GLFW_KEY_RIGHT_SHIFT);
-		set(InputAction::Crawl, GLFW_KEY_LEFT_ALT, GLFW_KEY_RIGHT_ALT);
-		set(InputAction::LookAtOrigin, GLFW_KEY_F, GLFW_KEY_UNKNOWN);
-		set(InputAction::ResetRoll, GLFW_KEY_HOME, GLFW_KEY_UNKNOWN);
-		set(InputAction::SpeedDecrease, GLFW_KEY_LEFT_BRACKET, GLFW_KEY_UNKNOWN);
-		set(InputAction::SpeedIncrease, GLFW_KEY_RIGHT_BRACKET, GLFW_KEY_UNKNOWN);
-		set(InputAction::ZoomModifier, azerty ? GLFW_KEY_W : GLFW_KEY_Z, GLFW_KEY_UNKNOWN);
-		set(InputAction::SnapEquatorialFront, GLFW_KEY_KP_1);
-		set(InputAction::SnapEquatorialSide, GLFW_KEY_KP_3);
-		set(InputAction::SnapNorthPole, GLFW_KEY_KP_7);
-		set(InputAction::SnapSouthPole, GLFW_KEY_KP_9);
-		set(InputAction::SnapIsco, GLFW_KEY_KP_5);
-		set(InputAction::TogglePausePlay, GLFW_KEY_F5, GLFW_KEY_P);
-		set(InputAction::SingleStepTick, GLFW_KEY_F6, GLFW_KEY_UNKNOWN);
-		set(InputAction::ResetClock, GLFW_KEY_F7, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleControlPanel, GLFW_KEY_F1, GLFW_KEY_UNKNOWN);
-		set(InputAction::LayoutMultiWindow, GLFW_KEY_F2, GLFW_KEY_UNKNOWN);
-		set(InputAction::LayoutDocked, GLFW_KEY_F3, GLFW_KEY_UNKNOWN);
-		set(InputAction::LayoutViewportFocus, GLFW_KEY_F4, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleBodyManager, GLFW_KEY_F8, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleCameraMode, GLFW_KEY_F9, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleTelemetryWindow, GLFW_KEY_F10, GLFW_KEY_UNKNOWN);
-		set(InputAction::TogglePerformanceWindow, GLFW_KEY_F11, GLFW_KEY_UNKNOWN);
-		set(InputAction::CaptureScreenshot, GLFW_KEY_F12, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleHudManager, GLFW_KEY_H, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleKeybindSettings, GLFW_KEY_B, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleMetric, GLFW_KEY_M, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleIntegrator, GLFW_KEY_I, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleProjectionMode, GLFW_KEY_V, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleTonemapper, GLFW_KEY_T, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleSkyboxStyle, GLFW_KEY_G, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleGpuCompute, GLFW_KEY_U, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleSpaceSkipping, GLFW_KEY_N, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleLodSystem, GLFW_KEY_L, GLFW_KEY_UNKNOWN);
-		set(InputAction::IncreaseExposure, GLFW_KEY_EQUAL, GLFW_KEY_UNKNOWN);
-		set(InputAction::DecreaseExposure, GLFW_KEY_MINUS, GLFW_KEY_UNKNOWN);
-		set(InputAction::IncreaseTimeWarp, GLFW_KEY_PERIOD, GLFW_KEY_UNKNOWN);
-		set(InputAction::DecreaseTimeWarp, GLFW_KEY_COMMA, GLFW_KEY_UNKNOWN);
-		set(InputAction::QuickSaveScenario, GLFW_KEY_INSERT, GLFW_KEY_UNKNOWN);
-		set(InputAction::QuickLoadScenario, GLFW_KEY_DELETE, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleFullscreenViewport, GLFW_KEY_GRAVE_ACCENT, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleWorkDistributionTiling, GLFW_KEY_R, GLFW_KEY_UNKNOWN);
-		set(InputAction::CycleStepController, GLFW_KEY_0, GLFW_KEY_UNKNOWN);
-		set(InputAction::ResetToDefaultPerformance, GLFW_KEY_9, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleScenarioWindow, GLFW_KEY_O, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleDiagnosticsWindow, GLFW_KEY_Y, GLFW_KEY_UNKNOWN);
-		set(InputAction::ToggleSpectrographWindow, GLFW_KEY_X, GLFW_KEY_UNKNOWN);
+		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
+			const auto action = static_cast<InputAction>(i);
+			const InputActivationMode preserved_mode = bindings_[i].mode;
+			bindings_[i] = layout_default(action, layout);
+			bindings_[i].mode = preserved_mode;
+		}
 	}
 
 public:
+	[[nodiscard]] static constexpr KeyBinding layout_default(InputAction action, KeyboardLayout layout) noexcept {
+		const bool azerty = (layout == KeyboardLayout::Azerty);
+		switch (action) {
+			case InputAction::MoveForward: return KeyBinding{azerty ? GLFW_KEY_Z : GLFW_KEY_W, GLFW_KEY_UP};
+			case InputAction::MoveBackward: return KeyBinding{GLFW_KEY_S, GLFW_KEY_DOWN};
+			case InputAction::MoveLeft: return KeyBinding{azerty ? GLFW_KEY_Q : GLFW_KEY_A, GLFW_KEY_LEFT};
+			case InputAction::MoveRight: return KeyBinding{GLFW_KEY_D, GLFW_KEY_RIGHT};
+			case InputAction::MoveUp: return KeyBinding{GLFW_KEY_SPACE, GLFW_KEY_E};
+			case InputAction::MoveDown: return KeyBinding{GLFW_KEY_C, GLFW_KEY_LEFT_CONTROL};
+			case InputAction::RollLeft: return KeyBinding{GLFW_KEY_J, GLFW_KEY_PAGE_UP};
+			case InputAction::RollRight: return KeyBinding{GLFW_KEY_K, GLFW_KEY_PAGE_DOWN};
+			case InputAction::Sprint: return KeyBinding{GLFW_KEY_LEFT_SHIFT, GLFW_KEY_RIGHT_SHIFT};
+			case InputAction::Crawl: return KeyBinding{GLFW_KEY_LEFT_ALT, GLFW_KEY_RIGHT_ALT};
+			case InputAction::LookAtOrigin: return KeyBinding{GLFW_KEY_F, GLFW_KEY_UNKNOWN};
+			case InputAction::ResetRoll: return KeyBinding{GLFW_KEY_HOME, GLFW_KEY_UNKNOWN};
+			case InputAction::SpeedDecrease: return KeyBinding{GLFW_KEY_LEFT_BRACKET, GLFW_KEY_UNKNOWN};
+			case InputAction::SpeedIncrease: return KeyBinding{GLFW_KEY_RIGHT_BRACKET, GLFW_KEY_UNKNOWN};
+			case InputAction::ZoomModifier: return KeyBinding{azerty ? GLFW_KEY_W : GLFW_KEY_Z, GLFW_KEY_UNKNOWN};
+			case InputAction::SnapEquatorialFront: return KeyBinding{GLFW_KEY_KP_1, GLFW_KEY_UNKNOWN};
+			case InputAction::SnapEquatorialSide: return KeyBinding{GLFW_KEY_KP_3, GLFW_KEY_UNKNOWN};
+			case InputAction::SnapNorthPole: return KeyBinding{GLFW_KEY_KP_7, GLFW_KEY_UNKNOWN};
+			case InputAction::SnapSouthPole: return KeyBinding{GLFW_KEY_KP_9, GLFW_KEY_UNKNOWN};
+			case InputAction::SnapIsco: return KeyBinding{GLFW_KEY_KP_5, GLFW_KEY_UNKNOWN};
+			case InputAction::TogglePausePlay: return KeyBinding{GLFW_KEY_F5, GLFW_KEY_P};
+			case InputAction::SingleStepTick: return KeyBinding{GLFW_KEY_F6, GLFW_KEY_UNKNOWN};
+			case InputAction::ResetClock: return KeyBinding{GLFW_KEY_F7, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleControlPanel: return KeyBinding{GLFW_KEY_F1, GLFW_KEY_UNKNOWN};
+			case InputAction::LayoutMultiWindow: return KeyBinding{GLFW_KEY_F2, GLFW_KEY_UNKNOWN};
+			case InputAction::LayoutDocked: return KeyBinding{GLFW_KEY_F3, GLFW_KEY_UNKNOWN};
+			case InputAction::LayoutViewportFocus: return KeyBinding{GLFW_KEY_F4, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleBodyManager: return KeyBinding{GLFW_KEY_F8, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleCameraMode: return KeyBinding{GLFW_KEY_F9, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleTelemetryWindow: return KeyBinding{GLFW_KEY_F10, GLFW_KEY_UNKNOWN};
+			case InputAction::TogglePerformanceWindow: return KeyBinding{GLFW_KEY_F11, GLFW_KEY_UNKNOWN};
+			case InputAction::CaptureScreenshot: return KeyBinding{GLFW_KEY_F12, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleHudManager: return KeyBinding{GLFW_KEY_H, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleKeybindSettings: return KeyBinding{GLFW_KEY_B, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleMetric: return KeyBinding{GLFW_KEY_M, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleIntegrator: return KeyBinding{GLFW_KEY_I, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleProjectionMode: return KeyBinding{GLFW_KEY_V, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleTonemapper: return KeyBinding{GLFW_KEY_T, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleSkyboxStyle: return KeyBinding{GLFW_KEY_G, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleGpuCompute: return KeyBinding{GLFW_KEY_U, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleSpaceSkipping: return KeyBinding{GLFW_KEY_N, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleLodSystem: return KeyBinding{GLFW_KEY_L, GLFW_KEY_UNKNOWN};
+			case InputAction::IncreaseExposure: return KeyBinding{GLFW_KEY_EQUAL, GLFW_KEY_UNKNOWN};
+			case InputAction::DecreaseExposure: return KeyBinding{GLFW_KEY_MINUS, GLFW_KEY_UNKNOWN};
+			case InputAction::IncreaseTimeWarp: return KeyBinding{GLFW_KEY_PERIOD, GLFW_KEY_UNKNOWN};
+			case InputAction::DecreaseTimeWarp: return KeyBinding{GLFW_KEY_COMMA, GLFW_KEY_UNKNOWN};
+			case InputAction::QuickSaveScenario: return KeyBinding{GLFW_KEY_INSERT, GLFW_KEY_UNKNOWN};
+			case InputAction::QuickLoadScenario: return KeyBinding{GLFW_KEY_DELETE, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleFullscreenViewport: return KeyBinding{GLFW_KEY_GRAVE_ACCENT, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleWorkDistributionTiling: return KeyBinding{GLFW_KEY_R, GLFW_KEY_UNKNOWN};
+			case InputAction::CycleStepController: return KeyBinding{GLFW_KEY_0, GLFW_KEY_UNKNOWN};
+			case InputAction::ResetToDefaultPerformance: return KeyBinding{GLFW_KEY_9, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleScenarioWindow: return KeyBinding{GLFW_KEY_O, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleDiagnosticsWindow: return KeyBinding{GLFW_KEY_Y, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleSpectrographWindow: return KeyBinding{GLFW_KEY_X, GLFW_KEY_UNKNOWN};
+			default: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+		}
+	}
+
 	ActionKeybindMap() noexcept {
 		apply_layout_defaults(KeyboardLayout::Qwerty);
 	}
@@ -432,6 +497,34 @@ public:
 
 	[[nodiscard]] bool is_pressed(InputAction action, GLFWwindow* window) const noexcept {
 		return bindings_[static_cast<size_t>(action)].matches(window);
+	}
+
+	[[nodiscard]] bool is_active(InputAction action, GLFWwindow* window) const noexcept {
+		const size_t idx = static_cast<size_t>(action);
+		const bool raw = bindings_[idx].matches(window);
+		if (bindings_[idx].mode == InputActivationMode::Toggle) {
+			if (raw && !toggle_prev_raw_[idx]) {
+				toggle_state_[idx] = !toggle_state_[idx];
+			}
+			toggle_prev_raw_[idx] = raw;
+			return toggle_state_[idx];
+		}
+		toggle_prev_raw_[idx] = raw;
+		return raw;
+	}
+
+	void set_mode(InputAction action, InputActivationMode mode) noexcept {
+		bindings_[static_cast<size_t>(action)].mode = mode;
+	}
+
+	[[nodiscard]] InputActivationMode mode(InputAction action) const noexcept {
+		return bindings_[static_cast<size_t>(action)].mode;
+	}
+
+	void reset_to_default(InputAction action, KeyboardLayout layout) noexcept {
+		const InputActivationMode preserved_mode = bindings_[static_cast<size_t>(action)].mode;
+		bindings_[static_cast<size_t>(action)] = layout_default(action, layout);
+		bindings_[static_cast<size_t>(action)].mode = preserved_mode;
 	}
 
 	[[nodiscard]] bool is_key_used_elsewhere(int key, InputAction excluding) const noexcept {

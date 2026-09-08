@@ -43,6 +43,7 @@ enum class HudElementId : uint32_t {
 	ProfilerBottleneckReadout,
 	ProfilerStageBreakdownReadout,
 	ProfilerRayClassificationReadout,
+	ProfilerIterationRangeReadout,
 	Count
 };
 
@@ -67,6 +68,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::ProfilerBottleneckReadout: return "Profiler: Bottleneck Summary";
 		case HudElementId::ProfilerStageBreakdownReadout: return "Profiler: Stage Breakdown";
 		case HudElementId::ProfilerRayClassificationReadout: return "Profiler: Ray Classification";
+		case HudElementId::ProfilerIterationRangeReadout: return "Profiler: Iteration Range";
 		default: return "Unknown Element";
 	}
 }
@@ -201,6 +203,12 @@ struct HudLayoutConfig {
 		prof_rc_ro.anchor = HudAnchor::BottomLeft;
 		prof_rc_ro.offset_x = 16.0f;
 		prof_rc_ro.offset_y = 214.0f;
+
+		auto& prof_ir_ro = element(HudElementId::ProfilerIterationRangeReadout);
+		prof_ir_ro.enabled = false;
+		prof_ir_ro.anchor = HudAnchor::BottomLeft;
+		prof_ir_ro.offset_x = 16.0f;
+		prof_ir_ro.offset_y = 236.0f;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

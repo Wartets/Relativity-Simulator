@@ -104,6 +104,12 @@ private:
 		ImGui::Text("Avg Iterations"); ImGui::Text("%.1f", latest.average_iterations); ImGui::NextColumn();
 		ImGui::Columns(1);
 
+		if (render_pipeline_ != nullptr) {
+			const auto& live_tel = render_pipeline_->telemetry();
+			ImGui::Text("Ray Iteration Range: %u - %u (avg %.1f)", live_tel.min_iterations_used, live_tel.max_iterations_used, live_tel.average_iterations_used);
+			render_setting_tooltip("Minimum and maximum geodesic integration steps consumed by any single ray in the most recently completed frame, alongside the mean across all rays.");
+		}
+
 		ImGui::Separator();
 		ImGui::SliderInt("Chart Window (frames)", &plot_window_, 30, static_cast<int>(profiler.history_capacity()));
 
@@ -193,6 +199,7 @@ private:
 		draw_summary_table("Render Dispatch (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::RenderDispatch, n));
 		draw_summary_table("Texture Upload (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::TextureUpload, n));
 		draw_summary_table("HUD Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::HudOverlay, n));
+		draw_summary_table("Average Ray Iterations Per Frame", profiler.iteration_summary(n));
 	}
 
 	void render_bottleneck_tab(Orchestrator::PerformanceProfiler& profiler) {
@@ -272,12 +279,40 @@ private:
 
 			auto row = [&](double va, double vb, const char* fmt) {
 				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0); ImGui::Text(fmt, va);
-				ImGui::TableSetColumnIndex(1); ImGui::Text(fmt, vb);
+				ImGui::TableSetColumnIndex(0);
+				if (std::strcmp(fmt, "%.3f") == 0) {
+					ImGui::Text("%.3f", va);
+				} else if (std::strcmp(fmt, "%.1f") == 0) {
+					ImGui::Text("%.1f", va);
+				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
+					ImGui::Text("%.1f%%", va);
+				} else {
+					ImGui::Text("%.0f", va);
+				}
+
+				ImGui::TableSetColumnIndex(1);
+				if (std::strcmp(fmt, "%.3f") == 0) {
+					ImGui::Text("%.3f", vb);
+				} else if (std::strcmp(fmt, "%.1f") == 0) {
+					ImGui::Text("%.1f", vb);
+				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
+					ImGui::Text("%.1f%%", vb);
+				} else {
+					ImGui::Text("%.0f", vb);
+				}
+
 				ImGui::TableSetColumnIndex(2);
 				const double delta = vb - va;
 				const ImVec4 color = (delta <= 0.0) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.55f, 0.35f, 1.0f);
-				ImGui::TextColored(color, fmt, delta);
+				if (std::strcmp(fmt, "%.3f") == 0) {
+					ImGui::TextColored(color, "%.3f", delta);
+				} else if (std::strcmp(fmt, "%.1f") == 0) {
+					ImGui::TextColored(color, "%.1f", delta);
+				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
+					ImGui::TextColored(color, "%.1f%%", delta);
+				} else {
+					ImGui::TextColored(color, "%.0f", delta);
+				}
 			};
 
 			row(a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f");

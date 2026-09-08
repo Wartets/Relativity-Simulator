@@ -15,6 +15,7 @@
 #include <atomic>
 #include <thread>
 #include <algorithm>
+#include <limits>
 
 namespace Relativistic::Render {
 
@@ -36,6 +37,11 @@ struct PipelineExecutionTelemetry {
 	uint64_t total_pixels_processed{0};
 	uint64_t horizon_pixels_absorbed{0};
 	uint64_t celestial_pixels_hit{0};
+	uint64_t accretion_disk_pixels_hit{0};
+	uint64_t saturated_ray_pixels{0};
+	double average_iterations_used{0.0};
+	uint32_t min_iterations_used{0};
+	uint32_t max_iterations_used{0};
 	bool used_gpu_path{false};
 };
 
@@ -142,12 +148,19 @@ private:
 			uint64_t disk_hits = 0;
 			uint64_t saturated = 0;
 			double iteration_sum = 0.0;
+			uint32_t iter_min = std::numeric_limits<uint32_t>::max();
+			uint32_t iter_max = 0;
 			for (const auto& px : back_buffer_) {
 				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
 				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
 				if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
 				if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
 				iteration_sum += static_cast<double>(px.iterations_used);
+				iter_min = std::min(iter_min, px.iterations_used);
+				iter_max = std::max(iter_max, px.iterations_used);
+			}
+			if (back_buffer_.empty()) {
+				iter_min = 0;
 			}
 
 			{
@@ -164,6 +177,8 @@ private:
 				telemetry_.accretion_disk_pixels_hit = disk_hits;
 				telemetry_.saturated_ray_pixels = saturated;
 				telemetry_.average_iterations_used = (req_pixels > 0) ? (iteration_sum / static_cast<double>(req_pixels)) : 0.0;
+				telemetry_.min_iterations_used = iter_min;
+				telemetry_.max_iterations_used = iter_max;
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}

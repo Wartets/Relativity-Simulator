@@ -415,6 +415,16 @@ public:
 		return StatisticalSummary::compute(std::move(values));
 	}
 
+	[[nodiscard]] StatisticalSummary iteration_summary(size_t last_n_samples = 0) const noexcept {
+		const size_t count = (last_n_samples == 0 || last_n_samples > history_.size()) ? history_.size() : last_n_samples;
+		std::vector<double> values;
+		values.reserve(count);
+		for (size_t i = history_.size() - count; i < history_.size(); ++i) {
+			values.push_back(history_[i].average_iterations);
+		}
+		return StatisticalSummary::compute(std::move(values));
+	}
+
 	struct BottleneckReport {
 		ProfilerTaskStage dominant_stage{ProfilerTaskStage::FrameTotal};
 		double dominant_share{0.0};

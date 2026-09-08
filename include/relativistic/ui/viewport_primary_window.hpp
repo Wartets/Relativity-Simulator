@@ -880,6 +880,12 @@ private:
 		}
 
 		{
+			char buf[96];
+			std::snprintf(buf, sizeof(buf), "Ray Iterations: %u - %u", tel.min_iterations_used, tel.max_iterations_used);
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerIterationRangeReadout), {HudTextLine{buf}});
+		}
+
+		{
 			const auto& kb = camera_controller_.config().keybinds;
 			auto bind_str = [&](InputAction action) noexcept -> std::string {
 				const auto& b = kb.get(action);

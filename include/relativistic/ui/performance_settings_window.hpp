@@ -16,6 +16,7 @@ private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
+	bool* performance_analysis_open_state_{nullptr};
 
 	int preset_idx_{2};
 	float res_scale_{1.0f};
@@ -40,6 +41,10 @@ public:
 
 	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
 		render_pipeline_ = &pipeline;
+	}
+
+	void attach_performance_analysis_window(bool& open_state_ref) noexcept {
+		performance_analysis_open_state_ = &open_state_ref;
 	}
 
 	void sync_from_orchestrator() noexcept {
@@ -88,6 +93,13 @@ public:
 				}
 			}
 			render_setting_tooltip("Quick preset configuring internal render scale, maximum geodesic integration steps, and tolerances.");
+
+			if (performance_analysis_open_state_ != nullptr) {
+				if (ImGui::Button("Open Deep Profiling Workshop", ImVec2(240.0f, 26.0f))) {
+					*performance_analysis_open_state_ = true;
+				}
+				render_setting_tooltip("Opens the dedicated Performance Analysis & Profiling window for live monitoring, statistics, bottleneck analysis, and persisted benchmark comparisons.");
+			}
 
 			ImGui::Spacing();
 			ImGui::Separator();

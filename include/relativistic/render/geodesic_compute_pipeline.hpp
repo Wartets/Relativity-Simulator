@@ -139,9 +139,15 @@ private:
 
 			uint64_t absorbed = 0;
 			uint64_t celestial = 0;
+			uint64_t disk_hits = 0;
+			uint64_t saturated = 0;
+			double iteration_sum = 0.0;
 			for (const auto& px : back_buffer_) {
 				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
 				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+				if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
+				if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
+				iteration_sum += static_cast<double>(px.iterations_used);
 			}
 
 			{
@@ -155,6 +161,9 @@ private:
 				telemetry_.horizon_pixels_absorbed = absorbed;
 				telemetry_.celestial_pixels_hit = celestial;
 				telemetry_.used_gpu_path = rendered_on_gpu;
+				telemetry_.accretion_disk_pixels_hit = disk_hits;
+				telemetry_.saturated_ray_pixels = saturated;
+				telemetry_.average_iterations_used = (req_pixels > 0) ? (iteration_sum / static_cast<double>(req_pixels)) : 0.0;
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}

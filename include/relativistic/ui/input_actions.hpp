@@ -73,6 +73,9 @@ enum class InputAction : uint32_t {
 	ToggleScenarioWindow,
 	ToggleDiagnosticsWindow,
 	ToggleSpectrographWindow,
+	TogglePerformanceAnalysisWindow,
+	StartStopBenchmarkCapture,
+	QuickSaveBenchmarkRun,
 	Count
 };
 
@@ -165,6 +168,11 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::ToggleScenarioWindow:
 		case InputAction::ToggleDiagnosticsWindow:
 		case InputAction::ToggleSpectrographWindow:
+		case InputAction::TogglePerformanceAnalysisWindow:
+			return InputActionCategory::InterfaceWindows;
+		case InputAction::StartStopBenchmarkCapture:
+		case InputAction::QuickSaveBenchmarkRun:
+			return InputActionCategory::RenderingQuality;
 		default:
 			return InputActionCategory::InterfaceWindows;
 	}
@@ -227,6 +235,9 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::ToggleScenarioWindow: return "Toggle Scenario Catalog Window";
 		case InputAction::ToggleDiagnosticsWindow: return "Toggle Curvature Diagnostics Window";
 		case InputAction::ToggleSpectrographWindow: return "Toggle Spectrograph Window";
+		case InputAction::TogglePerformanceAnalysisWindow: return "Toggle Performance Analysis Window";
+		case InputAction::StartStopBenchmarkCapture: return "Start/Stop Benchmark Capture";
+		case InputAction::QuickSaveBenchmarkRun: return "Quick Save Live Window As Benchmark Run";
 		default: return "Unknown Action";
 	}
 }
@@ -463,6 +474,9 @@ public:
 			case InputAction::ToggleScenarioWindow: return KeyBinding{GLFW_KEY_O, GLFW_KEY_UNKNOWN};
 			case InputAction::ToggleDiagnosticsWindow: return KeyBinding{GLFW_KEY_Y, GLFW_KEY_UNKNOWN};
 			case InputAction::ToggleSpectrographWindow: return KeyBinding{GLFW_KEY_X, GLFW_KEY_UNKNOWN};
+			case InputAction::TogglePerformanceAnalysisWindow: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::StartStopBenchmarkCapture: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::QuickSaveBenchmarkRun: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			default: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 		}
 	}

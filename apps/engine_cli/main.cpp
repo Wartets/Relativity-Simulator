@@ -19,6 +19,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	auto orchestrator = std::make_unique<SimulationOrchestrator<1024>>();
+	orchestrator->profiler().load_from_disk();
 	MasterTerminalRepl<1024> repl(*orchestrator);
 
 	std::cout << "Relativistic Engine - Master Terminal Control Loop\n";
@@ -86,6 +87,7 @@ int main(int argc, char* argv[]) {
 		Relativistic::IO::UserSettings::mark_session_ended_cleanly();
 	}
 
+	orchestrator->profiler().save_to_disk();
 	orchestrator->stop();
 	sim_thread.request_stop();
 	return 0;

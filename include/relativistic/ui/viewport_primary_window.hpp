@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
+#include "relativistic/orchestrator/performance_profiler.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -210,6 +212,7 @@ public:
 	}
 
 	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
+		const auto frame_render_start_ = std::chrono::steady_clock::now();
 		if (fullscreen_bg) {
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->WorkPos);
 			ImGui::SetNextWindowSize(ImGui::GetMainViewport()->WorkSize);
@@ -403,6 +406,7 @@ public:
 					color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
 					has_received_frame_ = true;
+					const auto texture_upload_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::TextureUpload);
 					const bool force_realloc = (params.visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 					glBindTexture(GL_TEXTURE_2D, gl_texture_id_);
 					if (force_realloc || fb_w != allocated_texture_w_ || fb_h != allocated_texture_h_) {
@@ -455,7 +459,43 @@ public:
 				render_viewport_toolbar(avail);
 			}
 			render_loading_indicator(avail);
-			render_hud_overlay(avail, window);
+			{
+				const auto hud_overlay_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::HudOverlay);
+				render_hud_overlay(avail, window);
+			}
+
+			{
+				const auto& tel = pipeline_.telemetry();
+				const uint64_t total_pixels_for_ratio = std::max<uint64_t>(tel.total_pixels_processed, uint64_t{1});
+				Orchestrator::FrameSampleInput frame_input;
+				frame_input.timestamp_seconds = ImGui::GetTime();
+				frame_input.frame_time_ms = tel.execution_time_ms;
+				frame_input.fps = tel.frame_rate_fps;
+				frame_input.used_gpu_path = tel.used_gpu_path;
+				frame_input.screen_width = current_width_;
+				frame_input.screen_height = current_height_;
+				frame_input.horizon_pixels = tel.horizon_pixels_absorbed;
+				frame_input.celestial_pixels = tel.celestial_pixels_hit;
+				frame_input.disk_pixels = tel.accretion_disk_pixels_hit;
+				frame_input.average_iterations = tel.average_iterations_used;
+				frame_input.max_iteration_ratio = static_cast<double>(tel.saturated_ray_pixels) / static_cast<double>(total_pixels_for_ratio);
+				frame_input.resolution_scale = params.resolution_scale;
+				frame_input.max_ray_steps = params.max_ray_steps;
+				frame_input.precision_mode = static_cast<uint32_t>(orchestrator_.get_custom_param("precision_mode", 0.0));
+				frame_input.performance_preset = params.performance_preset;
+				frame_input.tiled_distribution = (params.visual_overlays_flags & Render::RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
+				frame_input.simd_pipeline = (params.visual_overlays_flags & Render::RenderFlags::USE_SCALAR_PIPELINE) == 0U;
+				frame_input.gpu_compute_enabled = params.use_gpu_compute;
+				frame_input.step_controller_mode = params.step_controller_mode;
+				frame_input.metric_name = orchestrator_.active_metric_name();
+				frame_input.integrator_name = orchestrator_.active_integrator_name();
+
+				const auto frame_render_end = std::chrono::steady_clock::now();
+				const double frame_total_ms = std::chrono::duration<double, std::milli>(frame_render_end - frame_render_start_).count();
+				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::FrameTotal, frame_total_ms);
+				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::RenderDispatch, tel.execution_time_ms);
+				orchestrator_.profiler().record_frame(frame_input);
+			}
 		
 		ImGui::End();
 		if (fullscreen_bg) {
@@ -799,6 +839,44 @@ private:
 			char buf[96];
 			std::snprintf(buf, sizeof(buf), "Metric: %s | Integrator: %s", orchestrator_.active_metric_name().c_str(), orchestrator_.active_integrator_name().c_str());
 			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::DiagnosticsQuickReadout), {HudTextLine{buf}});
+		}
+
+		{
+			const auto& profiler = orchestrator_.profiler();
+			if (!profiler.history().empty()) {
+				const auto& latest = profiler.history().back();
+				char buf[144];
+				std::snprintf(buf, sizeof(buf), "Frame: %.2f ms | Dispatch: %.2f ms | Upload: %.2f ms", latest.frame_time_ms, latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)], latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)]);
+				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerFrameTimeReadout), {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& profiler = orchestrator_.profiler();
+			const auto report = profiler.analyze_bottleneck(120);
+			char buf[160];
+			std::snprintf(buf, sizeof(buf), "Bottleneck: %s (%.0f%%)%s", Orchestrator::profiler_stage_name(report.dominant_stage), report.dominant_share * 100.0, report.ray_step_saturated ? " | Step-Saturated" : "");
+			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerBottleneckReadout), {HudTextLine{buf}});
+		}
+
+		{
+			const auto& profiler = orchestrator_.profiler();
+			if (!profiler.history().empty()) {
+				const auto& latest = profiler.history().back();
+				char buf[96];
+				std::snprintf(buf, sizeof(buf), "HUD Overlay: %.3f ms", latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)]);
+				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerStageBreakdownReadout), {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& profiler = orchestrator_.profiler();
+			if (!profiler.history().empty()) {
+				const auto& latest = profiler.history().back();
+				char buf[128];
+				std::snprintf(buf, sizeof(buf), "Horizon: %llu | Celestial: %llu | Disk: %llu", static_cast<unsigned long long>(latest.horizon_pixels), static_cast<unsigned long long>(latest.celestial_pixels), static_cast<unsigned long long>(latest.disk_pixels));
+				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerRayClassificationReadout), {HudTextLine{buf}});
+			}
 		}
 
 		{

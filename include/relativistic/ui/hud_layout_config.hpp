@@ -39,6 +39,10 @@ enum class HudElementId : uint32_t {
 	TelemetryQuickReadout,
 	SpectrographQuickReadout,
 	DiagnosticsQuickReadout,
+	ProfilerFrameTimeReadout,
+	ProfilerBottleneckReadout,
+	ProfilerStageBreakdownReadout,
+	ProfilerRayClassificationReadout,
 	Count
 };
 
@@ -59,6 +63,10 @@ enum class HudElementId : uint32_t {
 		case HudElementId::TelemetryQuickReadout: return "Telemetry Quick Readout";
 		case HudElementId::SpectrographQuickReadout: return "Spectrograph Quick Readout";
 		case HudElementId::DiagnosticsQuickReadout: return "Diagnostics Quick Readout";
+		case HudElementId::ProfilerFrameTimeReadout: return "Profiler: Frame Time Detail";
+		case HudElementId::ProfilerBottleneckReadout: return "Profiler: Bottleneck Summary";
+		case HudElementId::ProfilerStageBreakdownReadout: return "Profiler: Stage Breakdown";
+		case HudElementId::ProfilerRayClassificationReadout: return "Profiler: Ray Classification";
 		default: return "Unknown Element";
 	}
 }
@@ -167,6 +175,32 @@ struct HudLayoutConfig {
 		diag_ro.anchor = HudAnchor::BottomLeft;
 		diag_ro.offset_x = 16.0f;
 		diag_ro.offset_y = 126.0f;
+
+		auto& prof_ft_ro = element(HudElementId::ProfilerFrameTimeReadout);
+		prof_ft_ro.enabled = false;
+		prof_ft_ro.anchor = HudAnchor::BottomLeft;
+		prof_ft_ro.offset_x = 16.0f;
+		prof_ft_ro.offset_y = 148.0f;
+		prof_ft_ro.text_color = {0.55f, 0.85f, 1.0f, 1.0f};
+
+		auto& prof_bn_ro = element(HudElementId::ProfilerBottleneckReadout);
+		prof_bn_ro.enabled = false;
+		prof_bn_ro.anchor = HudAnchor::BottomLeft;
+		prof_bn_ro.offset_x = 16.0f;
+		prof_bn_ro.offset_y = 170.0f;
+		prof_bn_ro.text_color = {1.0f, 0.75f, 0.4f, 1.0f};
+
+		auto& prof_sb_ro = element(HudElementId::ProfilerStageBreakdownReadout);
+		prof_sb_ro.enabled = false;
+		prof_sb_ro.anchor = HudAnchor::BottomLeft;
+		prof_sb_ro.offset_x = 16.0f;
+		prof_sb_ro.offset_y = 192.0f;
+
+		auto& prof_rc_ro = element(HudElementId::ProfilerRayClassificationReadout);
+		prof_rc_ro.enabled = false;
+		prof_rc_ro.anchor = HudAnchor::BottomLeft;
+		prof_rc_ro.offset_x = 16.0f;
+		prof_rc_ro.offset_y = 214.0f;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

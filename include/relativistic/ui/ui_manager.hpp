@@ -10,6 +10,7 @@
 #include "relativistic/ui/viewport_primary_window.hpp"
 #include "relativistic/ui/scenario_selector_window.hpp"
 #include "relativistic/ui/performance_settings_window.hpp"
+#include "relativistic/ui/performance_analysis_window.hpp"
 #include "relativistic/ui/visual_diagnostics_window.hpp"
 #include "relativistic/ui/body_manager_window.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
@@ -30,6 +31,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <algorithm>
+#include <optional>
 
 namespace Relativistic::UI {
 
@@ -56,6 +58,7 @@ private:
 	SpectrographWindow spectrograph_window_;
 	ControlPanelWindow control_panel_window_;
 	PerformanceSettingsWindow performance_window_;
+	PerformanceAnalysisWindow performance_analysis_window_;
 	VisualDiagnosticsWindow diagnostics_window_;
 	BodyManagerWindow body_manager_window_;
 	std::vector<SecondaryViewWindow> secondary_views_;
@@ -76,6 +79,7 @@ public:
 		  hud_manager_window_(user_settings_.hud_layout),
 		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, hud_manager_window_.open_state(), keybind_window_.open_state()),
 		  performance_window_(orchestrator),
+		  performance_analysis_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator) {}
 
@@ -142,11 +146,14 @@ public:
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
+		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
+		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();
 
 		telemetry_window_.open_state() = false;
 		spectrograph_window_.open_state() = false;
 		diagnostics_window_.open_state() = false;
+		performance_analysis_window_.open_state() = false;
 		control_panel_window_.open_state() = true;
 		performance_window_.open_state() = true;
 		scenario_window_->open_state() = true;
@@ -232,6 +239,10 @@ public:
 
 		if (performance_window_.open_state()) {
 			performance_window_.render();
+		}
+
+		if (performance_analysis_window_.open_state()) {
+			performance_analysis_window_.render();
 		}
 
 		if (diagnostics_window_.open_state()) {
@@ -370,6 +381,23 @@ private:
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleSpectrographWindow, main_window_)) {
 			spectrograph_window_.open_state() = !spectrograph_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::TogglePerformanceAnalysisWindow, main_window_)) {
+			performance_analysis_window_.open_state() = !performance_analysis_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::StartStopBenchmarkCapture, main_window_)) {
+			auto& profiler = orchestrator_.profiler();
+			if (profiler.is_capturing()) {
+				profiler.cancel_capture();
+			} else {
+				profiler.start_capture("Quick Capture", 10.0, std::nullopt, ImGui::GetTime());
+			}
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::QuickSaveBenchmarkRun, main_window_)) {
+			auto& profiler = orchestrator_.profiler();
+			if (!profiler.is_capturing()) {
+				profiler.start_capture("Quick Save", std::nullopt, size_t{60}, ImGui::GetTime());
+			}
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleFullscreenViewport, main_window_)) {
 			multi_window_mode_ = !multi_window_mode_;
@@ -602,6 +630,7 @@ private:
 				ImGui::MenuItem("Curvature Telemetry", key_hint(InputAction::ToggleTelemetryWindow).c_str(), &telemetry_window_.open_state());
 				ImGui::MenuItem("Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
 				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
+				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
 				ImGui::EndMenu();
 			}
 

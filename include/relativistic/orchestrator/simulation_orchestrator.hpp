@@ -3,6 +3,7 @@
 #include "relativistic/core/spsc_queue.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
+#include "relativistic/orchestrator/performance_profiler.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
@@ -111,6 +112,7 @@ private:
 	std::string active_integrator_name_{"RK45"};
 	std::string active_scenario_name_{"Custom Spacetime"};
 	Dynamics::PostNewtonianSystem nbody_system_{};
+	PerformanceProfiler profiler_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
@@ -128,7 +130,7 @@ private:
 	}
 
 public:
-	constexpr SimulationOrchestrator() noexcept {
+	SimulationOrchestrator() noexcept {
 		sync_camera_spherical_from_cartesian();
 	}
 
@@ -715,6 +717,14 @@ public:
 
 	[[nodiscard]] const Dynamics::PostNewtonianSystem& nbody_system() const noexcept {
 		return nbody_system_;
+	}
+
+	[[nodiscard]] PerformanceProfiler& profiler() noexcept {
+		return profiler_;
+	}
+
+	[[nodiscard]] const PerformanceProfiler& profiler() const noexcept {
+		return profiler_;
 	}
 
 	[[nodiscard]] const std::string& active_metric_name() const noexcept {

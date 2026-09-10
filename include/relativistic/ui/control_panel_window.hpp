@@ -1078,6 +1078,30 @@ private:
 		ImGui::Checkbox("HUD Master Toggle Checkbox", &tb.hud_master_toggle);
 		render_setting_tooltip("Individually enable or disable each control exposed in the floating viewport toolbar without affecting the rest of the HUD.");
 
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.65f, 1.0f), "Extended Toolbar Shortcuts:");
+		ImGui::Checkbox("Screenshot Capture Button", &tb.screenshot);
+		ImGui::SameLine();
+		ImGui::Checkbox("Fullscreen Toggle Button", &tb.fullscreen_toggle);
+		ImGui::Checkbox("GPU Compute Toggle", &tb.gpu_compute_toggle);
+		ImGui::SameLine();
+		ImGui::Checkbox("Space-Skip Toggle", &tb.space_skip_toggle);
+		ImGui::SameLine();
+		ImGui::Checkbox("LOD Toggle", &tb.lod_toggle);
+		ImGui::Checkbox("Exposure +/- Buttons", &tb.exposure_controls);
+		ImGui::SameLine();
+		ImGui::Checkbox("Warp +/- Buttons", &tb.warp_controls);
+		ImGui::Checkbox("Tonemapper Cycle Button", &tb.tonemapper_cycle);
+		ImGui::SameLine();
+		ImGui::Checkbox("Projection Cycle Button", &tb.projection_cycle);
+		ImGui::Checkbox("Skybox Cycle Button", &tb.skybox_cycle);
+		ImGui::SameLine();
+		ImGui::Checkbox("Metric Cycle Button", &tb.metric_cycle);
+		ImGui::Checkbox("Integrator Cycle Button", &tb.integrator_cycle);
+		ImGui::SameLine();
+		ImGui::Checkbox("Performance Preset Combo", &tb.performance_preset_combo);
+		render_setting_tooltip("Adds shortcuts to the floating toolbar for the same controls exposed elsewhere in this panel, so frequently used settings stay reachable without opening a tab.");
+
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Individual HUD Elements:");
 
@@ -1129,15 +1153,48 @@ private:
 			ImGui::TextDisabled("No HUD elements match the current search and filter.");
 		}
 
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.7f, 1.0f), "Layout Engine:");
+		ImGui::Checkbox("Automatic Gap-Free Stacked Layout", &hud_layout_.auto_arrange_enabled);
+		render_setting_tooltip("When enabled, elements sharing the same anchor corner automatically stack one after another in draw-priority order with no overlap or gaps. Offset X/Y then act as a fine-tuning nudge applied on top of the stacked position. When disabled, every element uses its raw Offset X/Y measured from the chosen anchor corner.");
+		if (hud_layout_.auto_arrange_enabled) {
+			ImGui::SliderFloat("Stacking Spacing", &hud_layout_.auto_arrange_spacing, 0.0f, 40.0f, "%.0f px");
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.4f, 1.0f), "Bulk Actions On Visible Elements:");
+		if (ImGui::Button("Enable All Visible", ImVec2(150.0f, 24.0f))) {
+			for (const auto id : visible_elements) hud_layout_.element(id).enabled = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Disable All Visible", ImVec2(150.0f, 24.0f))) {
+			for (const auto id : visible_elements) hud_layout_.element(id).enabled = false;
+		}
+		ImGui::SameLine();
+		static int bulk_anchor_idx = 0;
+		const char* bulk_anchor_names[] = {"Top Left", "Top Right", "Bottom Left", "Bottom Right", "Top Center", "Bottom Center"};
+		ImGui::SetNextItemWidth(140.0f);
+		ImGui::Combo("##BulkAnchor", &bulk_anchor_idx, bulk_anchor_names, IM_ARRAYSIZE(bulk_anchor_names));
+		ImGui::SameLine();
+		if (ImGui::Button("Apply Anchor To Visible", ImVec2(180.0f, 24.0f))) {
+			for (const auto id : visible_elements) hud_layout_.element(id).anchor = static_cast<HudAnchor>(bulk_anchor_idx);
+		}
+		render_setting_tooltip("Bulk actions apply only to elements currently matched by the search filter above, letting you target either the entire HUD or a chosen selection.");
+
 		const char* anchor_names[] = {"Top Left", "Top Right", "Bottom Left", "Bottom Right", "Top Center", "Bottom Center"};
 		const char* display_mode_names[] = {"Compact", "Standard", "Extended"};
+		const char* comparison_names[] = {"Above Threshold", "Below Threshold"};
 
 		for (const auto id : visible_elements) {
 			auto& elem = hud_layout_.element(id);
 			ImGui::PushID(static_cast<int>(id));
-			std::string header_label = hud_element_name(id);
-			if (!elem.enabled) header_label += " (disabled)";
-			if (ImGui::CollapsingHeader(header_label.c_str())) {
+			const std::string header_id = std::string(hud_element_name(id)) + "###hud_elem_header";
+			const bool header_open = ImGui::CollapsingHeader(header_id.c_str());
+			if (!elem.enabled) {
+				ImGui::SameLine();
+				ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "(disabled)");
+			}
+			if (header_open) {
 				ImGui::Checkbox("Enabled", &elem.enabled);
 
 				int anchor_idx = static_cast<int>(elem.anchor);
@@ -1145,8 +1202,8 @@ private:
 					elem.anchor = static_cast<HudAnchor>(anchor_idx);
 				}
 
-				ImGui::DragFloat("Offset X", &elem.offset_x, 1.0f, 0.0f, 2400.0f, "%.0f px");
-				ImGui::DragFloat("Offset Y", &elem.offset_y, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				ImGui::DragFloat(hud_layout_.auto_arrange_enabled ? "Fine Nudge X" : "Offset X", &elem.offset_x, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				ImGui::DragFloat(hud_layout_.auto_arrange_enabled ? "Fine Nudge Y" : "Offset Y", &elem.offset_y, 1.0f, 0.0f, 2400.0f, "%.0f px");
 				ImGui::SliderFloat("Text Scale", &elem.scale, 0.5f, 3.0f, "%.2fx");
 				ImGui::ColorEdit4("Text Color", elem.text_color.data());
 				ImGui::Checkbox("Show Background Panel", &elem.show_background);
@@ -1158,14 +1215,53 @@ private:
 				if (ImGui::Combo("Display Format", &display_mode_idx, display_mode_names, IM_ARRAYSIZE(display_mode_names))) {
 					elem.display_mode = static_cast<HudDisplayMode>(display_mode_idx);
 				}
-				render_setting_tooltip("Compact shows the minimal essential value, Standard shows the default readout, Extended shows the full breakdown with additional derived figures where supported by this element.");
+				render_setting_tooltip("Compact shows the minimal essential value, Standard shows the default readout, Extended shows the full breakdown with additional derived figures. Every readout in the HUD honors this setting.");
+
+				ImGui::SliderInt("Decimal Precision", &elem.decimal_precision, 0, 6);
+				render_setting_tooltip("Number of decimal digits shown for numeric readouts belonging to this element.");
 
 				ImGui::Checkbox("Show Descriptive Label", &elem.show_label);
 				ImGui::Checkbox("Lay Out Lines Horizontally", &elem.horizontal_layout);
 				render_setting_tooltip("Only applies to multi-line panels such as Navigation Controls; arranges entries side by side instead of stacked vertically.");
 
 				ImGui::InputInt("Draw Priority", &elem.draw_priority);
-				render_setting_tooltip("Higher values are considered more important when multiple elements are sorted together; purely informational bookkeeping for your own layout planning.");
+				render_setting_tooltip("Elements with a higher priority are placed first when using the automatic stacked layout, and are listed first within a shared anchor corner.");
+
+				ImGui::SliderFloat("Refresh Interval", &elem.refresh_interval_seconds, 0.0f, 5.0f, "%.2f s");
+				render_setting_tooltip("Minimum time between visual updates for this element. Zero means the element refreshes every frame.");
+
+				if (ImGui::TreeNode("Dynamic Warning Color Rule")) {
+					ImGui::Checkbox("Enable Warning Rule", &elem.warning_rule.enabled);
+					if (elem.warning_rule.enabled) {
+						int cmp_idx = static_cast<int>(elem.warning_rule.comparison);
+						if (ImGui::Combo("Trigger When Value Is", &cmp_idx, comparison_names, IM_ARRAYSIZE(comparison_names))) {
+							elem.warning_rule.comparison = static_cast<HudColorRuleComparison>(cmp_idx);
+						}
+						double threshold = elem.warning_rule.threshold;
+						if (ImGui::InputDouble("Threshold", &threshold, 0.1, 1.0, "%.3f")) {
+							elem.warning_rule.threshold = threshold;
+						}
+						ImGui::ColorEdit4("Warning Color", elem.warning_rule.color.data());
+					}
+					ImGui::TreePop();
+				}
+
+				if (ImGui::TreeNode("Dynamic Critical Color Rule")) {
+					ImGui::Checkbox("Enable Critical Rule", &elem.critical_rule.enabled);
+					if (elem.critical_rule.enabled) {
+						int cmp_idx = static_cast<int>(elem.critical_rule.comparison);
+						if (ImGui::Combo("Trigger When Value Is", &cmp_idx, comparison_names, IM_ARRAYSIZE(comparison_names))) {
+							elem.critical_rule.comparison = static_cast<HudColorRuleComparison>(cmp_idx);
+						}
+						double threshold = elem.critical_rule.threshold;
+						if (ImGui::InputDouble("Threshold", &threshold, 0.1, 1.0, "%.3f")) {
+							elem.critical_rule.threshold = threshold;
+						}
+						ImGui::ColorEdit4("Critical Color", elem.critical_rule.color.data());
+					}
+					ImGui::TreePop();
+				}
+				render_setting_tooltip("Critical takes precedence over Warning when both trigger. Currently drives the Frame Time / FPS readout and the Profiler frame time readout, which expose a numeric value to compare against the threshold.");
 			}
 			ImGui::PopID();
 		}
@@ -1203,12 +1299,7 @@ private:
 					const auto& b = keybinds_ref.get(action);
 					if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) continue;
 
-					std::string key_str = glfw_key_display_name(b.primary_key);
-					if (b.secondary_key != GLFW_KEY_UNKNOWN) {
-						key_str += "/";
-						key_str += glfw_key_display_name(b.secondary_key);
-					}
-					const std::string label = std::string(input_action_name(action)) + " (" + key_str + ")";
+					const std::string label = std::string(input_action_name(action)) + " (" + format_key_binding(b) + ")";
 					ImGui::Checkbox(label.c_str(), &hud_layout_.keybind_summary_visible[i]);
 				}
 			}

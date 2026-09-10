@@ -44,6 +44,9 @@ enum class HudElementId : uint32_t {
 	ProfilerStageBreakdownReadout,
 	ProfilerRayClassificationReadout,
 	ProfilerIterationRangeReadout,
+	BodyCountReadout,
+	GpuComputeStatusReadout,
+	IntegratorStatsReadout,
 	Count
 };
 
@@ -69,9 +72,24 @@ enum class HudElementId : uint32_t {
 		case HudElementId::ProfilerStageBreakdownReadout: return "Profiler: Stage Breakdown";
 		case HudElementId::ProfilerRayClassificationReadout: return "Profiler: Ray Classification";
 		case HudElementId::ProfilerIterationRangeReadout: return "Profiler: Iteration Range";
+		case HudElementId::BodyCountReadout: return "N-Body Count (Linked)";
+		case HudElementId::GpuComputeStatusReadout: return "GPU Compute Status (Linked)";
+		case HudElementId::IntegratorStatsReadout: return "Integrator Statistics (Linked)";
 		default: return "Unknown Element";
 	}
 }
+
+enum class HudColorRuleComparison : uint32_t {
+	GreaterThan = 0,
+	LessThan = 1
+};
+
+struct HudColorRule {
+	bool enabled{false};
+	double threshold{0.0};
+	HudColorRuleComparison comparison{HudColorRuleComparison::LessThan};
+	std::array<float, 4> color{1.0f, 0.3f, 0.3f, 1.0f};
+};
 
 struct HudElementStyle {
 	bool enabled{true};
@@ -86,6 +104,10 @@ struct HudElementStyle {
 	bool show_label{true};
 	bool horizontal_layout{false};
 	int draw_priority{0};
+	int decimal_precision{2};
+	float refresh_interval_seconds{0.0f};
+	HudColorRule warning_rule{};
+	HudColorRule critical_rule{};
 };
 
 struct ToolbarButtonVisibility {
@@ -96,10 +118,25 @@ struct ToolbarButtonVisibility {
 	bool jump_to_target{true};
 	bool camera_mode_combo{true};
 	bool hud_master_toggle{true};
+	bool screenshot{false};
+	bool fullscreen_toggle{false};
+	bool gpu_compute_toggle{false};
+	bool space_skip_toggle{false};
+	bool lod_toggle{false};
+	bool exposure_controls{false};
+	bool warp_controls{false};
+	bool tonemapper_cycle{false};
+	bool projection_cycle{false};
+	bool skybox_cycle{false};
+	bool metric_cycle{false};
+	bool integrator_cycle{false};
+	bool performance_preset_combo{false};
 };
 
 struct HudLayoutConfig {
 	bool master_enabled{true};
+	bool auto_arrange_enabled{false};
+	float auto_arrange_spacing{6.0f};
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
 	ToolbarButtonVisibility toolbar_buttons{};
 	std::array<bool, static_cast<size_t>(InputAction::Count)> keybind_summary_visible{};
@@ -209,6 +246,24 @@ struct HudLayoutConfig {
 		prof_ir_ro.anchor = HudAnchor::BottomLeft;
 		prof_ir_ro.offset_x = 16.0f;
 		prof_ir_ro.offset_y = 236.0f;
+
+		auto& body_count_ro = element(HudElementId::BodyCountReadout);
+		body_count_ro.enabled = false;
+		body_count_ro.anchor = HudAnchor::BottomLeft;
+		body_count_ro.offset_x = 16.0f;
+		body_count_ro.offset_y = 258.0f;
+
+		auto& gpu_status_ro = element(HudElementId::GpuComputeStatusReadout);
+		gpu_status_ro.enabled = false;
+		gpu_status_ro.anchor = HudAnchor::BottomLeft;
+		gpu_status_ro.offset_x = 16.0f;
+		gpu_status_ro.offset_y = 280.0f;
+
+		auto& integrator_stats_ro = element(HudElementId::IntegratorStatsReadout);
+		integrator_stats_ro.enabled = false;
+		integrator_stats_ro.anchor = HudAnchor::BottomLeft;
+		integrator_stats_ro.offset_x = 16.0f;
+		integrator_stats_ro.offset_y = 302.0f;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {
@@ -251,5 +306,69 @@ struct HudLayoutConfig {
 	}
 	return ImVec2(std::max(x, 0.0f), std::max(y, 0.0f));
 }
+
+[[nodiscard]] inline ImU32 hud_resolve_dynamic_color(const HudElementStyle& style, double value, ImU32 base_color) noexcept {
+	auto rule_matches = [](const HudColorRule& rule, double v) noexcept -> bool {
+		if (!rule.enabled) return false;
+		return (rule.comparison == HudColorRuleComparison::GreaterThan) ? (v > rule.threshold) : (v < rule.threshold);
+	};
+	if (rule_matches(style.critical_rule, value)) {
+		return ImGui::ColorConvertFloat4ToU32(ImVec4(style.critical_rule.color[0], style.critical_rule.color[1], style.critical_rule.color[2], style.critical_rule.color[3]));
+	}
+	if (rule_matches(style.warning_rule, value)) {
+		return ImGui::ColorConvertFloat4ToU32(ImVec4(style.warning_rule.color[0], style.warning_rule.color[1], style.warning_rule.color[2], style.warning_rule.color[3]));
+	}
+	return base_color;
+}
+
+class HudAutoArranger {
+private:
+	std::array<float, 6> cursor_forward_{};
+	std::array<float, 6> cursor_backward_{};
+
+public:
+	HudAutoArranger() noexcept {
+		cursor_forward_.fill(0.0f);
+		cursor_backward_.fill(0.0f);
+	}
+
+	[[nodiscard]] ImVec2 place(HudAnchor anchor, const ImVec2& avail, const ImVec2& element_size, float spacing) noexcept {
+		const size_t idx = static_cast<size_t>(anchor);
+		const bool grows_downward = (anchor == HudAnchor::TopLeft || anchor == HudAnchor::TopRight || anchor == HudAnchor::TopCenter);
+		float& cursor = grows_downward ? cursor_forward_[idx] : cursor_backward_[idx];
+
+		float x = 0.0f;
+		float y = 0.0f;
+		switch (anchor) {
+			case HudAnchor::TopLeft:
+				x = 16.0f;
+				y = cursor + 16.0f;
+				break;
+			case HudAnchor::TopRight:
+				x = avail.x - element_size.x - 16.0f;
+				y = cursor + 16.0f;
+				break;
+			case HudAnchor::BottomLeft:
+				x = 16.0f;
+				y = avail.y - element_size.y - 16.0f - cursor;
+				break;
+			case HudAnchor::BottomRight:
+				x = avail.x - element_size.x - 16.0f;
+				y = avail.y - element_size.y - 16.0f - cursor;
+				break;
+			case HudAnchor::TopCenter:
+				x = (avail.x - element_size.x) * 0.5f;
+				y = cursor + 16.0f;
+				break;
+			case HudAnchor::BottomCenter:
+				x = (avail.x - element_size.x) * 0.5f;
+				y = avail.y - element_size.y - 16.0f - cursor;
+				break;
+		}
+
+		cursor += element_size.y + spacing;
+		return ImVec2(x, y);
+	}
+};
 
 }

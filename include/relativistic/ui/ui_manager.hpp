@@ -144,6 +144,8 @@ public:
 		ImGui_ImplOpenGL3_Init("#version 330");
 
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
+		viewport_window_->set_screenshot_callback([this]() { trigger_screenshot_capture(); });
+		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
@@ -324,12 +326,7 @@ private:
 		if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) {
 			return "";
 		}
-		std::string s = glfw_key_display_name(b.primary_key);
-		if (b.secondary_key != GLFW_KEY_UNKNOWN) {
-			s += "/";
-			s += glfw_key_display_name(b.secondary_key);
-		}
-		return s;
+		return format_key_binding(b);
 	}
 
 	void process_global_hotkeys() noexcept {

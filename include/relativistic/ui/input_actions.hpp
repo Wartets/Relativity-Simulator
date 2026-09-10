@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace Relativistic::UI {
@@ -396,6 +397,21 @@ struct KeyBinding {
 		case GLFW_KEY_GRAVE_ACCENT: return "`";
 		default: return "?";
 	}
+}
+
+[[nodiscard]] inline std::string format_key_binding(const KeyBinding& binding, KeyboardLayout layout = KeyboardLayout::Qwerty) noexcept {
+	const bool has_primary = binding.primary_key != GLFW_KEY_UNKNOWN;
+	const bool has_secondary = binding.secondary_key != GLFW_KEY_UNKNOWN;
+	if (!has_primary && !has_secondary) {
+		return "---";
+	}
+	if (has_primary && has_secondary) {
+		std::string s = glfw_key_display_name(binding.primary_key, layout);
+		s += "/";
+		s += glfw_key_display_name(binding.secondary_key, layout);
+		return s;
+	}
+	return has_primary ? std::string(glfw_key_display_name(binding.primary_key, layout)) : std::string(glfw_key_display_name(binding.secondary_key, layout));
 }
 
 class ActionKeybindMap {

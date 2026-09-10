@@ -9,6 +9,7 @@
 #include "relativistic/ui/schematic_view_renderer.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/metrics/kerr.hpp"
+#include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -21,8 +22,10 @@
 #include <string>
 #include <cstdio>
 #include <cmath>
+#include <numbers>
 #include <algorithm>
 #include <chrono>
+#include <functional>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -68,6 +71,8 @@ private:
 	double current_frame_time_ms_{0.0};
 	double rolling_average_time_ms_{0.0};
 	bool has_sufficient_rolling_frames_{false};
+	std::function<void()> screenshot_callback_{};
+	std::function<void()> fullscreen_toggle_callback_{};
 
 	struct DynamicLookAtTarget {
 		std::string label;
@@ -99,33 +104,39 @@ private:
 		}
 	}
 
-	static void draw_hud_block(ImDrawList* draw_list, const ImVec2& window_pos, const ImVec2& avail, const HudElementStyle& style, const std::vector<HudTextLine>& lines) noexcept {
-		if (!style.enabled || lines.empty()) return;
-
+	[[nodiscard]] static ImVec2 measure_hud_block(const HudElementStyle& style, const std::vector<HudTextLine>& lines) noexcept {
 		const float font_size = ImGui::GetFontSize() * style.scale;
 		const float line_height = font_size + 3.0f;
 		constexpr float horizontal_gap = 18.0f;
-
-		std::vector<ImVec2> line_sizes;
-		line_sizes.reserve(lines.size());
 		float max_width = 0.0f;
 		float total_width = 0.0f;
 		for (const auto& line : lines) {
 			const ImVec2 sz = ImGui::CalcTextSize(line.text.c_str());
-			const ImVec2 scaled(sz.x * style.scale, sz.y * style.scale);
-			line_sizes.push_back(scaled);
-			max_width = std::max(max_width, scaled.x);
-			total_width += scaled.x;
+			max_width = std::max(max_width, sz.x * style.scale);
+			total_width += sz.x * style.scale;
 		}
 		if (style.horizontal_layout && lines.size() > 1) {
 			total_width += horizontal_gap * static_cast<float>(lines.size() - 1);
 		}
-
-		const ImVec2 block_size = style.horizontal_layout
+		return style.horizontal_layout
 			? ImVec2(total_width, line_height)
 			: ImVec2(max_width, line_height * static_cast<float>(lines.size()));
-		const ImVec2 local_pos = hud_anchor_resolve(style.anchor, avail, block_size, style.offset_x, style.offset_y);
-		const ImVec2 screen_pos(window_pos.x + local_pos.x, window_pos.y + local_pos.y);
+	}
+
+	static void draw_hud_block_at(ImDrawList* draw_list, const ImVec2& screen_pos, const HudElementStyle& style, const std::vector<HudTextLine>& lines) noexcept {
+		if (lines.empty()) return;
+
+		const float font_size = ImGui::GetFontSize() * style.scale;
+		const float line_height = font_size + 3.0f;
+		constexpr float horizontal_gap = 18.0f;
+		const ImVec2 block_size = measure_hud_block(style, lines);
+
+		std::vector<ImVec2> line_sizes;
+		line_sizes.reserve(lines.size());
+		for (const auto& line : lines) {
+			const ImVec2 sz = ImGui::CalcTextSize(line.text.c_str());
+			line_sizes.push_back(ImVec2(sz.x * style.scale, sz.y * style.scale));
+		}
 
 		if (style.show_background) {
 			draw_list->AddRectFilled(
@@ -185,6 +196,14 @@ public:
 
 	void request_rerender() noexcept {
 		force_rerender_ = true;
+	}
+
+	void set_screenshot_callback(std::function<void()> callback) noexcept {
+		screenshot_callback_ = std::move(callback);
+	}
+
+	void set_fullscreen_toggle_callback(std::function<void()> callback) noexcept {
+		fullscreen_toggle_callback_ = std::move(callback);
 	}
 
 	void handle_zoom_scroll(double yoffset) noexcept {
@@ -668,6 +687,150 @@ public:
 			ImGui::Checkbox("HUD", &hud_layout_.master_enabled);
 		}
 
+		if (tb.screenshot) {
+			ImGui::SameLine();
+			if (ImGui::Button("Capture", ImVec2(70.0f, 24.0f)) && screenshot_callback_) {
+				screenshot_callback_();
+			}
+		}
+
+		if (tb.fullscreen_toggle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Fullscreen", ImVec2(86.0f, 24.0f)) && fullscreen_toggle_callback_) {
+				fullscreen_toggle_callback_();
+			}
+		}
+
+		if (tb.gpu_compute_toggle) {
+			ImGui::SameLine();
+			bool gpu_on = orchestrator_.parameters().use_gpu_compute;
+			if (ImGui::Checkbox("GPU", &gpu_on)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, gpu_on ? 1.0 : 0.0)));
+			}
+		}
+
+		if (tb.space_skip_toggle) {
+			ImGui::SameLine();
+			bool skip_on = orchestrator_.parameters().space_skipping_enabled;
+			if (ImGui::Checkbox("Skip", &skip_on)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, skip_on ? 1.0 : 0.0)));
+			}
+		}
+
+		if (tb.lod_toggle) {
+			ImGui::SameLine();
+			bool lod_on = orchestrator_.parameters().lod_enabled;
+			if (ImGui::Checkbox("LOD", &lod_on)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, lod_on ? 1.0 : 0.0)));
+			}
+		}
+
+		if (tb.exposure_controls) {
+			ImGui::SameLine();
+			if (ImGui::Button("EV-", ImVec2(34.0f, 24.0f))) {
+				const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure - 0.25, -6.0, 6.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("EV+", ImVec2(34.0f, 24.0f))) {
+				const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure + 0.25, -6.0, 6.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
+			}
+		}
+
+		if (tb.warp_controls) {
+			ImGui::SameLine();
+			if (ImGui::Button("Warp-", ImVec2(50.0f, 24.0f))) {
+				const double next_warp = std::max(orchestrator_.scheduler().warp_factor() / 1.5, 0.05);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Warp+", ImVec2(50.0f, 24.0f))) {
+				const double next_warp = orchestrator_.scheduler().warp_factor() * 1.5;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
+			}
+		}
+
+		if (tb.tonemapper_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Tonemap", ImVec2(78.0f, 24.0f))) {
+				const uint32_t next_mode = (orchestrator_.parameters().tonemapping_mode + 1) % 4;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(next_mode))));
+			}
+		}
+
+		if (tb.projection_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Projection", ImVec2(86.0f, 24.0f))) {
+				const uint32_t next_mode = (orchestrator_.parameters().projection_mode + 1) % 8;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ProjectionMode, static_cast<double>(next_mode))));
+			}
+		}
+
+		if (tb.skybox_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Skybox", ImVec2(66.0f, 24.0f))) {
+				const uint32_t current_style = orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK;
+				const uint32_t next_style = (current_style + 1) % 6;
+				const uint32_t next_flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | next_style;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
+			}
+		}
+
+		if (tb.metric_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Metric", ImVec2(64.0f, 24.0f))) {
+				static constexpr const char* kToolbarMetricCycle[] = {
+					"Flat Minkowski", "Schwarzschild Black Hole", "Kerr Rotating Black Hole",
+					"Reissner-Nordstrom Charged", "Kerr-Newman Charged Rotating",
+					"Schwarzschild-de Sitter (Lambda)", "FLRW Cosmological Expansion",
+					"Morris-Thorne Traversable Wormhole", "Alcubierre Warp Drive Bubble", "BSSN 3+1 Numerical Grid"
+				};
+				constexpr int metric_count = static_cast<int>(sizeof(kToolbarMetricCycle) / sizeof(kToolbarMetricCycle[0]));
+				int current_idx = 0;
+				for (int i = 0; i < metric_count; ++i) {
+					if (orchestrator_.active_metric_name() == kToolbarMetricCycle[i]) {
+						current_idx = i;
+						break;
+					}
+				}
+				const int next_idx = (current_idx + 1) % metric_count;
+				orchestrator_.set_active_metric_name(kToolbarMetricCycle[next_idx]);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(kToolbarMetricCycle[next_idx])));
+			}
+		}
+
+		if (tb.integrator_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("Integrator", ImVec2(80.0f, 24.0f))) {
+				static constexpr const char* kToolbarIntegratorCycle[] = {
+					"Dormand-Prince RK45 (Adaptive)", "Cash-Karp 5(4) (Adaptive)", "Vernier 9(8) High-Order",
+					"Symplectic Gauss-Legendre 4th", "Symplectic Gauss-Legendre 6th", "Hermite 4th-Order (Aarseth)"
+				};
+				constexpr int integrator_count = static_cast<int>(sizeof(kToolbarIntegratorCycle) / sizeof(kToolbarIntegratorCycle[0]));
+				int current_idx = 0;
+				for (int i = 0; i < integrator_count; ++i) {
+					if (orchestrator_.active_integrator_name() == kToolbarIntegratorCycle[i]) {
+						current_idx = i;
+						break;
+					}
+				}
+				const int next_idx = (current_idx + 1) % integrator_count;
+				orchestrator_.set_active_integrator_name(kToolbarIntegratorCycle[next_idx]);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(kToolbarIntegratorCycle[next_idx])));
+			}
+		}
+
+		if (tb.performance_preset_combo) {
+			ImGui::SameLine();
+			const char* toolbar_presets[] = {"Potato", "Perf", "Balanced", "High", "Ultra", "Extreme", "Custom"};
+			int preset_idx = static_cast<int>(std::min<uint32_t>(orchestrator_.parameters().performance_preset, 6U));
+			ImGui::SetNextItemWidth(90.0f);
+			if (ImGui::Combo("##ToolbarPresetCombo", &preset_idx, toolbar_presets, IM_ARRAYSIZE(toolbar_presets)) && preset_idx < 6) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(static_cast<uint32_t>(preset_idx))));
+			}
+		}
+
 		ImGui::EndGroup();
 	}
 
@@ -756,115 +919,221 @@ private:
 			rolling_average_time_ms_ = sum / static_cast<double>(frame_times_history_.size());
 		}
 
+		struct PendingHudBlock {
+			const HudElementStyle* style;
+			std::vector<HudTextLine> lines;
+		};
+		std::vector<PendingHudBlock> pending;
+		pending.reserve(static_cast<size_t>(HudElementId::Count));
+
+		auto push_block = [&](HudElementId id, std::vector<HudTextLine> lines) {
+			const auto& style = hud_layout_.element(id);
+			if (!style.enabled || lines.empty()) return;
+			pending.push_back(PendingHudBlock{&style, std::move(lines)});
+		};
+
 		{
 			const auto& ft_style = hud_layout_.element(HudElementId::FrameTimeReadout);
 			char buf[192];
 			const double instant_fps = (current_frame_time_ms_ > 0.0) ? (1000.0 / current_frame_time_ms_) : 0.0;
+			const double effective_fps = has_sufficient_rolling_frames_ ? (1000.0 / rolling_average_time_ms_) : instant_fps;
+			const int prec = std::clamp(ft_style.decimal_precision, 0, 6);
 			if (ft_style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "%.0f FPS", has_sufficient_rolling_frames_ ? (1000.0 / rolling_average_time_ms_) : instant_fps);
+				std::snprintf(buf, sizeof(buf), "%.*f FPS", prec, effective_fps);
 			} else if (ft_style.display_mode == HudDisplayMode::Extended) {
 				if (has_sufficient_rolling_frames_) {
-					std::snprintf(buf, sizeof(buf), "Frame Time: %.3f ms | Instant: %.1f FPS | Avg[%u]: %.3f ms (%.1f FPS) | Samples: %zu", current_frame_time_ms_, instant_fps, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_, frame_times_history_.size());
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.*f ms | Instant: %.1f FPS | Avg[%u]: %.*f ms (%.1f FPS) | Samples: %zu", prec, current_frame_time_ms_, instant_fps, static_cast<unsigned int>(target_samples), prec, rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_, frame_times_history_.size());
 				} else {
-					std::snprintf(buf, sizeof(buf), "Frame Time: %.3f ms | Instant: %.1f FPS | Avg: warming up %zu/%u", current_frame_time_ms_, instant_fps, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.*f ms | Instant: %.1f FPS | Avg: warming up %zu/%u", prec, current_frame_time_ms_, instant_fps, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
 				}
 			} else {
 				if (has_sufficient_rolling_frames_) {
-					std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg[%u]: %.2f ms | %.1f FPS)", current_frame_time_ms_, static_cast<unsigned int>(target_samples), rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.*f ms (Avg[%u]: %.*f ms | %.1f FPS)", prec, current_frame_time_ms_, static_cast<unsigned int>(target_samples), prec, rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_);
 				} else {
-					std::snprintf(buf, sizeof(buf), "Frame Time: %.2f ms (Avg: warming up %zu/%u...)", current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
+					std::snprintf(buf, sizeof(buf), "Frame Time: %.*f ms (Avg: warming up %zu/%u...)", prec, current_frame_time_ms_, frame_times_history_.size(), static_cast<unsigned int>(target_samples));
 				}
 			}
-			draw_hud_block(draw_list, window_pos, avail, ft_style, {HudTextLine{buf}});
+			const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(ft_style.text_color[0], ft_style.text_color[1], ft_style.text_color[2], ft_style.text_color[3]));
+			const ImU32 dyn_col = hud_resolve_dynamic_color(ft_style, effective_fps, base_col);
+			push_block(HudElementId::FrameTimeReadout, {HudTextLine{buf, dyn_col}});
 		}
 
 		{
+			const auto& style = hud_layout_.element(HudElementId::CameraDistanceReadout);
 			char buf[96];
-			std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.2f M", cam.radius);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraDistanceReadout), {HudTextLine{buf}});
+			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "r=%.*f M", prec, cam.radius);
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.*f M | Orbit Distance: %.*f M", prec, cam.radius, prec, cam.orbit_distance);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.*f M", prec, cam.radius);
+			}
+			push_block(HudElementId::CameraDistanceReadout, {HudTextLine{buf}});
 		}
 
 		{
-			char buf[96];
-			std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.2f, %.2f)", cam.theta, cam.phi);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraAnglesReadout), {HudTextLine{buf}});
+			const auto& style = hud_layout_.element(HudElementId::CameraAnglesReadout);
+			char buf[144];
+			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "(t,p)=(%.*f, %.*f)", prec, cam.theta, prec, cam.phi);
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f) rad | (%.1f, %.1f) deg", prec, cam.theta, prec, cam.phi, cam.theta * (180.0 / std::numbers::pi), cam.phi * (180.0 / std::numbers::pi));
+			} else {
+				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f)", prec, cam.theta, prec, cam.phi);
+			}
+			push_block(HudElementId::CameraAnglesReadout, {HudTextLine{buf}});
 		}
 
 		{
-			char buf[128];
-			std::snprintf(buf, sizeof(buf), "Orientation (Pitch, Yaw, Roll): (%.1f, %.1f, %.1f) deg", cam.pitch, cam.yaw, cam.roll);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::CameraOrientationReadout), {HudTextLine{buf}});
-		}
-
-		{
+			const auto& style = hud_layout_.element(HudElementId::CameraOrientationReadout);
 			char buf[160];
-			std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::MetricSummaryReadout), {HudTextLine{buf}});
+			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "P/Y/R: %.0f/%.0f/%.0f", cam.pitch, cam.yaw, cam.roll);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Orientation (Pitch, Yaw, Roll): (%.*f, %.*f, %.*f) deg", prec, cam.pitch, prec, cam.yaw, prec, cam.roll);
+			}
+			push_block(HudElementId::CameraOrientationReadout, {HudTextLine{buf}});
 		}
 
 		{
-			char buf[128];
-			std::snprintf(buf, sizeof(buf), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::RayStatisticsReadout), {HudTextLine{buf}});
+			const auto& style = hud_layout_.element(HudElementId::MetricSummaryReadout);
+			char buf[192];
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "%s", orchestrator_.active_metric_name().c_str());
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.3f, Spin=%.3f, Charge=%.3f) | Integrator: %s", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge, orchestrator_.active_integrator_name().c_str());
+			} else {
+				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
+			}
+			push_block(HudElementId::MetricSummaryReadout, {HudTextLine{buf}});
 		}
 
 		{
+			const auto& style = hud_layout_.element(HudElementId::RayStatisticsReadout);
+			char buf[160];
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "Abs %llu | Esc %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Absorbed Rays: %llu | Celestial Rays: %llu | Disk Hits: %llu | Avg Iterations: %.1f", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit), static_cast<unsigned long long>(tel.accretion_disk_pixels_hit), tel.average_iterations_used);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Absorbed Rays: %llu | Celestial Rays: %llu", static_cast<unsigned long long>(tel.horizon_pixels_absorbed), static_cast<unsigned long long>(tel.celestial_pixels_hit));
+			}
+			push_block(HudElementId::RayStatisticsReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::SimulationClockReadout);
+			char buf[112];
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "t=%.2f s", snap.logical_time);
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu | Rate: %.0f Hz", snap.logical_time, static_cast<unsigned long long>(snap.tick_index), snap.tick_rate_hz);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu", snap.logical_time, static_cast<unsigned long long>(snap.tick_index));
+			}
+			push_block(HudElementId::SimulationClockReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::WarpFactorReadout);
 			char buf[80];
-			std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu", snap.logical_time, static_cast<unsigned long long>(snap.tick_index));
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::SimulationClockReadout), {HudTextLine{buf}});
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Warp Factor: %.2fx | Paused: %s", snap.warp_factor, snap.is_paused ? "Yes" : "No");
+			} else {
+				std::snprintf(buf, sizeof(buf), "Warp Factor: %.2fx", snap.warp_factor);
+			}
+			push_block(HudElementId::WarpFactorReadout, {HudTextLine{buf}});
 		}
 
 		{
-			char buf[48];
-			std::snprintf(buf, sizeof(buf), "Warp Factor: %.2fx", snap.warp_factor);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::WarpFactorReadout), {HudTextLine{buf}});
+			const auto& style = hud_layout_.element(HudElementId::PerformancePresetReadout);
+			char buf[64];
+			static constexpr const char* kPresetNames[] = {"Potato", "Performance", "Balanced", "High", "Ultra", "Extreme", "Custom"};
+			const uint32_t preset_idx = std::min<uint32_t>(params.performance_preset, 6U);
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "%s", kPresetNames[preset_idx]);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Performance Preset: %s", kPresetNames[preset_idx]);
+			}
+			push_block(HudElementId::PerformancePresetReadout, {HudTextLine{buf}});
 		}
 
 		{
-			char buf[48];
-			std::snprintf(buf, sizeof(buf), "Performance Preset: %u", params.performance_preset);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::PerformancePresetReadout), {HudTextLine{buf}});
-		}
-
-		{
+			const auto& style = hud_layout_.element(HudElementId::TelemetryQuickReadout);
 			const double r_safe_link = std::max(cam.radius, 2.05 * params.mass);
 			Metrics::KerrMetric<double> tel_metric(params.mass, params.spin, 1.0, 1.0);
 			Core::FourVector<double> tel_pos(0.0, r_safe_link, cam.theta, cam.phi);
 			const auto tel_g = tel_metric.metric_tensor(tel_pos);
 			const double lapse = std::sqrt(std::max(-tel_g(0, 0), 1e-30));
+			char buf[160];
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "alpha=%.3f", lapse);
+			} else if (style.display_mode == HudDisplayMode::Extended) {
+				const double omega_zamo = (std::abs(params.spin) > 1e-9) ? Metrics::compute_zamo_angular_velocity(tel_metric, tel_pos) : 0.0;
+				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx | ZAMO Omega: %.4f rad/M", lapse, 1.0 / std::max(lapse, 1e-12), omega_zamo);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx", lapse, 1.0 / std::max(lapse, 1e-12));
+			}
+			push_block(HudElementId::TelemetryQuickReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::SpectrographQuickReadout);
+			char buf[112];
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV | Tonemap: %u", params.camera_exposure, params.tonemapping_mode);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV", params.camera_exposure);
+			}
+			push_block(HudElementId::SpectrographQuickReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::DiagnosticsQuickReadout);
 			char buf[128];
-			std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx", lapse, 1.0 / std::max(lapse, 1e-12));
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::TelemetryQuickReadout), {HudTextLine{buf}});
-		}
-
-		{
-			char buf[96];
-			std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV", params.camera_exposure);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::SpectrographQuickReadout), {HudTextLine{buf}});
-		}
-
-		{
-			char buf[96];
-			std::snprintf(buf, sizeof(buf), "Metric: %s | Integrator: %s", orchestrator_.active_metric_name().c_str(), orchestrator_.active_integrator_name().c_str());
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::DiagnosticsQuickReadout), {HudTextLine{buf}});
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "%s", orchestrator_.active_metric_name().c_str());
+			} else {
+				std::snprintf(buf, sizeof(buf), "Metric: %s | Integrator: %s", orchestrator_.active_metric_name().c_str(), orchestrator_.active_integrator_name().c_str());
+			}
+			push_block(HudElementId::DiagnosticsQuickReadout, {HudTextLine{buf}});
 		}
 
 		{
 			const auto& profiler = orchestrator_.profiler();
 			if (!profiler.history().empty()) {
+				const auto& style = hud_layout_.element(HudElementId::ProfilerFrameTimeReadout);
 				const auto& latest = profiler.history().back();
-				char buf[144];
-				std::snprintf(buf, sizeof(buf), "Frame: %.2f ms | Dispatch: %.2f ms | Upload: %.2f ms", latest.frame_time_ms, latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)], latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)]);
-				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerFrameTimeReadout), {HudTextLine{buf}});
+				char buf[176];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "%.2f ms", latest.frame_time_ms);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Frame: %.2f ms | Dispatch: %.2f ms | Upload: %.2f ms | HUD: %.2f ms", latest.frame_time_ms, latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)], latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)], latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)]);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Frame: %.2f ms | Dispatch: %.2f ms | Upload: %.2f ms", latest.frame_time_ms, latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)], latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)]);
+				}
+				const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+				const ImU32 dyn_col = hud_resolve_dynamic_color(style, latest.frame_time_ms, base_col);
+				push_block(HudElementId::ProfilerFrameTimeReadout, {HudTextLine{buf, dyn_col}});
 			}
 		}
 
 		{
 			const auto& profiler = orchestrator_.profiler();
+			const auto& style = hud_layout_.element(HudElementId::ProfilerBottleneckReadout);
 			const auto report = profiler.analyze_bottleneck(120);
-			char buf[160];
-			std::snprintf(buf, sizeof(buf), "Bottleneck: %s (%.0f%%)%s", Orchestrator::profiler_stage_name(report.dominant_stage), report.dominant_share * 100.0, report.ray_step_saturated ? " | Step-Saturated" : "");
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerBottleneckReadout), {HudTextLine{buf}});
+			char buf[176];
+			if (style.display_mode == HudDisplayMode::Compact) {
+				std::snprintf(buf, sizeof(buf), "%s", Orchestrator::profiler_stage_name(report.dominant_stage));
+			} else {
+				std::snprintf(buf, sizeof(buf), "Bottleneck: %s (%.0f%%)%s", Orchestrator::profiler_stage_name(report.dominant_stage), report.dominant_share * 100.0, report.ray_step_saturated ? " | Step-Saturated" : "");
+			}
+			const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+			const ImU32 dyn_col = hud_resolve_dynamic_color(style, report.dominant_share * 100.0, base_col);
+			push_block(HudElementId::ProfilerBottleneckReadout, {HudTextLine{buf, dyn_col}});
 		}
 
 		{
@@ -873,41 +1142,67 @@ private:
 				const auto& latest = profiler.history().back();
 				char buf[96];
 				std::snprintf(buf, sizeof(buf), "HUD Overlay: %.3f ms", latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)]);
-				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerStageBreakdownReadout), {HudTextLine{buf}});
+				push_block(HudElementId::ProfilerStageBreakdownReadout, {HudTextLine{buf}});
 			}
 		}
 
 		{
 			const auto& profiler = orchestrator_.profiler();
 			if (!profiler.history().empty()) {
+				const auto& style = hud_layout_.element(HudElementId::ProfilerRayClassificationReadout);
 				const auto& latest = profiler.history().back();
-				char buf[128];
-				std::snprintf(buf, sizeof(buf), "Horizon: %llu | Celestial: %llu | Disk: %llu", static_cast<unsigned long long>(latest.horizon_pixels), static_cast<unsigned long long>(latest.celestial_pixels), static_cast<unsigned long long>(latest.disk_pixels));
-				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerRayClassificationReadout), {HudTextLine{buf}});
+				char buf[176];
+				if (style.display_mode == HudDisplayMode::Extended) {
+					const uint64_t total = std::max<uint64_t>(latest.horizon_pixels + latest.celestial_pixels + latest.disk_pixels, uint64_t{1});
+					std::snprintf(buf, sizeof(buf), "Horizon: %llu (%.1f%%) | Celestial: %llu (%.1f%%) | Disk: %llu (%.1f%%)", static_cast<unsigned long long>(latest.horizon_pixels), static_cast<double>(latest.horizon_pixels) / static_cast<double>(total) * 100.0, static_cast<unsigned long long>(latest.celestial_pixels), static_cast<double>(latest.celestial_pixels) / static_cast<double>(total) * 100.0, static_cast<unsigned long long>(latest.disk_pixels), static_cast<double>(latest.disk_pixels) / static_cast<double>(total) * 100.0);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Horizon: %llu | Celestial: %llu | Disk: %llu", static_cast<unsigned long long>(latest.horizon_pixels), static_cast<unsigned long long>(latest.celestial_pixels), static_cast<unsigned long long>(latest.disk_pixels));
+				}
+				push_block(HudElementId::ProfilerRayClassificationReadout, {HudTextLine{buf}});
 			}
 		}
 
 		{
-			char buf[96];
-			std::snprintf(buf, sizeof(buf), "Ray Iterations: %u - %u", tel.min_iterations_used, tel.max_iterations_used);
-			draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::ProfilerIterationRangeReadout), {HudTextLine{buf}});
+			const auto& style = hud_layout_.element(HudElementId::ProfilerIterationRangeReadout);
+			char buf[112];
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Ray Iterations: %u - %u | Avg: %.1f", tel.min_iterations_used, tel.max_iterations_used, tel.average_iterations_used);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Ray Iterations: %u - %u", tel.min_iterations_used, tel.max_iterations_used);
+			}
+			push_block(HudElementId::ProfilerIterationRangeReadout, {HudTextLine{buf}});
+		}
+
+		{
+			char buf[64];
+			std::snprintf(buf, sizeof(buf), "N-Body Count: %zu", orchestrator_.nbody_system().body_count());
+			push_block(HudElementId::BodyCountReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::GpuComputeStatusReadout);
+			char buf[112];
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "GPU Path: %s | Enabled: %s | Available: %s", tel.used_gpu_path ? "Active" : "Idle", params.use_gpu_compute ? "Yes" : "No", pipeline_.gpu_compute_available() ? "Yes" : "No");
+			} else {
+				std::snprintf(buf, sizeof(buf), "GPU Path: %s", tel.used_gpu_path ? "Active" : "Idle");
+			}
+			push_block(HudElementId::GpuComputeStatusReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::IntegratorStatsReadout);
+			char buf[144];
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Integrator: %s | rtol: %.1e | atol: %.1e", orchestrator_.active_integrator_name().c_str(), params.integration_rtol, params.integration_atol);
+			} else {
+				std::snprintf(buf, sizeof(buf), "Integrator: %s", orchestrator_.active_integrator_name().c_str());
+			}
+			push_block(HudElementId::IntegratorStatsReadout, {HudTextLine{buf}});
 		}
 
 		{
 			const auto& kb = camera_controller_.config().keybinds;
-			auto bind_str = [&](InputAction action) noexcept -> std::string {
-				const auto& b = kb.get(action);
-				if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) {
-					return "---";
-				}
-				std::string s = glfw_key_display_name(b.primary_key);
-				if (b.secondary_key != GLFW_KEY_UNKNOWN) {
-					s += "/";
-					s += glfw_key_display_name(b.secondary_key);
-				}
-				return s;
-			};
-
 			std::vector<HudTextLine> nav_lines;
 			nav_lines.push_back(HudTextLine{"Keybind Summary:", IM_COL32(102, 204, 255, 255)});
 			for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
@@ -919,12 +1214,33 @@ private:
 				}
 				const bool active = (window != nullptr) && kb.is_pressed(action, window);
 				const ImU32 col = active ? IM_COL32(255, 242, 51, 255) : IM_COL32(178, 191, 204, 204);
-				nav_lines.push_back(HudTextLine{bind_str(action) + ": " + std::string(input_action_name(action)), col});
+				nav_lines.push_back(HudTextLine{format_key_binding(b) + ": " + std::string(input_action_name(action)), col});
+			}
+			if (nav_lines.size() > 1) {
+				push_block(HudElementId::NavigationControlsPanel, std::move(nav_lines));
+			}
+		}
+
+		std::stable_sort(pending.begin(), pending.end(), [](const PendingHudBlock& a, const PendingHudBlock& b) noexcept {
+			return a.style->draw_priority > b.style->draw_priority;
+		});
+
+		HudAutoArranger arranger;
+		for (const auto& block : pending) {
+			const auto& style = *block.style;
+			const ImVec2 block_size = measure_hud_block(style, block.lines);
+
+			ImVec2 local_pos;
+			if (hud_layout_.auto_arrange_enabled) {
+				local_pos = arranger.place(style.anchor, avail, block_size, hud_layout_.auto_arrange_spacing);
+				local_pos.x = std::max(local_pos.x + style.offset_x, 0.0f);
+				local_pos.y = std::max(local_pos.y + style.offset_y, 0.0f);
+			} else {
+				local_pos = hud_anchor_resolve(style.anchor, avail, block_size, style.offset_x, style.offset_y);
 			}
 
-			if (nav_lines.size() > 1) {
-				draw_hud_block(draw_list, window_pos, avail, hud_layout_.element(HudElementId::NavigationControlsPanel), nav_lines);
-			}
+			const ImVec2 screen_pos(window_pos.x + local_pos.x, window_pos.y + local_pos.y);
+			draw_hud_block_at(draw_list, screen_pos, style, block.lines);
 		}
 	}
 };

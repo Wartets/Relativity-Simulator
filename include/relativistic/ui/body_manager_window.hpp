@@ -48,6 +48,7 @@ private:
 
 	int selected_body_index_{-1};
 	int creation_preset_{0};
+	bool request_focus_creation_tab_{false};
 
 	char new_body_name_[32]{"New Body"};
 	float new_body_mass_{1.0f};
@@ -103,11 +104,17 @@ public:
 		ImGui::Separator();
 
 		if (ImGui::BeginTabBar("BodyManagerTabs")) {
-			if (ImGui::BeginTabItem("Body Catalog")) {
+			ImGuiTabItemFlags catalog_flags = ImGuiTabItemFlags_None;
+			ImGuiTabItemFlags creation_flags = ImGuiTabItemFlags_None;
+			if (request_focus_creation_tab_) {
+				creation_flags |= ImGuiTabItemFlags_SetSelected;
+				request_focus_creation_tab_ = false;
+			}
+			if (ImGui::BeginTabItem("Body Catalog", nullptr, catalog_flags)) {
 				render_body_list_tab();
 				ImGui::EndTabItem();
 			}
-			if (ImGui::BeginTabItem("Create Body")) {
+			if (ImGui::BeginTabItem("Create Body", nullptr, creation_flags)) {
 				render_creation_tab();
 				ImGui::EndTabItem();
 			}
@@ -229,6 +236,11 @@ private:
 
 		if (n == 0) {
 			ImGui::TextDisabled("No orbiting bodies populated.");
+			ImGui::Spacing();
+			if (ImGui::Button("Add Body", ImVec2(-1.0f, 28.0f))) {
+				request_focus_creation_tab_ = true;
+			}
+			render_setting_tooltip("Switches to the Create Body tab so you can configure and spawn a new orbiting body.");
 			ImGui::Spacing();
 			if (ImGui::Button("Spawn Solar System Archetype", ImVec2(-1.0f, 26.0f))) {
 				populate_solar_system_archetype();
@@ -430,7 +442,11 @@ private:
 		ImGui::SameLine();
 		if (ImGui::Button("Duplicate Body")) {
 			Dynamics::PostNewtonianBody clone = b;
-			clone.id = static_cast<uint32_t>(sys.body_count() + 1);
+			uint32_t clone_id = 1;
+			for (const auto& existing : sys.bodies()) {
+				clone_id = std::max(clone_id, existing.id + 1);
+			}
+			clone.id = clone_id;
 			clone.position[0] += clone.radius * 4.0;
 			sys.add_body(clone);
 			changed = true;
@@ -505,7 +521,10 @@ private:
 		ImGui::Spacing();
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
 			auto& sys = orchestrator_.nbody_system();
-			const uint32_t next_id = static_cast<uint32_t>(sys.body_count() + 1);
+			uint32_t next_id = 1;
+			for (const auto& existing : sys.bodies()) {
+				next_id = std::max(next_id, existing.id + 1);
+			}
 
 			Dynamics::PostNewtonianBody body(
 				next_id,

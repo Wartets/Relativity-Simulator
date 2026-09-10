@@ -5,6 +5,7 @@
 #include "relativistic/dynamics/pn_body.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/core/constants.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <vector>
 #include <string>
@@ -15,6 +16,8 @@
 #include <algorithm>
 #include <cstring>
 #include <cfloat>
+#include <cstdint>
+#include <random>
 
 namespace Relativistic::UI {
 
@@ -61,6 +64,14 @@ private:
 	float new_body_j4_{0.0f};
 	float new_body_r_ref_{1.0f};
 	float new_body_quadrupole_{0.0f};
+	bool new_body_mass_log_mode_{true};
+	bool new_body_radius_log_mode_{true};
+	bool new_body_r_ref_log_mode_{true};
+	bool central_mass_log_mode_{true};
+	bool selected_mass_log_mode_{true};
+	bool selected_radius_log_mode_{true};
+	bool selected_r_ref_log_mode_{true};
+	std::mt19937_64 creation_rng_{std::random_device{}()};
 
 	char search_filter_[64]{};
 	int sort_mode_{static_cast<int>(BodyCatalogSortMode::CreationOrder)};
@@ -76,7 +87,9 @@ private:
 
 public:
 	explicit BodyManagerWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
-		: orchestrator_(orchestrator) {}
+		: orchestrator_(orchestrator) {
+		randomize_creation_defaults();
+	}
 
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;
@@ -203,6 +216,168 @@ private:
 			return {0.0, speed, 0.0};
 		}
 		return {tangent[0] / t_len * speed, tangent[1] / t_len * speed, tangent[2] / t_len * speed};
+	}
+
+	[[nodiscard]] double random_real(double min_val, double max_val) noexcept {
+		std::uniform_real_distribution<double> dist(min_val, max_val);
+		return dist(creation_rng_);
+	}
+
+	[[nodiscard]] int random_int(int min_val, int max_val) noexcept {
+		std::uniform_int_distribution<int> dist(min_val, max_val);
+		return dist(creation_rng_);
+	}
+
+	[[nodiscard]] double sample_log_uniform(double min_val, double max_val) noexcept {
+		return std::pow(10.0, random_real(std::log10(min_val), std::log10(max_val)));
+	}
+
+	[[nodiscard]] double sample_signed_uniform(double min_abs, double max_abs) noexcept {
+		return (random_int(0, 1) == 0 ? -1.0 : 1.0) * random_real(min_abs, max_abs);
+	}
+
+	[[nodiscard]] static std::string_view archetype_label(uint32_t archetype) noexcept {
+		switch (archetype) {
+			case 0: return "Probe";
+			case 1: return "Shard";
+			case 2: return "World";
+			case 3: return "Giant";
+			case 4: return "Compact";
+			default: return "Astral";
+		}
+	}
+
+	[[nodiscard]] std::string synthesize_creation_name(uint32_t archetype, double mass, double radius, double orbit_radius) {
+		static constexpr std::array<std::string_view, 28> prefixes{
+			"Astra", "Boreal", "Cinder", "Drift", "Echo", "Eon", "Flux", "Halo",
+			"Ion", "Kestrel", "Lumen", "Nova", "Nyx", "Orbit", "Quasar", "Rift",
+			"Solace", "Spectrum", "Titan", "Umbra", "Vanta", "Velvet", "Vesper",
+			"Warden", "Zenith", "Auric", "Kepler", "Morrow"
+		};
+		static constexpr std::array<std::string_view, 8> accents{
+			"Prime", "I", "II", "III", "Arc", "Node", "Field", "Halo"
+		};
+
+		const std::string_view prefix = prefixes[static_cast<size_t>(random_int(0, static_cast<int>(prefixes.size() - 1)))];
+		const std::string_view accent = accents[static_cast<size_t>(random_int(0, static_cast<int>(accents.size() - 1)))];
+		const uint32_t suffix = static_cast<uint32_t>(random_int(10, 999));
+
+		std::string name = std::string(prefix) + " " + std::string(archetype_label(archetype));
+		if (mass > 0.0 && radius > 0.0) {
+			if (orbit_radius > radius * 100.0) {
+				name += " Deep";
+			} else if (orbit_radius < radius * 20.0) {
+				name += " Inner";
+			}
+		}
+		name += " ";
+		name += std::string(accent);
+		name += " ";
+		name += std::to_string(suffix);
+		return name;
+	}
+
+	void randomize_creation_defaults() noexcept {
+		static constexpr std::array<uint32_t, 6> archetypes{0, 1, 2, 3, 4, 5};
+		const uint32_t archetype = archetypes[static_cast<size_t>(random_int(0, static_cast<int>(archetypes.size() - 1)))];
+		const double central_mass = std::max(orchestrator_.parameters().mass, 1e-12);
+		double orbit_radius = 10.0;
+		double spin_scale = 1e-3;
+
+		switch (archetype) {
+			case 0: // Probe
+				new_body_mass_ = static_cast<float>(sample_log_uniform(1e-8, 1e-3));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(1e-3, 5e-2));
+				orbit_radius = sample_log_uniform(12.0, 120.0);
+				spin_scale = 1e-4;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-8));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				break;
+			case 1: // Shard
+				new_body_mass_ = static_cast<float>(sample_log_uniform(1e-4, 1.0));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(5e-2, 1.5));
+				orbit_radius = sample_log_uniform(16.0, 220.0);
+				spin_scale = 1e-3;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-4));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
+				break;
+			case 2: // World
+				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 50.0));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(0.8, 6.0));
+				orbit_radius = sample_log_uniform(30.0, 350.0);
+				spin_scale = 5e-3;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-9, 1e-5));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-6, 1e-3));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-5));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-9, 1e-5));
+				break;
+			case 3: // Giant
+				new_body_mass_ = static_cast<float>(sample_log_uniform(10.0, 1e4));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(4.0, 20.0));
+				orbit_radius = sample_log_uniform(60.0, 900.0);
+				spin_scale = 8e-3;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-4));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-4, 2e-2));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				break;
+			case 4: // Compact
+				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 1e6));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(1e-4, 0.5));
+				orbit_radius = sample_log_uniform(40.0, 400.0);
+				spin_scale = 2e-2;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				break;
+			case 5:
+			default: // Astral
+				new_body_mass_ = static_cast<float>(sample_log_uniform(1e2, 1e8));
+				new_body_radius_ = static_cast<float>(sample_log_uniform(5.0, 100.0));
+				orbit_radius = sample_log_uniform(80.0, 1000.0);
+				spin_scale = 1e-2;
+				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-3));
+				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-5, 5e-2));
+				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				break;
+		}
+
+		const double theta = std::acos(std::clamp(random_real(-1.0, 1.0), -1.0, 1.0));
+		const double phi = random_real(0.0, 2.0 * std::numbers::pi);
+		const double sin_theta = std::sin(theta);
+		new_body_pos_[0] = static_cast<float>(orbit_radius * sin_theta * std::cos(phi));
+		new_body_pos_[1] = static_cast<float>(orbit_radius * sin_theta * std::sin(phi));
+		new_body_pos_[2] = static_cast<float>(orbit_radius * std::cos(theta));
+
+		auto velocity = compute_circular_orbit_velocity({static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])}, central_mass);
+		const double speed_scale = random_real(0.82, 1.18);
+		if (std::abs(velocity[0]) < 1e-12 && std::abs(velocity[1]) < 1e-12 && std::abs(velocity[2]) < 1e-12) {
+			velocity = {0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
+		}
+		new_body_vel_[0] = static_cast<float>(velocity[0] * speed_scale);
+		new_body_vel_[1] = static_cast<float>(velocity[1] * speed_scale);
+		new_body_vel_[2] = static_cast<float>(velocity[2] * speed_scale);
+
+		new_body_spin_[0] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
+		new_body_spin_[1] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
+		new_body_spin_[2] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
+		new_body_r_ref_ = static_cast<float>(std::max(static_cast<double>(new_body_radius_) * random_real(0.85, 1.25), 1e-6));
+
+		std::string generated = synthesize_creation_name(archetype, new_body_mass_, new_body_radius_, orbit_radius);
+		const std::string unique = unique_name(generated);
+		std::strncpy(new_body_name_, unique.c_str(), sizeof(new_body_name_) - 1);
+		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+
+		creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
+		new_body_mass_log_mode_ = true;
+		new_body_radius_log_mode_ = true;
+		new_body_r_ref_log_mode_ = true;
 	}
 
 	void render_body_list_tab() noexcept {
@@ -346,7 +521,7 @@ private:
 		ImGui::Separator();
 
 		float mass = static_cast<float>(params.mass);
-		if (ImGui::InputFloat("Central Mass (M)", &mass, 0.1f, 10.0f, "%.4e")) {
+		if (slider_float_with_input("Central Mass (M)", &mass, 1e-12f, 1e36f, "%.4e", &central_mass_log_mode_, 1e-12f, 1e36f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, static_cast<double>(mass)))));
 		}
 		render_setting_tooltip("Central gravitating mass in geometrized units. Governs the Schwarzschild radius rs = 2M and the overall curvature strength.");
@@ -408,14 +583,14 @@ private:
 		render_setting_tooltip("Assigns a human-readable label to this body, shown throughout the catalog, tags, and saved scenarios instead of its numeric identifier.");
 
 		float m = static_cast<float>(b.mass);
-		if (ImGui::InputFloat("Mass", &m, 0.01f, 1.0f, "%.4e")) {
+		if (slider_float_with_input("Mass", &m, 1e-12f, 1e36f, "%.4e", &selected_mass_log_mode_, 1e-12f, 1e36f)) {
 			b.mass = std::max(0.0, static_cast<double>(m));
 			changed = true;
 		}
 		render_setting_tooltip("Gravitating mass of this body in the same geometrized unit system as the central mass.");
 
 		float r = static_cast<float>(b.radius);
-		if (ImGui::InputFloat("Physical Radius", &r, 0.01f, 1.0f, "%.4e")) {
+		if (slider_float_with_input("Physical Radius", &r, 1e-6f, 1e12f, "%.4e", &selected_radius_log_mode_, 1e-6f, 1e12f)) {
 			b.radius = std::max(1e-6, static_cast<double>(r));
 			changed = true;
 		}
@@ -449,35 +624,35 @@ private:
 		render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms.");
 
 		float quad = static_cast<float>(b.quadrupole_moment);
-		if (ImGui::InputFloat("Quadrupole Moment (Q)", &quad, 1e-4f, 1e-2f, "%.6e")) {
+		if (slider_float_with_input("Quadrupole Moment (Q)", &quad, -1e-2f, 1e-2f, "%.6e")) {
 			b.quadrupole_moment = static_cast<double>(quad);
 			changed = true;
 		}
 		render_setting_tooltip("Reserved quadrupole deformation parameter for future tidal and multipolar force models.");
 
 		float j2 = static_cast<float>(b.j2);
-		if (ImGui::InputFloat("Zonal J2 Moment", &j2, 1e-5f, 1e-3f, "%.6e")) {
+		if (slider_float_with_input("Zonal J2 Moment", &j2, -1e-2f, 1e-2f, "%.6e")) {
 			b.j2 = static_cast<double>(j2);
 			changed = true;
 		}
 		render_setting_tooltip("Dominant oblateness harmonic coefficient, producing nodal precession on other bodies passing nearby.");
 
 		float j3 = static_cast<float>(b.j3);
-		if (ImGui::InputFloat("Zonal J3 Moment", &j3, 1e-6f, 1e-4f, "%.6e")) {
+		if (slider_float_with_input("Zonal J3 Moment", &j3, -1e-3f, 1e-3f, "%.6e")) {
 			b.j3 = static_cast<double>(j3);
 			changed = true;
 		}
 		render_setting_tooltip("Third-degree zonal harmonic coefficient, primarily contributing a north-south asymmetric perturbation.");
 
 		float j4 = static_cast<float>(b.j4);
-		if (ImGui::InputFloat("Zonal J4 Moment", &j4, 1e-6f, 1e-4f, "%.6e")) {
+		if (slider_float_with_input("Zonal J4 Moment", &j4, -1e-3f, 1e-3f, "%.6e")) {
 			b.j4 = static_cast<double>(j4);
 			changed = true;
 		}
 		render_setting_tooltip("Fourth-degree zonal harmonic coefficient, a smaller correction to the oblateness perturbation.");
 
 		float r_ref = static_cast<float>(b.reference_radius);
-		if (ImGui::InputFloat("Multipole Reference Radius", &r_ref, 0.01f, 1.0f, "%.4e")) {
+		if (slider_float_with_input("Multipole Reference Radius", &r_ref, 1e-6f, 1e12f, "%.4e", &selected_r_ref_log_mode_, 1e-6f, 1e12f)) {
 			b.reference_radius = std::max(1e-6, static_cast<double>(r_ref));
 			changed = true;
 		}
@@ -571,10 +746,26 @@ private:
 		ImGui::Separator();
 		ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
 		render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
-		ImGui::InputFloat("Mass (kg / Geometrized)", &new_body_mass_, 0.1f, 10.0f, "%.4e");
-		ImGui::InputFloat("Physical Radius", &new_body_radius_, 0.1f, 10.0f, "%.4e");
+		if (slider_float_with_input("Mass (kg / Geometrized)", &new_body_mass_, 1e-12f, 1e36f, "%.4e", &new_body_mass_log_mode_, 1e-12f, 1e36f)) {
+			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+				const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+				new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+			}
+		}
+		if (slider_float_with_input("Physical Radius", &new_body_radius_, 1e-6f, 1e12f, "%.4e", &new_body_radius_log_mode_, 1e-6f, 1e12f)) {
+			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+				const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+				new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+			}
+		}
 		ImGui::InputFloat3("Initial Position (x, y, z)", new_body_pos_);
 		ImGui::InputFloat3("Initial Velocity (vx, vy, vz)", new_body_vel_);
+		if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
+			randomize_creation_defaults();
+		}
+		render_setting_tooltip("Generates a more varied body profile by sampling correlated mass, radius, orbit, spin, and multipole defaults. The name is refreshed with a more descriptive catalog-style label.");
 		if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
 			const std::array<double, 3> pos{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])};
 			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass);
@@ -587,11 +778,11 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextDisabled("Gravitational Multipolar Moments:");
-		ImGui::InputFloat("Quadrupole Moment (Q)", &new_body_quadrupole_, 1e-4f, 1e-2f, "%.6e");
-		ImGui::InputFloat("Zonal J2", &new_body_j2_, 1e-5f, 1e-3f, "%.6e");
-		ImGui::InputFloat("Zonal J3", &new_body_j3_, 1e-6f, 1e-4f, "%.6e");
-		ImGui::InputFloat("Zonal J4", &new_body_j4_, 1e-6f, 1e-4f, "%.6e");
-		ImGui::InputFloat("Reference Radius", &new_body_r_ref_, 0.1f, 1.0f, "%.4e");
+		slider_float_with_input("Quadrupole Moment (Q)", &new_body_quadrupole_, -1e-2f, 1e-2f, "%.6e");
+		slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
+		slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
+		slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
+		slider_float_with_input("Reference Radius", &new_body_r_ref_, 1e-6f, 1e12f, "%.4e", &new_body_r_ref_log_mode_, 1e-6f, 1e12f);
 		render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
 
 		ImGui::Spacing();
@@ -753,13 +944,12 @@ private:
 				break;
 			case BodyPresetTemplate::Custom:
 			default:
-				std::strncpy(new_body_name_, "New Body", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 1.0f;
-				new_body_radius_ = 1.0f;
-				new_body_j2_ = 0.0f;
-				new_body_r_ref_ = 1.0f;
+				randomize_creation_defaults();
 				break;
 		}
+		new_body_mass_log_mode_ = true;
+		new_body_radius_log_mode_ = true;
+		new_body_r_ref_log_mode_ = true;
 		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
 	}
 

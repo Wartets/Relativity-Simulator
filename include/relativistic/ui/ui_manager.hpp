@@ -161,6 +161,7 @@ public:
 		scenario_window_->open_state() = true;
 
 		camera_controller_.config() = user_settings_.camera_controls;
+		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
@@ -652,6 +653,13 @@ private:
 				}
 				if (ImGui::MenuItem("Force Viewport Refresh")) {
 					if (viewport_window_) viewport_window_->request_rerender();
+				}
+				if (!secondary_views_.empty()) {
+					ImGui::Separator();
+					ImGui::TextDisabled("Secondary Observer Viewports");
+					for (auto& view : secondary_views_) {
+						ImGui::MenuItem(view.name().c_str(), nullptr, &view.open_state());
+					}
 				}
 				ImGui::EndMenu();
 			}

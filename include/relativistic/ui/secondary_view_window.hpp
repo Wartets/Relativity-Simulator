@@ -15,6 +15,14 @@ private:
 public:
 	explicit SecondaryViewWindow(std::string name) : name_(std::move(name)) {}
 
+	[[nodiscard]] bool& open_state() noexcept {
+		return is_open_;
+	}
+
+	[[nodiscard]] const std::string& name() const noexcept {
+		return name_;
+	}
+
 	void render() {
 		if (!is_open_) return;
 

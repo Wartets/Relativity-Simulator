@@ -105,6 +105,8 @@ struct HudElementStyle {
 	HudDisplayMode display_mode{HudDisplayMode::Standard};
 	bool show_label{true};
 	bool horizontal_layout{false};
+	float nudge_x{0.0f};
+	float nudge_y{0.0f};
 	int draw_priority{0};
 	int decimal_precision{2};
 	float refresh_interval_seconds{0.0f};
@@ -114,13 +116,13 @@ struct HudElementStyle {
 
 struct ToolbarButtonVisibility {
 	bool play_pause{true};
-	bool step{true};
+	bool step{false};
 	bool reset_view{true};
 	bool look_at_target_combo{true};
-	bool jump_to_target{true};
+	bool jump_to_target{false};
 	bool camera_mode_combo{true};
-	bool hud_master_toggle{true};
-	bool screenshot{false};
+	bool hud_master_toggle{false};
+	bool screenshot{true};
 	bool fullscreen_toggle{false};
 	bool gpu_compute_toggle{false};
 	bool space_skip_toggle{false};

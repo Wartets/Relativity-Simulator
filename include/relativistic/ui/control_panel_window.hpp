@@ -55,6 +55,8 @@ private:
 
 	int metric_selection_{1};
 	int integrator_selection_{0};
+	bool integrator_rtol_log_mode_{true};
+	bool integrator_atol_log_mode_{true};
 
 	float rocket_thrust_x_{0.0f};
 	float rocket_thrust_y_{0.0f};
@@ -687,16 +689,36 @@ private:
 		ImGui::Separator();
 
 		float rtol = static_cast<float>(orchestrator_.parameters().integration_rtol);
-		if (ImGui::InputFloat("Relative Tolerance (rtol)", &rtol, 1e-12f, 1e-8f, "%.2e")) {
+		if (slider_float_with_input("Relative Tolerance (rtol)", &rtol, 1e-16f, 1e-1f, "%.2e", &integrator_rtol_log_mode_, 1e-16f, 1e-1f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
 		}
-		render_setting_tooltip("Local relative error tolerance threshold controlling adaptive step-size regulation.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("rtol /10")) {
+			rtol = std::max(rtol * 0.1f, 1e-16f);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("rtol x10")) {
+			rtol = std::min(rtol * 10.0f, 1e-1f);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
+		}
+		render_setting_tooltip("Local relative error tolerance threshold controlling adaptive step-size regulation. The /10 and x10 buttons jump by a full order of magnitude.");
 
 		float atol = static_cast<float>(orchestrator_.parameters().integration_atol);
-		if (ImGui::InputFloat("Absolute Tolerance (atol)", &atol, 1e-16f, 1e-12f, "%.2e")) {
+		if (slider_float_with_input("Absolute Tolerance (atol)", &atol, 1e-20f, 1e-4f, "%.2e", &integrator_atol_log_mode_, 1e-20f, 1e-4f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
 		}
-		render_setting_tooltip("Absolute error tolerance floor preventing step-size collapse near null-coordinate vanishing states.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("atol /10")) {
+			atol = std::max(atol * 0.1f, 1e-20f);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("atol x10")) {
+			atol = std::min(atol * 10.0f, 1e-4f);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
+		}
+		render_setting_tooltip("Absolute error tolerance floor preventing step-size collapse near null-coordinate vanishing states. The /10 and x10 buttons jump by a full order of magnitude.");
 	}
 
 	void render_rocket_tab() noexcept {
@@ -730,13 +752,25 @@ private:
 		}
 
 		float warp = static_cast<float>(snap.warp_factor);
-		if (slider_float_with_input("Warp Factor", &warp, 0.1f, 1000.0f, "%.2f", &warp_log_mode_)) {
+		if (slider_float_with_input("Warp Factor", &warp, 1e-6f, 1e9f, "%.4e", &warp_log_mode_, 1e-6f, 1e9f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(static_cast<double>(warp))));
 		}
-		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock. Enable Log for precise control at both very slow and very fast warp rates.");
+		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock, spanning extreme slow motion to extreme fast forward. Enable Log for precise control across the full range.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Warp x10")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::min(static_cast<double>(warp) * 10.0, 1e9))));
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Warp /10")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::max(static_cast<double>(warp) * 0.1, 1e-6))));
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Warp Reset (1x)")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(1.0)));
+		}
 
 		float rate = static_cast<float>(snap.tick_rate_hz);
-		if (slider_float_with_input("Scheduler Rate", &rate, 10.0f, 240.0f, "%.0f")) {
+		if (slider_float_with_input("Scheduler Rate", &rate, 10.0f, 1000.0f, "%.0f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_tickrate(static_cast<double>(rate))));
 		}
 		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");
@@ -1212,8 +1246,13 @@ private:
 					elem.anchor = static_cast<HudAnchor>(anchor_idx);
 				}
 
-				ImGui::DragFloat(hud_layout_.auto_arrange_enabled ? "Fine Nudge X" : "Offset X", &elem.offset_x, 1.0f, 0.0f, 2400.0f, "%.0f px");
-				ImGui::DragFloat(hud_layout_.auto_arrange_enabled ? "Fine Nudge Y" : "Offset Y", &elem.offset_y, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				if (hud_layout_.auto_arrange_enabled) {
+					ImGui::DragFloat("Fine Nudge X", &elem.nudge_x, 1.0f, -400.0f, 400.0f, "%.0f px");
+					ImGui::DragFloat("Fine Nudge Y", &elem.nudge_y, 1.0f, -400.0f, 400.0f, "%.0f px");
+				} else {
+					ImGui::DragFloat("Offset X", &elem.offset_x, 1.0f, 0.0f, 2400.0f, "%.0f px");
+					ImGui::DragFloat("Offset Y", &elem.offset_y, 1.0f, 0.0f, 2400.0f, "%.0f px");
+				}
 				ImGui::SliderFloat("Text Scale", &elem.scale, 0.5f, 3.0f, "%.2fx");
 				ImGui::ColorEdit4("Text Color", elem.text_color.data());
 				ImGui::Checkbox("Show Background Panel", &elem.show_background);
@@ -1236,6 +1275,14 @@ private:
 
 				ImGui::InputInt("Draw Priority", &elem.draw_priority);
 				render_setting_tooltip("Elements with a higher priority are placed first when using the automatic stacked layout, and are listed first within a shared anchor corner.");
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Move Earlier")) {
+					elem.draw_priority += 1;
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Move Later")) {
+					elem.draw_priority -= 1;
+				}
 
 				ImGui::SliderFloat("Refresh Interval", &elem.refresh_interval_seconds, 0.0f, 5.0f, "%.2f s");
 				render_setting_tooltip("Minimum time between visual updates for this element. Zero means the element refreshes every frame.");

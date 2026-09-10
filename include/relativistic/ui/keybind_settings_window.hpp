@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/ui/camera_control_config.hpp"
+#include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -18,6 +19,7 @@ class KeybindSettingsWindow {
 private:
 	bool is_open_{false};
 	CameraControlConfig* config_{nullptr};
+	HudLayoutConfig* hud_layout_{nullptr};
 	int listening_action_{-1};
 	int listening_slot_{0};
 	std::string conflict_message_{};
@@ -187,6 +189,14 @@ private:
 			config_->keybinds.reset_to_default(action, config_->keyboard_layout);
 		}
 
+		if (hud_layout_ != nullptr) {
+			ImGui::SameLine();
+			bool visible_in_hud = hud_layout_->keybind_summary_visible[idx];
+			if (ImGui::Checkbox("Show In HUD", &visible_in_hud)) {
+				hud_layout_->keybind_summary_visible[idx] = visible_in_hud;
+			}
+		}
+
 		if (action_supports_activation_mode(action)) {
 			ImGui::SameLine();
 			const char* mode_names[] = {"Hold", "Toggle"};
@@ -204,6 +214,10 @@ private:
 public:
 	explicit KeybindSettingsWindow(CameraControlConfig& config) noexcept
 		: config_(&config) {}
+
+	void attach_hud_layout(HudLayoutConfig& hud_layout) noexcept {
+		hud_layout_ = &hud_layout;
+	}
 
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;

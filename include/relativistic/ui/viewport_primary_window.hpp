@@ -1270,8 +1270,8 @@ private:
 			ImVec2 local_pos;
 			if (hud_layout_.auto_arrange_enabled) {
 				local_pos = arranger.place(style.anchor, avail, block_size, hud_layout_.auto_arrange_spacing);
-				local_pos.x = std::max(local_pos.x + style.offset_x, 0.0f);
-				local_pos.y = std::max(local_pos.y + style.offset_y, 0.0f);
+				local_pos.x = std::max(local_pos.x + style.nudge_x, 0.0f);
+				local_pos.y = std::max(local_pos.y + style.nudge_y, 0.0f);
 			} else {
 				local_pos = hud_anchor_resolve(style.anchor, avail, block_size, style.offset_x, style.offset_y);
 			}

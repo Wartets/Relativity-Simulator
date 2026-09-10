@@ -64,7 +64,7 @@ private:
 	[[nodiscard]] static bool attempt_analytic_space_skip(
 		Scalar& ray_r, Scalar& ray_theta, Scalar& ray_phi,
 		Scalar& ray_pr, Scalar& ray_ptheta, Scalar& ray_pphi,
-		Scalar space_skip_radius, Scalar escape_radius
+		Scalar space_skip_radius, Scalar escape_radius, Scalar mass
 	) noexcept {
 		if (ray_r <= space_skip_radius) {
 			return false;
@@ -79,13 +79,36 @@ private:
 		const Scalar py = ray_r * sin_t * sin_p;
 		const Scalar pz = ray_r * cos_t;
 
-		const Scalar dx = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-		const Scalar dy = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-		const Scalar dz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
+		Scalar dx = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
+		Scalar dy = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
+		Scalar dz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
 
 		const Scalar dir_norm_sq = dx * dx + dy * dy + dz * dz;
 		if (dir_norm_sq <= static_cast<Scalar>(1e-30)) {
 			return false;
+		}
+
+		const Scalar cross_x = py * dz - pz * dy;
+		const Scalar cross_y = pz * dx - px * dz;
+		const Scalar cross_z = px * dy - py * dx;
+		const Scalar cross_norm = std::sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
+		if (cross_norm > static_cast<Scalar>(1e-12) && mass > static_cast<Scalar>(0)) {
+			const Scalar impact_parameter = cross_norm / std::sqrt(dir_norm_sq);
+			const Scalar deflection = std::min(static_cast<Scalar>(4) * mass / std::max(impact_parameter, mass * static_cast<Scalar>(1e-6)), static_cast<Scalar>(0.6));
+			const Scalar nx = cross_x / cross_norm;
+			const Scalar ny = cross_y / cross_norm;
+			const Scalar nz = cross_z / cross_norm;
+			const Scalar wx = ny * dz - nz * dy;
+			const Scalar wy = nz * dx - nx * dz;
+			const Scalar wz = nx * dy - ny * dx;
+			const Scalar cos_a = std::cos(deflection);
+			const Scalar sin_a = std::sin(deflection);
+			const Scalar rdx = dx * cos_a + wx * sin_a;
+			const Scalar rdy = dy * cos_a + wy * sin_a;
+			const Scalar rdz = dz * cos_a + wz * sin_a;
+			dx = rdx;
+			dy = rdy;
+			dz = rdz;
 		}
 
 		const Scalar p_dot_d = px * dx + py * dy + pz * dz;
@@ -221,14 +244,14 @@ private:
 				const double effective_skip_r = has_accretion_disk
 					? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
 					: std::max(params.space_skip_radius_scale * m, rh * 2.0);
-				if (x(1) > effective_skip_r && attempt_analytic_space_skip(x(1), x(2), x(3), u(1), u(2), u(3), effective_skip_r, escape_radius)) {
+				if (x(1) > effective_skip_r && attempt_analytic_space_skip(x(1), x(2), x(3), u(1), u(2), u(3), effective_skip_r, escape_radius, m)) {
 					continue;
 				}
 			}
 
 			const double cur_r = x(1);
 			const double r_scale = std::max(cur_r - rh, 0.02 * m);
-			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0, 0.15, 1.0);
+			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
 			const double dt = -std::clamp(0.05 * std::sqrt(cur_r * r_scale), 0.004, 3.5) * pole_guard;
 
 			const double prev_r = x(1);
@@ -785,13 +808,13 @@ public:
 						}
 
 						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
-							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius)) {
+							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius, m)) {
 							continue;
 						}
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
 						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
-						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0, 0.15, 1.0);
+						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
 						const double dt = -std::clamp(smooth_dt, 0.004, 3.5) * pole_guard;
 
 						const double prev_r = ray_r;
@@ -1150,7 +1173,7 @@ public:
 						if (space_skip_enabled) {
 							for (size_t l = 0; l < lanes; ++l) {
 								if (bundle.active_mask[l] && bundle.x1[l] > effective_space_skip_radius) {
-									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, params.escape_radius));
+									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, params.escape_radius, m));
 								}
 							}
 						}
@@ -1159,7 +1182,7 @@ public:
 							if (bundle.active_mask[l]) {
 								const double r_scale = std::max(bundle.x1[l] - rh, 0.02 * m);
 								const double smooth_dt = 0.06 * std::sqrt(bundle.x1[l] * r_scale);
-								const double pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0, 0.15, 1.0);
+								const double pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
 								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005, 4.0) * pole_guard;
 							} else {
 								bundle.step_size[l] = -0.01;
@@ -1474,13 +1497,13 @@ public:
 						}
 
 						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
-							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, static_cast<float>(params.escape_radius))) {
+							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, static_cast<float>(params.escape_radius), m)) {
 							continue;
 						}
 
 						const float r_scale = std::max(ray_r - rh, 0.02f * m);
 						const float smooth_dt = 0.05f * std::sqrt(ray_r * r_scale);
-						const float pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0f, 0.15f, 1.0f);
+						const float pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0f * static_cast<float>(params.pole_guard_precision_scale), 0.15f, 1.0f);
 						const float dt = -std::clamp(smooth_dt, 0.004f, 3.5f) * pole_guard;
 
 						const float prev_r = ray_r;
@@ -1844,7 +1867,7 @@ public:
 						if (space_skip_enabled) {
 							for (size_t l = 0; l < lanes; ++l) {
 								if (bundle.active_mask[l] && bundle.x1[l] > effective_space_skip_radius) {
-									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, static_cast<float>(params.escape_radius)));
+									static_cast<void>(attempt_analytic_space_skip(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], effective_space_skip_radius, static_cast<float>(params.escape_radius), m));
 								}
 							}
 						}
@@ -1853,7 +1876,7 @@ public:
 							if (bundle.active_mask[l]) {
 								const float r_scale = std::max(bundle.x1[l] - rh, 0.02f * m);
 								const float smooth_dt = 0.06f * std::sqrt(bundle.x1[l] * r_scale);
-								const float pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0f, 0.15f, 1.0f);
+								const float pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0f * static_cast<float>(params.pole_guard_precision_scale), 0.15f, 1.0f);
 								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005f, 4.0f) * pole_guard;
 							} else {
 								bundle.step_size[l] = -0.01f;

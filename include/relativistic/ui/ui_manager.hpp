@@ -2,6 +2,7 @@
 
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
+#include "relativistic/io/screenshot_capture_settings.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/ui/telemetry_window.hpp"
 #include "relativistic/ui/spectrograph_window.hpp"
@@ -32,6 +33,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <optional>
+#include <cstring>
 
 namespace Relativistic::UI {
 
@@ -69,6 +71,9 @@ private:
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
+	char screenshot_dir_buffer_[256]{};
+	char screenshot_pattern_buffer_[128]{};
+	bool screenshot_buffers_synced_{false};
 
 public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
@@ -152,13 +157,16 @@ public:
 		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();
 
-		telemetry_window_.open_state() = false;
-		spectrograph_window_.open_state() = false;
-		diagnostics_window_.open_state() = false;
-		performance_analysis_window_.open_state() = false;
-		control_panel_window_.open_state() = true;
-		performance_window_.open_state() = true;
-		scenario_window_->open_state() = true;
+		telemetry_window_.open_state() = user_settings_.window_telemetry_open;
+		spectrograph_window_.open_state() = user_settings_.window_spectrograph_open;
+		diagnostics_window_.open_state() = user_settings_.window_diagnostics_open;
+		performance_analysis_window_.open_state() = user_settings_.window_performance_analysis_open;
+		control_panel_window_.open_state() = user_settings_.window_control_panel_open;
+		performance_window_.open_state() = user_settings_.window_performance_open;
+		scenario_window_->open_state() = user_settings_.window_scenario_open;
+		body_manager_window_.open_state() = user_settings_.window_body_manager_open;
+		hud_manager_window_.open_state() = user_settings_.window_hud_manager_open;
+		keybind_window_.open_state() = user_settings_.window_keybind_settings_open;
 
 		camera_controller_.config() = user_settings_.camera_controls;
 		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
@@ -178,17 +186,28 @@ public:
 			viewport_window_->request_screenshot(
 				user_settings_.screenshot_output_directory,
 				user_settings_.screenshot_filename_pattern,
-				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format)
+				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
+				user_settings_.screenshot_resolution_scale
 			);
 		}
 	}
 
-	void export_runtime_settings() const noexcept {
+	void export_runtime_settings() noexcept {
 		user_settings_.camera_controls = camera_controller_.config();
 		user_settings_.multi_window_mode = multi_window_mode_;
 		user_settings_.last_window_layout = static_cast<uint32_t>(current_layout_);
 		user_settings_.default_camera_mode = orchestrator_.parameters().camera_mode;
 		user_settings_.default_performance_preset = orchestrator_.parameters().performance_preset;
+		user_settings_.window_control_panel_open = control_panel_window_.open_state();
+		user_settings_.window_performance_open = performance_window_.open_state();
+		user_settings_.window_scenario_open = scenario_window_ ? scenario_window_->open_state() : user_settings_.window_scenario_open;
+		user_settings_.window_telemetry_open = telemetry_window_.open_state();
+		user_settings_.window_spectrograph_open = spectrograph_window_.open_state();
+		user_settings_.window_diagnostics_open = diagnostics_window_.open_state();
+		user_settings_.window_body_manager_open = body_manager_window_.open_state();
+		user_settings_.window_performance_analysis_open = performance_analysis_window_.open_state();
+		user_settings_.window_hud_manager_open = hud_manager_window_.open_state();
+		user_settings_.window_keybind_settings_open = keybind_window_.open_state();
 	}
 
 	void apply_multi_window_layout_preset(UiLayoutPreset preset) noexcept {
@@ -221,6 +240,7 @@ public:
 		ImGui::NewFrame();
 
 		render_main_menu_bar();
+		render_screenshot_settings_popup();
 
 		if (!multi_window_mode_) {
 			ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(0U, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -564,9 +584,62 @@ private:
 		}
 	}
 
+	void render_screenshot_settings_popup() noexcept {
+		if (!screenshot_buffers_synced_) {
+			std::strncpy(screenshot_dir_buffer_, user_settings_.screenshot_output_directory.c_str(), sizeof(screenshot_dir_buffer_) - 1);
+			std::strncpy(screenshot_pattern_buffer_, user_settings_.screenshot_filename_pattern.c_str(), sizeof(screenshot_pattern_buffer_) - 1);
+			screenshot_buffers_synced_ = true;
+		}
+
+		ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_FirstUseEver);
+		if (ImGui::BeginPopupModal("Screenshot Capture Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::TextWrapped("Configure where and how captured frames are saved. Available filename tokens: %%metric%%, %%mass%%, %%spin%%, %%width%%, %%height%%, %%tick%%, plus any strftime token such as %%Y %%m %%d %%H %%M %%S.");
+			ImGui::Separator();
+
+			if (ImGui::InputText("Output Directory", screenshot_dir_buffer_, sizeof(screenshot_dir_buffer_))) {
+				user_settings_.screenshot_output_directory = screenshot_dir_buffer_;
+			}
+			if (ImGui::InputText("Filename Pattern", screenshot_pattern_buffer_, sizeof(screenshot_pattern_buffer_))) {
+				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
+			}
+
+			const char* format_names[] = {"PPM (Lossless, Fast)", "BMP (Lossless, Windows-Compatible)"};
+			int format_idx = static_cast<int>(user_settings_.screenshot_format);
+			if (ImGui::Combo("File Format", &format_idx, format_names, IM_ARRAYSIZE(format_names))) {
+				user_settings_.screenshot_format = static_cast<uint32_t>(format_idx);
+			}
+
+			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
+			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale.");
+
+			IO::ScreenshotCaptureContext preview_ctx;
+			preview_ctx.metric_name = orchestrator_.active_metric_name();
+			preview_ctx.mass = orchestrator_.parameters().mass;
+			preview_ctx.spin = orchestrator_.parameters().spin;
+			preview_ctx.width = 1920;
+			preview_ctx.height = 1080;
+			preview_ctx.tick_index = orchestrator_.scheduler().snapshot().tick_index;
+			const std::string preview_name = IO::ScreenshotFilenameBuilder::build(user_settings_.screenshot_filename_pattern, preview_ctx);
+			ImGui::Text("Preview filename: %s", preview_name.c_str());
+
+			ImGui::Separator();
+			if (ImGui::Button("Capture Now", ImVec2(140.0f, 26.0f))) {
+				trigger_screenshot_capture();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Close", ImVec2(100.0f, 26.0f))) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
+
 	void render_main_menu_bar() noexcept {
 		if (ImGui::BeginMainMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
+				if (ImGui::MenuItem("Screenshot Capture Settings...")) {
+					ImGui::OpenPopup("Screenshot Capture Settings");
+				}
 				if (ImGui::MenuItem("Save Snapshot Scenario...")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario("scenarios/snapshot.yaml")));
 				}

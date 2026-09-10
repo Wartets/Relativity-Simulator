@@ -56,6 +56,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double sky_background_g;
 	double sky_background_b;
 	double space_skip_radius_scale;
+	double pole_guard_precision_scale;
 } pc;
 
 struct PixelOutput {
@@ -432,7 +433,7 @@ vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	return out_col;
 }
 
-bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double space_skip_radius, double escape_radius) {
+bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double space_skip_radius, double escape_radius, double mass) {
 	if (ray_r <= space_skip_radius) {
 		return false;
 	}
@@ -455,6 +456,30 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 	double dir_norm_sq = dx * dx + dy * dy + dz * dz;
 	if (dir_norm_sq <= 1e-30) {
 		return false;
+	}
+
+	double cross_x = py * dz - pz * dy;
+	double cross_y = pz * dx - px * dz;
+	double cross_z = px * dy - py * dx;
+	double cross_norm = sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
+	if (cross_norm > 1e-12 && mass > 0.0) {
+		double impact_parameter = cross_norm / sqrt(dir_norm_sq);
+		double deflection = min(4.0 * mass / max(impact_parameter, mass * 1e-6), 0.6);
+		double nx = cross_x / cross_norm;
+		double ny = cross_y / cross_norm;
+		double nz = cross_z / cross_norm;
+		double wx = ny * dz - nz * dy;
+		double wy = nz * dx - nx * dz;
+		double wz = nx * dy - ny * dx;
+		float defl_f = float(deflection);
+		double cos_a = double(cos(defl_f));
+		double sin_a = double(sin(defl_f));
+		double rdx = dx * cos_a + wx * sin_a;
+		double rdy = dy * cos_a + wy * sin_a;
+		double rdz = dz * cos_a + wz * sin_a;
+		dx = rdx;
+		dy = rdy;
+		dz = rdz;
 	}
 
 	double p_dot_d = px * dx + py * dy + pz * dz;
@@ -634,7 +659,7 @@ void main() {
 
 			if ((pc.render_flags & (1u << 10)) != 0u) {
 				double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
-				if (ray_r > effective_skip_r && attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius)) {
+				if (ray_r > effective_skip_r && attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
 					continue;
 				}
 			}
@@ -643,7 +668,7 @@ void main() {
 			dvec2 sincos_ray_th = precise_sincos(ray_th);
 			double sin_t = sincos_ray_th.x;
 			double cos_t = sincos_ray_th.y;
-			double pole_guard = clamp(abs(sin_t) * 12.0, 0.15, 1.0);
+			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.15, 1.0);
 			double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
 
 			double prev_r = ray_r;

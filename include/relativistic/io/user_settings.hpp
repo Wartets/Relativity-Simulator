@@ -28,8 +28,9 @@ struct UserSettings {
 	bool default_use_gpu_compute{true};
 	std::string default_scenario_path{};
 	std::string screenshot_output_directory{"./screenshots"};
-	std::string screenshot_filename_pattern{"relativistic_%Y%m%d_%H%M%S"};
+	std::string screenshot_filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
 	uint32_t screenshot_format{0};
+	float screenshot_resolution_scale{2.0f};
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
@@ -37,6 +38,17 @@ struct UserSettings {
 
 	uint32_t last_window_layout{0};
 	bool multi_window_mode{true};
+
+	bool window_control_panel_open{true};
+	bool window_performance_open{true};
+	bool window_scenario_open{true};
+	bool window_telemetry_open{false};
+	bool window_spectrograph_open{false};
+	bool window_diagnostics_open{false};
+	bool window_body_manager_open{false};
+	bool window_performance_analysis_open{false};
+	bool window_hud_manager_open{false};
+	bool window_keybind_settings_open{false};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "user_settings.cfg";
@@ -125,8 +137,19 @@ struct UserSettings {
 		result.screenshot_output_directory = get_str("screenshot_output_directory", result.screenshot_output_directory);
 		result.screenshot_filename_pattern = get_str("screenshot_filename_pattern", result.screenshot_filename_pattern);
 		result.screenshot_format = get_u32("screenshot_format", result.screenshot_format);
+		result.screenshot_resolution_scale = static_cast<float>(get_dbl("screenshot_resolution_scale", result.screenshot_resolution_scale));
 		result.last_window_layout = get_u32("last_window_layout", result.last_window_layout);
 		result.multi_window_mode = get_u32("multi_window_mode", result.multi_window_mode ? 1 : 0) != 0;
+		result.window_control_panel_open = get_bool("window_control_panel_open", result.window_control_panel_open);
+		result.window_performance_open = get_bool("window_performance_open", result.window_performance_open);
+		result.window_scenario_open = get_bool("window_scenario_open", result.window_scenario_open);
+		result.window_telemetry_open = get_bool("window_telemetry_open", result.window_telemetry_open);
+		result.window_spectrograph_open = get_bool("window_spectrograph_open", result.window_spectrograph_open);
+		result.window_diagnostics_open = get_bool("window_diagnostics_open", result.window_diagnostics_open);
+		result.window_body_manager_open = get_bool("window_body_manager_open", result.window_body_manager_open);
+		result.window_performance_analysis_open = get_bool("window_performance_analysis_open", result.window_performance_analysis_open);
+		result.window_hud_manager_open = get_bool("window_hud_manager_open", result.window_hud_manager_open);
+		result.window_keybind_settings_open = get_bool("window_keybind_settings_open", result.window_keybind_settings_open);
 
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
@@ -210,8 +233,19 @@ struct UserSettings {
 		out << "screenshot_output_directory=" << screenshot_output_directory << "\n";
 		out << "screenshot_filename_pattern=" << screenshot_filename_pattern << "\n";
 		out << "screenshot_format=" << screenshot_format << "\n";
+		out << "screenshot_resolution_scale=" << screenshot_resolution_scale << "\n";
 		out << "last_window_layout=" << last_window_layout << "\n";
 		out << "multi_window_mode=" << (multi_window_mode ? 1 : 0) << "\n";
+		out << "window_control_panel_open=" << (window_control_panel_open ? 1 : 0) << "\n";
+		out << "window_performance_open=" << (window_performance_open ? 1 : 0) << "\n";
+		out << "window_scenario_open=" << (window_scenario_open ? 1 : 0) << "\n";
+		out << "window_telemetry_open=" << (window_telemetry_open ? 1 : 0) << "\n";
+		out << "window_spectrograph_open=" << (window_spectrograph_open ? 1 : 0) << "\n";
+		out << "window_diagnostics_open=" << (window_diagnostics_open ? 1 : 0) << "\n";
+		out << "window_body_manager_open=" << (window_body_manager_open ? 1 : 0) << "\n";
+		out << "window_performance_analysis_open=" << (window_performance_analysis_open ? 1 : 0) << "\n";
+		out << "window_hud_manager_open=" << (window_hud_manager_open ? 1 : 0) << "\n";
+		out << "window_keybind_settings_open=" << (window_keybind_settings_open ? 1 : 0) << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

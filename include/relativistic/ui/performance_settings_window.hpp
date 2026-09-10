@@ -31,6 +31,7 @@ private:
 	int motion_quality_mode_{1};
 	float motion_quality_scale_{0.65f};
 	int step_controller_mode_{1};
+	float pole_guard_precision_{2.5f};
 
 public:
 	explicit PerformanceSettingsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -59,6 +60,7 @@ public:
 		motion_quality_mode_ = static_cast<int>(p.motion_quality_mode);
 		motion_quality_scale_ = static_cast<float>(p.motion_quality_scale);
 		step_controller_mode_ = static_cast<int>(p.step_controller_mode);
+		pole_guard_precision_ = static_cast<float>(p.pole_guard_precision_scale);
 	}
 
 	void render() {
@@ -184,11 +186,19 @@ public:
 
 			if (space_skip_enabled_ui) {
 				float space_skip_radius_ui = static_cast<float>(orchestrator_.parameters().space_skip_radius_scale);
-				if (ImGui::SliderFloat("Space Skip Radius (M units)", &space_skip_radius_ui, 25.0f, 300.0f, "%.0f M")) {
+				if (ImGui::SliderFloat("Space Skip Radius (M units)", &space_skip_radius_ui, 40.0f, 300.0f, "%.0f M")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkipRadiusScale, static_cast<double>(space_skip_radius_ui))));
 				}
-				render_setting_tooltip("Radius, in units of central mass M, beyond which spacetime curvature is treated as negligible and rays are advanced analytically. Automatically clamped above the accretion disk outer edge to avoid skipping over visible structures.");
+				render_setting_tooltip("Radius, in units of central mass M, beyond which spacetime curvature is treated as negligible and rays are advanced analytically. Automatically clamped above the accretion disk outer edge to avoid skipping over visible structures. The leap direction is corrected for the first-order gravitational deflection expected over the skipped distance, so enabling or disabling this option no longer shifts the apparent position of the black hole.");
 			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.9f, 0.55f, 0.85f, 1.0f), "Polar Region Integration Precision");
+			if (slider_float_with_input("Polar Step Damping Strength", &pole_guard_precision_, 0.5f, 8.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, static_cast<double>(pole_guard_precision_))));
+			}
+			render_setting_tooltip("Strengthens the automatic step-size reduction applied near the coordinate poles (theta near 0 or pi) for both the CPU solver and the Vulkan GPU compute shader. Higher values suppress the thin bright artifact line sometimes visible through the poles of a black hole, at a small performance cost. The default is already set high enough to resolve this artifact under most conditions.");
 
 			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {

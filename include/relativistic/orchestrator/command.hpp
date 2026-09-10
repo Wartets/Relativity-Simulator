@@ -88,7 +88,8 @@ enum class ParameterType : uint32_t {
 	SpaceSkippingEnabled = 45,
 	SpaceSkipRadiusScale = 46,
 	SchematicModeEnabled = 47,
-	SchematicAllowSimulation = 48
+	SchematicAllowSimulation = 48,
+	PoleGuardPrecisionScale = 49
 };
 
 struct Command {
@@ -601,6 +602,7 @@ public:
 			else if (iequals_sv(token2, "force_realloc") || iequals_sv(token2, "realloc_texture")) ptype = ParameterType::ForceTextureReallocation;
 			else if (iequals_sv(token2, "space_skip") || iequals_sv(token2, "space_skip_enabled")) ptype = ParameterType::SpaceSkippingEnabled;
 			else if (iequals_sv(token2, "space_skip_radius")) ptype = ParameterType::SpaceSkipRadiusScale;
+			else if (iequals_sv(token2, "pole_precision")) ptype = ParameterType::PoleGuardPrecisionScale;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

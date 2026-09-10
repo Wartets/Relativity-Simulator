@@ -12,6 +12,7 @@
 #include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
+#include "relativistic/io/screenshot_capture_settings.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
@@ -212,14 +213,36 @@ public:
 		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
 	}
 
-	void request_screenshot(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format) {
+	void request_screenshot(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format, float resolution_scale = 1.0f) {
+		const auto snap = orchestrator_.scheduler().snapshot();
+		IO::ScreenshotCaptureContext ctx;
+		ctx.metric_name = orchestrator_.active_metric_name();
+		ctx.mass = orchestrator_.parameters().mass;
+		ctx.spin = orchestrator_.parameters().spin;
+		ctx.tick_index = snap.tick_index;
+
 		std::vector<Render::GpuPixelOutput> fb;
 		uint32_t fb_w = 0, fb_h = 0;
-		pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+
+		if (resolution_scale > 1.01f && current_width_ > 0 && current_height_ > 0) {
+			Render::GpuCameraPushConstants capture_consts = last_camera_constants_;
+			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * resolution_scale), 64u, 7680u);
+			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * resolution_scale), 64u, 4320u);
+			fb.assign(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
+			Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, nullptr, nullptr);
+			fb_w = capture_consts.screen_width;
+			fb_h = capture_consts.screen_height;
+		} else {
+			pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+		}
+
 		if (fb_w == 0 || fb_h == 0 || fb.empty()) {
 			return;
 		}
-		const std::string stem = IO::ScreenshotExporter::expand_filename_pattern(filename_pattern);
+
+		ctx.width = fb_w;
+		ctx.height = fb_h;
+		const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
 		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format);
 	}
 
@@ -366,6 +389,7 @@ public:
 				cam_consts.render_flags |= Render::RenderFlags::SPACE_SKIP_ENABLED;
 			}
 			cam_consts.space_skip_radius_scale = params.space_skip_radius_scale;
+			cam_consts.pole_guard_precision_scale = params.pole_guard_precision_scale;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_saturation = params.sky_saturation;

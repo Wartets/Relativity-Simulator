@@ -132,7 +132,7 @@ public:
 		const double d_xy = std::sqrt(dx * dx + dy * dy);
 		const double d_tot = std::sqrt(d_xy * d_xy + dz * dz);
 		if (d_tot > 1e-6) {
-			cam.yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi);
+			cam.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi);
 			cam.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
 			cam.roll = 0.0;
 			cam.target = target_pos;

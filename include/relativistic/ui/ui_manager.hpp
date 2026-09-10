@@ -193,6 +193,18 @@ public:
 		pending_layout_reset_ = true;
 	}
 
+	void show_all_panels() noexcept {
+		show_viewport_ = true;
+		if (scenario_window_) scenario_window_->open_state() = true;
+		control_panel_window_.open_state() = true;
+		performance_window_.open_state() = true;
+		body_manager_window_.open_state() = true;
+		diagnostics_window_.open_state() = true;
+		telemetry_window_.open_state() = true;
+		spectrograph_window_.open_state() = true;
+		performance_analysis_window_.open_state() = true;
+	}
+
 	void render_frame() {
 		const auto now = std::chrono::steady_clock::now();
 		const double dt = std::chrono::duration<double>(now - last_frame_time_).count();
@@ -217,7 +229,8 @@ public:
 			pending_layout_reset_ = false;
 		}
 
-		if (show_viewport_ && viewport_window_) {
+		show_viewport_ = true;
+		if (viewport_window_) {
 			viewport_window_->render(main_window_, dt, multi_window_mode_);
 		}
 
@@ -619,18 +632,30 @@ private:
 			}
 
 			if (ImGui::BeginMenu("View Windows")) {
-				ImGui::MenuItem("3D Primary Viewport", nullptr, &show_viewport_);
+				ImGui::TextDisabled("Primary Relativistic Viewport is always visible");
+				ImGui::Separator();
 				if (scenario_window_) {
-					ImGui::MenuItem("Scenario Catalog", key_hint(InputAction::ToggleScenarioWindow).c_str(), &scenario_window_->open_state());
+					ImGui::MenuItem("Scenario Manager & Presets", key_hint(InputAction::ToggleScenarioWindow).c_str(), &scenario_window_->open_state());
 				}
-				ImGui::MenuItem("Master Controls", key_hint(InputAction::ToggleControlPanel).c_str(), &control_panel_window_.open_state());
-				ImGui::MenuItem("Performance Profiles", key_hint(InputAction::TogglePerformanceWindow).c_str(), &performance_window_.open_state());
+				ImGui::MenuItem("Master Simulation Controls", key_hint(InputAction::ToggleControlPanel).c_str(), &control_panel_window_.open_state());
+				ImGui::MenuItem("Performance & Engine Optimization", key_hint(InputAction::TogglePerformanceWindow).c_str(), &performance_window_.open_state());
 				ImGui::MenuItem("Celestial Body & N-Body Manager", key_hint(InputAction::ToggleBodyManager).c_str(), &body_manager_window_.open_state());
-				ImGui::MenuItem("Curvature Diagnostics", key_hint(InputAction::ToggleDiagnosticsWindow).c_str(), &diagnostics_window_.open_state());
-				ImGui::MenuItem("Curvature Telemetry", key_hint(InputAction::ToggleTelemetryWindow).c_str(), &telemetry_window_.open_state());
-				ImGui::MenuItem("Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
+				ImGui::MenuItem("Curvature Diagnostics & Tensor Inspector", key_hint(InputAction::ToggleDiagnosticsWindow).c_str(), &diagnostics_window_.open_state());
+				ImGui::MenuItem("Telemetry & Invariants", key_hint(InputAction::ToggleTelemetryWindow).c_str(), &telemetry_window_.open_state());
+				ImGui::MenuItem("Radiative Transfer & Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
 				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
+				ImGui::MenuItem("HUD Manager", nullptr, &hud_manager_window_.open_state());
+				ImGui::Separator();
+				if (ImGui::MenuItem("Show All Panels")) {
+					show_all_panels();
+				}
+				if (ImGui::MenuItem("Focus Viewport Only")) {
+					apply_multi_window_layout_preset(UiLayoutPreset::ViewportFocused);
+				}
+				if (ImGui::MenuItem("Force Viewport Refresh")) {
+					if (viewport_window_) viewport_window_->request_rerender();
+				}
 				ImGui::EndMenu();
 			}
 

@@ -8,6 +8,8 @@
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
+#include "relativistic/ui/compatibility_notes.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +37,9 @@ private:
 	float lambda_{0.0f};
 	float throat_{1.0f};
 	float warp_vel_{1.0f};
+	bool mass_log_mode_{false};
+	bool lambda_log_mode_{true};
+	bool warp_log_mode_{false};
 
 	float camera_speed_{10.0f};
 	float camera_fov_{60.0f};
@@ -213,7 +218,14 @@ private:
 			orchestrator_.set_active_metric_name(metric_names[metric_selection_]);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(metric_names[metric_selection_])));
 		}
-		render_setting_tooltip("Select the background Riemannian manifold or exact vacuum/electrovacuum spacetime solution to simulate.");
+		{
+			const auto warning = metric_integrator_incompatibility(orchestrator_.active_metric_name(), orchestrator_.active_integrator_name());
+			if (!warning.empty()) {
+				render_setting_tooltip_warning("Select the background Riemannian manifold or exact vacuum/electrovacuum spacetime solution to simulate.", std::string(warning).c_str());
+			} else {
+				render_setting_tooltip("Select the background Riemannian manifold or exact vacuum/electrovacuum spacetime solution to simulate.");
+			}
+		}
 
 		ImGui::Separator();
 
@@ -226,17 +238,22 @@ private:
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
 
 		if (needs_mass) {
-			if (ImGui::SliderFloat("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f")) {
+			if (slider_float_with_input("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f", &mass_log_mode_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
-			render_setting_tooltip("Central gravitating mass in geometrized units (M). Governs Schwarzschild radius rs = 2M and spacetime curvature strength.");
+			render_setting_tooltip("Central gravitating mass in geometrized units (M). Governs Schwarzschild radius rs = 2M and spacetime curvature strength. Enable Log for finer control across small or very large magnitudes.");
 		}
 
 		if (needs_spin) {
-			if (ImGui::SliderFloat("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
+			if (slider_float_with_input("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
 			}
-			render_setting_tooltip("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.");
+			const auto spin_warning = metric_spin_incompatibility(orchestrator_.active_metric_name(), static_cast<double>(spin_), static_cast<double>(mass_));
+			if (!spin_warning.empty()) {
+				render_setting_tooltip_warning("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.", std::string(spin_warning).c_str());
+			} else {
+				render_setting_tooltip("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.");
+			}
 		}
 
 		if (needs_charge) {
@@ -247,10 +264,10 @@ private:
 		}
 
 		if (needs_lambda) {
-			if (ImGui::InputFloat("Cosmological Lambda", &lambda_, 1e-6f, 1e-4f, "%.6e")) {
+			if (slider_float_with_input("Cosmological Lambda", &lambda_, 1e-8f, 1e-2f, "%.2e", &lambda_log_mode_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
-			render_setting_tooltip("Cosmological constant responsible for large-scale cosmic acceleration and cosmological horizon creation.");
+			render_setting_tooltip("Cosmological constant responsible for large-scale cosmic acceleration and cosmological horizon creation. Logarithmic mode is on by default since this value typically spans many orders of magnitude.");
 		}
 
 		if (needs_throat) {
@@ -310,7 +327,7 @@ private:
 		}
 		render_setting_tooltip("Observer navigation paradigm (6-DOF Free Fly, Spherical Boyer-Lindquist Orbit, Cockpit Flight).");
 
-		if (ImGui::SliderFloat("Field of View (FOV)", &camera_fov_, 10.0f, 160.0f, "%.1f deg")) {
+		if (slider_float_with_input("Field of View (FOV)", &camera_fov_, 10.0f, 160.0f, "%.1f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(static_cast<double>(camera_fov_))));
 		}
 		render_setting_tooltip("Horizontal angular aperture in degrees. Can also be dynamically zoomed using mouse wheel scroll.");
@@ -658,7 +675,14 @@ private:
 			orchestrator_.set_active_integrator_name(integrators[integrator_selection_]);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(integrators[integrator_selection_])));
 		}
-		render_setting_tooltip("Numerical differential solver scheme: adaptive Runge-Kutta Dormand-Prince, high-order Vernier 9(8), or symplectic Gauss-Legendre.");
+		{
+			const auto warning = metric_integrator_incompatibility(orchestrator_.active_metric_name(), orchestrator_.active_integrator_name());
+			if (!warning.empty()) {
+				render_setting_tooltip_warning("Numerical differential solver scheme: adaptive Runge-Kutta Dormand-Prince, high-order Vernier 9(8), or symplectic Gauss-Legendre.", std::string(warning).c_str());
+			} else {
+				render_setting_tooltip("Numerical differential solver scheme: adaptive Runge-Kutta Dormand-Prince, high-order Vernier 9(8), or symplectic Gauss-Legendre.");
+			}
+		}
 
 		ImGui::Separator();
 
@@ -706,13 +730,13 @@ private:
 		}
 
 		float warp = static_cast<float>(snap.warp_factor);
-		if (ImGui::SliderFloat("Warp Factor", &warp, 0.1f, 100.0f, "%.2fx")) {
+		if (slider_float_with_input("Warp Factor", &warp, 0.1f, 1000.0f, "%.2f", &warp_log_mode_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(static_cast<double>(warp))));
 		}
-		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock.");
+		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock. Enable Log for precise control at both very slow and very fast warp rates.");
 
 		float rate = static_cast<float>(snap.tick_rate_hz);
-		if (ImGui::SliderFloat("Scheduler Rate", &rate, 10.0f, 240.0f, "%.0f Hz")) {
+		if (slider_float_with_input("Scheduler Rate", &rate, 10.0f, 240.0f, "%.0f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_tickrate(static_cast<double>(rate))));
 		}
 		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");

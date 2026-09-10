@@ -528,7 +528,7 @@ public:
 			const double dz = -camera_.position[2];
 			const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
 			if (d_tot > 1e-6) {
-				camera_.yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi_v<double>);
+				camera_.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>);
 				camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
 				camera_.roll = 0.0;
 			}

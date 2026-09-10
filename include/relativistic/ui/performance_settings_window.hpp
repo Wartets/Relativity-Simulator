@@ -6,6 +6,8 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
+#include "relativistic/ui/compatibility_notes.hpp"
 #include <algorithm>
 #include <array>
 
@@ -21,6 +23,7 @@ private:
 	int preset_idx_{2};
 	float res_scale_{1.0f};
 	int ray_steps_{2048};
+	bool ray_steps_log_mode_{false};
 	int precision_mode_{0};
 	bool enable_dynamic_resolution_{false};
 	float target_framerate_{60.0f};
@@ -94,28 +97,21 @@ public:
 			}
 			render_setting_tooltip("Quick preset configuring internal render scale, maximum geodesic integration steps, and tolerances.");
 
-			if (performance_analysis_open_state_ != nullptr) {
-				if (ImGui::Button("Open Deep Profiling Workshop", ImVec2(240.0f, 26.0f))) {
-					*performance_analysis_open_state_ = true;
-				}
-				render_setting_tooltip("Opens the dedicated Performance Analysis & Profiling window for live monitoring, statistics, bottleneck analysis, and persisted benchmark comparisons.");
-			}
-
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Rasterization & Ray Budget Configuration");
 
-			if (ImGui::SliderFloat("Internal Render Scale", &res_scale_, 0.10f, 2.00f, "%.2fx")) {
+			if (slider_float_with_input("Internal Render Scale", &res_scale_, 0.10f, 2.00f, "%.2f")) {
 				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_resolution_scale(static_cast<double>(res_scale_))));
 			}
 			render_setting_tooltip("Resolution scaling factor relative to the viewport window size. Lower values improve rendering framerates.");
 
-			if (ImGui::SliderInt("Max Geodesic Steps", &ray_steps_, 64, 8192)) {
+			if (slider_int_with_input("Max Geodesic Steps", &ray_steps_, 64, 16384, &ray_steps_log_mode_)) {
 				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps_))));
 			}
-			render_setting_tooltip("Maximum numerical integration steps allowed per ray before terminating trajectory evaluation.");
+			render_setting_tooltip("Maximum numerical integration steps allowed per ray before terminating trajectory evaluation. Enable Log to move precisely between low and very high step budgets.");
 
 			const char* precisions[] = {
 				"IEEE 754 Float64 (Hardware Native)",
@@ -227,7 +223,14 @@ public:
 			if (!gpu_platform_supported) {
 				ImGui::EndDisabled();
 			}
-			render_setting_tooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
+			{
+				const auto gpu_warning = precision_gpu_incompatibility(use_gpu, precision_mode_);
+				if (!gpu_warning.empty()) {
+					render_setting_tooltip_warning("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.", std::string(gpu_warning).c_str());
+				} else {
+					render_setting_tooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
+				}
+			}
 
 			if (!gpu_platform_supported) {
 				ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "No Vulkan compute-capable device with double-precision shader and scalar block layout support was detected on this system.");

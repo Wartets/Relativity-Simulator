@@ -752,19 +752,19 @@ private:
 		}
 
 		float warp = static_cast<float>(snap.warp_factor);
-		if (slider_float_with_input("Warp Factor", &warp, 1e-6f, 1e9f, "%.4e", &warp_log_mode_, 1e-6f, 1e9f)) {
+		if (slider_float_with_input("Warp Factor", &warp, 0.01f, 100.0f, "%.4f", &warp_log_mode_, 1e-6f, 1e9f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(static_cast<double>(warp))));
 		}
 		render_setting_tooltip("Temporal acceleration multiplier applied to the logical simulation clock, spanning extreme slow motion to extreme fast forward. Enable Log for precise control across the full range.");
-		ImGui::SameLine();
+		ImGui::Spacing();
 		if (ImGui::SmallButton("Warp x10")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::min(static_cast<double>(warp) * 10.0, 1e9))));
 		}
-		ImGui::SameLine();
+		ImGui::SameLine(0.0f, 14.0f);
 		if (ImGui::SmallButton("Warp /10")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::max(static_cast<double>(warp) * 0.1, 1e-6))));
 		}
-		ImGui::SameLine();
+		ImGui::SameLine(0.0f, 14.0f);
 		if (ImGui::SmallButton("Warp Reset (1x)")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(1.0)));
 		}

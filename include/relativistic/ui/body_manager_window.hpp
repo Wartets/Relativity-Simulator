@@ -521,7 +521,7 @@ private:
 		ImGui::Separator();
 
 		float mass = static_cast<float>(params.mass);
-		if (slider_float_with_input("Central Mass (M)", &mass, 1e-12f, 1e36f, "%.4e", &central_mass_log_mode_, 1e-12f, 1e36f)) {
+		if (slider_float_with_input("Central Mass (M)", &mass, 0.001f, 1.0e6f, "%.4f", &central_mass_log_mode_, 1e-12f, 1e36f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, static_cast<double>(mass)))));
 		}
 		render_setting_tooltip("Central gravitating mass in geometrized units. Governs the Schwarzschild radius rs = 2M and the overall curvature strength.");
@@ -583,14 +583,14 @@ private:
 		render_setting_tooltip("Assigns a human-readable label to this body, shown throughout the catalog, tags, and saved scenarios instead of its numeric identifier.");
 
 		float m = static_cast<float>(b.mass);
-		if (slider_float_with_input("Mass", &m, 1e-12f, 1e36f, "%.4e", &selected_mass_log_mode_, 1e-12f, 1e36f)) {
+		if (slider_float_with_input("Mass", &m, 0.001f, 1.0e6f, "%.4f", &selected_mass_log_mode_, 1e-12f, 1e36f)) {
 			b.mass = std::max(0.0, static_cast<double>(m));
 			changed = true;
 		}
 		render_setting_tooltip("Gravitating mass of this body in the same geometrized unit system as the central mass.");
 
 		float r = static_cast<float>(b.radius);
-		if (slider_float_with_input("Physical Radius", &r, 1e-6f, 1e12f, "%.4e", &selected_radius_log_mode_, 1e-6f, 1e12f)) {
+		if (slider_float_with_input("Physical Radius", &r, 0.001f, 1.0e5f, "%.4f", &selected_radius_log_mode_, 1e-6f, 1e12f)) {
 			b.radius = std::max(1e-6, static_cast<double>(r));
 			changed = true;
 		}
@@ -652,7 +652,7 @@ private:
 		render_setting_tooltip("Fourth-degree zonal harmonic coefficient, a smaller correction to the oblateness perturbation.");
 
 		float r_ref = static_cast<float>(b.reference_radius);
-		if (slider_float_with_input("Multipole Reference Radius", &r_ref, 1e-6f, 1e12f, "%.4e", &selected_r_ref_log_mode_, 1e-6f, 1e12f)) {
+		if (slider_float_with_input("Multipole Reference Radius", &r_ref, 0.001f, 1.0e5f, "%.4f", &selected_r_ref_log_mode_, 1e-6f, 1e12f)) {
 			b.reference_radius = std::max(1e-6, static_cast<double>(r_ref));
 			changed = true;
 		}
@@ -746,14 +746,14 @@ private:
 		ImGui::Separator();
 		ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
 		render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
-		if (slider_float_with_input("Mass (kg / Geometrized)", &new_body_mass_, 1e-12f, 1e36f, "%.4e", &new_body_mass_log_mode_, 1e-12f, 1e36f)) {
+		if (slider_float_with_input("Mass (kg / Geometrized)", &new_body_mass_, 0.001f, 1.0e6f, "%.4f", &new_body_mass_log_mode_, 1e-12f, 1e36f)) {
 			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
 				const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
 				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
 				new_body_name_[sizeof(new_body_name_) - 1] = '\0';
 			}
 		}
-		if (slider_float_with_input("Physical Radius", &new_body_radius_, 1e-6f, 1e12f, "%.4e", &new_body_radius_log_mode_, 1e-6f, 1e12f)) {
+		if (slider_float_with_input("Physical Radius", &new_body_radius_, 0.001f, 1.0e5f, "%.4f", &new_body_radius_log_mode_, 1e-6f, 1e12f)) {
 			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
 				const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
 				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
@@ -782,7 +782,7 @@ private:
 		slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
 		slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
 		slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
-		slider_float_with_input("Reference Radius", &new_body_r_ref_, 1e-6f, 1e12f, "%.4e", &new_body_r_ref_log_mode_, 1e-6f, 1e12f);
+		slider_float_with_input("Reference Radius", &new_body_r_ref_, 0.001f, 1.0e5f, "%.4f", &new_body_r_ref_log_mode_, 1e-6f, 1e12f);
 		render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
 
 		ImGui::Spacing();

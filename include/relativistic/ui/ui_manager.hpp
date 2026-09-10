@@ -643,7 +643,6 @@ private:
 				ImGui::MenuItem("Radiative Transfer & Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
 				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
-				ImGui::MenuItem("HUD Manager", nullptr, &hud_manager_window_.open_state());
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {
 					show_all_panels();

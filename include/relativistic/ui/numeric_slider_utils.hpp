@@ -26,6 +26,15 @@ namespace Detail {
 	return log_mode != nullptr && *log_mode && min_val > 0.0f && max_val > min_val;
 }
 
+[[nodiscard]] inline bool format_has_exponent(const char* format) noexcept {
+	for (const char* p = format; *p != '\0'; ++p) {
+		if (*p == 'e' || *p == 'E' || *p == 'g' || *p == 'G') {
+			return true;
+		}
+	}
+	return false;
+}
+
 } // namespace Detail
 
 inline bool slider_float_with_input(
@@ -41,11 +50,20 @@ inline bool slider_float_with_input(
 	bool changed = false;
 	ImGui::PushID(label);
 
+	if (log_mode != nullptr) {
+		bool* prev_log_mode = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID("##prev_log_state"), *log_mode);
+		if (*prev_log_mode && !*log_mode) {
+			*value = std::clamp(*value, min_val, max_val);
+		}
+		*prev_log_mode = *log_mode;
+	}
+
 	constexpr float input_width = 92.0f;
 	const float avail = ImGui::CalcItemWidth();
 	ImGui::SetNextItemWidth(std::max(avail - input_width - 8.0f, 60.0f));
 
 	const bool log_slider_enabled = Detail::use_log_slider(log_mode, min_val, max_val);
+	const char* normal_display_format = Detail::format_has_exponent(format) ? "%.6f" : format;
 	float visible_min = min_val;
 	float visible_max = max_val;
 	if (log_slider_enabled) {
@@ -62,7 +80,7 @@ inline bool slider_float_with_input(
 			changed = true;
 		}
 	} else {
-		if (ImGui::SliderFloat("##slider", value, min_val, max_val, format)) {
+		if (ImGui::SliderFloat("##slider", value, min_val, max_val, normal_display_format)) {
 			changed = true;
 		}
 	}
@@ -70,7 +88,8 @@ inline bool slider_float_with_input(
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(input_width);
 	float input_copy = *value;
-	if (ImGui::InputFloat("##input", &input_copy, 0.0f, 0.0f, format)) {
+	const char* input_format = log_slider_enabled ? format : normal_display_format;
+	if (ImGui::InputFloat("##input", &input_copy, 0.0f, 0.0f, input_format)) {
 		*value = std::clamp(input_copy, log_slider_enabled ? visible_min : min_val, log_slider_enabled ? visible_max : max_val);
 		changed = true;
 	}
@@ -116,6 +135,14 @@ inline bool slider_int_with_input(
 ) noexcept {
 	bool changed = false;
 	ImGui::PushID(label);
+
+	if (log_mode != nullptr) {
+		bool* prev_log_mode = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID("##prev_log_state"), *log_mode);
+		if (*prev_log_mode && !*log_mode) {
+			*value = std::clamp(*value, min_val, max_val);
+		}
+		*prev_log_mode = *log_mode;
+	}
 
 	constexpr float input_width = 92.0f;
 	const float avail = ImGui::CalcItemWidth();

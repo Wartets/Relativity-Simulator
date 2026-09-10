@@ -150,6 +150,10 @@ private:
 
 	void update_tracking(Dynamics::PostNewtonianSystem& sys) noexcept {
 		if (!tracking_enabled_) return;
+		if (tracked_body_id_ == kCentralObjectIndex) {
+			look_at({0.0, 0.0, 0.0});
+			return;
+		}
 		for (const auto& body : sys.bodies()) {
 			if (body.id == static_cast<uint32_t>(tracked_body_id_) && body.enabled) {
 				look_at(body.position);
@@ -361,9 +365,14 @@ private:
 
 		ImGui::Spacing();
 		if (ImGui::Button("Look At Central Object", ImVec2(-1.0f, 26.0f))) {
-			orchestrator_.camera().target = {0.0, 0.0, 0.0};
+			look_at({0.0, 0.0, 0.0});
 		}
-		render_setting_tooltip("Orients the camera to face the central object without changing its position.");
+		render_setting_tooltip("Orients the camera to face the central compact object without changing its position.");
+		bool tracking_central = tracking_enabled_ && tracked_body_id_ == kCentralObjectIndex;
+		if (ImGui::Checkbox("Track Central Object", &tracking_central)) {
+			tracking_enabled_ = tracking_central;
+			tracked_body_id_ = tracking_central ? kCentralObjectIndex : -1;
+		}
 	}
 
 	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, auto bodies, size_t n) noexcept {

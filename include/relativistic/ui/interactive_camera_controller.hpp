@@ -75,7 +75,7 @@ public:
 		cam.position = {0.0, distance, 0.0};
 		cam.velocity = {0.0, 0.0, 0.0};
 		cam.pitch = 0.0;
-		cam.yaw = 180.0;
+		cam.yaw = -90.0;
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
@@ -86,7 +86,7 @@ public:
 		cam.position = {distance, 0.0, 0.0};
 		cam.velocity = {0.0, 0.0, 0.0};
 		cam.pitch = 0.0;
-		cam.yaw = -90.0;
+		cam.yaw = 180.0;
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
@@ -231,8 +231,8 @@ private:
 		const double cos_y = std::cos(yaw_rad);
 		const double sin_y = std::sin(yaw_rad);
 
-		const std::array<double, 3> forward = {cos_p * sin_y, cos_p * cos_y, sin_p};
-		const std::array<double, 3> right = {cos_y, -sin_y, 0.0};
+		const std::array<double, 3> forward = {cos_p * cos_y, cos_p * sin_y, sin_p};
+		const std::array<double, 3> right = {-sin_y, cos_y, 0.0};
 		const std::array<double, 3> up = {0.0, 0.0, 1.0};
 
 		const double vert_sign = prof.invert_vertical ? -1.0 : 1.0;
@@ -291,8 +291,8 @@ private:
 		const double cos_y = std::cos(yaw_rad);
 		const double sin_y = std::sin(yaw_rad);
 
-		const std::array<double, 3> forward = {cos_p * sin_y, cos_p * cos_y, sin_p};
-		const std::array<double, 3> right = {cos_y, -sin_y, 0.0};
+		const std::array<double, 3> forward = {cos_p * cos_y, cos_p * sin_y, sin_p};
+		const std::array<double, 3> right = {-sin_y, cos_y, 0.0};
 		const std::array<double, 3> up = {0.0, 0.0, 1.0};
 
 		if (can_thrust) {
@@ -385,8 +385,8 @@ private:
 
 		const double p_rad = cam.pitch * (std::numbers::pi / 180.0);
 		const double y_rad = cam.yaw * (std::numbers::pi / 180.0);
-		cam.position[0] = cam.target[0] - cam.orbit_distance * std::cos(p_rad) * std::sin(y_rad);
-		cam.position[1] = cam.target[1] - cam.orbit_distance * std::cos(p_rad) * std::cos(y_rad);
+		cam.position[0] = cam.target[0] - cam.orbit_distance * std::cos(p_rad) * std::cos(y_rad);
+		cam.position[1] = cam.target[1] - cam.orbit_distance * std::cos(p_rad) * std::sin(y_rad);
 		cam.position[2] = cam.target[2] + cam.orbit_distance * std::sin(p_rad);
 
 		sync_spherical_from_cartesian();

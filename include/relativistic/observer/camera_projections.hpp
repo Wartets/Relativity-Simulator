@@ -71,7 +71,7 @@ public:
 		Scalar v_screen,
 		Scalar fov_rad = static_cast<Scalar>(120.0 * std::numbers::pi / 180.0)
 	) noexcept {
-		const Scalar max_fov_rad = std::clamp(fov_rad * static_cast<Scalar>(1.6), static_cast<Scalar>(0.1), static_cast<Scalar>(260.0 * std::numbers::pi / 180.0));
+		const Scalar max_fov_rad = std::clamp(fov_rad, static_cast<Scalar>(0.1), static_cast<Scalar>(260.0 * std::numbers::pi / 180.0));
 		const Scalar r = std::sqrt(u_screen * u_screen + v_screen * v_screen);
 		if (r < static_cast<Scalar>(1e-15)) {
 			return {static_cast<Scalar>(1.0), static_cast<Scalar>(0.0), static_cast<Scalar>(0.0)};

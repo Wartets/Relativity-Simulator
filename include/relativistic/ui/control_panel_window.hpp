@@ -897,10 +897,16 @@ private:
 		render_setting_tooltip("Disabled by default. When left unchecked, entering Schematic View freezes the simulation clock and disables Play, Step, and Reset controls, since the simplified projection is intended as a static structural overview rather than a live playback mode. Enable this to keep bodies orbiting and the clock advancing while viewing the schematic projection.");
 
 		ImGui::Separator();
-		ImGui::Checkbox("Respect Active Camera Projection Mode", &schematic_cfg_.respect_active_projection_mode);
-		render_setting_tooltip("When enabled, the schematic view reprojects geometry using the same projection (Pinhole, Fisheye, Equirectangular, etc.) selected in Optics & Camera. When disabled, a standard pinhole projection is always used.");
+		const char* schematic_projections[] = {"Human Perspective", "Auto-Zoom", "Fisheye Stereographic", "Equirectangular 360", "Fisheye Equidistant", "Fisheye Orthographic", "Panini Cylindrical", "Hammer-Aitoff"};
+		int schematic_projection = static_cast<int>(schematic_cfg_.projection_mode);
+		if (ImGui::Combo("Schematic Projection", &schematic_projection, schematic_projections, IM_ARRAYSIZE(schematic_projections))) {
+			schematic_cfg_.projection_mode = static_cast<Observer::ProjectionMode>(schematic_projection);
+		}
+		ImGui::Checkbox("Human Perspective Schematic Rendering", &schematic_cfg_.human_perspective_mode);
+		render_setting_tooltip("Uses an ordinary 3D pinhole view for the schematic scene while retaining bodies, gravity vectors, trails, and predictions. The normal ray-traced viewport keeps its separate projection choice.");
 		ImGui::Checkbox("Show Body & Orbit Overlays In Raytraced View", &schematic_cfg_.show_overlay_in_raytraced_view);
 		render_setting_tooltip("When enabled, projects orbiting bodies, trails, tags, and vectors on top of the raytraced 3D viewport so you can see them orbiting the black hole without switching to Schematic View.");
+		ImGui::Checkbox("Apply Lens Approximation To Normal-View Body Overlays", &schematic_cfg_.lens_body_overlays_in_raytraced_view);
 
 		ImGui::Separator();
 		ImGui::Checkbox("Show Central Object", &schematic_cfg_.show_central_object);

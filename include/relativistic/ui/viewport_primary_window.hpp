@@ -309,9 +309,9 @@ public:
 
 			if (params.schematic_mode_enabled) {
 				const ImVec2 schematic_pos = ImGui::GetCursorScreenPos();
-				const auto schematic_projection_mode = schematic_cfg_.respect_active_projection_mode
-					? static_cast<Observer::ProjectionMode>(params.projection_mode)
-					: Observer::ProjectionMode::Pinhole;
+				const auto schematic_projection_mode = schematic_cfg_.human_perspective_mode
+					? Observer::ProjectionMode::Pinhole
+					: schematic_cfg_.projection_mode;
 				schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
 				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
 				ImGui::Dummy(avail);
@@ -475,10 +475,11 @@ public:
 			);
 
 			if (schematic_cfg_.show_overlay_in_raytraced_view) {
-				const auto proj_mode = schematic_cfg_.respect_active_projection_mode
-					? static_cast<Observer::ProjectionMode>(params.projection_mode)
-					: Observer::ProjectionMode::Pinhole;
-				schematic_renderer_.configure(cam, proj_mode, cam.fov_deg * (std::numbers::pi / 180.0), viewport_image_pos, avail);
+				const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
+				schematic_renderer_.configure(
+					cam, proj_mode, cam.fov_deg * (std::numbers::pi / 180.0), viewport_image_pos, avail,
+					params.mass, schematic_cfg_.lens_body_overlays_in_raytraced_view
+				);
 				schematic_renderer_.render_overlay(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
 			}
 
@@ -566,6 +567,7 @@ public:
 
 		const auto& sys = orchestrator_.nbody_system();
 		for (const auto& b : sys.bodies()) {
+			if (!b.enabled) continue;
 			targets.push_back(DynamicLookAtTarget{
 				"Celestial Body #" + std::to_string(b.id) + " (M=" + std::to_string(b.mass).substr(0, 4) + ")",
 				b.position,

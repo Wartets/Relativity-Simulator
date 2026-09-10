@@ -42,6 +42,8 @@ private:
 	ImVec2 rect_min_{};
 	ImVec2 rect_size_{};
 	Observer::ProjectionMode projection_mode_{Observer::ProjectionMode::Pinhole};
+	double lensing_mass_{0.0};
+	bool apply_lensing_{false};
 	std::unordered_map<uint32_t, std::deque<TrailSample>> body_trails_{};
 
 	[[nodiscard]] static int clamp8(double value) noexcept {
@@ -67,7 +69,7 @@ private:
 				if (n_len <= eps) return std::nullopt;
 				const double n1 = std::clamp(fwd / n_len, -1.0, 1.0);
 				const double theta = std::acos(n1);
-				const double max_fov = std::clamp(fov_rad_ * 1.6, 0.1, 260.0 * std::numbers::pi_v<double> / 180.0);
+				const double max_fov = std::clamp(fov_rad_, 0.1, 260.0 * std::numbers::pi_v<double> / 180.0);
 				const double tan_half_max = std::tan(max_fov * 0.25);
 				if (tan_half_max < eps) return std::nullopt;
 				const double sin_t = std::sin(theta);
@@ -101,10 +103,26 @@ private:
 				const double v = (std::numbers::pi_v<double> * 0.5 - theta) / (std::numbers::pi_v<double> * 0.5 * fov_scale);
 				return std::make_pair(u, v);
 			}
+			case Observer::ProjectionMode::PaniniCylindrical: {
+				if (fwd <= eps) return std::nullopt;
+				const double tan_half_fov = std::tan(fov_rad_ * 0.5);
+				if (tan_half_fov < eps) return std::nullopt;
+				const double tangent = right / fwd;
+				return std::make_pair((2.0 * tangent / std::sqrt(1.0 + tangent * tangent)) / tan_half_fov, -(up / fwd) / tan_half_fov);
+			}
+			case Observer::ProjectionMode::HammerAitoff: {
+				const double n_len = std::sqrt(fwd * fwd + right * right + up * up);
+				if (n_len <= eps) return std::nullopt;
+				const double latitude = std::asin(std::clamp(up / n_len, -1.0, 1.0));
+				const double longitude = std::atan2(right, fwd);
+				const double denom = std::sqrt(std::max(1.0 + std::cos(latitude) * std::cos(longitude), eps));
+				const double zoom = (60.0 * std::numbers::pi_v<double> / 180.0) / std::max(fov_rad_, 0.01);
+				const double x = (2.0 * std::numbers::sqrt2 * std::cos(latitude) * std::sin(longitude * 0.5)) / denom;
+				const double y = (std::numbers::sqrt2 * std::sin(latitude)) / denom;
+				return std::make_pair(x / (std::numbers::sqrt2 * zoom), -y / (std::numbers::sqrt2 * 0.5 * zoom));
+			}
 			case Observer::ProjectionMode::Pinhole:
 			case Observer::ProjectionMode::AutoZoomAberration:
-			case Observer::ProjectionMode::PaniniCylindrical:
-			case Observer::ProjectionMode::HammerAitoff:
 			default: {
 				if (fwd <= eps) return std::nullopt;
 				const double tan_half_fov = std::tan(fov_rad_ * 0.5);
@@ -119,9 +137,25 @@ private:
 		const double dy = world_pos[1] - camera_position_[1];
 		const double dz = world_pos[2] - camera_position_[2];
 
-		const double fwd = dx * tetrad_forward_[0] + dy * tetrad_forward_[1] + dz * tetrad_forward_[2];
-		const double right = dx * tetrad_right_[0] + dy * tetrad_right_[1] + dz * tetrad_right_[2];
-		const double up = dx * tetrad_up_[0] + dy * tetrad_up_[1] + dz * tetrad_up_[2];
+		double fwd = dx * tetrad_forward_[0] + dy * tetrad_forward_[1] + dz * tetrad_forward_[2];
+		double right = dx * tetrad_right_[0] + dy * tetrad_right_[1] + dz * tetrad_right_[2];
+		double up = dx * tetrad_up_[0] + dy * tetrad_up_[1] + dz * tetrad_up_[2];
+
+		if (apply_lensing_ && lensing_mass_ > 0.0) {
+			const double camera_r = std::sqrt(camera_position_[0] * camera_position_[0] + camera_position_[1] * camera_position_[1] + camera_position_[2] * camera_position_[2]);
+			const double ray_r = std::sqrt(dx * dx + dy * dy + dz * dz);
+			if (camera_r > 1e-6 && ray_r > 1e-6) {
+				const double lens_fwd = (-camera_position_[0] * tetrad_forward_[0] - camera_position_[1] * tetrad_forward_[1] - camera_position_[2] * tetrad_forward_[2]) / camera_r;
+				const double lens_right = (-camera_position_[0] * tetrad_right_[0] - camera_position_[1] * tetrad_right_[1] - camera_position_[2] * tetrad_right_[2]) / camera_r;
+				const double lens_up = (-camera_position_[0] * tetrad_up_[0] - camera_position_[1] * tetrad_up_[1] - camera_position_[2] * tetrad_up_[2]) / camera_r;
+				const double ray_dot_lens = std::clamp((fwd * lens_fwd + right * lens_right + up * lens_up) / ray_r, -1.0, 1.0);
+				const double impact = std::max(camera_r * std::sqrt(std::max(1.0 - ray_dot_lens * ray_dot_lens, 0.0)), 2.05 * lensing_mass_);
+				const double deflection = std::clamp(4.0 * lensing_mass_ / impact, 0.0, 0.35);
+				fwd += ray_r * deflection * lens_fwd;
+				right += ray_r * deflection * lens_right;
+				up += ray_r * deflection * lens_up;
+			}
+		}
 
 		ProjectedPoint pt;
 		pt.forward_depth = fwd;
@@ -802,10 +836,14 @@ public:
 		Observer::ProjectionMode projection_mode,
 		double fov_rad,
 		const ImVec2& rect_min,
-		const ImVec2& rect_size
+		const ImVec2& rect_size,
+		double lensing_mass = 0.0,
+		bool apply_lensing = false
 	) noexcept {
 		camera_position_ = cam.position;
 		projection_mode_ = projection_mode;
+		lensing_mass_ = std::max(lensing_mass, 0.0);
+		apply_lensing_ = apply_lensing;
 		rect_min_ = rect_min;
 		rect_size_ = ImVec2(std::max(rect_size.x, 0.0f), std::max(rect_size.y, 0.0f));
 		aspect_ = (rect_size_.y > 0.0f) ? static_cast<double>(rect_size_.x) / static_cast<double>(rect_size_.y) : 1.0;

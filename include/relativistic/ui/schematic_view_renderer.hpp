@@ -300,6 +300,14 @@ private:
 				return body.spin_magnitude();
 			case SchematicColorCodingMode::ByKineticEnergy:
 				return body.kinetic_energy();
+			case SchematicColorCodingMode::ByTemperature:
+				return body.temperature;
+			case SchematicColorCodingMode::ByChargeMagnitude:
+				return std::abs(body.charge);
+			case SchematicColorCodingMode::ByDensity: {
+				const double volume = (4.0 / 3.0) * std::numbers::pi_v<double> * std::pow(std::max(body.radius, 1e-12), 3.0);
+				return body.mass / volume;
+			}
 			case SchematicColorCodingMode::ByDistanceFromCenter: {
 				const double dx = body.position[0];
 				const double dy = body.position[1];
@@ -500,6 +508,7 @@ private:
 	}
 
 	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val) const {
+		if (!body.enabled) return;
 		const auto& style = cfg.effective_body_style(body.id);
 		const auto proj = project(body.position);
 
@@ -511,7 +520,8 @@ private:
 		}
 
 		const double color_value = body_scalar_value(body, style.color_mode);
-		const ImU32 color = compute_coded_color(style.color_mode, color_value, min_val, max_val, style.uniform_color);
+		const auto fallback_color = (style.color_mode == SchematicColorCodingMode::Uniform) ? body.color : style.uniform_color;
+		const ImU32 color = compute_coded_color(style.color_mode, color_value, min_val, max_val, fallback_color);
 
 		double pixel_radius_override = -1.0;
 		if (style.shape == SchematicObjectShape::SphereByParameter) {
@@ -657,6 +667,7 @@ private:
 	void update_trails(std::span<const Dynamics::PostNewtonianBody> bodies, const SchematicViewConfig& cfg) {
 		const double now = ImGui::GetTime();
 		for (const auto& body : bodies) {
+			if (!body.enabled) continue;
 			auto& trail = body_trails_[body.id];
 			if (trail.empty() || (now - trail.back().timestamp) >= cfg.trail_sample_interval_seconds) {
 				trail.push_back(TrailSample{body.position, now});
@@ -756,6 +767,35 @@ private:
 		return pts;
 	}
 
+	[[nodiscard]] static std::vector<std::array<double, 3>> compute_orbit_prediction_points(
+		const Dynamics::PostNewtonianBody& body, double mu, int segments, double duration, int substeps
+	) {
+		std::vector<std::array<double, 3>> points;
+		const int count = std::max(segments, 2);
+		const int steps = std::clamp(substeps, 1, 32);
+		const double dt = std::max(duration, 1e-6) / static_cast<double>(count * steps);
+		std::array<double, 3> position = body.position;
+		std::array<double, 3> velocity = body.velocity;
+		auto acceleration = [mu](const std::array<double, 3>& p) {
+			const double r2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+			const double inv_r3 = 1.0 / (std::max(r2, 1e-12) * std::sqrt(std::max(r2, 1e-12)));
+			return std::array<double, 3>{-mu * p[0] * inv_r3, -mu * p[1] * inv_r3, -mu * p[2] * inv_r3};
+		};
+		points.reserve(static_cast<size_t>(count) + 1);
+		points.push_back(position);
+		for (int sample = 0; sample < count; ++sample) {
+			for (int step = 0; step < steps; ++step) {
+				const auto a0 = acceleration(position);
+				for (size_t axis = 0; axis < 3; ++axis) position[axis] += velocity[axis] * dt + 0.5 * a0[axis] * dt * dt;
+				const auto a1 = acceleration(position);
+				for (size_t axis = 0; axis < 3; ++axis) velocity[axis] += 0.5 * (a0[axis] + a1[axis]) * dt;
+			}
+			if (!std::isfinite(position[0]) || !std::isfinite(position[1]) || !std::isfinite(position[2])) break;
+			points.push_back(position);
+		}
+		return points;
+	}
+
 public:
 	void configure(
 		const Orchestrator::CameraState& cam,
@@ -801,8 +841,9 @@ public:
 
 		if (cfg.show_orbit_predictions) {
 			for (const auto& body : bodies) {
-				const auto pts = compute_orbit_ellipse_points(body.position, body.velocity, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_max_eccentricity);
-				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), true);
+				if (!body.enabled) continue;
+				const auto pts = compute_orbit_prediction_points(body, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_duration, cfg.orbit_prediction_substeps);
+				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), false);
 			}
 		}
 
@@ -810,6 +851,7 @@ public:
 		double max_val = std::numeric_limits<double>::lowest();
 		if (cfg.body_style.color_mode != SchematicColorCodingMode::Uniform) {
 			for (const auto& body : bodies) {
+				if (!body.enabled) continue;
 				const double v = body_scalar_value(body, cfg.body_style.color_mode);
 				min_val = std::min(min_val, v);
 				max_val = std::max(max_val, v);
@@ -853,8 +895,9 @@ public:
 
 		if (cfg.show_orbit_predictions) {
 			for (const auto& body : bodies) {
-				const auto pts = compute_orbit_ellipse_points(body.position, body.velocity, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_max_eccentricity);
-				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), true);
+				if (!body.enabled) continue;
+				const auto pts = compute_orbit_prediction_points(body, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_duration, cfg.orbit_prediction_substeps);
+				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), false);
 			}
 		}
 
@@ -862,6 +905,7 @@ public:
 		double max_val = std::numeric_limits<double>::lowest();
 		if (cfg.body_style.color_mode != SchematicColorCodingMode::Uniform) {
 			for (const auto& body : bodies) {
+				if (!body.enabled) continue;
 				const double v = body_scalar_value(body, cfg.body_style.color_mode);
 				min_val = std::min(min_val, v);
 				max_val = std::max(max_val, v);

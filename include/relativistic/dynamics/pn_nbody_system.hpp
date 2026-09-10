@@ -9,6 +9,8 @@
 #include <array>
 #include <cmath>
 #include <numeric>
+#include <span>
+#include <limits>
 
 namespace Relativistic::Dynamics {
 
@@ -23,23 +25,35 @@ private:
 	bool has_central_body_{false};
 	bool central_body_stationary_{true};
 	PostNewtonianBody central_body_{};
+	uint32_t next_body_id_{1};
+
+	[[nodiscard]] bool id_in_use(uint32_t id) const noexcept {
+		return std::any_of(bodies_.begin(), bodies_.end(), [id](const PostNewtonianBody& b) { return b.id == id; });
+	}
+
+	[[nodiscard]] uint32_t allocate_id() noexcept {
+		while (next_body_id_ == 0 || id_in_use(next_body_id_)) ++next_body_id_;
+		return next_body_id_++;
+	}
 
 public:
 	explicit PostNewtonianSystem(const PNOrderConfig& config = {}) noexcept
 		: config_(config) {}
 
-	void add_body(const PostNewtonianBody& body) {
-		bodies_.push_back(body);
+	uint32_t add_body(PostNewtonianBody body) {
+		if (body.id == 0 || id_in_use(body.id)) body.id = allocate_id();
+		else if (body.id >= next_body_id_) next_body_id_ = body.id + 1;
+		bodies_.push_back(std::move(body));
+		return bodies_.back().id;
 	}
 
-	void add_body(PostNewtonianBody&& body) {
-		bodies_.push_back(std::move(body));
-	}
+	uint32_t next_body_id() noexcept { return allocate_id(); }
 
 	void clear_bodies() noexcept {
 		bodies_.clear();
 		time_ = 0.0;
 		step_count_ = 0;
+		next_body_id_ = 1;
 	}
 
 	void set_central_body(const PostNewtonianBody& cb, bool stationary = true) noexcept {
@@ -105,12 +119,21 @@ public:
 	}
 
 	void update_accelerations() noexcept {
-		const size_t n = bodies_.size();
+		std::vector<size_t> active_indices;
+		active_indices.reserve(bodies_.size());
+		for (size_t i = 0; i < bodies_.size(); ++i) {
+			if (bodies_[i].enabled) active_indices.push_back(i);
+			else bodies_[i].acceleration = {0.0, 0.0, 0.0};
+		}
+		const size_t n = active_indices.size();
 		if (n == 0) return;
+		std::vector<PostNewtonianBody> active_bodies;
+		active_bodies.reserve(n);
+		for (size_t index : active_indices) active_bodies.push_back(bodies_[index]);
 
 		if (!has_central_body_ && n == 2) {
-			const auto& b1 = bodies_[0];
-			const auto& b2 = bodies_[1];
+			const auto& b1 = active_bodies[0];
+			const auto& b2 = active_bodies[1];
 			const std::array<double, 3> r_rel = {b1.position[0] - b2.position[0], b1.position[1] - b2.position[1], b1.position[2] - b2.position[2]};
 			const std::array<double, 3> v_rel = {b1.velocity[0] - b2.velocity[0], b1.velocity[1] - b2.velocity[1], b1.velocity[2] - b2.velocity[2]};
 
@@ -123,57 +146,58 @@ public:
 			const double f2 = -b1.mass / m_tot;
 
 			for (size_t c = 0; c < 3; ++c) {
-				bodies_[0].acceleration[c] = f1 * acc_rel.a_total[c];
-				bodies_[1].acceleration[c] = f2 * acc_rel.a_total[c];
+				bodies_[active_indices[0]].acceleration[c] = f1 * acc_rel.a_total[c];
+				bodies_[active_indices[1]].acceleration[c] = f2 * acc_rel.a_total[c];
 			}
 		} else {
 			if (accelerations_buffer_.size() != n) {
 				accelerations_buffer_.resize(n);
 			}
 			if (n >= 2) {
-				PostNewtonianSolver::compute_nbody_accelerations(bodies_, config_, accelerations_buffer_);
+				PostNewtonianSolver::compute_nbody_accelerations(active_bodies, config_, accelerations_buffer_);
 				for (size_t i = 0; i < n; ++i) {
-					bodies_[i].acceleration = accelerations_buffer_[i].a_total;
+					bodies_[active_indices[i]].acceleration = accelerations_buffer_[i].a_total;
 				}
 			} else {
 				for (size_t i = 0; i < n; ++i) {
-					bodies_[i].acceleration = {0.0, 0.0, 0.0};
+					bodies_[active_indices[i]].acceleration = {0.0, 0.0, 0.0};
 				}
 			}
 
 			if (has_central_body_ && central_body_.mass > 0.0) {
 				for (size_t i = 0; i < n; ++i) {
+					auto& body = bodies_[active_indices[i]];
 					const std::array<double, 3> r_rel = {
-						central_body_.position[0] - bodies_[i].position[0],
-						central_body_.position[1] - bodies_[i].position[1],
-						central_body_.position[2] - bodies_[i].position[2]
+						central_body_.position[0] - body.position[0],
+						central_body_.position[1] - body.position[1],
+						central_body_.position[2] - body.position[2]
 					};
 					const std::array<double, 3> v_rel = {
-						central_body_.velocity[0] - bodies_[i].velocity[0],
-						central_body_.velocity[1] - bodies_[i].velocity[1],
-						central_body_.velocity[2] - bodies_[i].velocity[2]
+						central_body_.velocity[0] - body.velocity[0],
+						central_body_.velocity[1] - body.velocity[1],
+						central_body_.velocity[2] - body.velocity[2]
 					};
 					const auto acc_cen = PostNewtonianSolver::compute_binary_relative_acceleration(
 						r_rel, v_rel, central_body_.mass, bodies_[i].mass,
-						central_body_.spin, bodies_[i].spin, config_
+						central_body_.spin, body.spin, config_
 					);
 					const double m_tot = central_body_.mass + bodies_[i].mass;
 					const double f_i = (m_tot > 0.0) ? (-central_body_.mass / m_tot) : -1.0;
 					for (size_t c = 0; c < 3; ++c) {
-						bodies_[i].acceleration[c] += f_i * acc_cen.a_total[c];
+						body.acceleration[c] += f_i * acc_cen.a_total[c];
 					}
 				}
 			}
 		}
 
 		latest_gw_emission_ = GravitationalWaveCalculator::compute_nbody_quadrupole(
-			bodies_, config_.speed_of_light, config_.gravitational_constant
+			active_bodies, config_.speed_of_light, config_.gravitational_constant
 		);
 	}
 
 	[[nodiscard]] double total_mass() const noexcept {
 		double m = 0.0;
-		for (const auto& b : bodies_) m += b.mass;
+		for (const auto& b : bodies_) if (b.enabled) m += b.mass;
 		return m;
 	}
 
@@ -182,6 +206,7 @@ public:
 		if (m_tot <= 0.0) return {0.0, 0.0, 0.0};
 		std::array<double, 3> cm{0.0, 0.0, 0.0};
 		for (const auto& b : bodies_) {
+			if (!b.enabled) continue;
 			cm[0] += b.mass * b.position[0];
 			cm[1] += b.mass * b.position[1];
 			cm[2] += b.mass * b.position[2];
@@ -195,6 +220,7 @@ public:
 	[[nodiscard]] std::array<double, 3> total_linear_momentum() const noexcept {
 		std::array<double, 3> p{0.0, 0.0, 0.0};
 		for (const auto& b : bodies_) {
+			if (!b.enabled) continue;
 			p[0] += b.mass * b.velocity[0];
 			p[1] += b.mass * b.velocity[1];
 			p[2] += b.mass * b.velocity[2];
@@ -256,12 +282,15 @@ public:
 
 		double e_kin = 0.0;
 		for (const auto& b : bodies_) {
+			if (!b.enabled) continue;
 			e_kin += b.kinetic_energy();
 		}
 
 		double e_pot = 0.0;
 		for (size_t i = 0; i < n; ++i) {
+			if (!bodies_[i].enabled) continue;
 			for (size_t j = i + 1; j < n; ++j) {
+				if (!bodies_[j].enabled) continue;
 				const double dx = bodies_[i].position[0] - bodies_[j].position[0];
 				const double dy = bodies_[i].position[1] - bodies_[j].position[1];
 				const double dz = bodies_[i].position[2] - bodies_[j].position[2];

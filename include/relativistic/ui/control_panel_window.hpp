@@ -819,7 +819,7 @@ private:
 				if (ImGui::SliderFloat("Max Pixel Radius", &max_px, 10.0f, 400.0f, "%.1f")) style.sphere_max_pixel_radius = max_px;
 			}
 
-			const char* color_modes[] = {"Uniform Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy"};
+			const char* color_modes[] = {"Body Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy", "Physical: Temperature", "Physical: Charge", "Physical: Density"};
 			int color_idx = static_cast<int>(style.color_mode);
 			if (ImGui::Combo("Color Coding", &color_idx, color_modes, IM_ARRAYSIZE(color_modes))) {
 				style.color_mode = static_cast<SchematicColorCodingMode>(color_idx);
@@ -962,7 +962,11 @@ private:
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Orbit Predictions:");
 			int segs = schematic_cfg_.orbit_prediction_segments;
-			if (ImGui::SliderInt("Ellipse Segments", &segs, 16, 400)) schematic_cfg_.orbit_prediction_segments = segs;
+			if (ImGui::SliderInt("Prediction Segments", &segs, 16, 2000)) schematic_cfg_.orbit_prediction_segments = segs;
+			float prediction_duration = static_cast<float>(schematic_cfg_.orbit_prediction_duration);
+			if (ImGui::SliderFloat("Prediction Horizon", &prediction_duration, 1.0f, 3600.0f, "%.1f s", ImGuiSliderFlags_Logarithmic)) schematic_cfg_.orbit_prediction_duration = prediction_duration;
+			int prediction_substeps = schematic_cfg_.orbit_prediction_substeps;
+			if (ImGui::SliderInt("Prediction Substeps", &prediction_substeps, 1, 32)) schematic_cfg_.orbit_prediction_substeps = prediction_substeps;
 			float op_opacity = static_cast<float>(schematic_cfg_.orbit_prediction_opacity);
 			if (ImGui::SliderFloat("Orbit Line Opacity", &op_opacity, 0.05f, 1.0f, "%.2f")) schematic_cfg_.orbit_prediction_opacity = op_opacity;
 			float op_thick = static_cast<float>(schematic_cfg_.orbit_prediction_thickness);

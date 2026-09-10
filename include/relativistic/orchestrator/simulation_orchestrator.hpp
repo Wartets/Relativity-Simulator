@@ -171,6 +171,10 @@ private:
 
 		for (size_t i = 0; i < bodies.size(); ++i) {
 			const auto& b = bodies[i];
+			if (!b.enabled) {
+				survivors.push_back(b);
+				continue;
+			}
 			const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
 			if (r <= r_h * 1.001) {
 				params_.mass += b.mass;
@@ -192,13 +196,19 @@ private:
 
 	void step_nbody_dynamics(double dt) noexcept {
 		if (dt <= 0.0 || nbody_system_.body_count() == 0) return;
+		std::vector<std::pair<size_t, Dynamics::PostNewtonianBody>> disabled_bodies;
+		for (size_t i = 0; i < nbody_system_.bodies().size(); ++i) {
+			if (!nbody_system_.bodies()[i].enabled) disabled_bodies.emplace_back(i, nbody_system_.bodies()[i]);
+		}
 
 		double min_r = 1e30;
 		for (const auto& b : nbody_system_.bodies()) {
+			if (!b.enabled) continue;
 			const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
 			if (r < min_r) min_r = r;
 		}
 
+		if (min_r == 1e30) return;
 		const double max_omega = std::sqrt(std::max(params_.mass, 1e-4) / std::max(min_r * min_r * min_r, 1e-6));
 		const double safe_sub_dt = (max_omega > 0.0) ? (0.2 / max_omega) : dt;
 		const size_t sub_steps = std::clamp(static_cast<size_t>(std::ceil(dt / std::max(safe_sub_dt, 1e-6))), size_t{1}, size_t{20});
@@ -214,6 +224,9 @@ private:
 				Dynamics::RungeKutta4PNIntegrator::step(nbody_system_, sub_dt);
 			}
 			handle_horizon_absorption();
+			for (const auto& [index, state] : disabled_bodies) {
+				if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
+			}
 		}
 	}
 
@@ -546,6 +559,19 @@ public:
 			if (!b.name.empty() && b.name != "CelestialBody") {
 				body.set_name(b.name);
 			}
+			body.enabled = b.enabled;
+			body.charge = b.charge;
+			body.color = b.color;
+			body.color_secondary = b.color_secondary;
+			body.magnetic_moment = b.magnetic_moment;
+			body.rotation_speed = b.rotation_speed;
+			body.friction_coefficient = b.friction_coefficient;
+			body.restitution = b.restitution;
+			body.integrity = b.integrity;
+			body.lifetime = b.lifetime;
+			body.temperature = b.temperature;
+			body.heat_capacity = b.heat_capacity;
+			body.set_composition(b.composition);
 			nbody_system_.add_body(body);
 		}
 		if (!s.bodies.empty()) {
@@ -585,7 +611,19 @@ public:
 			bc.mass = body.mass;
 			bc.radius = body.radius;
 			bc.spin = std::sqrt(body.spin[0] * body.spin[0] + body.spin[1] * body.spin[1] + body.spin[2] * body.spin[2]);
-			bc.charge = 0.0;
+			bc.charge = body.charge;
+			bc.enabled = body.enabled;
+			bc.color = body.color;
+			bc.color_secondary = body.color_secondary;
+			bc.magnetic_moment = body.magnetic_moment;
+			bc.rotation_speed = body.rotation_speed;
+			bc.friction_coefficient = body.friction_coefficient;
+			bc.restitution = body.restitution;
+			bc.integrity = body.integrity;
+			bc.lifetime = body.lifetime;
+			bc.temperature = body.temperature;
+			bc.heat_capacity = body.heat_capacity;
+			bc.composition = std::string(body.composition.data());
 			bc.initial_position = {0.0, body.position[0], body.position[1], body.position[2]};
 			bc.initial_velocity = {0.0, body.velocity[0], body.velocity[1], body.velocity[2]};
 			bc.quadrupole_moment = body.quadrupole_moment;

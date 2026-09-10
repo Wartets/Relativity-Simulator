@@ -20,6 +20,18 @@ struct ScenarioBodyConfig {
 	double radius{1.0};
 	double spin{0.0};
 	double charge{0.0};
+	bool enabled{true};
+	std::array<float, 4> color{0.62f, 0.75f, 1.0f, 1.0f};
+	std::array<float, 4> color_secondary{0.18f, 0.30f, 0.75f, 1.0f};
+	double magnetic_moment{0.0};
+	double rotation_speed{0.0};
+	double friction_coefficient{0.0};
+	double restitution{0.5};
+	double integrity{1.0};
+	double lifetime{0.0};
+	double temperature{0.0};
+	double heat_capacity{0.0};
+	std::string composition{};
 	std::array<double, 4> initial_position{0.0, 10.0, std::numbers::pi_v<double> / 2.0, 0.0};
 	std::array<double, 4> initial_velocity{1.0, 0.0, 0.0, 0.1};
 	double quadrupole_moment{0.0};
@@ -125,6 +137,18 @@ public:
 			ss << "    radius: " << b.radius << "\n";
 			ss << "    spin: " << b.spin << "\n";
 			ss << "    charge: " << b.charge << "\n";
+			ss << "    enabled: " << (b.enabled ? "true" : "false") << "\n";
+			ss << "    color: [" << b.color[0] << ", " << b.color[1] << ", " << b.color[2] << ", " << b.color[3] << "]\n";
+			ss << "    color_secondary: [" << b.color_secondary[0] << ", " << b.color_secondary[1] << ", " << b.color_secondary[2] << ", " << b.color_secondary[3] << "]\n";
+			ss << "    magnetic_moment: " << b.magnetic_moment << "\n";
+			ss << "    rotation_speed: " << b.rotation_speed << "\n";
+			ss << "    friction_coefficient: " << b.friction_coefficient << "\n";
+			ss << "    restitution: " << b.restitution << "\n";
+			ss << "    integrity: " << b.integrity << "\n";
+			ss << "    lifetime: " << b.lifetime << "\n";
+			ss << "    temperature: " << b.temperature << "\n";
+			ss << "    heat_capacity: " << b.heat_capacity << "\n";
+			ss << "    composition: \"" << b.composition << "\"\n";
 			ss << "    position: [" << b.initial_position[0] << ", " << b.initial_position[1] << ", " << b.initial_position[2] << ", " << b.initial_position[3] << "]\n";
 			ss << "    velocity: [" << b.initial_velocity[0] << ", " << b.initial_velocity[1] << ", " << b.initial_velocity[2] << ", " << b.initial_velocity[3] << "]\n";
 			ss << "    quadrupole: " << b.quadrupole_moment << "\n";
@@ -244,6 +268,10 @@ public:
 			}
 			return res;
 		};
+		auto parse_color = [&](std::string_view text) noexcept -> std::array<float, 4> {
+			const auto values = parse_vec4(text);
+			return {static_cast<float>(values[0]), static_cast<float>(values[1]), static_cast<float>(values[2]), static_cast<float>(values[3])};
+		};
 
 		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Bodies, Observers };
 		Section current_section = Section::Root;
@@ -282,6 +310,18 @@ public:
 					else if (key == "radius") s.bodies.back().radius = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "spin") s.bodies.back().spin = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "charge") s.bodies.back().charge = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "enabled") s.bodies.back().enabled = (val != "false");
+					else if (key == "color") s.bodies.back().color = parse_color(val);
+					else if (key == "color_secondary") s.bodies.back().color_secondary = parse_color(val);
+					else if (key == "magnetic_moment") s.bodies.back().magnetic_moment = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "rotation_speed") s.bodies.back().rotation_speed = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "friction_coefficient") s.bodies.back().friction_coefficient = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "restitution") s.bodies.back().restitution = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "integrity") s.bodies.back().integrity = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "lifetime") s.bodies.back().lifetime = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "temperature") s.bodies.back().temperature = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "heat_capacity") s.bodies.back().heat_capacity = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "composition") s.bodies.back().composition = unquote(val);
 					else if (key == "position") s.bodies.back().initial_position = parse_vec4(val);
 					else if (key == "velocity") s.bodies.back().initial_velocity = parse_vec4(val);
 					else if (key == "quadrupole") s.bodies.back().quadrupole_moment = std::strtod(std::string(val).c_str(), nullptr);

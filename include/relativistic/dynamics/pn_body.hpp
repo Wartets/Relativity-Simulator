@@ -6,6 +6,7 @@
 #include <cmath>
 #include <algorithm>
 #include <string_view>
+#include <array>
 
 namespace Relativistic::Dynamics {
 
@@ -17,6 +18,27 @@ struct alignas(64) PostNewtonianBody {
 	std::array<double, 3> velocity{0.0, 0.0, 0.0};
 	std::array<double, 3> acceleration{0.0, 0.0, 0.0};
 	std::array<double, 3> spin{0.0, 0.0, 0.0};
+	bool enabled{true};
+	std::array<float, 4> color{0.62f, 0.75f, 1.0f, 1.0f};
+	std::array<float, 4> color_secondary{0.18f, 0.30f, 0.75f, 1.0f};
+	double charge{0.0};
+	double magnetic_moment{0.0};
+	double rotation_speed{0.0};
+	double friction_coefficient{0.0};
+	double restitution{0.5};
+	double integrity{1.0};
+	double lifetime{0.0};
+	double elasticity{0.0};
+	double youngs_modulus_cold{0.0};
+	double youngs_modulus_hot{0.0};
+	double temperature{0.0};
+	double heat_capacity{0.0};
+	double absorption_factor{0.0};
+	double critical_temperature{0.0};
+	double transmission_factor{0.0};
+	double cold_resistance{0.0};
+	double hot_resistance{0.0};
+	std::array<char, 32> composition{};
 	double quadrupole_moment{0.0};
 	double j2{0.0};
 	double j3{0.0};
@@ -86,6 +108,12 @@ struct alignas(64) PostNewtonianBody {
 
 	[[nodiscard]] double kinetic_energy() const noexcept {
 		return 0.5 * mass * speed_squared();
+	}
+
+	void set_composition(std::string_view value) noexcept {
+		const size_t len = std::min(value.size(), composition.size() - 1);
+		for (size_t i = 0; i < len; ++i) composition[i] = value[i];
+		composition[len] = '\0';
 	}
 };
 

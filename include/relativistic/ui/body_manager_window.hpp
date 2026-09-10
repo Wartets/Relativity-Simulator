@@ -68,6 +68,11 @@ private:
 	float list_pane_width_{230.0f};
 	char rename_buffer_[32]{};
 	int rename_target_id_{-1};
+	int tracked_body_id_{-1};
+	bool tracking_enabled_{false};
+	float global_velocity_[3]{0.0f, 0.0f, 0.0f};
+	float global_spin_[3]{0.0f, 0.0f, 0.0f};
+	float grid_spacing_{1.0f};
 
 public:
 	explicit BodyManagerWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -90,6 +95,7 @@ public:
 		}
 
 		auto& sys = orchestrator_.nbody_system();
+		update_tracking(sys);
 		const size_t body_count = sys.body_count();
 
 		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Active Bodies in System: %zu", body_count);
@@ -129,6 +135,44 @@ public:
 	}
 
 private:
+	void look_at(const std::array<double, 3>& target) noexcept {
+		auto& camera = orchestrator_.camera();
+		const double dx = target[0] - camera.position[0];
+		const double dy = target[1] - camera.position[1];
+		const double dz = target[2] - camera.position[2];
+		const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		if (distance <= 1e-9) return;
+		camera.target = target;
+		camera.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi);
+		camera.pitch = std::asin(std::clamp(dz / distance, -1.0, 1.0)) * (180.0 / std::numbers::pi);
+		camera.roll = 0.0;
+	}
+
+	void update_tracking(Dynamics::PostNewtonianSystem& sys) noexcept {
+		if (!tracking_enabled_) return;
+		for (const auto& body : sys.bodies()) {
+			if (body.id == static_cast<uint32_t>(tracked_body_id_) && body.enabled) {
+				look_at(body.position);
+				return;
+			}
+		}
+		tracking_enabled_ = false;
+		tracked_body_id_ = -1;
+	}
+
+	[[nodiscard]] std::string unique_name(std::string_view base) const {
+		std::string candidate = base.empty() ? "Body" : std::string(base);
+		const auto& bodies = orchestrator_.nbody_system().bodies();
+		auto exists = [&](std::string_view name) {
+			return std::any_of(bodies.begin(), bodies.end(), [&](const auto& body) { return body.name_view() == name; });
+		};
+		if (!exists(candidate)) return candidate;
+		for (uint32_t suffix = 2; suffix < 1000000; ++suffix) {
+			const std::string numbered = candidate + " " + std::to_string(suffix);
+			if (!exists(numbered)) return numbered;
+		}
+		return candidate;
+	}
 	[[nodiscard]] static std::string display_name(const Dynamics::PostNewtonianBody& body) {
 		if (body.has_name()) {
 			return std::string(body.name_view());
@@ -328,6 +372,14 @@ private:
 
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", display_name(b).c_str());
 		ImGui::TextDisabled("Identifier: #%u", b.id);
+		if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
+		render_setting_tooltip("Disabled bodies remain in the catalog and scenario, but are excluded from rendering, prediction, gravity, integration, and horizon absorption.");
+		ImGui::SameLine();
+		bool tracking_this = tracking_enabled_ && tracked_body_id_ == static_cast<int>(b.id);
+		if (ImGui::Checkbox("Track", &tracking_this)) {
+			tracking_enabled_ = tracking_this;
+			tracked_body_id_ = tracking_this ? static_cast<int>(b.id) : -1;
+		}
 		ImGui::Separator();
 
 		if (rename_target_id_ != static_cast<int>(b.id)) {
@@ -422,31 +474,46 @@ private:
 		}
 		render_setting_tooltip("Reference radius at which the zonal harmonic coefficients above are defined, typically the body's equatorial radius.");
 
+		if (ImGui::CollapsingHeader("Material, Thermal & Electromagnetic Properties")) {
+			float charge = static_cast<float>(b.charge);
+			if (ImGui::InputFloat("Charge", &charge, 0.01f, 1.0f, "%.4e")) { b.charge = charge; changed = true; }
+			float magnetic = static_cast<float>(b.magnetic_moment);
+			if (ImGui::InputFloat("Magnetic Moment", &magnetic, 0.01f, 1.0f, "%.4e")) { b.magnetic_moment = magnetic; changed = true; }
+			float rotation = static_cast<float>(b.rotation_speed);
+			if (ImGui::InputFloat("Rotation Speed", &rotation, 0.01f, 1.0f, "%.4e")) { b.rotation_speed = rotation; changed = true; }
+			float friction = static_cast<float>(b.friction_coefficient);
+			if (ImGui::SliderFloat("Friction Coefficient", &friction, 0.0f, 1.0f)) { b.friction_coefficient = friction; changed = true; }
+			float restitution = static_cast<float>(b.restitution);
+			if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) { b.restitution = restitution; changed = true; }
+			float integrity = static_cast<float>(b.integrity);
+			if (ImGui::InputFloat("Integrity", &integrity, 0.01f, 1.0f, "%.4e")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
+			float lifetime = static_cast<float>(b.lifetime);
+			if (ImGui::InputFloat("Lifetime", &lifetime, 1.0f, 10.0f, "%.4e")) { b.lifetime = std::max(0.0, static_cast<double>(lifetime)); changed = true; }
+			float temperature = static_cast<float>(b.temperature);
+			if (ImGui::InputFloat("Temperature", &temperature, 1.0f, 100.0f, "%.4e")) { b.temperature = temperature; changed = true; }
+			float heat_capacity = static_cast<float>(b.heat_capacity);
+			if (ImGui::InputFloat("Heat Capacity", &heat_capacity, 0.01f, 1.0f, "%.4e")) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
+			ImGui::ColorEdit4("Primary Color", b.color.data());
+			ImGui::ColorEdit4("Secondary Color", b.color_secondary.data());
+			char composition[32]{};
+			std::memcpy(composition, b.composition.data(), b.composition.size() - 1);
+			if (ImGui::InputText("Composition", composition, sizeof(composition))) { b.set_composition(composition); changed = true; }
+		}
+
 		ImGui::Spacing();
 		ImGui::Text("Speed: %.6e | Kinetic Energy: %.6e", b.speed(), b.kinetic_energy());
 
 		ImGui::Spacing();
 		if (ImGui::Button("Look At This Body", ImVec2(150.0f, 24.0f))) {
-			orchestrator_.camera().target = b.position;
-			const double dx = b.position[0] - orchestrator_.camera().position[0];
-			const double dy = b.position[1] - orchestrator_.camera().position[1];
-			const double dz = b.position[2] - orchestrator_.camera().position[2];
-			const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
-			if (d_tot > 1e-6) {
-				orchestrator_.camera().yaw = std::atan2(dx, -dy) * (180.0 / std::numbers::pi);
-				orchestrator_.camera().pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
-			}
+			look_at(b.position);
 		}
 		render_setting_tooltip("Rotates the camera to face this body without moving the camera position.");
 
 		ImGui::SameLine();
 		if (ImGui::Button("Duplicate Body")) {
 			Dynamics::PostNewtonianBody clone = b;
-			uint32_t clone_id = 1;
-			for (const auto& existing : sys.bodies()) {
-				clone_id = std::max(clone_id, existing.id + 1);
-			}
-			clone.id = clone_id;
+			clone.id = 0;
+			clone.set_name(unique_name(display_name(b)));
 			clone.position[0] += clone.radius * 4.0;
 			sys.add_body(clone);
 			changed = true;
@@ -521,13 +588,8 @@ private:
 		ImGui::Spacing();
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
 			auto& sys = orchestrator_.nbody_system();
-			uint32_t next_id = 1;
-			for (const auto& existing : sys.bodies()) {
-				next_id = std::max(next_id, existing.id + 1);
-			}
-
 			Dynamics::PostNewtonianBody body(
-				next_id,
+				0,
 				static_cast<double>(new_body_mass_),
 				static_cast<double>(new_body_radius_),
 				{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])},
@@ -539,7 +601,7 @@ private:
 				static_cast<double>(new_body_j4_),
 				static_cast<double>(new_body_r_ref_)
 			);
-			body.set_name(std::string_view(new_body_name_));
+			body.set_name(unique_name(std::string_view(new_body_name_)));
 
 			sys.add_body(body);
 			sys.update_accelerations();
@@ -561,6 +623,38 @@ private:
 			sys.update_accelerations();
 		}
 		render_setting_tooltip("Forces an immediate recomputation of accelerations and gravitational-wave emission from the current body states.");
+		if (ImGui::CollapsingHeader("Global Body Actions", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::InputFloat3("Velocity For All", global_velocity_);
+			if (ImGui::Button("Set Velocity For All")) {
+				for (auto& body : sys.bodies()) if (body.enabled) body.velocity = {global_velocity_[0], global_velocity_[1], global_velocity_[2]};
+				sys.update_accelerations();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Invert All Velocities")) {
+				for (auto& body : sys.bodies()) if (body.enabled) for (double& component : body.velocity) component = -component;
+				sys.update_accelerations();
+			}
+			ImGui::InputFloat3("Spin For All", global_spin_);
+			if (ImGui::Button("Set Spin For All")) {
+				for (auto& body : sys.bodies()) if (body.enabled) body.spin = {global_spin_[0], global_spin_[1], global_spin_[2]};
+				sys.update_accelerations();
+			}
+			ImGui::InputFloat("Grid Precision", &grid_spacing_, 0.1f, 1.0f, "%.4g");
+			if (ImGui::Button("Snap Positions To Grid")) {
+				const double spacing = std::max(static_cast<double>(grid_spacing_), 1e-9);
+				for (auto& body : sys.bodies()) if (body.enabled) for (double& component : body.position) component = std::round(component / spacing) * spacing;
+				sys.update_accelerations();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Scatter Positions")) {
+				for (auto& body : sys.bodies()) if (body.enabled) {
+					const double phase = static_cast<double>(body.id) * 2.399963229728653;
+					const double radius = std::max(1.0, distance_from_center(body));
+					body.position = {radius * std::cos(phase), radius * std::sin(phase), radius * 0.15 * std::sin(phase * 0.5)};
+				}
+				sys.update_accelerations();
+			}
+		}
 		ImGui::Separator();
 
 		ImGui::Text("Total System Mass:     %.6e", sys.total_mass());

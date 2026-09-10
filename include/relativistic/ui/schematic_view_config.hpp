@@ -26,7 +26,10 @@ enum class SchematicColorCodingMode : uint32_t {
 	BySpeed = 2,
 	BySpinMagnitude = 3,
 	ByDistanceFromCenter = 4,
-	ByKineticEnergy = 5
+	ByKineticEnergy = 5,
+	ByTemperature = 6,
+	ByChargeMagnitude = 7,
+	ByDensity = 8
 };
 
 enum class SchematicSphereParameterSource : uint32_t {
@@ -74,7 +77,7 @@ struct SchematicObjectDisplayConfig {
 	SchematicObjectShape shape{SchematicObjectShape::SphereFixedRadius};
 	SchematicSphereStyle sphere_style{SchematicSphereStyle::Opaque};
 	SchematicColorCodingMode color_mode{SchematicColorCodingMode::Uniform};
-	SchematicSphereParameterSource parameter_source{SchematicSphereParameterSource::Mass};
+	SchematicSphereParameterSource parameter_source{SchematicSphereParameterSource::PhysicalRadius};
 	std::array<float, 4> uniform_color{0.62f, 0.75f, 1.0f, 1.0f};
 	double radius_scale{1.0};
 	double point_pixel_radius{3.5};
@@ -124,6 +127,8 @@ struct SchematicViewConfig {
 	double orbit_prediction_opacity{0.45};
 	double orbit_prediction_thickness{1.4};
 	double orbit_prediction_max_eccentricity{0.98};
+	double orbit_prediction_duration{120.0};
+	int orbit_prediction_substeps{2};
 
 	SchematicObjectDisplayConfig central_object_style{};
 	SchematicObjectDisplayConfig body_style{};

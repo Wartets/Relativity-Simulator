@@ -78,6 +78,7 @@ struct ScenarioDefinition {
 	std::string description{"Physical Spacetime Simulation Scenario"};
 	std::string author{"Unknown"};
 	std::string created_at{};
+	std::string version_tag{"1.0.0"};
 	std::string metric_type{"Schwarzschild"};
 	double central_mass{1.0};
 	double central_spin{0.0};
@@ -104,6 +105,7 @@ public:
 		ss << "description: \"" << s.description << "\"\n";
 		ss << "author: \"" << s.author << "\"\n";
 		ss << "created_at: \"" << s.created_at << "\"\n";
+		ss << "version_tag: \"" << s.version_tag << "\"\n";
 		ss << "spacetime:\n";
 		ss << "  metric_type: \"" << s.metric_type << "\"\n";
 		ss << "  central_mass: " << s.central_mass << "\n";
@@ -358,6 +360,7 @@ public:
 			else if (key == "description") s.description = unquote(val);
 			else if (key == "author") s.author = unquote(val);
 			else if (key == "created_at") s.created_at = unquote(val);
+			else if (key == "version_tag") s.version_tag = unquote(val);
 			else if (key == "metric_type") s.metric_type = unquote(val);
 			else if (key == "central_mass") s.central_mass = std::strtod(std::string(val).c_str(), nullptr);
 			else if (key == "central_spin") s.central_spin = std::strtod(std::string(val).c_str(), nullptr);

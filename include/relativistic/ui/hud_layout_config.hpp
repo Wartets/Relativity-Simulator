@@ -343,6 +343,13 @@ public:
 		cursor_backward_.fill(0.0f);
 	}
 
+	void reserve(HudAnchor anchor, const ImVec2& element_size, float spacing) noexcept {
+		const size_t idx = static_cast<size_t>(anchor);
+		const bool grows_downward = (anchor == HudAnchor::TopLeft || anchor == HudAnchor::TopRight || anchor == HudAnchor::TopCenter);
+		float& cursor = grows_downward ? cursor_forward_[idx] : cursor_backward_[idx];
+		cursor += element_size.y + spacing;
+	}
+
 	[[nodiscard]] ImVec2 place(HudAnchor anchor, const ImVec2& avail, const ImVec2& element_size, float spacing) noexcept {
 		const size_t idx = static_cast<size_t>(anchor);
 		const bool grows_downward = (anchor == HudAnchor::TopLeft || anchor == HudAnchor::TopRight || anchor == HudAnchor::TopCenter);

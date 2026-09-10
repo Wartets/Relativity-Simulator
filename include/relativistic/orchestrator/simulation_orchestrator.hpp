@@ -75,6 +75,14 @@ struct PhysicalParameters {
 	double pole_guard_precision_scale{2.5};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{false};
+	double post_contrast{1.0};
+	double post_saturation{1.0};
+	double post_lift{0.0};
+	double post_gamma{1.0};
+	double post_gain{1.0};
+	double post_vignette_strength{0.0};
+	double post_highlights{0.0};
+	double post_shadows{0.0};
 };
 
 struct CustomParameterEntry {
@@ -584,12 +592,16 @@ public:
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
 	}
 
-	void save_scenario_file(const char* filepath, CommandResult& res, std::string_view author = "Unknown", std::string_view created_at = "") noexcept {
+	void save_scenario_file(const char* filepath, CommandResult& res, std::string_view author = "Unknown", std::string_view created_at = "", std::string_view version_tag = "1.0.0", std::string_view description = "") noexcept {
 		IO::ScenarioDefinition s;
 		s.scenario_name = active_scenario_name_;
 		s.metric_type = active_metric_name_;
 		s.author = std::string(author);
 		s.created_at = std::string(created_at);
+		s.version_tag = std::string(version_tag);
+		if (!description.empty()) {
+			s.description = std::string(description);
+		}
 		s.central_mass = params_.mass;
 		s.central_spin = params_.spin;
 		s.central_charge = params_.charge;
@@ -801,6 +813,30 @@ public:
 				break;
 			case ParameterType::SchematicAllowSimulation:
 				params_.schematic_allow_simulation = (val > 0.5);
+				break;
+			case ParameterType::PostContrast:
+				params_.post_contrast = std::clamp(val, 0.1, 3.0);
+				break;
+			case ParameterType::PostSaturation:
+				params_.post_saturation = std::clamp(val, 0.0, 3.0);
+				break;
+			case ParameterType::PostLift:
+				params_.post_lift = std::clamp(val, -0.5, 0.5);
+				break;
+			case ParameterType::PostGamma:
+				params_.post_gamma = std::clamp(val, 0.2, 3.0);
+				break;
+			case ParameterType::PostGain:
+				params_.post_gain = std::clamp(val, 0.1, 3.0);
+				break;
+			case ParameterType::PostVignetteStrength:
+				params_.post_vignette_strength = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::PostHighlights:
+				params_.post_highlights = std::clamp(val, -1.0, 1.0);
+				break;
+			case ParameterType::PostShadows:
+				params_.post_shadows = std::clamp(val, -1.0, 1.0);
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);

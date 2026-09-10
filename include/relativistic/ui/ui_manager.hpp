@@ -74,6 +74,9 @@ private:
 	char screenshot_dir_buffer_[256]{};
 	char screenshot_pattern_buffer_[128]{};
 	bool screenshot_buffers_synced_{false};
+	int screenshot_capture_mode_{0};
+	float sequence_capture_fps_{24.0f};
+	float sequence_capture_duration_seconds_{5.0f};
 
 public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
@@ -151,6 +154,7 @@ public:
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
 		viewport_window_->set_screenshot_callback([this]() { trigger_screenshot_capture(); });
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
+		viewport_window_->set_open_screenshot_settings_callback([]() { ImGui::OpenPopup("Screenshot Capture Settings"); });
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
@@ -178,7 +182,7 @@ public:
 	}
 
 	void add_secondary_view(const std::string& name) {
-		secondary_views_.emplace_back(name);
+		secondary_views_.emplace_back(name, orchestrator_);
 	}
 
 	void trigger_screenshot_capture() noexcept {
@@ -610,7 +614,7 @@ private:
 			}
 
 			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
-			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale.");
+			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale. Capturing now runs in the background and never freezes the interface.");
 
 			IO::ScreenshotCaptureContext preview_ctx;
 			preview_ctx.metric_name = orchestrator_.active_metric_name();
@@ -623,9 +627,42 @@ private:
 			ImGui::Text("Preview filename: %s", preview_name.c_str());
 
 			ImGui::Separator();
-			if (ImGui::Button("Capture Now", ImVec2(140.0f, 26.0f))) {
-				trigger_screenshot_capture();
+			ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Capture Mode");
+			const char* capture_modes[] = {"Single Screenshot", "Image Sequence (For Video Encoding)"};
+			ImGui::Combo("Mode", &screenshot_capture_mode_, capture_modes, IM_ARRAYSIZE(capture_modes));
+			render_setting_tooltip("Single Screenshot captures one frame using the settings above. Image Sequence periodically writes numbered frames to disk over a chosen duration and frame rate, which can be assembled into a video afterward with an external encoder such as ffmpeg.");
+
+			if (screenshot_capture_mode_ == 0) {
+				if (viewport_window_ && viewport_window_->is_high_res_capture_pending()) {
+					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "A high-resolution capture is currently rendering in the background...");
+				}
+				if (ImGui::Button("Capture Now", ImVec2(140.0f, 26.0f))) {
+					trigger_screenshot_capture();
+				}
+			} else {
+				ImGui::SliderFloat("Sequence Frame Rate", &sequence_capture_fps_, 1.0f, 60.0f, "%.0f fps");
+				ImGui::SliderFloat("Sequence Duration", &sequence_capture_duration_seconds_, 0.5f, 120.0f, "%.1f s");
+				const float estimated_frames = sequence_capture_fps_ * sequence_capture_duration_seconds_;
+				ImGui::TextDisabled("Approximately %.0f frames will be written to the output directory above.", static_cast<double>(estimated_frames));
+
+				if (viewport_window_ && viewport_window_->is_sequence_capture_active()) {
+					ImGui::ProgressBar(static_cast<float>(viewport_window_->sequence_capture_progress()), ImVec2(-1, 0));
+					if (ImGui::Button("Stop Sequence Capture", ImVec2(180.0f, 26.0f))) {
+						viewport_window_->stop_sequence_capture();
+					}
+				} else if (viewport_window_) {
+					if (ImGui::Button("Start Sequence Capture", ImVec2(200.0f, 26.0f))) {
+						viewport_window_->start_sequence_capture(
+							user_settings_.screenshot_output_directory,
+							user_settings_.screenshot_filename_pattern,
+							static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
+							static_cast<double>(sequence_capture_fps_),
+							static_cast<double>(sequence_capture_duration_seconds_)
+						);
+					}
+				}
 			}
+
 			ImGui::SameLine();
 			if (ImGui::Button("Close", ImVec2(100.0f, 26.0f))) {
 				ImGui::CloseCurrentPopup();

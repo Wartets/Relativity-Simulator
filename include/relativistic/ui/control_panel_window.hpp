@@ -320,6 +320,60 @@ private:
 		}
 		render_setting_tooltip("Tone mapping operator compressing high dynamic range extreme radiant flux down to standard 8-bit sRGB display gamuts.");
 
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.85f, 0.6f, 1.0f, 1.0f), "Color Grading (Post-Tonemap):");
+		auto& grading_params = orchestrator_.parameters();
+		float post_contrast = static_cast<float>(grading_params.post_contrast);
+		if (ImGui::SliderFloat("Contrast", &post_contrast, 0.1f, 3.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostContrast, static_cast<double>(post_contrast))));
+		}
+		render_setting_tooltip("Scales pixel values around mid-gray (0.5) after tonemapping. Above 1 increases separation between shadows and highlights; below 1 flattens the image.");
+		float post_saturation = static_cast<float>(grading_params.post_saturation);
+		if (ImGui::SliderFloat("Saturation", &post_saturation, 0.0f, 3.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostSaturation, static_cast<double>(post_saturation))));
+		}
+		render_setting_tooltip("Blends each pixel with its luminance. 0 produces a grayscale image, 1 leaves color unchanged, above 1 exaggerates color intensity.");
+		float post_lift = static_cast<float>(grading_params.post_lift);
+		if (ImGui::SliderFloat("Lift (Shadows Offset)", &post_lift, -0.5f, 0.5f, "%.3f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostLift, static_cast<double>(post_lift))));
+		}
+		render_setting_tooltip("Adds a constant offset to darker tones, raising or crushing black levels without affecting highlights as strongly.");
+		float post_gamma = static_cast<float>(grading_params.post_gamma);
+		if (ImGui::SliderFloat("Gamma (Midtones)", &post_gamma, 0.2f, 3.0f, "%.3f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostGamma, static_cast<double>(post_gamma))));
+		}
+		render_setting_tooltip("Applies a power curve to midtones. Below 1 brightens midtones, above 1 darkens them, leaving pure black and white unaffected.");
+		float post_gain = static_cast<float>(grading_params.post_gain);
+		if (ImGui::SliderFloat("Gain (Highlights)", &post_gain, 0.1f, 3.0f, "%.3f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostGain, static_cast<double>(post_gain))));
+		}
+		render_setting_tooltip("Multiplies the overall signal after lift and gamma are applied, primarily affecting bright highlights.");
+		float post_highlights = static_cast<float>(grading_params.post_highlights);
+		if (ImGui::SliderFloat("Highlights Recovery", &post_highlights, -1.0f, 1.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostHighlights, static_cast<double>(post_highlights))));
+		}
+		render_setting_tooltip("Negative values compress the brightest regions to reveal clipped detail near the accretion disk core; positive values push highlights brighter.");
+		float post_shadows = static_cast<float>(grading_params.post_shadows);
+		if (ImGui::SliderFloat("Shadows Recovery", &post_shadows, -1.0f, 1.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostShadows, static_cast<double>(post_shadows))));
+		}
+		render_setting_tooltip("Positive values lift detail out of dark regions near the event horizon; negative values deepen shadows for more contrast.");
+		float post_vignette = static_cast<float>(grading_params.post_vignette_strength);
+		if (ImGui::SliderFloat("Vignette Strength", &post_vignette, 0.0f, 1.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostVignetteStrength, static_cast<double>(post_vignette))));
+		}
+		render_setting_tooltip("Darkens the corners of the frame radially from the center, applied after every other color grading step. Zero disables the effect entirely.");
+		if (ImGui::Button("Reset Color Grading", ImVec2(200.0f, 26.0f))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostContrast, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostSaturation, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostLift, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostGamma, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostGain, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostHighlights, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostShadows, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostVignetteStrength, 0.0)));
+		}
+
 		ImGui::Separator();
 
 		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust"};

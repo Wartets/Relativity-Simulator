@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <thread>
+#include <atomic>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -75,6 +77,20 @@ private:
 	bool has_sufficient_rolling_frames_{false};
 	std::function<void()> screenshot_callback_{};
 	std::function<void()> fullscreen_toggle_callback_{};
+	std::function<void()> open_screenshot_settings_callback_{};
+	std::atomic<uint32_t> high_res_capture_pending_{0};
+
+	struct SequenceCaptureState {
+		bool active{false};
+		std::string output_directory{};
+		std::string filename_pattern{};
+		IO::ScreenshotFormat format{IO::ScreenshotFormat::PPM};
+		double frame_interval_seconds{1.0 / 30.0};
+		double elapsed_since_last_frame{0.0};
+		uint64_t frame_index{0};
+		uint64_t target_frame_count{0};
+	};
+	SequenceCaptureState sequence_capture_{};
 
 	struct DynamicLookAtTarget {
 		std::string label;
@@ -208,6 +224,10 @@ public:
 		fullscreen_toggle_callback_ = std::move(callback);
 	}
 
+	void set_open_screenshot_settings_callback(std::function<void()> callback) noexcept {
+		open_screenshot_settings_callback_ = std::move(callback);
+	}
+
 	void handle_zoom_scroll(double yoffset) noexcept {
 		const auto& zoom_cfg = camera_controller_.config().zoom;
 		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
@@ -221,21 +241,26 @@ public:
 		ctx.spin = orchestrator_.parameters().spin;
 		ctx.tick_index = snap.tick_index;
 
-		std::vector<Render::GpuPixelOutput> fb;
-		uint32_t fb_w = 0, fb_h = 0;
-
 		if (resolution_scale > 1.01f && current_width_ > 0 && current_height_ > 0) {
 			Render::GpuCameraPushConstants capture_consts = last_camera_constants_;
 			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * resolution_scale), 64u, 7680u);
 			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * resolution_scale), 64u, 4320u);
-			fb.assign(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
-			Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, nullptr, nullptr);
-			fb_w = capture_consts.screen_width;
-			fb_h = capture_consts.screen_height;
-		} else {
-			pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+			high_res_capture_pending_.fetch_add(1, std::memory_order_relaxed);
+			std::jthread([this, capture_consts, ctx, filename_pattern, output_directory, format]() mutable {
+				std::vector<Render::GpuPixelOutput> fb(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
+				Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, nullptr, nullptr);
+				ctx.width = capture_consts.screen_width;
+				ctx.height = capture_consts.screen_height;
+				const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
+				IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format);
+				high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
+			}).detach();
+			return;
 		}
 
+		std::vector<Render::GpuPixelOutput> fb;
+		uint32_t fb_w = 0, fb_h = 0;
+		pipeline_.copy_framebuffer(fb, fb_w, fb_h);
 		if (fb_w == 0 || fb_h == 0 || fb.empty()) {
 			return;
 		}
@@ -244,6 +269,36 @@ public:
 		ctx.height = fb_h;
 		const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
 		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format);
+	}
+
+	[[nodiscard]] bool is_high_res_capture_pending() const noexcept {
+		return high_res_capture_pending_.load(std::memory_order_relaxed) > 0;
+	}
+
+	void start_sequence_capture(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format, double frames_per_second, double duration_seconds) noexcept {
+		sequence_capture_.active = true;
+		sequence_capture_.output_directory = output_directory;
+		sequence_capture_.filename_pattern = filename_pattern;
+		sequence_capture_.format = format;
+		sequence_capture_.frame_interval_seconds = (frames_per_second > 0.0) ? (1.0 / frames_per_second) : (1.0 / 30.0);
+		sequence_capture_.elapsed_since_last_frame = 0.0;
+		sequence_capture_.frame_index = 0;
+		sequence_capture_.target_frame_count = static_cast<uint64_t>(std::max(duration_seconds, 0.0) * std::max(frames_per_second, 1.0));
+	}
+
+	void stop_sequence_capture() noexcept {
+		sequence_capture_.active = false;
+	}
+
+	[[nodiscard]] bool is_sequence_capture_active() const noexcept {
+		return sequence_capture_.active;
+	}
+
+	[[nodiscard]] double sequence_capture_progress() const noexcept {
+		if (!sequence_capture_.active || sequence_capture_.target_frame_count == 0) {
+			return 0.0;
+		}
+		return std::clamp(static_cast<double>(sequence_capture_.frame_index) / static_cast<double>(sequence_capture_.target_frame_count), 0.0, 1.0);
 	}
 
 	[[nodiscard]] bool is_hovered() const noexcept {
@@ -447,11 +502,57 @@ public:
 					if (color_upload_buffer_.size() < pixel_count * 4) {
 						color_upload_buffer_.assign(pixel_count * 4, 0.0f);
 					}
+					const auto& grading = orchestrator_.parameters();
+					const float grade_contrast = static_cast<float>(grading.post_contrast);
+					const float grade_saturation = static_cast<float>(grading.post_saturation);
+					const float grade_lift = static_cast<float>(grading.post_lift);
+					const float grade_inv_gamma = 1.0f / static_cast<float>(std::max(grading.post_gamma, 0.01));
+					const float grade_gain = static_cast<float>(grading.post_gain);
+					const float grade_highlights = static_cast<float>(grading.post_highlights);
+					const float grade_shadows = static_cast<float>(grading.post_shadows);
+					const float grade_vignette = static_cast<float>(grading.post_vignette_strength);
+					const bool needs_grading = (grade_contrast != 1.0f) || (grade_saturation != 1.0f) || (grade_lift != 0.0f) || (grade_inv_gamma != 1.0f) || (grade_gain != 1.0f) || (grade_highlights != 0.0f) || (grade_shadows != 0.0f) || (grade_vignette > 0.0f);
+					const float grade_inv_w = (fb_w > 0) ? (1.0f / static_cast<float>(fb_w)) : 0.0f;
+					const float grade_inv_h = (fb_h > 0) ? (1.0f / static_cast<float>(fb_h)) : 0.0f;
 					for (size_t i = 0; i < pixel_count; ++i) {
-					color_upload_buffer_[i * 4 + 0] = fb[i].r;
-					color_upload_buffer_[i * 4 + 1] = fb[i].g;
-					color_upload_buffer_[i * 4 + 2] = fb[i].b;
-					color_upload_buffer_[i * 4 + 3] = fb[i].a;
+						float gr = fb[i].r, gg = fb[i].g, gb = fb[i].b;
+						if (needs_grading) {
+							auto grade_channel = [&](float c) noexcept -> float {
+								c = std::clamp(c + grade_lift * (1.0f - c), 0.0f, 4.0f);
+								c = (c - 0.5f) * grade_contrast + 0.5f;
+								c = std::max(c, 0.0f);
+								c = std::pow(c, grade_inv_gamma) * grade_gain;
+								if (grade_highlights != 0.0f) {
+									const float w = std::clamp((c - 0.6f) / 0.4f, 0.0f, 1.0f);
+									c += grade_highlights * w * (1.0f - c) * 0.5f;
+								}
+								if (grade_shadows != 0.0f) {
+									const float w = std::clamp(1.0f - c / 0.4f, 0.0f, 1.0f);
+									c += grade_shadows * w * c * 0.5f;
+								}
+								return std::clamp(c, 0.0f, 1.0f);
+							};
+							gr = grade_channel(gr);
+							gg = grade_channel(gg);
+							gb = grade_channel(gb);
+							const float luma = 0.2126f * gr + 0.7152f * gg + 0.0722f * gb;
+							gr = std::clamp(luma + (gr - luma) * grade_saturation, 0.0f, 1.0f);
+							gg = std::clamp(luma + (gg - luma) * grade_saturation, 0.0f, 1.0f);
+							gb = std::clamp(luma + (gb - luma) * grade_saturation, 0.0f, 1.0f);
+							if (grade_vignette > 0.0f && fb_w > 0 && fb_h > 0) {
+								const float px = (static_cast<float>(i % fb_w) + 0.5f) * grade_inv_w - 0.5f;
+								const float py = (static_cast<float>(i / fb_w) + 0.5f) * grade_inv_h - 0.5f;
+								const float dist = std::clamp(std::sqrt(px * px + py * py) * 1.4142135f, 0.0f, 1.0f);
+								const float falloff = 1.0f - grade_vignette * dist * dist;
+								gr *= falloff;
+								gg *= falloff;
+								gb *= falloff;
+							}
+						}
+						color_upload_buffer_[i * 4 + 0] = gr;
+						color_upload_buffer_[i * 4 + 1] = gg;
+						color_upload_buffer_[i * 4 + 2] = gb;
+						color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
 					has_received_frame_ = true;
 					const auto texture_upload_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::TextureUpload);
@@ -554,7 +655,35 @@ public:
 				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::RenderDispatch, tel.execution_time_ms);
 				orchestrator_.profiler().record_frame(frame_input);
 			}
-		
+
+			if (sequence_capture_.active) {
+				sequence_capture_.elapsed_since_last_frame += dt;
+				if (sequence_capture_.elapsed_since_last_frame >= sequence_capture_.frame_interval_seconds) {
+					sequence_capture_.elapsed_since_last_frame = 0.0;
+					std::vector<Render::GpuPixelOutput> seq_fb;
+					uint32_t seq_w = 0, seq_h = 0;
+					pipeline_.copy_framebuffer(seq_fb, seq_w, seq_h);
+					if (seq_w > 0 && seq_h > 0 && !seq_fb.empty()) {
+						IO::ScreenshotCaptureContext seq_ctx;
+						seq_ctx.metric_name = orchestrator_.active_metric_name();
+						seq_ctx.mass = orchestrator_.parameters().mass;
+						seq_ctx.spin = orchestrator_.parameters().spin;
+						seq_ctx.width = seq_w;
+						seq_ctx.height = seq_h;
+						seq_ctx.tick_index = orchestrator_.scheduler().snapshot().tick_index;
+						const std::string base_stem = IO::ScreenshotFilenameBuilder::build(sequence_capture_.filename_pattern, seq_ctx);
+						char frame_suffix[32];
+						std::snprintf(frame_suffix, sizeof(frame_suffix), "_frame%06llu", static_cast<unsigned long long>(sequence_capture_.frame_index));
+						const std::string stem = base_stem + frame_suffix;
+						IO::ScreenshotExporter::export_async(std::move(seq_fb), seq_w, seq_h, sequence_capture_.output_directory, stem, sequence_capture_.format);
+						++sequence_capture_.frame_index;
+					}
+				}
+				if (sequence_capture_.frame_index >= sequence_capture_.target_frame_count) {
+					sequence_capture_.active = false;
+				}
+			}
+
 		ImGui::End();
 		if (fullscreen_bg) {
 			ImGui::PopStyleVar(2);
@@ -721,8 +850,12 @@ public:
 
 		if (tb.screenshot) {
 			ImGui::SameLine();
-			if (ImGui::Button("Capture", ImVec2(70.0f, 24.0f)) && screenshot_callback_) {
-				screenshot_callback_();
+			if (ImGui::Button("Capture", ImVec2(70.0f, 24.0f)) && open_screenshot_settings_callback_) {
+				open_screenshot_settings_callback_();
+			}
+			if (is_high_res_capture_pending()) {
+				ImGui::SameLine();
+				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Capturing...");
 			}
 		}
 
@@ -1287,6 +1420,12 @@ private:
 		});
 
 		HudAutoArranger arranger;
+		if (hud_layout_.auto_arrange_enabled) {
+			const auto& toolbar_style = hud_layout_.element(HudElementId::ViewportToolbar);
+			if (toolbar_style.enabled) {
+				arranger.reserve(toolbar_style.anchor, ImVec2(900.0f, 34.0f), hud_layout_.auto_arrange_spacing);
+			}
+		}
 		for (const auto& block : pending) {
 			const auto& style = *block.style;
 			const ImVec2 block_size = measure_hud_block(style, block.lines);

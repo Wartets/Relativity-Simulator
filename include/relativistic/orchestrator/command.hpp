@@ -89,7 +89,15 @@ enum class ParameterType : uint32_t {
 	SpaceSkipRadiusScale = 46,
 	SchematicModeEnabled = 47,
 	SchematicAllowSimulation = 48,
-	PoleGuardPrecisionScale = 49
+	PoleGuardPrecisionScale = 49,
+	PostContrast = 50,
+	PostSaturation = 51,
+	PostLift = 52,
+	PostGamma = 53,
+	PostGain = 54,
+	PostVignetteStrength = 55,
+	PostHighlights = 56,
+	PostShadows = 57
 };
 
 struct Command {

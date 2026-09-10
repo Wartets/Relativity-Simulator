@@ -10,6 +10,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
+#include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -302,6 +303,7 @@ public:
 			}
 
 			if (is_hovered_ || is_focused_) {
+				const auto camera_update_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraUpdate);
 				camera_controller_.update(window, dt, is_hovered_);
 			}
 
@@ -312,8 +314,11 @@ public:
 				const auto schematic_projection_mode = schematic_cfg_.human_perspective_mode
 					? Observer::ProjectionMode::Pinhole
 					: schematic_cfg_.projection_mode;
-				schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
-				schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
+				{
+					const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
+					schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
+					schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
+				}
 				ImGui::Dummy(avail);
 
 				if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
@@ -475,6 +480,7 @@ public:
 			);
 
 			if (schematic_cfg_.show_overlay_in_raytraced_view) {
+				const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
 				const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
 				schematic_renderer_.configure(
 					cam, proj_mode, cam.fov_deg * (std::numbers::pi / 180.0), viewport_image_pos, avail,
@@ -1084,11 +1090,13 @@ private:
 
 		{
 			const auto& style = hud_layout_.element(HudElementId::SpectrographQuickReadout);
-			char buf[112];
+			const bool on_disk = Optics::DiskThermalProfile::radius_within_disk(params.mass, params.spin, cam.radius);
+			const double g_link = on_disk ? Optics::DiskThermalProfile::circular_orbit_redshift_factor(params.mass, cam.radius) : 1.0;
+			char buf[144];
 			if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV | Tonemap: %u", params.camera_exposure, params.tonemapping_mode);
+				std::snprintf(buf, sizeof(buf), "Doppler g: %.3f (%s) | Exposure: %.2f EV | Tonemap: %u", g_link, on_disk ? "on disk band" : "off disk band", params.camera_exposure, params.tonemapping_mode);
 			} else {
-				std::snprintf(buf, sizeof(buf), "Doppler g: 1.000 | Exposure: %.2f EV", params.camera_exposure);
+				std::snprintf(buf, sizeof(buf), "Doppler g: %.3f | Exposure: %.2f EV", g_link, params.camera_exposure);
 			}
 			push_block(HudElementId::SpectrographQuickReadout, {HudTextLine{buf}});
 		}
@@ -1142,9 +1150,36 @@ private:
 			const auto& profiler = orchestrator_.profiler();
 			if (!profiler.history().empty()) {
 				const auto& latest = profiler.history().back();
-				char buf[96];
-				std::snprintf(buf, sizeof(buf), "HUD Overlay: %.3f ms", latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)]);
+				char buf[176];
+				std::snprintf(
+					buf, sizeof(buf),
+					"HUD Overlay: %.3f ms | Camera: %.3f ms | Schematic: %.3f ms",
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)],
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraUpdate)],
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::SchematicOverlay)]
+				);
 				push_block(HudElementId::ProfilerStageBreakdownReadout, {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& profiler = orchestrator_.profiler();
+			const auto& history = profiler.history();
+			if (!history.empty()) {
+				const auto& style = hud_layout_.element(HudElementId::ProfilerGpuCpuSplitReadout);
+				const size_t window_count = std::min<size_t>(history.size(), 120);
+				size_t gpu_frames = 0;
+				for (size_t i = history.size() - window_count; i < history.size(); ++i) {
+					if (history[i].used_gpu_path) ++gpu_frames;
+				}
+				const double gpu_ratio = static_cast<double>(gpu_frames) / static_cast<double>(window_count) * 100.0;
+				char buf[128];
+				if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "GPU Path: %.0f%% | CPU Path: %.0f%% (last %zu frames)", gpu_ratio, 100.0 - gpu_ratio, window_count);
+				} else {
+					std::snprintf(buf, sizeof(buf), "GPU Path: %.0f%% | CPU Path: %.0f%%", gpu_ratio, 100.0 - gpu_ratio);
+				}
+				push_block(HudElementId::ProfilerGpuCpuSplitReadout, {HudTextLine{buf}});
 			}
 		}
 

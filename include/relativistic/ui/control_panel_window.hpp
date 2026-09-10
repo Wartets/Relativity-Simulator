@@ -1280,8 +1280,9 @@ private:
 		ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "Linked Widget Readouts:");
 		ImGui::TextDisabled("These HUD elements mirror a summary of live data from their corresponding analysis windows directly onto the viewport, without needing to open those windows.");
 		ImGui::BulletText("Telemetry Quick Readout mirrors observer lapse and gravitational time dilation from the Telemetry & Invariants window.");
-		ImGui::BulletText("Spectrograph Quick Readout mirrors Doppler factor and exposure from the Radiative Transfer & Spectrograph Monitor.");
+		ImGui::BulletText("Spectrograph Quick Readout mirrors the observer's live circular-orbit Doppler factor and exposure from the Radiative Transfer & Spectrograph Monitor.");
 		ImGui::BulletText("Diagnostics Quick Readout mirrors the active metric and integrator from the Curvature Diagnostics window.");
+		ImGui::BulletText("Profiler: GPU/CPU Split Readout mirrors the render path distribution from the Performance Analysis & Profiling window.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Keybind Summary Panel Contents:");

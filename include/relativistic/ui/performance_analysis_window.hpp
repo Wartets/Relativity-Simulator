@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 namespace Relativistic::UI {
 
@@ -104,18 +105,57 @@ private:
 		ImGui::Text("Avg Iterations"); ImGui::Text("%.1f", latest.average_iterations); ImGui::NextColumn();
 		ImGui::Columns(1);
 
+		const double megapixels_per_second = (latest.frame_time_ms > 0.0)
+			? (static_cast<double>(latest.pixels_processed) / 1.0e6) / (latest.frame_time_ms / 1000.0)
+			: 0.0;
+		ImGui::Text("Throughput: %.2f Megapixels/s at %ux%u", megapixels_per_second, latest.screen_width, latest.screen_height);
+		render_setting_tooltip("Pixels fully ray-traced per second at the current internal render resolution, derived from the most recent frame time. Useful for comparing configurations independently of window size.");
+
 		if (render_pipeline_ != nullptr) {
 			const auto& live_tel = render_pipeline_->telemetry();
 			ImGui::Text("Ray Iteration Range: %u - %u (avg %.1f)", live_tel.min_iterations_used, live_tel.max_iterations_used, live_tel.average_iterations_used);
 			render_setting_tooltip("Minimum and maximum geodesic integration steps consumed by any single ray in the most recently completed frame, alongside the mean across all rays.");
 		}
 
+		{
+			const size_t window_count = std::min<size_t>(history.size(), 120);
+			size_t gpu_frames = 0;
+			double stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count)] = {};
+			for (size_t i = history.size() - window_count; i < history.size(); ++i) {
+				if (history[i].used_gpu_path) ++gpu_frames;
+				for (size_t st = 0; st < static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count); ++st) {
+					stage_totals[st] += history[i].stage_time_ms[st];
+				}
+			}
+			const double gpu_ratio = static_cast<double>(gpu_frames) / static_cast<double>(window_count);
+			ImGui::Text("Render Path Split (last %zu frames): GPU %.0f%% | CPU %.0f%%", window_count, gpu_ratio * 100.0, (1.0 - gpu_ratio) * 100.0);
+			render_setting_tooltip("Fraction of recently completed frames dispatched through the Vulkan compute path versus the CPU SIMD/scalar fallback. Also available as a standalone HUD readout.");
+
+			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Stage Time Share (last %zu frames)", window_count);
+			double frame_total = stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)];
+			if (frame_total <= 1e-9) frame_total = 1.0;
+			for (size_t st = 0; st < static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count); ++st) {
+				if (st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)) continue;
+				const auto stage = static_cast<Orchestrator::ProfilerTaskStage>(st);
+				const float share = static_cast<float>(std::clamp(stage_totals[st] / frame_total, 0.0, 1.0));
+				ImGui::ProgressBar(share, ImVec2(-1.0f, 0.0f), (std::string(Orchestrator::profiler_stage_name(stage)) + " " + std::to_string(static_cast<int>(share * 100.0f)) + "%").c_str());
+			}
+			render_setting_tooltip("Share of accumulated frame time spent in each instrumented pipeline stage. The largest bar identifies where optimization effort is likely to pay off first; see the Bottleneck Analysis tab for recommendations.");
+		}
+
 		ImGui::Separator();
-		ImGui::SliderInt("Chart Window (frames)", &plot_window_, 30, static_cast<int>(profiler.history_capacity()));
+		ImGui::SliderInt("Chart Window (frames)", &plot_window_, 30, static_cast<int>(std::min<size_t>(profiler.history_capacity(), 3600)));
+		render_setting_tooltip("Number of most recent frame samples displayed in the charts below. Independent from the History Capacity setting on the Settings tab, which controls how many samples are retained in memory.");
 
 		const size_t count = std::min(static_cast<size_t>(std::max(plot_window_, 1)), history.size());
 		std::vector<double> frame_times(count), fps_values(count), x_axis(count);
 		std::vector<double> dispatch_stage(count), texture_stage(count), hud_stage(count);
+
+		double frame_time_min = std::numeric_limits<double>::max();
+		double frame_time_max = std::numeric_limits<double>::lowest();
+		double fps_min = std::numeric_limits<double>::max();
+		double fps_max = std::numeric_limits<double>::lowest();
 
 		for (size_t i = 0; i < count; ++i) {
 			const auto& s = history[history.size() - count + i];
@@ -125,10 +165,20 @@ private:
 			dispatch_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
 			texture_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)];
 			hud_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)];
+			frame_time_min = std::min(frame_time_min, s.frame_time_ms);
+			frame_time_max = std::max(frame_time_max, s.frame_time_ms);
+			fps_min = std::min(fps_min, s.fps);
+			fps_max = std::max(fps_max, s.fps);
 		}
+
+		if (frame_time_max <= frame_time_min) frame_time_max = frame_time_min + 1.0;
+		if (fps_max <= fps_min) fps_max = fps_min + 1.0;
+		const double ft_pad = std::max((frame_time_max - frame_time_min) * 0.12, 0.05);
+		const double fps_pad = std::max((fps_max - fps_min) * 0.12, 0.5);
 
 		if (ImPlot::BeginPlot("Frame Time History", ImVec2(-1, 220))) {
 			ImPlot::SetupAxes("Sample", "Milliseconds");
+			ImPlot::SetupAxesLimits(0.0, static_cast<double>(count > 0 ? count - 1 : 0), std::max(frame_time_min - ft_pad, 0.0), frame_time_max + ft_pad, ImPlotCond_Always);
 			ImPlot::PlotLine("Frame Time (Total UI)", x_axis.data(), frame_times.data(), static_cast<int>(count));
 			ImPlot::PlotLine("Render Dispatch", x_axis.data(), dispatch_stage.data(), static_cast<int>(count));
 			ImPlot::PlotLine("Texture Upload", x_axis.data(), texture_stage.data(), static_cast<int>(count));
@@ -138,6 +188,7 @@ private:
 
 		if (ImPlot::BeginPlot("FPS History", ImVec2(-1, 180))) {
 			ImPlot::SetupAxes("Sample", "FPS");
+			ImPlot::SetupAxesLimits(0.0, static_cast<double>(count > 0 ? count - 1 : 0), std::max(fps_min - fps_pad, 0.0), fps_max + fps_pad, ImPlotCond_Always);
 			ImPlot::PlotLine("FPS", x_axis.data(), fps_values.data(), static_cast<int>(count));
 			ImPlot::EndPlot();
 		}
@@ -150,6 +201,7 @@ private:
 			static_cast<double>(latest.celestial_pixels) / denom * 100.0,
 			static_cast<double>(latest.disk_pixels) / denom * 100.0
 		);
+		render_setting_tooltip("Classification of every pixel in the most recently completed frame by how its geodesic terminated. High celestial-escape share with a bright accretion disk configured may indicate the render distance or step budget is cutting rays short.");
 	}
 
 	static void draw_summary_table(const char* label, const Orchestrator::StatisticalSummary& s) {
@@ -176,6 +228,12 @@ private:
 		ImGui::PopID();
 	}
 
+	[[nodiscard]] static size_t history_start_for_window(const Orchestrator::PerformanceProfiler& profiler, size_t n) noexcept {
+		const auto& history = profiler.history();
+		const size_t count = (n == 0 || n > history.size()) ? history.size() : n;
+		return history.size() - count;
+	}
+
 	void render_statistics_tab(Orchestrator::PerformanceProfiler& profiler) {
 		static int window_choice = 0;
 		const char* window_labels[] = {"Last 60 Frames", "Last 300 Frames", "Last 1000 Frames", "Entire History"};
@@ -199,12 +257,28 @@ private:
 		draw_summary_table("Render Dispatch (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::RenderDispatch, n));
 		draw_summary_table("Texture Upload (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::TextureUpload, n));
 		draw_summary_table("HUD Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::HudOverlay, n));
+		draw_summary_table("Camera Update (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CameraUpdate, n));
+		draw_summary_table("Schematic Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::SchematicOverlay, n));
 		draw_summary_table("Average Ray Iterations Per Frame", profiler.iteration_summary(n));
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Render Path Distribution");
+		const size_t window_start = history_start_for_window(profiler, n);
+		size_t gpu_count = 0;
+		for (size_t i = window_start; i < profiler.history().size(); ++i) {
+			if (profiler.history()[i].used_gpu_path) ++gpu_count;
+		}
+		const size_t sample_window = profiler.history().size() - window_start;
+		if (sample_window > 0) {
+			ImGui::Text("GPU Path Frames: %zu / %zu (%.1f%%)", gpu_count, sample_window, static_cast<double>(gpu_count) / static_cast<double>(sample_window) * 100.0);
+		}
+		render_setting_tooltip("Count of frames rendered via GPU compute dispatch versus the CPU pipeline across the selected sample window, useful for confirming whether the GPU path is actually engaging for the current metric and precision mode.");
 	}
 
 	void render_bottleneck_tab(Orchestrator::PerformanceProfiler& profiler) {
 		static int sample_span = 120;
 		ImGui::SliderInt("Analysis Window (frames)", &sample_span, 10, 1000);
+		render_setting_tooltip("Number of most recent frames analyzed to determine which pipeline stage dominates render time and whether the geodesic step budget is being exhausted before rays terminate naturally.");
 
 		const auto report = profiler.analyze_bottleneck(static_cast<size_t>(sample_span));
 		ImGui::TextWrapped("%s", report.summary.c_str());
@@ -335,6 +409,7 @@ private:
 
 		const char* modes[] = {"By Duration", "By Frame Count"};
 		ImGui::Combo("Capture Mode", &capture_mode_, modes, IM_ARRAYSIZE(modes));
+		render_setting_tooltip("Chooses whether the benchmark run stops after a fixed wall-clock duration or after a fixed number of rendered frames.");
 		if (capture_mode_ == 0) {
 			ImGui::SliderFloat("Duration (seconds)", &capture_duration_seconds_, 1.0f, 120.0f, "%.1f s");
 		} else {
@@ -361,22 +436,24 @@ private:
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Saved Runs");
 		ImGui::Checkbox("Only Show Runs Matching Current Engine Signature", &show_only_matching_signature_);
+		render_setting_tooltip("Hides benchmark runs captured under a different internal data-layout signature, since their timings are not directly comparable to runs captured with the current build.");
 
 		const auto& runs = profiler.saved_runs();
 		if (runs.empty()) {
 			ImGui::TextDisabled("No benchmark runs saved yet.");
 		}
 
-		if (ImGui::BeginTable("BenchmarkRunsTable", 9, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0, 220))) {
-			ImGui::TableSetupColumn("Label");
-			ImGui::TableSetupColumn("Timestamp");
-			ImGui::TableSetupColumn("Mean FT (ms)");
-			ImGui::TableSetupColumn("P95 FT (ms)");
-			ImGui::TableSetupColumn("Mean FPS");
-			ImGui::TableSetupColumn("Res Scale");
-			ImGui::TableSetupColumn("Ray Steps");
-			ImGui::TableSetupColumn("GPU Ratio");
-			ImGui::TableSetupColumn("Actions");
+		ImGui::BeginChild("BenchmarkRunsTableRegion", ImVec2(0.0f, 260.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
+		if (ImGui::BeginTable("BenchmarkRunsTable", 9, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable)) {
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+			ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+			ImGui::TableSetupColumn("Mean FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("P95 FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Mean FPS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Res Scale", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Ray Steps", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("GPU Ratio", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 260.0f);
 			ImGui::TableHeadersRow();
 
 			for (size_t i = 0; i < runs.size(); ++i) {
@@ -428,6 +505,7 @@ private:
 			}
 			ImGui::EndTable();
 		}
+		ImGui::EndChild();
 
 		if (ImGui::Button("Clear All Saved Runs", ImVec2(180.0f, 26.0f))) {
 			profiler.clear_all_runs();
@@ -441,10 +519,21 @@ private:
 
 	void render_settings_tab(Orchestrator::PerformanceProfiler& profiler) {
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Live History Buffer");
-		if (ImGui::SliderInt("History Capacity (frames)", &history_capacity_input_, 120, 36000)) {
+		if (ImGui::SliderInt("History Capacity (frames)", &history_capacity_input_, 120, 20000)) {
 			profiler.set_history_capacity(static_cast<size_t>(history_capacity_input_));
 		}
-		render_setting_tooltip("Number of recent frame samples retained in memory for the Live Monitor and Statistics tabs. Does not affect saved benchmark runs.");
+		render_setting_tooltip("Number of recent frame samples retained in memory for the Live Monitor and Statistics tabs. Does not affect saved benchmark runs. Very large values increase memory use and the cost of statistics computation without improving accuracy beyond a few thousand samples.");
+
+		ImGui::TextDisabled("Quick presets:");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("600")) { history_capacity_input_ = 600; profiler.set_history_capacity(600); }
+		ImGui::SameLine();
+		if (ImGui::SmallButton("3600")) { history_capacity_input_ = 3600; profiler.set_history_capacity(3600); }
+		ImGui::SameLine();
+		if (ImGui::SmallButton("10000")) { history_capacity_input_ = 10000; profiler.set_history_capacity(10000); }
+		ImGui::SameLine();
+		if (ImGui::SmallButton("20000")) { history_capacity_input_ = 20000; profiler.set_history_capacity(20000); }
+		render_setting_tooltip("Common capacity presets. 3600 frames covers roughly one minute at 60 FPS.");
 
 		if (ImGui::Button("Clear Live History", ImVec2(180.0f, 26.0f))) {
 			profiler.clear_history();
@@ -466,6 +555,15 @@ private:
 			profiler.load_from_disk();
 			history_capacity_input_ = static_cast<int>(profiler.history_capacity());
 		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Linked HUD Readouts");
+		ImGui::TextDisabled("Every profiler statistic on this window can also be pinned directly to the viewport via HUD Manager:");
+		ImGui::BulletText("Profiler: Frame Time Detail mirrors dispatch and upload timings shown in the Live Monitor tab.");
+		ImGui::BulletText("Profiler: Bottleneck Summary mirrors the dominant stage identified in the Bottleneck Analysis tab.");
+		ImGui::BulletText("Profiler: Stage Breakdown mirrors HUD Overlay, Camera Update, and Schematic Overlay timings.");
+		ImGui::BulletText("Profiler: GPU/CPU Split mirrors the render path distribution shown above.");
+		ImGui::BulletText("Profiler: Iteration Range mirrors the ray step statistics from the Live Monitor tab.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Proposed Keybinds");

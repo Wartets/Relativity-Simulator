@@ -44,6 +44,7 @@ enum class HudElementId : uint32_t {
 	ProfilerStageBreakdownReadout,
 	ProfilerRayClassificationReadout,
 	ProfilerIterationRangeReadout,
+	ProfilerGpuCpuSplitReadout,
 	BodyCountReadout,
 	GpuComputeStatusReadout,
 	IntegratorStatsReadout,
@@ -72,6 +73,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::ProfilerStageBreakdownReadout: return "Profiler: Stage Breakdown";
 		case HudElementId::ProfilerRayClassificationReadout: return "Profiler: Ray Classification";
 		case HudElementId::ProfilerIterationRangeReadout: return "Profiler: Iteration Range";
+		case HudElementId::ProfilerGpuCpuSplitReadout: return "Profiler: GPU/CPU Split";
 		case HudElementId::BodyCountReadout: return "N-Body Count (Linked)";
 		case HudElementId::GpuComputeStatusReadout: return "GPU Compute Status (Linked)";
 		case HudElementId::IntegratorStatsReadout: return "Integrator Statistics (Linked)";
@@ -247,23 +249,30 @@ struct HudLayoutConfig {
 		prof_ir_ro.offset_x = 16.0f;
 		prof_ir_ro.offset_y = 236.0f;
 
+		auto& prof_gpu_split_ro = element(HudElementId::ProfilerGpuCpuSplitReadout);
+		prof_gpu_split_ro.enabled = false;
+		prof_gpu_split_ro.anchor = HudAnchor::BottomLeft;
+		prof_gpu_split_ro.offset_x = 16.0f;
+		prof_gpu_split_ro.offset_y = 258.0f;
+		prof_gpu_split_ro.text_color = {0.6f, 0.9f, 1.0f, 1.0f};
+
 		auto& body_count_ro = element(HudElementId::BodyCountReadout);
 		body_count_ro.enabled = false;
 		body_count_ro.anchor = HudAnchor::BottomLeft;
 		body_count_ro.offset_x = 16.0f;
-		body_count_ro.offset_y = 258.0f;
+		body_count_ro.offset_y = 280.0f;
 
 		auto& gpu_status_ro = element(HudElementId::GpuComputeStatusReadout);
 		gpu_status_ro.enabled = false;
 		gpu_status_ro.anchor = HudAnchor::BottomLeft;
 		gpu_status_ro.offset_x = 16.0f;
-		gpu_status_ro.offset_y = 280.0f;
+		gpu_status_ro.offset_y = 302.0f;
 
 		auto& integrator_stats_ro = element(HudElementId::IntegratorStatsReadout);
 		integrator_stats_ro.enabled = false;
 		integrator_stats_ro.anchor = HudAnchor::BottomLeft;
 		integrator_stats_ro.offset_x = 16.0f;
-		integrator_stats_ro.offset_y = 302.0f;
+		integrator_stats_ro.offset_y = 324.0f;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

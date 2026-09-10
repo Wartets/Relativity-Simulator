@@ -27,6 +27,8 @@ enum class ProfilerTaskStage : uint32_t {
 	RenderDispatch = 1,
 	TextureUpload = 2,
 	HudOverlay = 3,
+	CameraUpdate = 4,
+	SchematicOverlay = 5,
 	Count
 };
 
@@ -36,6 +38,8 @@ enum class ProfilerTaskStage : uint32_t {
 		case ProfilerTaskStage::RenderDispatch: return "Render Dispatch";
 		case ProfilerTaskStage::TextureUpload: return "Texture Upload";
 		case ProfilerTaskStage::HudOverlay: return "HUD Overlay";
+		case ProfilerTaskStage::CameraUpdate: return "Camera Update";
+		case ProfilerTaskStage::SchematicOverlay: return "Schematic Overlay";
 		default: return "Unknown Stage";
 	}
 }

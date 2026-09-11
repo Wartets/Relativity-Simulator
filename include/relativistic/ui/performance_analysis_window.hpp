@@ -308,6 +308,64 @@ private:
 		if (report.gpu_underutilized && render_pipeline_ != nullptr && render_pipeline_->gpu_compute_available()) {
 			ImGui::BulletText("A compatible GPU compute device is available; enabling it may reduce render dispatch cost.");
 		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Render Dispatch Cost Breakdown");
+		render_setting_tooltip("Heuristic estimate of how Render Dispatch time is distributed across ray outcome categories, derived from ray classification counts and average integration steps over the analysis window. Disk-hit rays carry extra shading and Doppler evaluation cost, so their share is weighted higher; this is not per-pixel instrumentation, since timing every geodesic step individually would itself slow down the render loop.");
+
+		const auto& history = profiler.history();
+		if (history.empty()) {
+			ImGui::TextDisabled("No frame samples available for this breakdown.");
+			return;
+		}
+
+		const size_t breakdown_window = std::min(static_cast<size_t>(sample_span), history.size());
+		uint64_t horizon_total = 0, celestial_total = 0, disk_total = 0, other_total = 0;
+		double dispatch_time_total = 0.0;
+		double iteration_total = 0.0;
+		for (size_t i = history.size() - breakdown_window; i < history.size(); ++i) {
+			const auto& s = history[i];
+			const uint64_t classified = s.horizon_pixels + s.celestial_pixels + s.disk_pixels;
+			const uint64_t total_px = std::max<uint64_t>(s.pixels_processed, 1);
+			horizon_total += s.horizon_pixels;
+			celestial_total += s.celestial_pixels;
+			disk_total += s.disk_pixels;
+			other_total += (total_px > classified) ? (total_px - classified) : 0;
+			dispatch_time_total += s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
+			iteration_total += s.average_iterations;
+		}
+
+		constexpr double kDiskShadingWeight = 1.6;
+		constexpr double kCelestialSkyWeight = 1.0;
+		constexpr double kHorizonWeight = 0.7;
+		constexpr double kSaturatedWeight = 1.3;
+
+		const double horizon_cost = static_cast<double>(horizon_total) * kHorizonWeight;
+		const double celestial_cost = static_cast<double>(celestial_total) * kCelestialSkyWeight;
+		const double disk_cost = static_cast<double>(disk_total) * kDiskShadingWeight;
+		const double saturated_cost = static_cast<double>(other_total) * kSaturatedWeight;
+		const double weighted_total = std::max(horizon_cost + celestial_cost + disk_cost + saturated_cost, 1e-9);
+		const double avg_dispatch_ms = dispatch_time_total / static_cast<double>(breakdown_window);
+		const double avg_iterations = iteration_total / static_cast<double>(breakdown_window);
+
+		auto draw_share_bar = [&](const char* label, double weighted_cost, ImVec4 color) {
+			const double share = std::clamp(weighted_cost / weighted_total, 0.0, 1.0);
+			const double est_ms = avg_dispatch_ms * share;
+			char overlay[96];
+			std::snprintf(overlay, sizeof(overlay), "%s: %.0f%% (~%.2f ms/frame)", label, share * 100.0, est_ms);
+			ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+			ImGui::ProgressBar(static_cast<float>(share), ImVec2(-1.0f, 0.0f), overlay);
+			ImGui::PopStyleColor();
+		};
+
+		draw_share_bar("Absorbed at Horizon", horizon_cost, ImVec4(0.85f, 0.35f, 0.35f, 1.0f));
+		draw_share_bar("Escaped to Sky", celestial_cost, ImVec4(0.35f, 0.55f, 0.9f, 1.0f));
+		draw_share_bar("Accretion Disk Shading", disk_cost, ImVec4(0.95f, 0.7f, 0.2f, 1.0f));
+		draw_share_bar("Step-Saturated / Undetermined", saturated_cost, ImVec4(0.6f, 0.6f, 0.65f, 1.0f));
+
+		ImGui::Spacing();
+		ImGui::Text("Average Integration Steps Per Pixel: %.1f", avg_iterations);
+		ImGui::Text("Average Render Dispatch Time: %.3f ms/frame over last %zu frames", avg_dispatch_ms, breakdown_window);
 	}
 
 	void apply_run_configuration(const Orchestrator::BenchmarkRun& run) {
@@ -345,15 +403,19 @@ private:
 			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f), "Warning: these runs were captured under different engine signatures. Differences may reflect internal engine changes rather than configuration changes.");
 		}
 
-		if (ImGui::BeginTable("ComparisonTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+		if (ImGui::BeginTable("ComparisonTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+			ImGui::TableSetupColumn("Metric");
 			ImGui::TableSetupColumn(a.label.c_str());
 			ImGui::TableSetupColumn(b.label.c_str());
 			ImGui::TableSetupColumn("Delta (B - A)");
 			ImGui::TableHeadersRow();
 
-			auto row = [&](double va, double vb, const char* fmt) {
+			auto row = [&](const char* metric_label, double va, double vb, const char* fmt) {
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(metric_label);
+
+				ImGui::TableSetColumnIndex(1);
 				if (std::strcmp(fmt, "%.3f") == 0) {
 					ImGui::Text("%.3f", va);
 				} else if (std::strcmp(fmt, "%.1f") == 0) {
@@ -364,7 +426,7 @@ private:
 					ImGui::Text("%.0f", va);
 				}
 
-				ImGui::TableSetColumnIndex(1);
+				ImGui::TableSetColumnIndex(2);
 				if (std::strcmp(fmt, "%.3f") == 0) {
 					ImGui::Text("%.3f", vb);
 				} else if (std::strcmp(fmt, "%.1f") == 0) {
@@ -375,7 +437,7 @@ private:
 					ImGui::Text("%.0f", vb);
 				}
 
-				ImGui::TableSetColumnIndex(2);
+				ImGui::TableSetColumnIndex(3);
 				const double delta = vb - va;
 				const ImVec4 color = (delta <= 0.0) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.55f, 0.35f, 1.0f);
 				if (std::strcmp(fmt, "%.3f") == 0) {
@@ -389,15 +451,15 @@ private:
 				}
 			};
 
-			row(a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f");
-			row(a.frame_time_summary.percentile_95, b.frame_time_summary.percentile_95, "%.3f");
-			row(a.frame_time_summary.percentile_99, b.frame_time_summary.percentile_99, "%.3f");
-			row(a.fps_summary.mean, b.fps_summary.mean, "%.1f");
-			row(a.fps_summary.min_value, b.fps_summary.min_value, "%.1f");
-			row(a.average_iterations, b.average_iterations, "%.1f");
-			row(a.gpu_path_ratio * 100.0, b.gpu_path_ratio * 100.0, "%.1f%%");
-			row(a.config.resolution_scale, b.config.resolution_scale, "%.2f");
-			row(static_cast<double>(a.config.max_ray_steps), static_cast<double>(b.config.max_ray_steps), "%.0f");
+			row("Mean Frame Time (ms)", a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f");
+			row("P95 Frame Time (ms)", a.frame_time_summary.percentile_95, b.frame_time_summary.percentile_95, "%.3f");
+			row("P99 Frame Time (ms)", a.frame_time_summary.percentile_99, b.frame_time_summary.percentile_99, "%.3f");
+			row("Mean FPS", a.fps_summary.mean, b.fps_summary.mean, "%.1f");
+			row("Min FPS", a.fps_summary.min_value, b.fps_summary.min_value, "%.1f");
+			row("Avg Ray Iterations", a.average_iterations, b.average_iterations, "%.1f");
+			row("GPU Path Ratio (%%)", a.gpu_path_ratio * 100.0, b.gpu_path_ratio * 100.0, "%.1f%%");
+			row("Resolution Scale", a.config.resolution_scale, b.config.resolution_scale, "%.2f");
+			row("Max Ray Steps", static_cast<double>(a.config.max_ray_steps), static_cast<double>(b.config.max_ray_steps), "%.0f");
 
 			ImGui::EndTable();
 		}

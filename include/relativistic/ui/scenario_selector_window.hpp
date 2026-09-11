@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/dynamics/pn_body.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <vector>
@@ -53,6 +54,11 @@ private:
 	char save_version_tag_[32]{"1.0.0"};
 	std::string save_feedback_message_{};
 	bool save_feedback_is_error_{false};
+
+	bool save_output_fits_{true};
+	bool save_output_hdf5_{true};
+	bool save_output_vtk_{true};
+	char save_output_directory_[128]{"./output"};
 
 public:
 	void scan_scenario_directory() {
@@ -347,8 +353,10 @@ private:
 		ImGui::InputText("Author", save_preset_author_, sizeof(save_preset_author_));
 		render_setting_tooltip("Attribution stored inside the scenario file. This name is remembered for the remainder of the session and pre-filled for subsequent saves.");
 
-		ImGui::InputText("Version Tag", save_version_tag_, sizeof(save_version_tag_));
+		ImGui::SetNextItemWidth(140.0f);
+		ImGui::InputText("##VersionTagInput", save_version_tag_, sizeof(save_version_tag_));
 		ImGui::SameLine();
+		ImGui::TextUnformatted("Version Tag");
 		if (ImGui::SmallButton("Bump Patch")) {
 			const std::string bumped = bump_version(save_version_tag_, 2);
 			std::strncpy(save_version_tag_, bumped.c_str(), sizeof(save_version_tag_) - 1);
@@ -371,8 +379,82 @@ private:
 		ImGui::InputText("Preset Name", save_preset_name_, sizeof(save_preset_name_));
 		render_setting_tooltip("Display name stored inside the scenario file. The filename on disk is derived from this automatically when creating a new preset.");
 
-		ImGui::InputTextMultiline("Description", save_description_, sizeof(save_description_), ImVec2(-1.0f, 60.0f));
-		render_setting_tooltip("Free-form notes describing this scenario, shown in the catalog detail pane when the preset is later selected.");
+		ImGui::TextUnformatted("Description");
+		ImGui::InputTextMultiline("##DescriptionInput", save_description_, sizeof(save_description_), ImVec2(-1.0f, 70.0f), ImGuiInputTextFlags_CallbackAlways, &ScenarioSelectorWindow::description_wrap_callback);
+		render_setting_tooltip("Free-form notes describing this scenario, shown in the catalog detail pane when the preset is later selected. Text automatically soft-wraps to fit the box width as you type.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.95f, 1.0f), "Auxiliary Data Export Options");
+		ImGui::TextWrapped("Controls the output metadata block written inside the scenario file, consumed by the FITS/HDF5/VTK exporters when triggered from the File menu after loading this scenario.");
+		ImGui::Checkbox("Enable FITS Spectral Export", &save_output_fits_);
+		ImGui::SameLine();
+		ImGui::Checkbox("Enable HDF5 Trajectory Export", &save_output_hdf5_);
+		ImGui::Checkbox("Enable VTK Horizon Export", &save_output_vtk_);
+		ImGui::InputText("Export Directory", save_output_directory_, sizeof(save_output_directory_));
+		render_setting_tooltip("Filesystem directory the exporters will write to when the corresponding export format is enabled and triggered.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.95f, 1.0f), "Scenario Content Summary");
+		ImGui::TextWrapped("Everything below reflects exactly what will be written into the scenario file, taken live from the running simulation.");
+
+		{
+			const auto& live_params = orchestrator_.parameters();
+			ImGui::BulletText("Metric: %s", orchestrator_.active_metric_name().c_str());
+			ImGui::BulletText("Mass: %.6g | Spin: %.6g | Charge: %.6g | Lambda: %.6g", live_params.mass, live_params.spin, live_params.charge, live_params.cosmological_lambda);
+			ImGui::BulletText("Wormhole Throat: %.4g | Warp Velocity: %.4g", live_params.wormhole_throat, live_params.warp_velocity);
+			ImGui::BulletText("Integrator: %s (rtol=%.2e, atol=%.2e)", orchestrator_.active_integrator_name().c_str(), live_params.integration_rtol, live_params.integration_atol);
+			const auto& live_cam = orchestrator_.camera();
+			ImGui::BulletText("Observer Position: (%.3f, %.3f, %.3f) | FOV: %.1f deg", live_cam.position[0], live_cam.position[1], live_cam.position[2], live_cam.fov_deg);
+
+			auto& live_sys = orchestrator_.nbody_system();
+			const auto live_bodies_view = live_sys.bodies();
+			int duplicate_request_id = -1;
+			int delete_request_id = -1;
+			ImGui::Text("Bodies (%zu):", live_bodies_view.size());
+			ImGui::BeginChild("ScenarioBodySummary", ImVec2(0.0f, 150.0f), true);
+			for (const auto& body : live_bodies_view) {
+				ImGui::PushID(static_cast<int>(body.id));
+				const std::string body_label = body.has_name() ? std::string(body.name_view()) : ("Body #" + std::to_string(body.id));
+				ImGui::TextColored(body.enabled ? ImVec4(0.5f, 0.9f, 0.6f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", body_label.c_str());
+				ImGui::SameLine();
+				ImGui::TextDisabled("M=%.4g r=%.4g pos=(%.2f,%.2f,%.2f)", body.mass, body.radius, body.position[0], body.position[1], body.position[2]);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Duplicate")) {
+					duplicate_request_id = static_cast<int>(body.id);
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Delete")) {
+					delete_request_id = static_cast<int>(body.id);
+				}
+				ImGui::PopID();
+			}
+			if (live_bodies_view.empty()) {
+				ImGui::TextDisabled("No bodies will be included in this scenario.");
+			}
+			ImGui::EndChild();
+
+			if (duplicate_request_id >= 0) {
+				for (const auto& body : live_sys.bodies()) {
+					if (static_cast<int>(body.id) == duplicate_request_id) {
+						Dynamics::PostNewtonianBody clone = body;
+						clone.id = 0;
+						clone.position[0] += clone.radius * 4.0;
+						live_sys.add_body(clone);
+						break;
+					}
+				}
+				live_sys.update_accelerations();
+			}
+			if (delete_request_id >= 0) {
+				std::vector<Dynamics::PostNewtonianBody> survivors;
+				for (const auto& b : live_sys.bodies()) {
+					if (static_cast<int>(b.id) != delete_request_id) survivors.push_back(b);
+				}
+				live_sys.clear_bodies();
+				for (auto& b : survivors) live_sys.add_body(b);
+				live_sys.update_accelerations();
+			}
+		}
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Save As New Preset");
@@ -463,6 +545,47 @@ private:
 		return std::string(buf);
 	}
 
+	static int description_wrap_callback(ImGuiInputTextCallbackData* data) noexcept {
+		if (data->EventFlag != ImGuiInputTextFlags_CallbackAlways || data->BufTextLen == 0) {
+			return 0;
+		}
+		constexpr float wrap_width = 300.0f;
+		std::string reflowed;
+		reflowed.reserve(static_cast<size_t>(data->BufTextLen) + 8);
+		float line_width = 0.0f;
+		size_t last_space_pos = std::string::npos;
+		for (int i = 0; i < data->BufTextLen; ++i) {
+			const char c = data->Buf[i];
+			if (c == '\n') {
+				reflowed.push_back(c);
+				line_width = 0.0f;
+				last_space_pos = std::string::npos;
+				continue;
+			}
+			const float char_width = ImGui::CalcTextSize(&c, &c + 1).x;
+			if (line_width + char_width > wrap_width && last_space_pos != std::string::npos) {
+				reflowed[last_space_pos] = '\n';
+				line_width = 0.0f;
+				for (size_t k = last_space_pos + 1; k < reflowed.size(); ++k) {
+					line_width += ImGui::CalcTextSize(&reflowed[k], &reflowed[k] + 1).x;
+				}
+				last_space_pos = std::string::npos;
+			}
+			if (c == ' ') {
+				last_space_pos = reflowed.size();
+			}
+			reflowed.push_back(c);
+			line_width += char_width;
+		}
+		if (reflowed.size() < static_cast<size_t>(data->BufSize)) {
+			std::memcpy(data->Buf, reflowed.data(), reflowed.size());
+			data->Buf[reflowed.size()] = '\0';
+			data->BufTextLen = static_cast<int>(reflowed.size());
+			data->BufDirty = true;
+		}
+		return 0;
+	}
+
 	void save_to_custom_path() {
 		const bool file_exists = std::filesystem::exists(custom_path_buffer_);
 		if (file_exists && !confirm_overwrite_custom_path_) {
@@ -478,7 +601,11 @@ private:
 			save_preset_author_[0] != '\0' ? save_preset_author_ : "Unknown",
 			current_timestamp_string(),
 			save_version_tag_,
-			save_description_
+			save_description_,
+			save_output_fits_,
+			save_output_hdf5_,
+			save_output_vtk_,
+			save_output_directory_
 		);
 		custom_save_feedback_is_error_ = !res.success;
 		custom_save_feedback_ = res.success ? ("Saved to " + std::string(custom_path_buffer_)) : std::string(res.message);
@@ -531,7 +658,11 @@ private:
 			save_preset_author_[0] != '\0' ? save_preset_author_ : "Unknown",
 			current_timestamp_string(),
 			save_version_tag_,
-			save_description_
+			save_description_,
+			save_output_fits_,
+			save_output_hdf5_,
+			save_output_vtk_,
+			save_output_directory_
 		);
 
 		save_feedback_is_error_ = !res.success;

@@ -70,6 +70,7 @@ private:
 	bool show_viewport_{true};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
+	bool pending_screenshot_popup_open_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
@@ -157,7 +158,7 @@ public:
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
 		viewport_window_->set_screenshot_callback([this]() { trigger_screenshot_capture(); });
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
-		viewport_window_->set_open_screenshot_settings_callback([]() { ImGui::OpenPopup("Screenshot Capture Settings"); });
+		viewport_window_->set_open_screenshot_settings_callback([this]() { pending_screenshot_popup_open_ = true; });
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
@@ -429,7 +430,7 @@ private:
 			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CaptureScreenshot, main_window_)) {
-			trigger_screenshot_capture();
+			pending_screenshot_popup_open_ = true;
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleHudManager, main_window_)) {
 			user_settings_.hud_layout.master_enabled = !user_settings_.hud_layout.master_enabled;
@@ -627,6 +628,11 @@ private:
 			screenshot_buffers_synced_ = true;
 		}
 
+		if (pending_screenshot_popup_open_) {
+			ImGui::OpenPopup("Screenshot Capture Settings");
+			pending_screenshot_popup_open_ = false;
+		}
+
 		ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_FirstUseEver);
 		if (ImGui::BeginPopupModal("Screenshot Capture Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			ImGui::TextWrapped("Configure where and how captured frames are saved. Available filename tokens: %%metric%%, %%mass%%, %%spin%%, %%width%%, %%height%%, %%tick%%, plus any strftime token such as %%Y %%m %%d %%H %%M %%S.");
@@ -636,6 +642,13 @@ private:
 				user_settings_.screenshot_output_directory = screenshot_dir_buffer_;
 			}
 			if (ImGui::InputText("Filename Pattern", screenshot_pattern_buffer_, sizeof(screenshot_pattern_buffer_))) {
+				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Smart Name")) {
+				static constexpr const char* kSmartPattern = "%metric%_M%mass%_a%spin%_%width%x%height%_%Y%m%d_%H%M%S";
+				std::strncpy(screenshot_pattern_buffer_, kSmartPattern, sizeof(screenshot_pattern_buffer_) - 1);
+				screenshot_pattern_buffer_[sizeof(screenshot_pattern_buffer_) - 1] = '\0';
 				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
 			}
 
@@ -676,6 +689,17 @@ private:
 				ImGui::SliderFloat("Sequence Duration", &sequence_capture_duration_seconds_, 0.5f, 120.0f, "%.1f s");
 				const float estimated_frames = sequence_capture_fps_ * sequence_capture_duration_seconds_;
 				ImGui::TextDisabled("Approximately %.0f frames will be written to the output directory above.", static_cast<double>(estimated_frames));
+
+				char ffmpeg_cmd_buf[512];
+				std::snprintf(
+					ffmpeg_cmd_buf, sizeof(ffmpeg_cmd_buf),
+					"ffmpeg -framerate %.0f -pattern_type glob -i \"%s/*.%s\" -c:v libx264 -pix_fmt yuv420p output.mp4",
+					static_cast<double>(sequence_capture_fps_),
+					user_settings_.screenshot_output_directory.c_str(),
+					(user_settings_.screenshot_format == 0U) ? "ppm" : "bmp"
+				);
+				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Suggested Assembly Command (run externally with ffmpeg after capture):");
+				ImGui::InputText("##FfmpegCommand", ffmpeg_cmd_buf, sizeof(ffmpeg_cmd_buf), ImGuiInputTextFlags_ReadOnly);
 
 				if (viewport_window_ && viewport_window_->is_sequence_capture_active()) {
 					ImGui::ProgressBar(static_cast<float>(viewport_window_->sequence_capture_progress()), ImVec2(-1, 0));

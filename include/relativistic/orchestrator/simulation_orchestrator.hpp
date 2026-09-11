@@ -604,7 +604,18 @@ public:
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
 	}
 
-	void save_scenario_file(const char* filepath, CommandResult& res, std::string_view author = "Unknown", std::string_view created_at = "", std::string_view version_tag = "1.0.0", std::string_view description = "") noexcept {
+	void save_scenario_file(
+		const char* filepath,
+		CommandResult& res,
+		std::string_view author = "Unknown",
+		std::string_view created_at = "",
+		std::string_view version_tag = "1.0.0",
+		std::string_view description = "",
+		bool export_fits_enabled = true,
+		bool export_hdf5_enabled = true,
+		bool export_vtk_enabled = true,
+		std::string_view export_directory = "./output"
+	) noexcept {
 		IO::ScenarioDefinition s;
 		s.scenario_name = active_scenario_name_;
 		s.metric_type = active_metric_name_;
@@ -613,6 +624,12 @@ public:
 		s.version_tag = std::string(version_tag);
 		if (!description.empty()) {
 			s.description = std::string(description);
+		}
+		s.output.fits_enabled = export_fits_enabled;
+		s.output.hdf5_enabled = export_hdf5_enabled;
+		s.output.vtk_enabled = export_vtk_enabled;
+		if (!export_directory.empty()) {
+			s.output.export_directory = std::string(export_directory);
 		}
 		s.central_mass = params_.mass;
 		s.central_spin = params_.spin;

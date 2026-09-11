@@ -48,6 +48,7 @@ enum class HudElementId : uint32_t {
 	BodyCountReadout,
 	GpuComputeStatusReadout,
 	IntegratorStatsReadout,
+	ConstantsQuickReadout,
 	Count
 };
 
@@ -77,6 +78,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::BodyCountReadout: return "N-Body Count (Linked)";
 		case HudElementId::GpuComputeStatusReadout: return "GPU Compute Status (Linked)";
 		case HudElementId::IntegratorStatsReadout: return "Integrator Statistics (Linked)";
+		case HudElementId::ConstantsQuickReadout: return "Physical Constants Summary (Linked)";
 		default: return "Unknown Element";
 	}
 }
@@ -275,6 +277,13 @@ struct HudLayoutConfig {
 		integrator_stats_ro.anchor = HudAnchor::BottomLeft;
 		integrator_stats_ro.offset_x = 16.0f;
 		integrator_stats_ro.offset_y = 324.0f;
+
+		auto& constants_ro = element(HudElementId::ConstantsQuickReadout);
+		constants_ro.enabled = false;
+		constants_ro.anchor = HudAnchor::BottomLeft;
+		constants_ro.offset_x = 16.0f;
+		constants_ro.offset_y = 346.0f;
+		constants_ro.text_color = {0.8f, 0.75f, 1.0f, 1.0f};
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

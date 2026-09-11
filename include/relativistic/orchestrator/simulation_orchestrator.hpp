@@ -8,6 +8,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
+#include "relativistic/core/physical_constants_engine.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -123,6 +124,7 @@ private:
 	std::string active_scenario_name_{"Custom Spacetime"};
 	Dynamics::PostNewtonianSystem nbody_system_{};
 	PerformanceProfiler profiler_{};
+	Core::ConstantsEngine constants_engine_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
@@ -308,6 +310,7 @@ public:
 				scheduler_.reset();
 				params_ = PhysicalParameters{};
 				camera_ = CameraState{};
+				constants_engine_ = Core::ConstantsEngine{};
 				sync_camera_spherical_from_cartesian();
 				sync_central_body_with_system();
 				for (auto& entry : custom_params_) {
@@ -838,6 +841,30 @@ public:
 			case ParameterType::PostShadows:
 				params_.post_shadows = std::clamp(val, -1.0, 1.0);
 				break;
+			case ParameterType::ConstantsPresetSelect:
+				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));
+				break;
+			case ParameterType::ConstantSimC:
+				constants_engine_.set_speed_of_light(val);
+				break;
+			case ParameterType::ConstantSimG:
+				constants_engine_.set_gravitational_constant(val);
+				break;
+			case ParameterType::ConstantSimH:
+				constants_engine_.set_planck_constant(val);
+				break;
+			case ParameterType::ConstantSimKB:
+				constants_engine_.set_boltzmann_constant(val);
+				break;
+			case ParameterType::ConstantSimNA:
+				constants_engine_.set_avogadro_constant(val);
+				break;
+			case ParameterType::ConstantSimKe:
+				constants_engine_.set_coulomb_constant(val);
+				break;
+			case ParameterType::ConstantSimKcd:
+				constants_engine_.set_luminous_efficacy(val);
+				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
 				break;
@@ -911,6 +938,14 @@ public:
 
 	[[nodiscard]] const PerformanceProfiler& profiler() const noexcept {
 		return profiler_;
+	}
+
+	[[nodiscard]] Core::ConstantsEngine& constants_engine() noexcept {
+		return constants_engine_;
+	}
+
+	[[nodiscard]] const Core::ConstantsEngine& constants_engine() const noexcept {
+		return constants_engine_;
 	}
 
 	[[nodiscard]] const std::string& active_metric_name() const noexcept {

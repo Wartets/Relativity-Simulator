@@ -1396,6 +1396,20 @@ private:
 		}
 
 		{
+			const auto& style = hud_layout_.element(HudElementId::ConstantsQuickReadout);
+			const auto& constants = orchestrator_.constants_engine();
+			static constexpr const char* kPresetLabels[] = {"SI", "Planck", "Custom"};
+			const uint32_t preset_idx = std::min<uint32_t>(static_cast<uint32_t>(constants.active_preset()), 2U);
+			char buf[160];
+			if (style.display_mode == HudDisplayMode::Extended) {
+				std::snprintf(buf, sizeof(buf), "Constants: %s | c=%.3e | G=%.3e | L0=%.3e m", kPresetLabels[preset_idx], constants.sim_speed_of_light(), constants.sim_gravitational_constant(), constants.length_scale());
+			} else {
+				std::snprintf(buf, sizeof(buf), "Constants: %s Preset", kPresetLabels[preset_idx]);
+			}
+			push_block(HudElementId::ConstantsQuickReadout, {HudTextLine{buf}});
+		}
+
+		{
 			const auto& kb = camera_controller_.config().keybinds;
 			std::vector<HudTextLine> nav_lines;
 			nav_lines.push_back(HudTextLine{"Keybind Summary:", IM_COL32(102, 204, 255, 255)});

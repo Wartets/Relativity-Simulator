@@ -17,6 +17,7 @@
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/keybind_settings_window.hpp"
 #include "relativistic/ui/hud_manager_window.hpp"
+#include "relativistic/ui/constants_window.hpp"
 #include "relativistic/ui/input_actions.hpp"
 
 #include <imgui.h>
@@ -63,6 +64,7 @@ private:
 	PerformanceAnalysisWindow performance_analysis_window_;
 	VisualDiagnosticsWindow diagnostics_window_;
 	BodyManagerWindow body_manager_window_;
+	ConstantsWindow constants_window_;
 	std::vector<SecondaryViewWindow> secondary_views_;
 
 	bool show_viewport_{true};
@@ -89,7 +91,8 @@ public:
 		  performance_window_(orchestrator),
 		  performance_analysis_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
-		  body_manager_window_(orchestrator) {}
+		  body_manager_window_(orchestrator),
+		  constants_window_(orchestrator) {}
 
 	~UiManager() {
 		shutdown();
@@ -171,6 +174,18 @@ public:
 		body_manager_window_.open_state() = user_settings_.window_body_manager_open;
 		hud_manager_window_.open_state() = user_settings_.window_hud_manager_open;
 		keybind_window_.open_state() = user_settings_.window_keybind_settings_open;
+		constants_window_.open_state() = user_settings_.window_constants_open;
+
+		orchestrator_.constants_engine().apply_preset_by_index(user_settings_.constants_preset);
+		if (user_settings_.constants_preset == 2) {
+			orchestrator_.constants_engine().set_speed_of_light(user_settings_.constants_c);
+			orchestrator_.constants_engine().set_gravitational_constant(user_settings_.constants_g);
+			orchestrator_.constants_engine().set_planck_constant(user_settings_.constants_h);
+			orchestrator_.constants_engine().set_boltzmann_constant(user_settings_.constants_kb);
+			orchestrator_.constants_engine().set_avogadro_constant(user_settings_.constants_na);
+			orchestrator_.constants_engine().set_coulomb_constant(user_settings_.constants_ke);
+			orchestrator_.constants_engine().set_luminous_efficacy(user_settings_.constants_kcd);
+		}
 
 		camera_controller_.config() = user_settings_.camera_controls;
 		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
@@ -212,6 +227,15 @@ public:
 		user_settings_.window_performance_analysis_open = performance_analysis_window_.open_state();
 		user_settings_.window_hud_manager_open = hud_manager_window_.open_state();
 		user_settings_.window_keybind_settings_open = keybind_window_.open_state();
+		user_settings_.window_constants_open = constants_window_.open_state();
+		user_settings_.constants_preset = static_cast<uint32_t>(orchestrator_.constants_engine().active_preset());
+		user_settings_.constants_c = orchestrator_.constants_engine().sim_speed_of_light();
+		user_settings_.constants_g = orchestrator_.constants_engine().sim_gravitational_constant();
+		user_settings_.constants_h = orchestrator_.constants_engine().sim_planck_constant();
+		user_settings_.constants_kb = orchestrator_.constants_engine().sim_boltzmann_constant();
+		user_settings_.constants_na = orchestrator_.constants_engine().sim_avogadro_constant();
+		user_settings_.constants_ke = orchestrator_.constants_engine().sim_coulomb_constant();
+		user_settings_.constants_kcd = orchestrator_.constants_engine().sim_luminous_efficacy();
 	}
 
 	void apply_multi_window_layout_preset(UiLayoutPreset preset) noexcept {
@@ -229,6 +253,7 @@ public:
 		telemetry_window_.open_state() = true;
 		spectrograph_window_.open_state() = true;
 		performance_analysis_window_.open_state() = true;
+		constants_window_.open_state() = true;
 	}
 
 	void render_frame() {
@@ -295,6 +320,10 @@ public:
 
 		if (keybind_window_.open_state()) {
 			keybind_window_.render(main_window_);
+		}
+
+		if (constants_window_.open_state()) {
+			constants_window_.render();
 		}
 
 		for (auto& view : secondary_views_) {
@@ -407,6 +436,9 @@ private:
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleKeybindSettings, main_window_)) {
 			keybind_window_.open_state() = !keybind_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleConstantsWindow, main_window_)) {
+			constants_window_.open_state() = !constants_window_.open_state();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleScenarioWindow, main_window_)) {
 			if (scenario_window_) scenario_window_->open_state() = !scenario_window_->open_state();
@@ -752,6 +784,7 @@ private:
 				ImGui::MenuItem("Telemetry & Invariants", key_hint(InputAction::ToggleTelemetryWindow).c_str(), &telemetry_window_.open_state());
 				ImGui::MenuItem("Radiative Transfer & Spectrograph Monitor", key_hint(InputAction::ToggleSpectrographWindow).c_str(), &spectrograph_window_.open_state());
 				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
+				ImGui::MenuItem("Physical Constants Engine", key_hint(InputAction::ToggleConstantsWindow).c_str(), &constants_window_.open_state());
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {

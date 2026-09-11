@@ -97,7 +97,15 @@ enum class ParameterType : uint32_t {
 	PostGain = 54,
 	PostVignetteStrength = 55,
 	PostHighlights = 56,
-	PostShadows = 57
+	PostShadows = 57,
+	ConstantsPresetSelect = 58,
+	ConstantSimC = 59,
+	ConstantSimG = 60,
+	ConstantSimH = 61,
+	ConstantSimKB = 62,
+	ConstantSimNA = 63,
+	ConstantSimKe = 64,
+	ConstantSimKcd = 65
 };
 
 struct Command {

@@ -3,6 +3,7 @@
 #include "relativistic/ui/camera_control_config.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/core/physical_constants_engine.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -49,6 +50,15 @@ struct UserSettings {
 	bool window_performance_analysis_open{false};
 	bool window_hud_manager_open{false};
 	bool window_keybind_settings_open{false};
+	bool window_constants_open{false};
+	uint32_t constants_preset{0};
+	double constants_c{Core::SIReferenceConstants::SPEED_OF_LIGHT};
+	double constants_g{Core::SIReferenceConstants::GRAVITATIONAL_CONSTANT};
+	double constants_h{Core::SIReferenceConstants::PLANCK_CONSTANT};
+	double constants_kb{Core::SIReferenceConstants::BOLTZMANN_CONSTANT};
+	double constants_na{Core::SIReferenceConstants::AVOGADRO_CONSTANT};
+	double constants_ke{Core::SIReferenceConstants::coulomb_constant()};
+	double constants_kcd{Core::SIReferenceConstants::LUMINOUS_EFFICACY_KCD};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "user_settings.cfg";
@@ -150,6 +160,15 @@ struct UserSettings {
 		result.window_performance_analysis_open = get_bool("window_performance_analysis_open", result.window_performance_analysis_open);
 		result.window_hud_manager_open = get_bool("window_hud_manager_open", result.window_hud_manager_open);
 		result.window_keybind_settings_open = get_bool("window_keybind_settings_open", result.window_keybind_settings_open);
+		result.window_constants_open = get_bool("window_constants_open", result.window_constants_open);
+		result.constants_preset = get_u32("constants_preset", result.constants_preset);
+		result.constants_c = get_dbl("constants_c", result.constants_c);
+		result.constants_g = get_dbl("constants_g", result.constants_g);
+		result.constants_h = get_dbl("constants_h", result.constants_h);
+		result.constants_kb = get_dbl("constants_kb", result.constants_kb);
+		result.constants_na = get_dbl("constants_na", result.constants_na);
+		result.constants_ke = get_dbl("constants_ke", result.constants_ke);
+		result.constants_kcd = get_dbl("constants_kcd", result.constants_kcd);
 
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
@@ -246,6 +265,15 @@ struct UserSettings {
 		out << "window_performance_analysis_open=" << (window_performance_analysis_open ? 1 : 0) << "\n";
 		out << "window_hud_manager_open=" << (window_hud_manager_open ? 1 : 0) << "\n";
 		out << "window_keybind_settings_open=" << (window_keybind_settings_open ? 1 : 0) << "\n";
+		out << "window_constants_open=" << (window_constants_open ? 1 : 0) << "\n";
+		out << "constants_preset=" << constants_preset << "\n";
+		out << "constants_c=" << constants_c << "\n";
+		out << "constants_g=" << constants_g << "\n";
+		out << "constants_h=" << constants_h << "\n";
+		out << "constants_kb=" << constants_kb << "\n";
+		out << "constants_na=" << constants_na << "\n";
+		out << "constants_ke=" << constants_ke << "\n";
+		out << "constants_kcd=" << constants_kcd << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

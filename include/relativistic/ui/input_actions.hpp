@@ -77,6 +77,7 @@ enum class InputAction : uint32_t {
 	TogglePerformanceAnalysisWindow,
 	StartStopBenchmarkCapture,
 	QuickSaveBenchmarkRun,
+	ToggleConstantsWindow,
 	Count
 };
 
@@ -170,6 +171,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::ToggleDiagnosticsWindow:
 		case InputAction::ToggleSpectrographWindow:
 		case InputAction::TogglePerformanceAnalysisWindow:
+		case InputAction::ToggleConstantsWindow:
 			return InputActionCategory::InterfaceWindows;
 		case InputAction::StartStopBenchmarkCapture:
 		case InputAction::QuickSaveBenchmarkRun:
@@ -239,6 +241,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::TogglePerformanceAnalysisWindow: return "Toggle Performance Analysis Window";
 		case InputAction::StartStopBenchmarkCapture: return "Start/Stop Benchmark Capture";
 		case InputAction::QuickSaveBenchmarkRun: return "Quick Save Live Window As Benchmark Run";
+		case InputAction::ToggleConstantsWindow: return "Toggle Physical Constants Engine";
 		default: return "Unknown Action";
 	}
 }
@@ -493,6 +496,7 @@ public:
 			case InputAction::TogglePerformanceAnalysisWindow: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			case InputAction::StartStopBenchmarkCapture: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			case InputAction::QuickSaveBenchmarkRun: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleConstantsWindow: return KeyBinding{GLFW_KEY_SEMICOLON, GLFW_KEY_UNKNOWN};
 			default: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 		}
 	}

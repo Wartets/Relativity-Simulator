@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/io/image_codecs.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <vector>
@@ -18,7 +19,16 @@ namespace Relativistic::IO {
 
 enum class ScreenshotFormat : uint32_t {
 	PPM = 0,
-	BMP = 1
+	BMP = 1,
+	PNG = 2,
+	TGA = 3,
+	HDR = 4
+};
+
+enum class ScreenshotOverwritePolicy : uint32_t {
+	AutoIncrement = 0,
+	Overwrite = 1,
+	SkipIfExists = 2
 };
 
 class ScreenshotExporter {
@@ -43,11 +53,24 @@ public:
 		uint32_t height,
 		std::string output_directory,
 		std::string filename_stem,
-		ScreenshotFormat format
+		ScreenshotFormat format,
+		ScreenshotOverwritePolicy overwrite_policy = ScreenshotOverwritePolicy::AutoIncrement,
+		std::string comment_text = {}
 	) {
-		std::thread([pixels = std::move(pixels), width, height, output_directory = std::move(output_directory), filename_stem = std::move(filename_stem), format]() mutable {
-			write_to_disk(pixels, width, height, output_directory, filename_stem, format);
+		std::thread([pixels = std::move(pixels), width, height, output_directory = std::move(output_directory), filename_stem = std::move(filename_stem), format, overwrite_policy, comment_text = std::move(comment_text)]() mutable {
+			write_to_disk(pixels, width, height, output_directory, filename_stem, format, overwrite_policy, comment_text);
 		}).detach();
+	}
+
+	[[nodiscard]] static std::string extension_for_format(ScreenshotFormat format) noexcept {
+		switch (format) {
+			case ScreenshotFormat::BMP: return ".bmp";
+			case ScreenshotFormat::PNG: return ".png";
+			case ScreenshotFormat::TGA: return ".tga";
+			case ScreenshotFormat::HDR: return ".hdr";
+			case ScreenshotFormat::PPM:
+			default: return ".ppm";
+		}
 	}
 
 private:
@@ -57,25 +80,44 @@ private:
 		uint32_t height,
 		const std::string& output_directory,
 		const std::string& filename_stem,
-		ScreenshotFormat format
+		ScreenshotFormat format,
+		ScreenshotOverwritePolicy overwrite_policy = ScreenshotOverwritePolicy::AutoIncrement,
+		const std::string& comment_text = {}
 	) {
 		std::error_code ec;
 		std::filesystem::create_directories(output_directory, ec);
 		if (ec) return;
 
-		const std::string extension = (format == ScreenshotFormat::BMP) ? ".bmp" : ".ppm";
+		const std::string extension = extension_for_format(format);
 		std::filesystem::path out_path = std::filesystem::path(output_directory) / (filename_stem + extension);
 
-		size_t suffix = 1;
-		while (std::filesystem::exists(out_path)) {
-			out_path = std::filesystem::path(output_directory) / (filename_stem + "_" + std::to_string(suffix) + extension);
-			++suffix;
+		if (overwrite_policy == ScreenshotOverwritePolicy::AutoIncrement) {
+			size_t suffix = 1;
+			while (std::filesystem::exists(out_path)) {
+				out_path = std::filesystem::path(output_directory) / (filename_stem + "_" + std::to_string(suffix) + extension);
+				++suffix;
+			}
+		} else if (overwrite_policy == ScreenshotOverwritePolicy::SkipIfExists && std::filesystem::exists(out_path)) {
+			return;
 		}
 
-		if (format == ScreenshotFormat::BMP) {
-			write_bmp(out_path, pixels, width, height);
-		} else {
-			write_ppm(out_path, pixels, width, height);
+		switch (format) {
+			case ScreenshotFormat::BMP:
+				write_bmp(out_path, pixels, width, height);
+				break;
+			case ScreenshotFormat::PNG:
+				write_png(out_path, pixels, width, height, comment_text);
+				break;
+			case ScreenshotFormat::TGA:
+				write_tga(out_path, pixels, width, height);
+				break;
+			case ScreenshotFormat::HDR:
+				write_hdr(out_path, pixels, width, height, comment_text);
+				break;
+			case ScreenshotFormat::PPM:
+			default:
+				write_ppm(out_path, pixels, width, height);
+				break;
 		}
 	}
 
@@ -144,6 +186,68 @@ private:
 			}
 			out.write(reinterpret_cast<const char*>(row.data()), row_padded);
 		}
+	}
+
+	static void write_png(
+		const std::filesystem::path& path,
+		const std::vector<Render::GpuPixelOutput>& pixels,
+		uint32_t width,
+		uint32_t height,
+		const std::string& comment_text
+	) {
+		std::vector<std::array<uint8_t, 4>> rgba(static_cast<size_t>(width) * height);
+		for (size_t i = 0; i < rgba.size(); ++i) {
+			if (i < pixels.size()) {
+				rgba[i] = {to_byte(pixels[i].r), to_byte(pixels[i].g), to_byte(pixels[i].b), to_byte(pixels[i].a)};
+			} else {
+				rgba[i] = {0, 0, 0, 255};
+			}
+		}
+		const auto bytes = ImageCodecs::encode_png_rgba(rgba, width, height, comment_text);
+		std::ofstream out(path, std::ios::binary);
+		if (!out.is_open()) return;
+		out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+	}
+
+	static void write_tga(
+		const std::filesystem::path& path,
+		const std::vector<Render::GpuPixelOutput>& pixels,
+		uint32_t width,
+		uint32_t height
+	) {
+		std::vector<std::array<uint8_t, 3>> rgb(static_cast<size_t>(width) * height);
+		for (size_t i = 0; i < rgb.size(); ++i) {
+			if (i < pixels.size()) {
+				rgb[i] = {to_byte(pixels[i].r), to_byte(pixels[i].g), to_byte(pixels[i].b)};
+			} else {
+				rgb[i] = {0, 0, 0};
+			}
+		}
+		const auto bytes = ImageCodecs::encode_tga_bgr(rgb, width, height);
+		std::ofstream out(path, std::ios::binary);
+		if (!out.is_open()) return;
+		out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+	}
+
+	static void write_hdr(
+		const std::filesystem::path& path,
+		const std::vector<Render::GpuPixelOutput>& pixels,
+		uint32_t width,
+		uint32_t height,
+		const std::string& comment_text
+	) {
+		std::vector<std::array<float, 3>> linear(static_cast<size_t>(width) * height);
+		for (size_t i = 0; i < linear.size(); ++i) {
+			if (i < pixels.size()) {
+				linear[i] = {std::max(pixels[i].r, 0.0f), std::max(pixels[i].g, 0.0f), std::max(pixels[i].b, 0.0f)};
+			} else {
+				linear[i] = {0.0f, 0.0f, 0.0f};
+			}
+		}
+		const auto bytes = ImageCodecs::encode_radiance_hdr(linear, width, height, comment_text);
+		std::ofstream out(path, std::ios::binary);
+		if (!out.is_open()) return;
+		out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 	}
 };
 

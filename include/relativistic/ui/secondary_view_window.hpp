@@ -47,6 +47,7 @@ private:
 	int projection_mode_{0};
 	int max_steps_{768};
 	float resolution_scale_{0.5f};
+	float external_budget_scale_{1.0f};
 	bool auto_refresh_{true};
 	bool follow_primary_camera_{false};
 	double follow_offset_theta_{0.35};
@@ -142,8 +143,9 @@ private:
 	void render_frame(const ImVec2& avail) {
 		ensure_texture();
 
-		const uint32_t width = std::clamp(static_cast<uint32_t>(avail.x * resolution_scale_), 32u, 1920u);
-		const uint32_t height = std::clamp(static_cast<uint32_t>(avail.y * resolution_scale_), 32u, 1080u);
+		const float effective_scale = std::clamp(resolution_scale_ * external_budget_scale_, 0.05f, 2.0f);
+		const uint32_t width = std::clamp(static_cast<uint32_t>(avail.x * effective_scale), 32u, 1920u);
+		const uint32_t height = std::clamp(static_cast<uint32_t>(avail.y * effective_scale), 32u, 1080u);
 		if (width == 0 || height == 0) {
 			return;
 		}
@@ -204,6 +206,10 @@ public:
 		return name_;
 	}
 
+	void set_performance_budget_scale(float scale) noexcept {
+		external_budget_scale_ = std::clamp(scale, 0.1f, 1.0f);
+	}
+
 	void render() {
 		if (!is_open_ || orchestrator_ == nullptr) return;
 
@@ -216,6 +222,17 @@ public:
 			if (size.x > 4.0f && size.y > 4.0f) {
 				render_frame(size);
 				ImGui::Image(reinterpret_cast<void*>(static_cast<intptr_t>(gl_texture_id_)), size);
+
+				if (!follow_primary_camera_ && ImGui::IsItemHovered()) {
+					ImGuiIO& drag_io = ImGui::GetIO();
+					if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+						phi_ -= static_cast<double>(drag_io.MouseDelta.x) * 0.0045;
+						theta_ = std::clamp(theta_ - static_cast<double>(drag_io.MouseDelta.y) * 0.0045, 0.02, std::numbers::pi_v<double> - 0.02);
+					}
+					if (drag_io.MouseWheel != 0.0f) {
+						radius_ = std::clamp(radius_ * (1.0 - static_cast<double>(drag_io.MouseWheel) * 0.12), 1.5, 5000.0);
+					}
+				}
 			}
 			ImGui::EndChild();
 
@@ -231,6 +248,23 @@ public:
 				float off_phi = static_cast<float>(follow_offset_phi_);
 				if (ImGui::SliderFloat("Offset Phi", &off_phi, -3.1416f, 3.1416f, "%.3f rad")) follow_offset_phi_ = off_phi;
 			} else {
+				ImGui::TextDisabled("Quick View Direction:");
+				const double half_pi = std::numbers::pi_v<double> / 2.0;
+				const double pi_val = std::numbers::pi_v<double>;
+				if (ImGui::Button("Front", ImVec2(60.0f, 22.0f))) { theta_ = half_pi; phi_ = 0.0; }
+				ImGui::SameLine();
+				if (ImGui::Button("Back", ImVec2(60.0f, 22.0f))) { theta_ = half_pi; phi_ = pi_val; }
+				ImGui::SameLine();
+				if (ImGui::Button("Left", ImVec2(60.0f, 22.0f))) { theta_ = half_pi; phi_ = -half_pi; }
+				ImGui::SameLine();
+				if (ImGui::Button("Right", ImVec2(60.0f, 22.0f))) { theta_ = half_pi; phi_ = half_pi; }
+				if (ImGui::Button("Top", ImVec2(60.0f, 22.0f))) { theta_ = 0.05; }
+				ImGui::SameLine();
+				if (ImGui::Button("Bottom", ImVec2(60.0f, 22.0f))) { theta_ = pi_val - 0.05; }
+				ImGui::SameLine();
+				if (ImGui::Button("45deg Elevated", ImVec2(110.0f, 22.0f))) { theta_ = half_pi - 0.7853981634; }
+				render_setting_tooltip("Snaps this observer to a common cardinal viewing direction relative to the coordinate origin. Left-drag the image above to orbit freely, and scroll over it to zoom.");
+
 				float r = static_cast<float>(radius_);
 				if (ImGui::SliderFloat("Radius", &r, 2.0f, 500.0f, "%.2f M", ImGuiSliderFlags_Logarithmic)) radius_ = r;
 				float th = static_cast<float>(theta_);

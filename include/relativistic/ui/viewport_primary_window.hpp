@@ -13,6 +13,7 @@
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
+#include "relativistic/io/video_capture_settings.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
@@ -89,6 +90,9 @@ private:
 		double elapsed_since_last_frame{0.0};
 		uint64_t frame_index{0};
 		uint64_t target_frame_count{0};
+		IO::SequenceCaptureTrigger trigger{IO::SequenceCaptureTrigger::FixedDuration};
+		bool pause_simulation{false};
+		bool paused_by_capture{false};
 	};
 	SequenceCaptureState sequence_capture_{};
 
@@ -233,7 +237,14 @@ public:
 		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
 	}
 
-	void request_screenshot(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format, float resolution_scale = 1.0f) {
+	void request_screenshot(
+		const std::string& output_directory,
+		const std::string& filename_pattern,
+		IO::ScreenshotFormat format,
+		float resolution_scale = 1.0f,
+		IO::ScreenshotOverwritePolicy overwrite_policy = IO::ScreenshotOverwritePolicy::AutoIncrement,
+		std::string watermark_comment = {}
+	) {
 		const auto snap = orchestrator_.scheduler().snapshot();
 		IO::ScreenshotCaptureContext ctx;
 		ctx.metric_name = orchestrator_.active_metric_name();
@@ -246,13 +257,13 @@ public:
 			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * resolution_scale), 64u, 7680u);
 			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * resolution_scale), 64u, 4320u);
 			high_res_capture_pending_.fetch_add(1, std::memory_order_relaxed);
-			std::jthread([this, capture_consts, ctx, filename_pattern, output_directory, format]() mutable {
+			std::jthread([this, capture_consts, ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
 				std::vector<Render::GpuPixelOutput> fb(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
 				Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, nullptr, nullptr);
 				ctx.width = capture_consts.screen_width;
 				ctx.height = capture_consts.screen_height;
 				const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
-				IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format);
+				IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format, overwrite_policy, watermark_comment);
 				high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
 			}).detach();
 			return;
@@ -268,14 +279,23 @@ public:
 		ctx.width = fb_w;
 		ctx.height = fb_h;
 		const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
-		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format);
+		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format, overwrite_policy, watermark_comment);
 	}
 
 	[[nodiscard]] bool is_high_res_capture_pending() const noexcept {
 		return high_res_capture_pending_.load(std::memory_order_relaxed) > 0;
 	}
 
-	void start_sequence_capture(const std::string& output_directory, const std::string& filename_pattern, IO::ScreenshotFormat format, double frames_per_second, double duration_seconds) noexcept {
+	void start_sequence_capture(
+		const std::string& output_directory,
+		const std::string& filename_pattern,
+		IO::ScreenshotFormat format,
+		double frames_per_second,
+		double duration_seconds,
+		IO::SequenceCaptureTrigger trigger = IO::SequenceCaptureTrigger::FixedDuration,
+		uint64_t explicit_frame_count = 0,
+		bool pause_simulation = false
+	) noexcept {
 		sequence_capture_.active = true;
 		sequence_capture_.output_directory = output_directory;
 		sequence_capture_.filename_pattern = filename_pattern;
@@ -283,11 +303,28 @@ public:
 		sequence_capture_.frame_interval_seconds = (frames_per_second > 0.0) ? (1.0 / frames_per_second) : (1.0 / 30.0);
 		sequence_capture_.elapsed_since_last_frame = 0.0;
 		sequence_capture_.frame_index = 0;
-		sequence_capture_.target_frame_count = static_cast<uint64_t>(std::max(duration_seconds, 0.0) * std::max(frames_per_second, 1.0));
+		sequence_capture_.trigger = trigger;
+		sequence_capture_.pause_simulation = pause_simulation;
+		sequence_capture_.paused_by_capture = false;
+		if (trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
+			sequence_capture_.target_frame_count = explicit_frame_count;
+		} else if (trigger == IO::SequenceCaptureTrigger::Continuous) {
+			sequence_capture_.target_frame_count = 0;
+		} else {
+			sequence_capture_.target_frame_count = static_cast<uint64_t>(std::max(duration_seconds, 0.0) * std::max(frames_per_second, 1.0));
+		}
+		if (pause_simulation && !orchestrator_.scheduler().is_paused()) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
+			sequence_capture_.paused_by_capture = true;
+		}
 	}
 
 	void stop_sequence_capture() noexcept {
 		sequence_capture_.active = false;
+		if (sequence_capture_.paused_by_capture) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
+			sequence_capture_.paused_by_capture = false;
+		}
 	}
 
 	[[nodiscard]] bool is_sequence_capture_active() const noexcept {
@@ -679,8 +716,8 @@ public:
 						++sequence_capture_.frame_index;
 					}
 				}
-				if (sequence_capture_.frame_index >= sequence_capture_.target_frame_count) {
-					sequence_capture_.active = false;
+				if (sequence_capture_.trigger != IO::SequenceCaptureTrigger::Continuous && sequence_capture_.target_frame_count > 0 && sequence_capture_.frame_index >= sequence_capture_.target_frame_count) {
+					stop_sequence_capture();
 				}
 			}
 

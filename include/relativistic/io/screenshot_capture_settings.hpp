@@ -15,6 +15,9 @@ struct ScreenshotCaptureSettings {
 	std::string filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
 	ScreenshotFormat format{ScreenshotFormat::PPM};
 	float resolution_scale{2.0f};
+	ScreenshotOverwritePolicy overwrite_policy{ScreenshotOverwritePolicy::AutoIncrement};
+	bool watermark_enabled{false};
+	std::string watermark_text{"Relativistic Engine"};
 };
 
 struct ScreenshotCaptureContext {

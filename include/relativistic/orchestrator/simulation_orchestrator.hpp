@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/core/spsc_queue.hpp"
+#include "relativistic/core/engine_log.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
@@ -519,6 +520,7 @@ public:
 		if (!file.is_open()) {
 			res.success = false;
 			std::strncpy(res.message, "Failed to open scenario file", sizeof(res.message) - 1);
+			Core::log_error(std::string("Failed to open scenario file: ") + filepath);
 			return;
 		}
 		std::stringstream buffer;
@@ -528,6 +530,7 @@ public:
 		if (!scenario_opt.has_value()) {
 			res.success = false;
 			std::strncpy(res.message, "Failed to parse scenario YAML", sizeof(res.message) - 1);
+			Core::log_error(std::string("Failed to parse scenario YAML: ") + filepath);
 			return;
 		}
 
@@ -536,6 +539,7 @@ public:
 		if (!val_res.is_valid) {
 			res.success = false;
 			std::strncpy(res.message, val_res.error_message.c_str(), sizeof(res.message) - 1);
+			Core::log_warning(std::string("Scenario validation failed: ") + val_res.error_message);
 			return;
 		}
 		active_scenario_name_ = s.scenario_name;
@@ -681,6 +685,7 @@ public:
 		if (!out.is_open()) {
 			res.success = false;
 			std::strncpy(res.message, "Failed to write scenario file", sizeof(res.message) - 1);
+			Core::log_error(std::string("Failed to write scenario file: ") + filepath);
 			return;
 		}
 		out << yaml_str;

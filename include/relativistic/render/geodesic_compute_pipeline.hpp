@@ -5,6 +5,7 @@
 #include "relativistic/render/vulkan_compute_executor.hpp"
 #include "relativistic/render/software_compute_engine.hpp"
 #include "relativistic/core/thread_pool.hpp"
+#include "relativistic/core/engine_log.hpp"
 #include <vector>
 #include <span>
 #include <memory>
@@ -197,7 +198,11 @@ public:
 			auto candidate_executor = std::make_unique<VulkanComputeExecutor>();
 			if (candidate_executor->initialize(context_)) {
 				gpu_executor_ = std::move(candidate_executor);
+			} else {
+				Core::log_warning("Vulkan compute device detected but pipeline initialization failed; falling back to CPU rendering.");
 			}
+		} else {
+			Core::log_warning("No Vulkan compute-capable device detected; GPU offload is unavailable for this session.");
 		}
 
 		if (!config_.headless) {

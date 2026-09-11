@@ -32,6 +32,11 @@ struct UserSettings {
 	std::string screenshot_filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
 	uint32_t screenshot_format{0};
 	float screenshot_resolution_scale{2.0f};
+	bool screenshot_watermark_enabled{false};
+	std::string screenshot_watermark_text{"Relativistic Engine"};
+	uint32_t screenshot_overwrite_policy{1};
+	bool show_system_console{true};
+	bool window_log_console_open{false};
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
@@ -148,6 +153,11 @@ struct UserSettings {
 		result.screenshot_filename_pattern = get_str("screenshot_filename_pattern", result.screenshot_filename_pattern);
 		result.screenshot_format = get_u32("screenshot_format", result.screenshot_format);
 		result.screenshot_resolution_scale = static_cast<float>(get_dbl("screenshot_resolution_scale", result.screenshot_resolution_scale));
+		result.screenshot_watermark_enabled = get_bool("screenshot_watermark_enabled", result.screenshot_watermark_enabled);
+		result.screenshot_watermark_text = get_str("screenshot_watermark_text", result.screenshot_watermark_text);
+		result.screenshot_overwrite_policy = get_u32("screenshot_overwrite_policy", result.screenshot_overwrite_policy);
+		result.show_system_console = get_bool("show_system_console", result.show_system_console);
+		result.window_log_console_open = get_bool("window_log_console_open", result.window_log_console_open);
 		result.last_window_layout = get_u32("last_window_layout", result.last_window_layout);
 		result.multi_window_mode = get_u32("multi_window_mode", result.multi_window_mode ? 1 : 0) != 0;
 		result.window_control_panel_open = get_bool("window_control_panel_open", result.window_control_panel_open);
@@ -253,6 +263,11 @@ struct UserSettings {
 		out << "screenshot_filename_pattern=" << screenshot_filename_pattern << "\n";
 		out << "screenshot_format=" << screenshot_format << "\n";
 		out << "screenshot_resolution_scale=" << screenshot_resolution_scale << "\n";
+		out << "screenshot_watermark_enabled=" << (screenshot_watermark_enabled ? 1 : 0) << "\n";
+		out << "screenshot_watermark_text=" << screenshot_watermark_text << "\n";
+		out << "screenshot_overwrite_policy=" << screenshot_overwrite_policy << "\n";
+		out << "show_system_console=" << (show_system_console ? 1 : 0) << "\n";
+		out << "window_log_console_open=" << (window_log_console_open ? 1 : 0) << "\n";
 		out << "last_window_layout=" << last_window_layout << "\n";
 		out << "multi_window_mode=" << (multi_window_mode ? 1 : 0) << "\n";
 		out << "window_control_panel_open=" << (window_control_panel_open ? 1 : 0) << "\n";

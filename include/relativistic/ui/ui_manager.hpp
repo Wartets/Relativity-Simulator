@@ -3,6 +3,7 @@
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
+#include "relativistic/io/video_capture_settings.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/ui/telemetry_window.hpp"
 #include "relativistic/ui/spectrograph_window.hpp"
@@ -19,6 +20,9 @@
 #include "relativistic/ui/hud_manager_window.hpp"
 #include "relativistic/ui/constants_window.hpp"
 #include "relativistic/ui/input_actions.hpp"
+#include "relativistic/ui/log_console_window.hpp"
+#include "relativistic/ui/secondary_viewport_manager.hpp"
+#include "relativistic/core/system_console.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -65,7 +69,9 @@ private:
 	VisualDiagnosticsWindow diagnostics_window_;
 	BodyManagerWindow body_manager_window_;
 	ConstantsWindow constants_window_;
-	std::vector<SecondaryViewWindow> secondary_views_;
+	LogConsoleWindow log_console_window_;
+	std::unique_ptr<SecondaryViewportManager> secondary_viewport_manager_;
+	bool secondary_viewport_manager_panel_open_{false};
 
 	bool show_viewport_{true};
 	bool multi_window_mode_{true};
@@ -78,8 +84,10 @@ private:
 	char screenshot_pattern_buffer_[128]{};
 	bool screenshot_buffers_synced_{false};
 	int screenshot_capture_mode_{0};
-	float sequence_capture_fps_{24.0f};
-	float sequence_capture_duration_seconds_{5.0f};
+	IO::VideoSequenceSettings sequence_settings_{};
+	int sequence_frame_count_{300};
+	char screenshot_watermark_buffer_[128]{};
+	bool screenshot_watermark_buffer_synced_{false};
 
 public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
@@ -93,7 +101,8 @@ public:
 		  performance_analysis_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator),
-		  constants_window_(orchestrator) {}
+		  constants_window_(orchestrator),
+		  secondary_viewport_manager_(std::make_unique<SecondaryViewportManager>(orchestrator)) {}
 
 	~UiManager() {
 		shutdown();
@@ -176,6 +185,8 @@ public:
 		hud_manager_window_.open_state() = user_settings_.window_hud_manager_open;
 		keybind_window_.open_state() = user_settings_.window_keybind_settings_open;
 		constants_window_.open_state() = user_settings_.window_constants_open;
+		log_console_window_.open_state() = user_settings_.window_log_console_open;
+		log_console_window_.attach_system_console_flag(user_settings_.show_system_console);
 
 		orchestrator_.constants_engine().apply_preset_by_index(user_settings_.constants_preset);
 		if (user_settings_.constants_preset == 2) {
@@ -198,7 +209,9 @@ public:
 	}
 
 	void add_secondary_view(const std::string& name) {
-		secondary_views_.emplace_back(name, orchestrator_);
+		if (secondary_viewport_manager_) {
+			secondary_viewport_manager_->add_view(name);
+		}
 	}
 
 	void trigger_screenshot_capture() noexcept {
@@ -207,7 +220,9 @@ public:
 				user_settings_.screenshot_output_directory,
 				user_settings_.screenshot_filename_pattern,
 				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
-				user_settings_.screenshot_resolution_scale
+				user_settings_.screenshot_resolution_scale,
+				static_cast<IO::ScreenshotOverwritePolicy>(user_settings_.screenshot_overwrite_policy),
+				user_settings_.screenshot_watermark_enabled ? user_settings_.screenshot_watermark_text : std::string{}
 			);
 		}
 	}
@@ -229,6 +244,7 @@ public:
 		user_settings_.window_hud_manager_open = hud_manager_window_.open_state();
 		user_settings_.window_keybind_settings_open = keybind_window_.open_state();
 		user_settings_.window_constants_open = constants_window_.open_state();
+		user_settings_.window_log_console_open = log_console_window_.open_state();
 		user_settings_.constants_preset = static_cast<uint32_t>(orchestrator_.constants_engine().active_preset());
 		user_settings_.constants_c = orchestrator_.constants_engine().sim_speed_of_light();
 		user_settings_.constants_g = orchestrator_.constants_engine().sim_gravitational_constant();
@@ -327,8 +343,13 @@ public:
 			constants_window_.render();
 		}
 
-		for (auto& view : secondary_views_) {
-			view.render();
+		if (log_console_window_.open_state()) {
+			log_console_window_.render();
+		}
+
+		if (secondary_viewport_manager_) {
+			secondary_viewport_manager_->render_all();
+			secondary_viewport_manager_->render_management_panel(secondary_viewport_manager_panel_open_);
 		}
 
 		ImGui::Render();
@@ -627,14 +648,18 @@ private:
 			std::strncpy(screenshot_pattern_buffer_, user_settings_.screenshot_filename_pattern.c_str(), sizeof(screenshot_pattern_buffer_) - 1);
 			screenshot_buffers_synced_ = true;
 		}
+		if (!screenshot_watermark_buffer_synced_) {
+			std::strncpy(screenshot_watermark_buffer_, user_settings_.screenshot_watermark_text.c_str(), sizeof(screenshot_watermark_buffer_) - 1);
+			screenshot_watermark_buffer_synced_ = true;
+		}
 
 		if (pending_screenshot_popup_open_) {
-			ImGui::OpenPopup("Screenshot Capture Settings");
+			ImGui::OpenPopup("Capture Studio");
 			pending_screenshot_popup_open_ = false;
 		}
 
-		ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_FirstUseEver);
-		if (ImGui::BeginPopupModal("Screenshot Capture Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_FirstUseEver);
+		if (ImGui::BeginPopupModal("Capture Studio", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 			ImGui::TextWrapped("Configure where and how captured frames are saved. Available filename tokens: %%metric%%, %%mass%%, %%spin%%, %%width%%, %%height%%, %%tick%%, plus any strftime token such as %%Y %%m %%d %%H %%M %%S.");
 			ImGui::Separator();
 
@@ -652,10 +677,31 @@ private:
 				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
 			}
 
-			const char* format_names[] = {"PPM (Lossless, Fast)", "BMP (Lossless, Windows-Compatible)"};
-			int format_idx = static_cast<int>(user_settings_.screenshot_format);
+			const char* format_names[] = {
+				"PPM (Lossless, Fast)",
+				"BMP (Lossless, Windows-Compatible)",
+				"PNG (Lossless, Compressed, Metadata)",
+				"TGA (Lossless, Uncompressed)",
+				"HDR (Radiance, Linear Float)"
+			};
+			int format_idx = static_cast<int>(std::min<uint32_t>(user_settings_.screenshot_format, 4U));
 			if (ImGui::Combo("File Format", &format_idx, format_names, IM_ARRAYSIZE(format_names))) {
 				user_settings_.screenshot_format = static_cast<uint32_t>(format_idx);
+			}
+			render_setting_tooltip("PNG embeds an optional comment/watermark string directly in the file as metadata. HDR stores approximate linear radiance values and is intended for compositing rather than direct viewing.");
+
+			const char* overwrite_names[] = {"Auto-Increment Filename", "Overwrite Existing File", "Skip If File Exists"};
+			int overwrite_idx = static_cast<int>(std::min<uint32_t>(user_settings_.screenshot_overwrite_policy, 2U));
+			if (ImGui::Combo("If File Exists", &overwrite_idx, overwrite_names, IM_ARRAYSIZE(overwrite_names))) {
+				user_settings_.screenshot_overwrite_policy = static_cast<uint32_t>(overwrite_idx);
+			}
+
+			ImGui::Checkbox("Embed Watermark / Comment", &user_settings_.screenshot_watermark_enabled);
+			if (user_settings_.screenshot_watermark_enabled) {
+				if (ImGui::InputText("Watermark Text", screenshot_watermark_buffer_, sizeof(screenshot_watermark_buffer_))) {
+					user_settings_.screenshot_watermark_text = screenshot_watermark_buffer_;
+				}
+				render_setting_tooltip("Written as a PNG tEXt chunk or an HDR comment line depending on the selected format. Formats without a metadata field ignore this setting.");
 			}
 
 			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
@@ -675,7 +721,7 @@ private:
 			ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Capture Mode");
 			const char* capture_modes[] = {"Single Screenshot", "Image Sequence (For Video Encoding)"};
 			ImGui::Combo("Mode", &screenshot_capture_mode_, capture_modes, IM_ARRAYSIZE(capture_modes));
-			render_setting_tooltip("Single Screenshot captures one frame using the settings above. Image Sequence periodically writes numbered frames to disk over a chosen duration and frame rate, which can be assembled into a video afterward with an external encoder such as ffmpeg.");
+			render_setting_tooltip("Single Screenshot captures one frame using the settings above. Image Sequence periodically writes numbered frames to disk, which can be assembled into a video afterward with the generated ffmpeg command.");
 
 			if (screenshot_capture_mode_ == 0) {
 				if (viewport_window_ && viewport_window_->is_high_res_capture_pending()) {
@@ -685,20 +731,59 @@ private:
 					trigger_screenshot_capture();
 				}
 			} else {
-				ImGui::SliderFloat("Sequence Frame Rate", &sequence_capture_fps_, 1.0f, 60.0f, "%.0f fps");
-				ImGui::SliderFloat("Sequence Duration", &sequence_capture_duration_seconds_, 0.5f, 120.0f, "%.1f s");
-				const float estimated_frames = sequence_capture_fps_ * sequence_capture_duration_seconds_;
-				ImGui::TextDisabled("Approximately %.0f frames will be written to the output directory above.", static_cast<double>(estimated_frames));
+				ImGui::Separator();
+				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Sequence & Video Assembly");
 
-				char ffmpeg_cmd_buf[512];
-				std::snprintf(
-					ffmpeg_cmd_buf, sizeof(ffmpeg_cmd_buf),
-					"ffmpeg -framerate %.0f -pattern_type glob -i \"%s/*.%s\" -c:v libx264 -pix_fmt yuv420p output.mp4",
-					static_cast<double>(sequence_capture_fps_),
-					user_settings_.screenshot_output_directory.c_str(),
-					(user_settings_.screenshot_format == 0U) ? "ppm" : "bmp"
+				ImGui::SliderFloat("Sequence Frame Rate", &sequence_settings_.frames_per_second, 1.0f, 120.0f, "%.0f fps");
+				ImGui::SliderFloat("Internal Resolution Scale", &sequence_settings_.resolution_scale, 0.1f, 2.0f, "%.2fx");
+				render_setting_tooltip("Applied on top of the live viewport resolution scale for every captured sequence frame, independent of the single-screenshot multiplier above.");
+
+				const char* trigger_names[] = {"Manual (Stop Button)", "Fixed Duration", "Fixed Frame Count", "Continuous Until Stopped"};
+				int trigger_idx = static_cast<int>(sequence_settings_.trigger);
+				if (ImGui::Combo("Stop Condition", &trigger_idx, trigger_names, IM_ARRAYSIZE(trigger_names))) {
+					sequence_settings_.trigger = static_cast<IO::SequenceCaptureTrigger>(trigger_idx);
+				}
+
+				if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedDuration) {
+					ImGui::SliderFloat("Sequence Duration", &sequence_settings_.duration_seconds, 0.5f, 600.0f, "%.1f s");
+					const float estimated_frames = sequence_settings_.frames_per_second * sequence_settings_.duration_seconds;
+					ImGui::TextDisabled("Approximately %.0f frames will be written.", static_cast<double>(estimated_frames));
+				} else if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
+					ImGui::SliderInt("Frame Count", &sequence_frame_count_, 1, 100000);
+				}
+
+				ImGui::Checkbox("Pause Simulation While Capturing", &sequence_settings_.pause_simulation_during_capture);
+				render_setting_tooltip("Pauses the simulation clock for the duration of the sequence capture so every frame advances by exactly one render step, avoiding motion judder from real-time playback speed variance.");
+				ImGui::Checkbox("Loop Output Video", &sequence_settings_.loop_output);
+
+				ImGui::Separator();
+				ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.3f, 1.0f), "Video Encoding Preset (External ffmpeg)");
+				const char* codec_names[] = {"H.264 (libx264)", "H.265 / HEVC (libx265)", "VP9 (WebM)", "ProRes (Editing)", "PNG Sequence Only (No Encode)"};
+				int codec_idx = static_cast<int>(sequence_settings_.codec);
+				if (ImGui::Combo("Video Codec", &codec_idx, codec_names, IM_ARRAYSIZE(codec_names))) {
+					sequence_settings_.codec = static_cast<IO::VideoCodecPreset>(codec_idx);
+				}
+				const char* container_names[] = {"MP4", "MKV", "MOV", "WebM"};
+				int container_idx = static_cast<int>(sequence_settings_.container);
+				if (ImGui::Combo("Container", &container_idx, container_names, IM_ARRAYSIZE(container_names))) {
+					sequence_settings_.container = static_cast<IO::VideoContainer>(container_idx);
+				}
+				if (sequence_settings_.codec != IO::VideoCodecPreset::PngSequence) {
+					int crf_val = static_cast<int>(sequence_settings_.crf);
+					if (ImGui::SliderInt("Quality (CRF, Lower = Better)", &crf_val, 0, 51)) {
+						sequence_settings_.crf = static_cast<uint32_t>(crf_val);
+					}
+				}
+
+				const std::string extension_for_ffmpeg = (user_settings_.screenshot_format == 2U) ? "png" : (user_settings_.screenshot_format == 3U) ? "tga" : (user_settings_.screenshot_format == 4U) ? "hdr" : (user_settings_.screenshot_format == 1U) ? "bmp" : "ppm";
+				const std::string ffmpeg_cmd = sequence_settings_.build_ffmpeg_command(
+					user_settings_.screenshot_output_directory,
+					extension_for_ffmpeg,
+					user_settings_.screenshot_output_directory + "/assembled_video"
 				);
 				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Suggested Assembly Command (run externally with ffmpeg after capture):");
+				char ffmpeg_cmd_buf[768]{};
+				std::strncpy(ffmpeg_cmd_buf, ffmpeg_cmd.c_str(), sizeof(ffmpeg_cmd_buf) - 1);
 				ImGui::InputText("##FfmpegCommand", ffmpeg_cmd_buf, sizeof(ffmpeg_cmd_buf), ImGuiInputTextFlags_ReadOnly);
 
 				if (viewport_window_ && viewport_window_->is_sequence_capture_active()) {
@@ -712,8 +797,11 @@ private:
 							user_settings_.screenshot_output_directory,
 							user_settings_.screenshot_filename_pattern,
 							static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
-							static_cast<double>(sequence_capture_fps_),
-							static_cast<double>(sequence_capture_duration_seconds_)
+							static_cast<double>(sequence_settings_.frames_per_second),
+							static_cast<double>(sequence_settings_.duration_seconds),
+							sequence_settings_.trigger,
+							static_cast<uint64_t>(sequence_frame_count_),
+							sequence_settings_.pause_simulation_during_capture
 						);
 					}
 				}
@@ -810,6 +898,7 @@ private:
 				ImGui::MenuItem("Keybind Settings", key_hint(InputAction::ToggleKeybindSettings).c_str(), &keybind_window_.open_state());
 				ImGui::MenuItem("Physical Constants Engine", key_hint(InputAction::ToggleConstantsWindow).c_str(), &constants_window_.open_state());
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
+				ImGui::MenuItem("Engine Log Console", nullptr, &log_console_window_.open_state());
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {
 					show_all_panels();
@@ -820,11 +909,15 @@ private:
 				if (ImGui::MenuItem("Force Viewport Refresh")) {
 					if (viewport_window_) viewport_window_->request_rerender();
 				}
-				if (!secondary_views_.empty()) {
-					ImGui::Separator();
+				ImGui::Separator();
+				ImGui::MenuItem("Secondary Viewports Manager", nullptr, &secondary_viewport_manager_panel_open_);
+				if (ImGui::MenuItem("Add Secondary Viewport")) {
+					if (secondary_viewport_manager_) secondary_viewport_manager_->add_view();
+				}
+				if (secondary_viewport_manager_ && !secondary_viewport_manager_->views().empty()) {
 					ImGui::TextDisabled("Secondary Observer Viewports");
-					for (auto& view : secondary_views_) {
-						ImGui::MenuItem(view.name().c_str(), nullptr, &view.open_state());
+					for (auto& view : secondary_viewport_manager_->views()) {
+						ImGui::MenuItem(view->name().c_str(), nullptr, &view->open_state());
 					}
 				}
 				ImGui::EndMenu();

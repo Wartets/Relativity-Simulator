@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/repl.hpp"
 #include "relativistic/ui/ui_manager.hpp"
 #include "relativistic/io/user_settings.hpp"
+#include "relativistic/core/system_console.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -72,6 +73,7 @@ int main(int argc, char* argv[]) {
 	} else {
 		Relativistic::IO::UserSettings user_settings = Relativistic::IO::UserSettings::load_or_default();
 		Relativistic::IO::UserSettings::mark_session_started();
+		Relativistic::Core::SystemConsole::set_visible(user_settings.show_system_console);
 
 		Relativistic::UI::UiManager ui_manager(*orchestrator, user_settings);
 		ui_manager.initialize();

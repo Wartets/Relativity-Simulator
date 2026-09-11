@@ -79,6 +79,10 @@ public:
 		}
 		render_setting_tooltip("Selects the fundamental system of units the simulation's base constants are expressed in. SI restores standard real-world values (scaling factors of 1). Planck sets c=G=hbar=kB=Ke=1, the natural unit system used in theoretical relativity. Editing any constant below automatically switches this to Custom.");
 
+		if (engine.active_preset() == Core::ConstantsPreset::Custom) {
+			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Custom base constants active: every geometrized length, mass, time, charge, and temperature scale below is now rescaled consistently relative to SI, and the post-Newtonian N-body integrator follows these same values.");
+		}
+
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Editable Base Constants (Simulation Units)");
 		ImGui::TextDisabled("Every derived constant and scaling factor below updates automatically when any of these change.");
@@ -118,10 +122,24 @@ public:
 		ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1.0f), "Astrophysical Reference Quantities (Simulation Units)");
 		draw_derived_row("Solar Mass", engine.sim_solar_mass());
 		draw_derived_row("Astronomical Unit", engine.sim_astronomical_unit());
+		draw_derived_row("Earth Mass", engine.sim_earth_mass());
+		render_setting_tooltip("Mass of Earth converted into current simulation mass units via the Mass Scale factor below. Useful for sizing small orbiting bodies realistically in the Body Manager.");
+		draw_derived_row("Jupiter Mass", engine.sim_jupiter_mass());
+		render_setting_tooltip("Mass of Jupiter converted into current simulation mass units. A convenient reference point for gas-giant-scale N-body bodies.");
+		draw_derived_row("Parsec", engine.sim_parsec());
+		render_setting_tooltip("One parsec (3.2616 light years) converted into current simulation length units via the Length Scale factor below. Useful for placing bodies at galactic distances.");
+		draw_derived_row("Light Year", engine.sim_light_year());
+		render_setting_tooltip("Distance light travels in one Julian year, converted into current simulation length units.");
 		draw_derived_row("Electron Mass", engine.sim_electron_mass());
 		draw_derived_row("Proton Mass", engine.sim_proton_mass());
 		draw_derived_row("Neutron Mass", engine.sim_neutron_mass());
 		draw_derived_row("Solar Schwarzschild Radius", engine.sim_solar_schwarzschild_radius());
+		draw_derived_row("Thomson Cross Section", engine.sim_thomson_cross_section());
+		render_setting_tooltip("Electron scattering cross section, converted into simulation area units (Length Scale squared). Governs opacity in inverse-Compton and radiative transfer calculations throughout the optics module.");
+		draw_derived_row("Wien Displacement Constant", engine.sim_wien_displacement_constant());
+		render_setting_tooltip("Relates blackbody peak emission wavelength to temperature (lambda_max times T = constant), converted into simulation length-times-temperature units.");
+		draw_derived_row("Stefan-Boltzmann (CODATA Reference)", Core::ConstantsEngine::reference_stefan_boltzmann_constant());
+		render_setting_tooltip("Fixed real-world CODATA value shown for comparison against the computed Stefan-Boltzmann Constant above, which drifts under Custom or Planck presets since it is derived from h, kB, and c rather than fixed independently.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Dimensional Scaling Factors (SI = Simulation x Factor)");

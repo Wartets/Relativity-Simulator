@@ -24,7 +24,7 @@ struct alignas(32) PhotonPacket {
 
 class InverseComptonEngine {
 private:
-	static constexpr double SIGMA_THOMSON = 6.6524587321e-29;
+	static constexpr double SIGMA_THOMSON = Core::PhysicalConstants<double>::THOMSON_CROSS_SECTION;
 	static constexpr double M_ELECTRON = Core::PhysicalConstants<double>::ELECTRON_MASS;
 	static constexpr double C_LIGHT = Core::PhysicalConstants<double>::SPEED_OF_LIGHT;
 	static constexpr double E_REST_ELECTRON = M_ELECTRON * C_LIGHT * C_LIGHT;

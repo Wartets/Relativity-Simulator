@@ -12,8 +12,8 @@ namespace Relativistic::DarkMatter {
 template <typename Scalar = double>
 class NFWProfile {
 private:
-	Scalar rho_0_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * 3.085677581491367e16 * 3.085677581491367e16 * 3.085677581491367e16))};
-	Scalar r_s_{static_cast<Scalar>(20.0 * 1000.0 * 3.085677581491367e16)};
+	Scalar rho_0_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC))};
+	Scalar r_s_{static_cast<Scalar>(20.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC)};
 	Scalar g_const_{static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)};
 
 public:
@@ -28,7 +28,7 @@ public:
 		Scalar h_param = static_cast<Scalar>(0.7),
 		Scalar g = static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)
 	) noexcept {
-		const Scalar h0 = h_param * static_cast<Scalar>(100.0 * 1000.0 / (1e6 * 3.085677581491367e16));
+		const Scalar h0 = h_param * static_cast<Scalar>(100.0 * 1000.0 / (1e6 * Core::PhysicalConstants<double>::PARSEC));
 		const Scalar rho_crit = (static_cast<Scalar>(3.0) * h0 * h0) / (static_cast<Scalar>(8.0) * std::numbers::pi_v<Scalar> * g);
 		const Scalar r_200 = std::cbrt((static_cast<Scalar>(3.0) * m_200) / (static_cast<Scalar>(800.0) * std::numbers::pi_v<Scalar> * rho_crit));
 		const Scalar r_s = r_200 / c_200;
@@ -101,8 +101,8 @@ public:
 template <typename Scalar = double>
 class EinastoProfile {
 private:
-	Scalar rho_e_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * 3.085677581491367e16 * 3.085677581491367e16 * 3.085677581491367e16))};
-	Scalar r_e_{static_cast<Scalar>(20.0 * 1000.0 * 3.085677581491367e16)};
+	Scalar rho_e_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC))};
+	Scalar r_e_{static_cast<Scalar>(20.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC)};
 	Scalar alpha_{static_cast<Scalar>(0.16)};
 	Scalar g_const_{static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)};
 
@@ -185,8 +185,8 @@ public:
 template <typename Scalar = double>
 class BurkertProfile {
 private:
-	Scalar rho_0_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * 3.085677581491367e16 * 3.085677581491367e16 * 3.085677581491367e16))};
-	Scalar r_0_{static_cast<Scalar>(10.0 * 1000.0 * 3.085677581491367e16)};
+	Scalar rho_0_{static_cast<Scalar>(1e7 * Core::PhysicalConstants<double>::SOLAR_MASS / (1000.0 * 1000.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC * Core::PhysicalConstants<double>::PARSEC))};
+	Scalar r_0_{static_cast<Scalar>(10.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC)};
 	Scalar g_const_{static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)};
 
 public:
@@ -245,7 +245,7 @@ template <typename Scalar = double>
 class HernquistProfile {
 private:
 	Scalar mass_{static_cast<Scalar>(1e11 * Core::PhysicalConstants<double>::SOLAR_MASS)};
-	Scalar a_{static_cast<Scalar>(3.0 * 1000.0 * 3.085677581491367e16)};
+	Scalar a_{static_cast<Scalar>(3.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC)};
 	Scalar g_const_{static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)};
 
 public:

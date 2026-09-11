@@ -28,7 +28,7 @@ struct PolarizedPlasmaState {
 template <typename Scalar = double>
 class RadiativeProcessEngine {
 private:
-	static constexpr double E_CHARGE = 1.602176634e-19;
+	static constexpr double E_CHARGE = Core::PhysicalConstants<double>::ELEMENTARY_CHARGE;
 	static constexpr double M_ELECTRON = Core::PhysicalConstants<double>::ELECTRON_MASS;
 	static constexpr double C_LIGHT = Core::PhysicalConstants<double>::SPEED_OF_LIGHT;
 	static constexpr double H_PLANCK = Core::PhysicalConstants<double>::PLANCK_CONSTANT;
@@ -121,7 +121,7 @@ public:
 		const Scalar a_i = static_cast<Scalar>(std::max(0.0, alpha_tot));
 		const Scalar a_q = pi_l * a_i;
 
-		const Scalar nu_p2 = static_cast<Scalar>((E_CHARGE * E_CHARGE * static_cast<double>(plasma.electron_density)) / (M_ELECTRON * 8.8541878128e-12));
+		const Scalar nu_p2 = static_cast<Scalar>((E_CHARGE * E_CHARGE * static_cast<double>(plasma.electron_density)) / (M_ELECTRON * Core::PhysicalConstants<double>::VACUUM_PERMITTIVITY));
 		const Scalar nu_b = synchrotron_cyclotron_frequency(b);
 		const Scalar rho_v = (nu_p2 * nu_b * cos_th) / (static_cast<Scalar>(C_LIGHT) * nu * nu);
 
@@ -168,7 +168,7 @@ public:
 		const Scalar cos_th = std::cos(plasma.pitch_angle_rad);
 		const Scalar sin_th = std::sin(plasma.pitch_angle_rad);
 		const Scalar theta_e = static_cast<Scalar>((K_BOLTZ * t) / (M_ELECTRON * C_LIGHT * C_LIGHT));
-		const Scalar nu_p2 = static_cast<Scalar>((E_CHARGE * E_CHARGE * static_cast<double>(plasma.electron_density)) / (M_ELECTRON * 8.8541878128e-12));
+		const Scalar nu_p2 = static_cast<Scalar>((E_CHARGE * E_CHARGE * static_cast<double>(plasma.electron_density)) / (M_ELECTRON * Core::PhysicalConstants<double>::VACUUM_PERMITTIVITY));
 		const Scalar nu_b = synchrotron_cyclotron_frequency(plasma.magnetic_field_tesla);
 
 		const Scalar rho_v = (nu_p2 * nu_b * cos_th) / (static_cast<Scalar>(C_LIGHT) * nu * nu) * (RelativisticBessel::k0(1.0 / static_cast<double>(theta_e)) / RelativisticBessel::k2(1.0 / static_cast<double>(theta_e)));

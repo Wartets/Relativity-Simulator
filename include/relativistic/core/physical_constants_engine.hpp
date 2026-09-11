@@ -28,6 +28,13 @@ struct SIReferenceConstants {
 	static constexpr double ELECTRON_MASS = 9.1093837015e-31;
 	static constexpr double PROTON_MASS = 1.67262192369e-27;
 	static constexpr double NEUTRON_MASS = 1.67492749804e-27;
+	static constexpr double THOMSON_CROSS_SECTION = 6.6524587321e-29;
+	static constexpr double STEFAN_BOLTZMANN_CONSTANT = 5.670374419e-8;
+	static constexpr double WIEN_DISPLACEMENT_CONSTANT = 2.897771955e-3;
+	static constexpr double PARSEC = 3.0856775814913673e16;
+	static constexpr double LIGHT_YEAR = 9.4607304725808e15;
+	static constexpr double EARTH_MASS = 5.9722e24;
+	static constexpr double JUPITER_MASS = 1.89813e27;
 
 	[[nodiscard]] static constexpr double reduced_planck() noexcept {
 		return PLANCK_CONSTANT / (2.0 * std::numbers::pi);
@@ -223,6 +230,41 @@ public:
 
 	[[nodiscard]] double sim_solar_schwarzschild_radius() const noexcept {
 		return (2.0 * sim_.g * sim_solar_mass()) / (sim_.c * sim_.c);
+	}
+
+	[[nodiscard]] double sim_thomson_cross_section() const noexcept {
+		const double l0 = length_scale();
+		return (l0 > 0.0) ? (SIReferenceConstants::THOMSON_CROSS_SECTION / (l0 * l0)) : 0.0;
+	}
+
+	[[nodiscard]] double sim_wien_displacement_constant() const noexcept {
+		const double l0 = length_scale();
+		const double k0 = temperature_scale();
+		return (l0 > 0.0 && k0 > 0.0) ? (SIReferenceConstants::WIEN_DISPLACEMENT_CONSTANT / (l0 * k0)) : 0.0;
+	}
+
+	[[nodiscard]] double sim_parsec() const noexcept {
+		const double l0 = length_scale();
+		return (l0 > 0.0) ? (SIReferenceConstants::PARSEC / l0) : 0.0;
+	}
+
+	[[nodiscard]] double sim_light_year() const noexcept {
+		const double l0 = length_scale();
+		return (l0 > 0.0) ? (SIReferenceConstants::LIGHT_YEAR / l0) : 0.0;
+	}
+
+	[[nodiscard]] double sim_earth_mass() const noexcept {
+		const double m0 = mass_scale();
+		return (m0 > 0.0) ? (SIReferenceConstants::EARTH_MASS / m0) : 0.0;
+	}
+
+	[[nodiscard]] double sim_jupiter_mass() const noexcept {
+		const double m0 = mass_scale();
+		return (m0 > 0.0) ? (SIReferenceConstants::JUPITER_MASS / m0) : 0.0;
+	}
+
+	[[nodiscard]] static constexpr double reference_stefan_boltzmann_constant() noexcept {
+		return SIReferenceConstants::STEFAN_BOLTZMANN_CONSTANT;
 	}
 };
 

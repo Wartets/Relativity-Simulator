@@ -21,7 +21,7 @@ struct NovikovThorneConfig {
 	Scalar alpha_viscosity{static_cast<Scalar>(0.1)};
 	Scalar speed_of_light{static_cast<Scalar>(Core::PhysicalConstants<double>::SPEED_OF_LIGHT)};
 	Scalar gravitational_constant{static_cast<Scalar>(Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT)};
-	Scalar stefan_boltzmann{static_cast<Scalar>(5.670374419e-8)};
+	Scalar stefan_boltzmann{static_cast<Scalar>(Core::PhysicalConstants<double>::STEFAN_BOLTZMANN_CONSTANT)};
 };
 
 template <typename Scalar = double>

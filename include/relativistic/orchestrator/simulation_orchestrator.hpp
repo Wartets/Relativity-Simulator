@@ -169,6 +169,13 @@ private:
 		}
 	}
 
+	void sync_nbody_constants_with_engine() noexcept {
+		auto cfg = nbody_system_.config();
+		cfg.speed_of_light = constants_engine_.sim_speed_of_light();
+		cfg.gravitational_constant = constants_engine_.sim_gravitational_constant();
+		nbody_system_.set_config(cfg);
+	}
+
 	void handle_horizon_absorption() noexcept {
 		if (params_.mass <= 0.0) return;
 		const double r_g = params_.mass;
@@ -263,6 +270,7 @@ public:
 	SimulationOrchestrator() noexcept {
 		sync_camera_spherical_from_cartesian();
 		sync_central_body_with_system();
+		sync_nbody_constants_with_engine();
 	}
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {
@@ -311,6 +319,7 @@ public:
 				params_ = PhysicalParameters{};
 				camera_ = CameraState{};
 				constants_engine_ = Core::ConstantsEngine{};
+				sync_nbody_constants_with_engine();
 				sync_camera_spherical_from_cartesian();
 				sync_central_body_with_system();
 				for (auto& entry : custom_params_) {
@@ -843,12 +852,15 @@ public:
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));
+				sync_nbody_constants_with_engine();
 				break;
 			case ParameterType::ConstantSimC:
 				constants_engine_.set_speed_of_light(val);
+				sync_nbody_constants_with_engine();
 				break;
 			case ParameterType::ConstantSimG:
 				constants_engine_.set_gravitational_constant(val);
+				sync_nbody_constants_with_engine();
 				break;
 			case ParameterType::ConstantSimH:
 				constants_engine_.set_planck_constant(val);
@@ -946,6 +958,14 @@ public:
 
 	[[nodiscard]] const Core::ConstantsEngine& constants_engine() const noexcept {
 		return constants_engine_;
+	}
+
+	[[nodiscard]] double physical_speed_of_light() const noexcept {
+		return constants_engine_.sim_speed_of_light();
+	}
+
+	[[nodiscard]] double physical_gravitational_constant() const noexcept {
+		return constants_engine_.sim_gravitational_constant();
 	}
 
 	[[nodiscard]] const std::string& active_metric_name() const noexcept {

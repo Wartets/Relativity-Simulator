@@ -13,20 +13,20 @@ namespace Relativistic::DarkMatter {
 
 struct GalaxyComponentConfig {
 	double disk_mass{5e10 * Core::PhysicalConstants<double>::SOLAR_MASS};
-	double disk_scale_length{3.0 * 1000.0 * 3.085677581491367e16};
-	double disk_scale_height{0.3 * 1000.0 * 3.085677581491367e16};
+	double disk_scale_length{3.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC};
+	double disk_scale_height{0.3 * 1000.0 * Core::PhysicalConstants<double>::PARSEC};
 	size_t disk_particle_count{2000};
 
 	double bulge_mass{1e10 * Core::PhysicalConstants<double>::SOLAR_MASS};
-	double bulge_scale_radius{0.8 * 1000.0 * 3.085677581491367e16};
+	double bulge_scale_radius{0.8 * 1000.0 * Core::PhysicalConstants<double>::PARSEC};
 	size_t bulge_particle_count{500};
 
 	double halo_mass{1e12 * Core::PhysicalConstants<double>::SOLAR_MASS};
-	double halo_scale_radius{25.0 * 1000.0 * 3.085677581491367e16};
+	double halo_scale_radius{25.0 * 1000.0 * Core::PhysicalConstants<double>::PARSEC};
 	double halo_concentration{12.0};
 	size_t halo_particle_count{5000};
 
-	double default_softening{100.0 * 3.085677581491367e16};
+	double default_softening{100.0 * Core::PhysicalConstants<double>::PARSEC};
 };
 
 class CompositeGalaxyGenerator {

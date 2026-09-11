@@ -18,6 +18,15 @@ struct PhysicalConstants {
 	static constexpr T ELECTRON_MASS = static_cast<T>(9.1093837015e-31);
 	static constexpr T PROTON_MASS = static_cast<T>(1.67262192369e-27);
 	static constexpr T NEUTRON_MASS = static_cast<T>(1.67492749804e-27);
+	static constexpr T ELEMENTARY_CHARGE = static_cast<T>(1.602176634e-19);
+	static constexpr T VACUUM_PERMITTIVITY = static_cast<T>(8.8541878128e-12);
+	static constexpr T THOMSON_CROSS_SECTION = static_cast<T>(6.6524587321e-29);
+	static constexpr T STEFAN_BOLTZMANN_CONSTANT = static_cast<T>(5.670374419e-8);
+	static constexpr T WIEN_DISPLACEMENT_CONSTANT = static_cast<T>(2.897771955e-3);
+	static constexpr T PARSEC = static_cast<T>(3.0856775814913673e16);
+	static constexpr T LIGHT_YEAR = static_cast<T>(9.4607304725808e15);
+	static constexpr T EARTH_MASS = static_cast<T>(5.9722e24);
+	static constexpr T JUPITER_MASS = static_cast<T>(1.89813e27);
 };
 
 template <typename T = double>

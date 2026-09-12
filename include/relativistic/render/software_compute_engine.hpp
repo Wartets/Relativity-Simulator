@@ -291,6 +291,12 @@ private:
 				u(i) += sixth_dt * (k1_u(i) + 2.0 * k2_u(i) + 2.0 * k3_u(i) + k4_u(i));
 			}
 
+			if (!std::isfinite(x(1)) || !std::isfinite(x(2)) || !std::isfinite(x(3)) || !std::isfinite(u(1)) || !std::isfinite(u(2)) || !std::isfinite(u(3))) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+
 			if (x(2) < 0.0) {
 				x(2) = -x(2);
 				x(3) += std::numbers::pi_v<double>;
@@ -709,9 +715,12 @@ public:
 		const bool use_exact_metric_path = requires_exact_metric_path(params);
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], rh * 1.02);
-		const uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
+		uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
 			? std::min(params.max_integration_steps, params.lod_reduced_steps)
 			: params.max_integration_steps;
+		if (use_exact_metric_path) {
+			effective_max_steps = std::max(effective_max_steps / 2U, 256U);
+		}
 
 		const double angular_pixel_size = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
 		const double bh_angular_diameter = (2.0 * rh) / r_obs_frame;

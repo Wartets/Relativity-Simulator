@@ -1,5 +1,7 @@
-scenario_name: "kerr_accretion_disk"
+scenario_name: "Kerr Accretion Disk"
 description: "Rapidly spinning Kerr black hole (a=0.98M) with Novikov-Thorne geometrically thin accretion disk and relativistic beaming"
+author: "C. Bossu Réaubourg"
+version_tag: "1.2.0"
 spacetime:
   metric_type: "Kerr"
   central_mass: 10.0
@@ -22,10 +24,34 @@ output:
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
 bodies: []
 observers:
   - name: "PrimaryKerrCamera"
-    fov_deg: 65.0
-    resolution: [3840, 2160]
+    fov_deg: 60.0
+    resolution: [1920, 1080]
     position: [0.0, 30.0, 1.3962634, 0.0]
     four_velocity: [1.0, 0.0, 0.0, 0.0]

@@ -1,0 +1,187 @@
+scenario_name: "Grand Tour Multi-Planet System"
+description: "Extended terrestrial-to-gas-giant planetary system (Mercury, Venus, Earth, Mars, Jupiter) around a solar-mass star, exercising multi-body 1PN dynamics and zonal harmonic perturbations simultaneously."
+author: "C. Bossu Réaubourg"
+version_tag: "1.0.0"
+spacetime:
+  metric_type: "Schwarzschild"
+  central_mass: 1.98847e30
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 299792458.0
+  gravitational_constant: 6.67430e-11
+integrator:
+  scheme: "GaussLegendre6"
+  initial_step: 3600.0
+  min_step: 1.0
+  max_step: 86400.0
+  relative_tolerance: 1.0e-12
+  absolute_tolerance: 1.0e-15
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
+bodies:
+  - name: "Mercury"
+    body_id: 199
+    mass: 3.3011e23
+    radius: 2.4397e6
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.65, 0.6, 0.55, 1.0]
+    color_secondary: [0.4, 0.37, 0.34, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 1.24e-6
+    friction_coefficient: 0.6
+    restitution: 0.3
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 440.0
+    heat_capacity: 1.0e6
+    absorption_factor: 0.88
+    composition: "Silicate-iron rocky body"
+    position: [0.0, 4.60012e10, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 58980.0, 0.0]
+    quadrupole: 0.0
+    j2: 6.0e-5
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 2.4397e6
+  - name: "Venus"
+    body_id: 299
+    mass: 4.8675e24
+    radius: 6.0518e6
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.95, 0.85, 0.6, 1.0]
+    color_secondary: [0.75, 0.6, 0.35, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: -2.99e-7
+    friction_coefficient: 0.5
+    restitution: 0.3
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 737.0
+    heat_capacity: 1.0e6
+    absorption_factor: 0.75
+    composition: "Sulfuric acid cloud over basaltic crust"
+    position: [0.0, 1.0894e11, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 35020.0, 0.0]
+    quadrupole: 0.0
+    j2: 4.458e-6
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 6.0518e6
+  - name: "Earth"
+    body_id: 399
+    mass: 5.9722e24
+    radius: 6.378137e6
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.3, 0.55, 0.85, 1.0]
+    color_secondary: [0.25, 0.55, 0.3, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 7.292e-5
+    friction_coefficient: 0.4
+    restitution: 0.3
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 288.0
+    heat_capacity: 1.0e7
+    absorption_factor: 0.7
+    composition: "Silicate mantle with iron core and hydrosphere"
+    position: [0.0, 1.495978707e11, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 29780.0, 0.0]
+    quadrupole: 0.0
+    j2: 1.08263e-3
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 6.378137e6
+  - name: "Mars"
+    body_id: 499
+    mass: 6.4171e23
+    radius: 3.3895e6
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.8, 0.45, 0.3, 1.0]
+    color_secondary: [0.55, 0.3, 0.2, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 7.088e-5
+    friction_coefficient: 0.5
+    restitution: 0.3
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 210.0
+    heat_capacity: 8.0e6
+    absorption_factor: 0.65
+    composition: "Iron-oxide regolith over basaltic crust"
+    position: [0.0, 2.27939e11, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 24070.0, 0.0]
+    quadrupole: 0.0
+    j2: 1.96045e-3
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 3.3895e6
+  - name: "Jupiter"
+    body_id: 599
+    mass: 1.89813e27
+    radius: 7.1492e7
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.85, 0.75, 0.6, 1.0]
+    color_secondary: [0.65, 0.5, 0.4, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 1.759e-4
+    friction_coefficient: 0.1
+    restitution: 0.4
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 165.0
+    heat_capacity: 5.0e9
+    absorption_factor: 0.5
+    composition: "Hydrogen-helium gas giant envelope"
+    position: [0.0, 7.78479e11, 0.0, 0.0]
+    velocity: [299792458.0, 0.0, 13070.0, 0.0]
+    quadrupole: 0.0
+    j2: 1.469657e-2
+    j3: 0.0
+    j4: -5.86609e-4
+    reference_radius: 7.1492e7
+observers:
+  - name: "GrandTourObserver"
+    fov_deg: 55.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 9.0e11, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

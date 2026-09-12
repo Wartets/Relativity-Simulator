@@ -561,6 +561,30 @@ public:
 		params_.integration_rtol = s.integrator.relative_tolerance;
 		params_.integration_atol = s.integrator.absolute_tolerance;
 
+		interaction_config_.electromagnetic.electricity_enabled = s.interactions.electricity_enabled;
+		interaction_config_.electromagnetic.magnetism_enabled = s.interactions.magnetism_enabled;
+		interaction_config_.electromagnetic.vacuum_permittivity = s.interactions.vacuum_permittivity;
+		interaction_config_.electromagnetic.vacuum_permeability = s.interactions.vacuum_permeability;
+		interaction_config_.collisions.enabled = s.interactions.collisions_enabled;
+		interaction_config_.collisions.response_model = static_cast<Dynamics::CollisionResponseModel>(s.interactions.collision_response_model);
+		interaction_config_.collisions.consider_rotation = s.interactions.collision_consider_rotation;
+		interaction_config_.collisions.consider_friction = s.interactions.collision_consider_friction;
+		interaction_config_.collisions.restitution_multiplier = s.interactions.collision_restitution_multiplier;
+		interaction_config_.collisions.contact_stiffness_scale = s.interactions.collision_stiffness_scale;
+		interaction_config_.collisions.position_correction_factor = s.interactions.collision_position_correction_factor;
+		interaction_config_.thermodynamics.enabled = s.interactions.thermodynamics_enabled;
+		interaction_config_.thermodynamics.ambient_temperature_kelvin = s.interactions.ambient_temperature_kelvin;
+		interaction_config_.thermodynamics.radiative_coupling_scale = s.interactions.radiative_coupling_scale;
+		interaction_config_.fragmentation.enabled = s.interactions.fragmentation_enabled;
+		interaction_config_.fragmentation.enable_tidal_stress = s.interactions.fragmentation_tidal_stress_enabled;
+		interaction_config_.fragmentation.minimum_fragment_mass = s.interactions.minimum_fragment_mass;
+		interaction_config_.fragmentation.max_fragments_per_event = s.interactions.max_fragments_per_event;
+		interaction_config_.fragmentation.collision_energy_to_integrity_loss = s.interactions.collision_energy_to_integrity_loss;
+		interaction_config_.fragmentation.tidal_stress_to_integrity_loss = s.interactions.tidal_stress_to_integrity_loss;
+		interaction_config_.annihilation.enabled = s.interactions.annihilation_enabled;
+		interaction_config_.annihilation.contact_distance_scale = s.interactions.annihilation_contact_scale;
+		interaction_config_.annihilation.require_opposite_charge = s.interactions.annihilation_require_opposite_charge;
+
 		if (!s.observers.empty()) {
 			camera_.position[0] = s.observers[0].position[1];
 			camera_.position[1] = s.observers[0].position[2];
@@ -603,6 +627,7 @@ public:
 			body.lifetime = b.lifetime;
 			body.temperature = b.temperature;
 			body.heat_capacity = b.heat_capacity;
+			body.absorption_factor = b.absorption_factor;
 			body.set_composition(b.composition);
 			nbody_system_.add_body(body);
 		}
@@ -652,6 +677,30 @@ public:
 		s.integrator.relative_tolerance = params_.integration_rtol;
 		s.integrator.absolute_tolerance = params_.integration_atol;
 
+		s.interactions.electricity_enabled = interaction_config_.electromagnetic.electricity_enabled;
+		s.interactions.magnetism_enabled = interaction_config_.electromagnetic.magnetism_enabled;
+		s.interactions.vacuum_permittivity = interaction_config_.electromagnetic.vacuum_permittivity;
+		s.interactions.vacuum_permeability = interaction_config_.electromagnetic.vacuum_permeability;
+		s.interactions.collisions_enabled = interaction_config_.collisions.enabled;
+		s.interactions.collision_response_model = static_cast<uint32_t>(interaction_config_.collisions.response_model);
+		s.interactions.collision_consider_rotation = interaction_config_.collisions.consider_rotation;
+		s.interactions.collision_consider_friction = interaction_config_.collisions.consider_friction;
+		s.interactions.collision_restitution_multiplier = interaction_config_.collisions.restitution_multiplier;
+		s.interactions.collision_stiffness_scale = interaction_config_.collisions.contact_stiffness_scale;
+		s.interactions.collision_position_correction_factor = interaction_config_.collisions.position_correction_factor;
+		s.interactions.thermodynamics_enabled = interaction_config_.thermodynamics.enabled;
+		s.interactions.ambient_temperature_kelvin = interaction_config_.thermodynamics.ambient_temperature_kelvin;
+		s.interactions.radiative_coupling_scale = interaction_config_.thermodynamics.radiative_coupling_scale;
+		s.interactions.fragmentation_enabled = interaction_config_.fragmentation.enabled;
+		s.interactions.fragmentation_tidal_stress_enabled = interaction_config_.fragmentation.enable_tidal_stress;
+		s.interactions.minimum_fragment_mass = interaction_config_.fragmentation.minimum_fragment_mass;
+		s.interactions.max_fragments_per_event = interaction_config_.fragmentation.max_fragments_per_event;
+		s.interactions.collision_energy_to_integrity_loss = interaction_config_.fragmentation.collision_energy_to_integrity_loss;
+		s.interactions.tidal_stress_to_integrity_loss = interaction_config_.fragmentation.tidal_stress_to_integrity_loss;
+		s.interactions.annihilation_enabled = interaction_config_.annihilation.enabled;
+		s.interactions.annihilation_contact_scale = interaction_config_.annihilation.contact_distance_scale;
+		s.interactions.annihilation_require_opposite_charge = interaction_config_.annihilation.require_opposite_charge;
+
 		IO::ScenarioObserverConfig obs;
 		obs.position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
 		obs.field_of_view_deg = camera_.fov_deg;
@@ -676,6 +725,7 @@ public:
 			bc.lifetime = body.lifetime;
 			bc.temperature = body.temperature;
 			bc.heat_capacity = body.heat_capacity;
+			bc.absorption_factor = body.absorption_factor;
 			bc.composition = std::string(body.composition.data());
 			bc.initial_position = {0.0, body.position[0], body.position[1], body.position[2]};
 			bc.initial_velocity = {0.0, body.velocity[0], body.velocity[1], body.velocity[2]};

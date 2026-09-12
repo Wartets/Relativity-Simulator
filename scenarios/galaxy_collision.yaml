@@ -1,5 +1,7 @@
-scenario_name: "galaxy_collision"
+scenario_name: "Galaxy Collision"
 description: "Direct collision and merger of two spiral galaxies with Navarro-Frenk-White dark matter halos and stellar disks"
+author: "C. Bossu Réaubourg"
+version_tag: "1.2.0"
 spacetime:
   metric_type: "Minkowski"
   central_mass: 0.0
@@ -22,6 +24,30 @@ output:
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
 bodies:
   - name: "Galaxy1_Core"
     body_id: 1001
@@ -29,14 +55,102 @@ bodies:
     radius: 1.0e20
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [0.9, 0.85, 0.6, 1.0]
+    color_secondary: [0.6, 0.5, 0.3, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "NFW dark matter halo + stellar bulge tracer"
     position: [0.0, -1.0e21, 0.0, 0.0]
     velocity: [299792458.0, 1.5e5, 0.0, 0.0]
-  - name: "Galaxy2_Core"
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 1.0e20
+  - name: "Galaxy1_HaloTracer"
     body_id: 1002
+    mass: 3.0e10
+    radius: 5.0e19
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.5, 0.6, 0.85, 1.0]
+    color_secondary: [0.3, 0.35, 0.55, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "NFW dark matter halo tracer"
+    position: [3.0e20, -1.0e21, 0.0, 0.0]
+    velocity: [299792458.0, 1.5e5, 4.0e4, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 5.0e19
+  - name: "Galaxy2_Core"
+    body_id: 1003
     mass: 1.0e11
     radius: 1.0e20
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [0.75, 0.8, 0.95, 1.0]
+    color_secondary: [0.4, 0.45, 0.6, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "NFW dark matter halo + stellar bulge tracer"
     position: [0.0, 1.0e21, 0.0, 0.0]
     velocity: [299792458.0, -1.5e5, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 1.0e20
+  - name: "Galaxy2_HaloTracer"
+    body_id: 1004
+    mass: 3.0e10
+    radius: 5.0e19
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.95, 0.7, 0.6, 1.0]
+    color_secondary: [0.55, 0.4, 0.35, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "NFW dark matter halo tracer"
+    position: [-3.0e20, 1.0e21, 0.0, 0.0]
+    velocity: [299792458.0, -1.5e5, -4.0e4, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 5.0e19
 observers: []

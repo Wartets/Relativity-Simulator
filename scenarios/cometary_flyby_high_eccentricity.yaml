@@ -1,10 +1,10 @@
-scenario_name: "Hulse-Taylor Pulsar PSR B1913+16"
-description: "High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay."
+scenario_name: "High-Eccentricity Cometary Flyby"
+description: "A small icy body on a highly eccentric hyperbolic-like flyby trajectory around a Schwarzschild black hole, exercising adaptive step-size control near periapsis."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.0.0"
 spacetime:
   metric_type: "Schwarzschild"
-  central_mass: 2.8284
+  central_mass: 1.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
@@ -13,14 +13,14 @@ spacetime:
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
-  scheme: "Hermite4"
+  scheme: "Cash-Karp"
   initial_step: 0.01
-  min_step: 1.0e-08
-  max_step: 10.0
-  relative_tolerance: 1.0e-10
-  absolute_tolerance: 1.0e-14
+  min_step: 1.0e-09
+  max_step: 3.0
+  relative_tolerance: 1.0e-12
+  absolute_tolerance: 1.0e-16
 output:
-  fits_enabled: true
+  fits_enabled: false
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
@@ -49,61 +49,35 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Pulsar PSR B1913+16"
+  - name: "Icy Comet"
     body_id: 1
-    mass: 1.44
-    radius: 0.05
+    mass: 1.0e-8
+    radius: 0.02
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.85, 0.9, 1.0, 1.0]
-    color_secondary: [0.4, 0.55, 0.9, 1.0]
+    color: [0.75, 0.9, 1.0, 1.0]
+    color_secondary: [0.5, 0.7, 0.85, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
-    restitution: 0.1
+    restitution: 0.5
     integrity: 1.0
     lifetime: 0.0
-    temperature: 600000.0
-    heat_capacity: 1.0e5
-    absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, 15.0, 0.0, 0.0]
-    velocity: [1.0, 0.0, 0.22, 0.0]
+    temperature: 90.0
+    heat_capacity: 100.0
+    absorption_factor: 0.6
+    composition: "Volatile ice-dust nucleus"
+    position: [0.0, 60.0, 0.0, 0.0]
+    velocity: [0.0, -0.02, 0.19, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.05
-  - name: "Companion Neutron Star"
-    body_id: 2
-    mass: 1.388
-    radius: 0.05
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.9, 0.85, 0.8, 1.0]
-    color_secondary: [0.6, 0.5, 0.45, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.1
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 500000.0
-    heat_capacity: 1.0e5
-    absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, -15.56, 0.0, 0.0]
-    velocity: [1.0, 0.0, -0.228, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 0.05
+    reference_radius: 0.02
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 40.0
+    fov_deg: 60.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 120.0, 0.0]
+    position: [0.0, 0.0, 45.0, 10.0]
     four_velocity: [1.0, 0.0, 0.0, 0.0]

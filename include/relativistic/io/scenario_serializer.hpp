@@ -31,6 +31,7 @@ struct ScenarioBodyConfig {
 	double lifetime{0.0};
 	double temperature{0.0};
 	double heat_capacity{0.0};
+	double absorption_factor{1.0};
 	std::string composition{};
 	std::array<double, 4> initial_position{0.0, 10.0, std::numbers::pi_v<double> / 2.0, 0.0};
 	std::array<double, 4> initial_velocity{1.0, 0.0, 0.0, 0.1};
@@ -67,6 +68,32 @@ struct ScenarioOutputConfig {
 	std::string export_directory{"./output"};
 };
 
+struct ScenarioInteractionConfig {
+	bool electricity_enabled{false};
+	bool magnetism_enabled{false};
+	double vacuum_permittivity{8.8541878128e-12};
+	double vacuum_permeability{1.25663706212e-6};
+	bool collisions_enabled{false};
+	uint32_t collision_response_model{0};
+	bool collision_consider_rotation{true};
+	bool collision_consider_friction{true};
+	double collision_restitution_multiplier{1.0};
+	double collision_stiffness_scale{1.0e-9};
+	double collision_position_correction_factor{0.2};
+	bool thermodynamics_enabled{false};
+	double ambient_temperature_kelvin{-1.0};
+	double radiative_coupling_scale{1.0};
+	bool fragmentation_enabled{false};
+	bool fragmentation_tidal_stress_enabled{false};
+	double minimum_fragment_mass{1.0e-6};
+	uint32_t max_fragments_per_event{2};
+	double collision_energy_to_integrity_loss{1.0e-6};
+	double tidal_stress_to_integrity_loss{1.0e-6};
+	bool annihilation_enabled{false};
+	double annihilation_contact_scale{1.0};
+	bool annihilation_require_opposite_charge{true};
+};
+
 struct ScenarioValidationResult {
 	bool is_valid{true};
 	std::string error_message{};
@@ -93,6 +120,7 @@ struct ScenarioDefinition {
 	std::vector<ScenarioObserverConfig> observers{};
 	ScenarioIntegratorConfig integrator{};
 	ScenarioOutputConfig output{};
+	ScenarioInteractionConfig interactions{};
 };
 
 class ScenarioSerializer {
@@ -131,6 +159,31 @@ public:
 		ss << "  vtk_enabled: " << (s.output.vtk_enabled ? "true" : "false") << "\n";
 		ss << "  export_directory: \"" << s.output.export_directory << "\"\n";
 
+		ss << "interactions:\n";
+		ss << "  electricity_enabled: " << (s.interactions.electricity_enabled ? "true" : "false") << "\n";
+		ss << "  magnetism_enabled: " << (s.interactions.magnetism_enabled ? "true" : "false") << "\n";
+		ss << "  vacuum_permittivity: " << s.interactions.vacuum_permittivity << "\n";
+		ss << "  vacuum_permeability: " << s.interactions.vacuum_permeability << "\n";
+		ss << "  collisions_enabled: " << (s.interactions.collisions_enabled ? "true" : "false") << "\n";
+		ss << "  collision_response_model: " << s.interactions.collision_response_model << "\n";
+		ss << "  collision_consider_rotation: " << (s.interactions.collision_consider_rotation ? "true" : "false") << "\n";
+		ss << "  collision_consider_friction: " << (s.interactions.collision_consider_friction ? "true" : "false") << "\n";
+		ss << "  collision_restitution_multiplier: " << s.interactions.collision_restitution_multiplier << "\n";
+		ss << "  collision_stiffness_scale: " << s.interactions.collision_stiffness_scale << "\n";
+		ss << "  collision_position_correction_factor: " << s.interactions.collision_position_correction_factor << "\n";
+		ss << "  thermodynamics_enabled: " << (s.interactions.thermodynamics_enabled ? "true" : "false") << "\n";
+		ss << "  ambient_temperature_kelvin: " << s.interactions.ambient_temperature_kelvin << "\n";
+		ss << "  radiative_coupling_scale: " << s.interactions.radiative_coupling_scale << "\n";
+		ss << "  fragmentation_enabled: " << (s.interactions.fragmentation_enabled ? "true" : "false") << "\n";
+		ss << "  fragmentation_tidal_stress_enabled: " << (s.interactions.fragmentation_tidal_stress_enabled ? "true" : "false") << "\n";
+		ss << "  minimum_fragment_mass: " << s.interactions.minimum_fragment_mass << "\n";
+		ss << "  max_fragments_per_event: " << s.interactions.max_fragments_per_event << "\n";
+		ss << "  collision_energy_to_integrity_loss: " << s.interactions.collision_energy_to_integrity_loss << "\n";
+		ss << "  tidal_stress_to_integrity_loss: " << s.interactions.tidal_stress_to_integrity_loss << "\n";
+		ss << "  annihilation_enabled: " << (s.interactions.annihilation_enabled ? "true" : "false") << "\n";
+		ss << "  annihilation_contact_scale: " << s.interactions.annihilation_contact_scale << "\n";
+		ss << "  annihilation_require_opposite_charge: " << (s.interactions.annihilation_require_opposite_charge ? "true" : "false") << "\n";
+
 		ss << "bodies:\n";
 		for (const auto& b : s.bodies) {
 			ss << "  - name: \"" << b.name << "\"\n";
@@ -150,6 +203,7 @@ public:
 			ss << "    lifetime: " << b.lifetime << "\n";
 			ss << "    temperature: " << b.temperature << "\n";
 			ss << "    heat_capacity: " << b.heat_capacity << "\n";
+			ss << "    absorption_factor: " << b.absorption_factor << "\n";
 			ss << "    composition: \"" << b.composition << "\"\n";
 			ss << "    position: [" << b.initial_position[0] << ", " << b.initial_position[1] << ", " << b.initial_position[2] << ", " << b.initial_position[3] << "]\n";
 			ss << "    velocity: [" << b.initial_velocity[0] << ", " << b.initial_velocity[1] << ", " << b.initial_velocity[2] << ", " << b.initial_velocity[3] << "]\n";
@@ -275,7 +329,7 @@ public:
 			return {static_cast<float>(values[0]), static_cast<float>(values[1]), static_cast<float>(values[2]), static_cast<float>(values[3])};
 		};
 
-		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Bodies, Observers };
+		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Observers };
 		Section current_section = Section::Root;
 
 		while (std::getline(stream, line)) {
@@ -291,6 +345,7 @@ public:
 			if (key == "spacetime") { current_section = Section::Spacetime; continue; }
 			if (key == "integrator") { current_section = Section::Integrator; continue; }
 			if (key == "output") { current_section = Section::Output; continue; }
+			if (key == "interactions") { current_section = Section::Interactions; continue; }
 			if (key == "bodies") { current_section = Section::Bodies; continue; }
 			if (key == "observers") { current_section = Section::Observers; continue; }
 
@@ -323,6 +378,7 @@ public:
 					else if (key == "lifetime") s.bodies.back().lifetime = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "temperature") s.bodies.back().temperature = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "heat_capacity") s.bodies.back().heat_capacity = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "absorption_factor") s.bodies.back().absorption_factor = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "composition") s.bodies.back().composition = unquote(val);
 					else if (key == "position") s.bodies.back().initial_position = parse_vec4(val);
 					else if (key == "velocity") s.bodies.back().initial_velocity = parse_vec4(val);
@@ -349,6 +405,11 @@ public:
 				if (!s.observers.empty()) {
 					if (key == "name") s.observers.back().name = unquote(val);
 					else if (key == "fov_deg") s.observers.back().field_of_view_deg = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "resolution") {
+						const auto res_vals = parse_vec4(val);
+						s.observers.back().resolution_x = static_cast<uint32_t>(res_vals[0]);
+						s.observers.back().resolution_y = static_cast<uint32_t>(res_vals[1]);
+					}
 					else if (key == "position") s.observers.back().position = parse_vec4(val);
 					else if (key == "four_velocity") s.observers.back().four_velocity = parse_vec4(val);
 				}
@@ -380,6 +441,29 @@ public:
 			else if (key == "hdf5_enabled") s.output.hdf5_enabled = (val == "true");
 			else if (key == "vtk_enabled") s.output.vtk_enabled = (val == "true");
 			else if (key == "export_directory") s.output.export_directory = unquote(val);
+			else if (key == "electricity_enabled") s.interactions.electricity_enabled = (val == "true");
+			else if (key == "magnetism_enabled") s.interactions.magnetism_enabled = (val == "true");
+			else if (key == "vacuum_permittivity") s.interactions.vacuum_permittivity = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "vacuum_permeability") s.interactions.vacuum_permeability = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "collisions_enabled") s.interactions.collisions_enabled = (val == "true");
+			else if (key == "collision_response_model") s.interactions.collision_response_model = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10));
+			else if (key == "collision_consider_rotation") s.interactions.collision_consider_rotation = (val == "true");
+			else if (key == "collision_consider_friction") s.interactions.collision_consider_friction = (val == "true");
+			else if (key == "collision_restitution_multiplier") s.interactions.collision_restitution_multiplier = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "collision_stiffness_scale") s.interactions.collision_stiffness_scale = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "collision_position_correction_factor") s.interactions.collision_position_correction_factor = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "thermodynamics_enabled") s.interactions.thermodynamics_enabled = (val == "true");
+			else if (key == "ambient_temperature_kelvin") s.interactions.ambient_temperature_kelvin = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "radiative_coupling_scale") s.interactions.radiative_coupling_scale = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "fragmentation_enabled") s.interactions.fragmentation_enabled = (val == "true");
+			else if (key == "fragmentation_tidal_stress_enabled") s.interactions.fragmentation_tidal_stress_enabled = (val == "true");
+			else if (key == "minimum_fragment_mass") s.interactions.minimum_fragment_mass = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "max_fragments_per_event") s.interactions.max_fragments_per_event = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10));
+			else if (key == "collision_energy_to_integrity_loss") s.interactions.collision_energy_to_integrity_loss = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "tidal_stress_to_integrity_loss") s.interactions.tidal_stress_to_integrity_loss = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "annihilation_enabled") s.interactions.annihilation_enabled = (val == "true");
+			else if (key == "annihilation_contact_scale") s.interactions.annihilation_contact_scale = std::strtod(std::string(val).c_str(), nullptr);
+			else if (key == "annihilation_require_opposite_charge") s.interactions.annihilation_require_opposite_charge = (val == "true");
 		}
 
 		return s;

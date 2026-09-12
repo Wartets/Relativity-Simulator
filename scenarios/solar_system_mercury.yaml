@@ -1,5 +1,7 @@
-scenario_name: "solar_system_mercury"
+scenario_name: "Solar System Mercury"
 description: "High-precision 1PN Post-Newtonian Solar System Ephemeris validation for Mercury perihelion precession"
+author: "C. Bossu Réaubourg"
+version_tag: "1.2.0"
 spacetime:
   metric_type: "Schwarzschild"
   central_mass: 1.98847e30
@@ -22,6 +24,30 @@ output:
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
 bodies:
   - name: "Sun"
     body_id: 10
@@ -29,16 +55,52 @@ bodies:
     radius: 6.9634e8
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [1.0, 0.92, 0.6, 1.0]
+    color_secondary: [1.0, 0.55, 0.1, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 2.865e-6
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 5778.0
+    heat_capacity: 1.0e10
+    absorption_factor: 1.0
+    composition: "Plasma - G2V main-sequence star"
     position: [0.0, 0.0, 0.0, 0.0]
     velocity: [299792458.0, 0.0, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 2.2e-7
+    j3: 0.0
+    j4: -4.0e-9
+    reference_radius: 6.9634e8
   - name: "Mercury"
     body_id: 199
     mass: 3.3011e23
     radius: 2.4397e6
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [0.65, 0.6, 0.55, 1.0]
+    color_secondary: [0.4, 0.37, 0.34, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 1.24e-6
+    friction_coefficient: 0.6
+    restitution: 0.3
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 440.0
+    heat_capacity: 1.0e6
+    absorption_factor: 0.88
+    composition: "Silicate-iron rocky body"
     position: [0.0, 4.60012e10, 0.0, 0.0]
     velocity: [299792458.0, 0.0, 58980.0, 0.0]
+    quadrupole: 0.0
+    j2: 6.0e-5
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 2.4397e6
 observers:
   - name: "EclipticObserver"
     fov_deg: 60.0

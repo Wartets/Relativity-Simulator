@@ -1,33 +1,33 @@
-scenario_name: "Hulse-Taylor Pulsar PSR B1913+16"
-description: "High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay."
+scenario_name: "Matter-Antimatter Annihilation"
+description: "Two oppositely charged particles attracted by Coulomb force and Newtonian gravity, annihilating upon contact."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.0.0"
 spacetime:
-  metric_type: "Schwarzschild"
-  central_mass: 2.8284
+  metric_type: "Minkowski"
+  central_mass: 0.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
-  wormhole_throat: 1.0
+  wormhole_throat: 0.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
-  scheme: "Hermite4"
-  initial_step: 0.01
+  scheme: "RK45"
+  initial_step: 0.005
   min_step: 1.0e-08
-  max_step: 10.0
+  max_step: 0.2
   relative_tolerance: 1.0e-10
   absolute_tolerance: 1.0e-14
 output:
-  fits_enabled: true
+  fits_enabled: false
   hdf5_enabled: true
-  vtk_enabled: true
+  vtk_enabled: false
   export_directory: "./output"
 interactions:
-  electricity_enabled: false
+  electricity_enabled: true
   magnetism_enabled: false
-  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permittivity: 0.0795774715
   vacuum_permeability: 1.25663706212e-6
   collisions_enabled: false
   collision_response_model: 0
@@ -45,65 +45,65 @@ interactions:
   max_fragments_per_event: 2
   collision_energy_to_integrity_loss: 1.0e-6
   tidal_stress_to_integrity_loss: 1.0e-6
-  annihilation_enabled: false
-  annihilation_contact_scale: 1.0
+  annihilation_enabled: true
+  annihilation_contact_scale: 1.1
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Pulsar PSR B1913+16"
+  - name: "Particle"
     body_id: 1
-    mass: 1.44
-    radius: 0.05
+    mass: 0.5
+    radius: 0.2
     spin: 0.0
-    charge: 0.0
+    charge: 1.0
     enabled: true
-    color: [0.85, 0.9, 1.0, 1.0]
-    color_secondary: [0.4, 0.55, 0.9, 1.0]
+    color: [1.0, 0.5, 0.9, 1.0]
+    color_secondary: [0.7, 0.25, 0.55, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
-    restitution: 0.1
+    restitution: 0.0
     integrity: 1.0
     lifetime: 0.0
-    temperature: 600000.0
-    heat_capacity: 1.0e5
+    temperature: 293.0
+    heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, 15.0, 0.0, 0.0]
-    velocity: [1.0, 0.0, 0.22, 0.0]
+    composition: "Matter test particle"
+    position: [0.0, 6.0, 0.0, 0.0]
+    velocity: [0.0, -0.05, 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.05
-  - name: "Companion Neutron Star"
+    reference_radius: 0.2
+  - name: "Antiparticle"
     body_id: 2
-    mass: 1.388
-    radius: 0.05
+    mass: 0.5
+    radius: 0.2
     spin: 0.0
-    charge: 0.0
+    charge: -1.0
     enabled: true
-    color: [0.9, 0.85, 0.8, 1.0]
-    color_secondary: [0.6, 0.5, 0.45, 1.0]
+    color: [0.4, 0.9, 1.0, 1.0]
+    color_secondary: [0.2, 0.55, 0.7, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
-    restitution: 0.1
+    restitution: 0.0
     integrity: 1.0
     lifetime: 0.0
-    temperature: 500000.0
-    heat_capacity: 1.0e5
+    temperature: 293.0
+    heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, -15.56, 0.0, 0.0]
-    velocity: [1.0, 0.0, -0.228, 0.0]
+    composition: "Antimatter test particle"
+    position: [0.0, -6.0, 0.0, 0.0]
+    velocity: [0.0, 0.05, 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.05
+    reference_radius: 0.2
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 40.0
+    fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 120.0, 0.0]
+    position: [0.0, 0.0, 20.0, 0.0]
     four_velocity: [1.0, 0.0, 0.0, 0.0]

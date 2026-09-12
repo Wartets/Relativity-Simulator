@@ -1,28 +1,28 @@
-scenario_name: "Relativistic Shock Tube"
-description: "Relativistic Sod shock tube benchmark with WENO-Z spatial reconstruction and HLLC approximate Riemann solver"
+scenario_name: "FLRW Flat Lambda-CDM Expansion"
+description: "Homogeneous and isotropic Friedmann-Lemaitre-Robertson-Walker spacetime demonstrating cosmological expansion under a flat Lambda-CDM model."
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.0"
+version_tag: "1.0.0"
 spacetime:
-  metric_type: "Minkowski"
-  central_mass: 0.0
+  metric_type: "FLRW"
+  central_mass: 1.0
   central_spin: 0.0
   central_charge: 0.0
-  cosmological_lambda: 0.0
-  wormhole_throat: 0.0
+  cosmological_lambda: 0.7
+  wormhole_throat: 1.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
-  scheme: "SSPRK3"
-  initial_step: 0.001
-  min_step: 1.0e-6
-  max_step: 0.01
-  relative_tolerance: 1.0e-8
-  absolute_tolerance: 1.0e-12
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 10.0
+  relative_tolerance: 1.0e-9
+  absolute_tolerance: 1.0e-13
 output:
   fits_enabled: false
   hdf5_enabled: true
-  vtk_enabled: false
+  vtk_enabled: true
   export_directory: "./output"
 interactions:
   electricity_enabled: false
@@ -49,4 +49,9 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
-observers: []
+observers:
+  - name: "ComovingObserver"
+    fov_deg: 70.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 30.0, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

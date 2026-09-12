@@ -1,5 +1,7 @@
 scenario_name: "Morris-Thorne Traversable Wormhole"
 description: "Static spherically symmetric traversable wormhole connecting two asymptotically flat spacetime sheets."
+author: "C. Bossu Réaubourg"
+version_tag: "1.1.0"
 spacetime:
   metric_type: "MorrisThorne"
   central_mass: 0.0
@@ -22,7 +24,57 @@ output:
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
-bodies: []
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
+bodies:
+  - name: "Traversal Probe"
+    body_id: 1
+    mass: 1.0e-6
+    radius: 0.05
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [1.0, 0.95, 0.6, 1.0]
+    color_secondary: [0.8, 0.7, 0.3, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.5
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 293.0
+    heat_capacity: 1.0
+    absorption_factor: 1.0
+    composition: "Composite hull test particle"
+    position: [0.0, 12.0, 0.0, 0.0]
+    velocity: [1.0, -0.08, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 0.05
 observers:
   - name: "PrimaryCamera"
     fov_deg: 75.0

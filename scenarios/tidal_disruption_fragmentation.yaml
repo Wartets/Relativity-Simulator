@@ -1,26 +1,26 @@
-scenario_name: "Alcubierre Superluminal Warp Bubble"
-description: "Dynamic spacetime curvature bubble contracting space in front and expanding behind at apparent speed vs=2.0c."
+scenario_name: "Tidal Disruption and Rubble Fragmentation"
+description: "A loosely bound rubble-pile asteroid on a near-plunging orbit around a Schwarzschild black hole, disintegrating under tidal stress and fragmenting into debris."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.0.0"
 spacetime:
-  metric_type: "Alcubierre"
-  central_mass: 0.0
+  metric_type: "Schwarzschild"
+  central_mass: 10.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
   wormhole_throat: 1.0
-  warp_velocity: 2.0
+  warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
   scheme: "RK45"
-  initial_step: 0.01
+  initial_step: 0.005
   min_step: 1.0e-08
-  max_step: 10.0
-  relative_tolerance: 1.0e-10
-  absolute_tolerance: 1.0e-14
+  max_step: 2.0
+  relative_tolerance: 1.0e-11
+  absolute_tolerance: 1.0e-15
 output:
-  fits_enabled: true
+  fits_enabled: false
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
@@ -39,43 +39,45 @@ interactions:
   thermodynamics_enabled: false
   ambient_temperature_kelvin: -1.0
   radiative_coupling_scale: 1.0
-  fragmentation_enabled: false
-  fragmentation_tidal_stress_enabled: false
-  minimum_fragment_mass: 1.0e-6
-  max_fragments_per_event: 2
+  fragmentation_enabled: true
+  fragmentation_tidal_stress_enabled: true
+  minimum_fragment_mass: 1.0e-9
+  max_fragments_per_event: 6
   collision_energy_to_integrity_loss: 1.0e-6
-  tidal_stress_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 5.0e-4
   annihilation_enabled: false
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Warp Ship"
+  - name: "Rubble Pile Asteroid"
     body_id: 1
-    mass: 1.0e-9
-    radius: 0.5
+    mass: 1.0e-6
+    radius: 0.08
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.7, 0.9, 1.0, 1.0]
-    color_secondary: [0.3, 0.6, 0.9, 1.0]
+    color: [0.55, 0.5, 0.45, 1.0]
+    color_secondary: [0.35, 0.3, 0.28, 1.0]
     magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.5
+    rotation_speed: 0.02
+    friction_coefficient: 0.4
+    restitution: 0.2
     integrity: 1.0
     lifetime: 0.0
-    temperature: 293.0
-    heat_capacity: 1.0
-    absorption_factor: 1.0
-    composition: "Alcubierre drive vessel hull"
-    position: [0.0, 0.0, 0.0, 0.0]
-    velocity: [1.0, 0.0, 0.0, 0.0]
+    temperature: 250.0
+    heat_capacity: 1.0e3
+    absorption_factor: 0.9
+    composition: "Loosely bound carbonaceous rubble pile"
+    position: [0.0, 25.0, 0.0, 0.0]
+    velocity: [0.0, -0.14, 0.055, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.5
+    reference_radius: 0.08
 observers:
   - name: "PrimaryCamera"
-    position: [0.0, 0.0, 40.0, 0.0]
+    fov_deg: 60.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 40.0, 8.0]
     four_velocity: [1.0, 0.0, 0.0, 0.0]

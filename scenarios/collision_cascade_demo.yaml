@@ -1,0 +1,161 @@
+scenario_name: "Collision Cascade Demonstration"
+description: "Four rigid bodies converging in flat spacetime, showcasing Hertzian contact repulsion, restitution-based bounce, friction, and rotational spin-up on impact."
+author: "C. Bossu Réaubourg"
+version_tag: "1.0.0"
+spacetime:
+  metric_type: "Minkowski"
+  central_mass: 0.0
+  central_spin: 0.0
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+integrator:
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 0.5
+  relative_tolerance: 1.0e-9
+  absolute_tolerance: 1.0e-13
+output:
+  fits_enabled: false
+  hdf5_enabled: true
+  vtk_enabled: false
+  export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: true
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 5.0e-3
+  collision_position_correction_factor: 0.25
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
+bodies:
+  - name: "Impactor North"
+    body_id: 1
+    mass: 1.0
+    radius: 0.5
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [1.0, 0.55, 0.3, 1.0]
+    color_secondary: [0.7, 0.35, 0.15, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.4
+    restitution: 0.7
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 293.0
+    heat_capacity: 1.0
+    absorption_factor: 1.0
+    composition: "Elastic composite sphere"
+    position: [0.0, 8.0, 0.0, 0.0]
+    velocity: [0.0, -0.4, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 0.5
+  - name: "Impactor South"
+    body_id: 2
+    mass: 1.0
+    radius: 0.5
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.3, 0.55, 1.0, 1.0]
+    color_secondary: [0.15, 0.35, 0.7, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.4
+    restitution: 0.7
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 293.0
+    heat_capacity: 1.0
+    absorption_factor: 1.0
+    composition: "Elastic composite sphere"
+    position: [0.0, -8.0, 0.0, 0.0]
+    velocity: [0.0, 0.4, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 0.5
+  - name: "Impactor East"
+    body_id: 3
+    mass: 0.6
+    radius: 0.4
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [0.6, 1.0, 0.4, 1.0]
+    color_secondary: [0.35, 0.7, 0.2, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.5
+    restitution: 0.6
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 293.0
+    heat_capacity: 1.0
+    absorption_factor: 1.0
+    composition: "Elastic composite sphere"
+    position: [8.0, 0.0, 0.0, 0.0]
+    velocity: [-0.4, 0.05, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 0.4
+  - name: "Impactor West"
+    body_id: 4
+    mass: 0.6
+    radius: 0.4
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    color: [1.0, 0.9, 0.35, 1.0]
+    color_secondary: [0.7, 0.6, 0.2, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.5
+    restitution: 0.6
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 293.0
+    heat_capacity: 1.0
+    absorption_factor: 1.0
+    composition: "Elastic composite sphere"
+    position: [-8.0, 0.0, 0.0, 0.0]
+    velocity: [0.4, -0.05, 0.0, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 0.4
+observers:
+  - name: "PrimaryCamera"
+    fov_deg: 65.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 30.0, 0.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

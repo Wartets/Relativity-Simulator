@@ -1,5 +1,7 @@
-scenario_name: "binary_black_hole_inspiral"
+scenario_name: "Binary Black Hole Inspiral"
 description: "Binary black hole orbital inspiral with 3.5PN gravitational radiation reaction and strain polarization generation"
+author: "C. Bossu Réaubourg"
+version_tag: "1.2.0"
 spacetime:
   metric_type: "Minkowski"
   central_mass: 0.0
@@ -22,6 +24,30 @@ output:
   hdf5_enabled: true
   vtk_enabled: true
   export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
 bodies:
   - name: "BH1"
     body_id: 1
@@ -29,14 +55,50 @@ bodies:
     radius: 8.85e4
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [0.05, 0.05, 0.08, 1.0]
+    color_secondary: [0.5, 0.2, 0.7, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "Stellar-mass black hole"
     position: [0.0, 2.0e5, 0.0, 0.0]
     velocity: [299792458.0, 0.0, 7.0e7, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 8.85e4
   - name: "BH2"
     body_id: 2
     mass: 5.9654e31
     radius: 8.85e4
     spin: 0.0
     charge: 0.0
+    enabled: true
+    color: [0.05, 0.05, 0.08, 1.0]
+    color_secondary: [0.7, 0.35, 0.15, 1.0]
+    magnetic_moment: 0.0
+    rotation_speed: 0.0
+    friction_coefficient: 0.0
+    restitution: 0.0
+    integrity: 1.0
+    lifetime: 0.0
+    temperature: 0.0
+    heat_capacity: 0.0
+    absorption_factor: 1.0
+    composition: "Stellar-mass black hole"
     position: [0.0, -2.0e5, 0.0, 0.0]
     velocity: [299792458.0, 0.0, -7.0e7, 0.0]
+    quadrupole: 0.0
+    j2: 0.0
+    j3: 0.0
+    j4: 0.0
+    reference_radius: 8.85e4
 observers: []

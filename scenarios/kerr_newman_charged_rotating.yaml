@@ -1,28 +1,28 @@
-scenario_name: "Relativistic Shock Tube"
-description: "Relativistic Sod shock tube benchmark with WENO-Z spatial reconstruction and HLLC approximate Riemann solver"
+scenario_name: "Kerr-Newman Charged Rotating Black Hole"
+description: "Rotating and electrically charged black hole demonstrating the combined effects of frame-dragging and electrostatic repulsion on the horizon structure."
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.0"
+version_tag: "1.0.0"
 spacetime:
-  metric_type: "Minkowski"
-  central_mass: 0.0
-  central_spin: 0.0
-  central_charge: 0.0
+  metric_type: "KerrNewman"
+  central_mass: 1.0
+  central_spin: 0.6
+  central_charge: 0.5
   cosmological_lambda: 0.0
-  wormhole_throat: 0.0
+  wormhole_throat: 1.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
-  scheme: "SSPRK3"
-  initial_step: 0.001
-  min_step: 1.0e-6
-  max_step: 0.01
-  relative_tolerance: 1.0e-8
-  absolute_tolerance: 1.0e-12
+  scheme: "Vernier9"
+  initial_step: -0.015
+  min_step: 1.0e-08
+  max_step: 6.0
+  relative_tolerance: 1.0e-11
+  absolute_tolerance: 1.0e-15
 output:
-  fits_enabled: false
+  fits_enabled: true
   hdf5_enabled: true
-  vtk_enabled: false
+  vtk_enabled: true
   export_directory: "./output"
 interactions:
   electricity_enabled: false
@@ -49,4 +49,9 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
-observers: []
+observers:
+  - name: "PrimaryCamera"
+    fov_deg: 58.0
+    resolution: [2560, 1440]
+    position: [0.0, 0.0, 22.0, 4.0]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

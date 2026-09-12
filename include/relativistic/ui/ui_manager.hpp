@@ -205,6 +205,14 @@ public:
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
 
+		if (secondary_viewport_manager_) {
+			for (const auto& saved : user_settings_.secondary_views) {
+				if (!saved.active) continue;
+				auto& view = secondary_viewport_manager_->add_view_with_state(saved.name, saved.open);
+				view.apply_saved_state(saved.radius, saved.theta, saved.phi, saved.fov_deg, saved.exposure, saved.tonemapping_mode, saved.projection_mode, saved.max_steps, saved.resolution_scale, saved.follow_primary, saved.follow_offset_theta, saved.follow_offset_phi);
+			}
+		}
+
 		apply_multi_window_layout_preset(static_cast<UiLayoutPreset>(user_settings_.last_window_layout));
 	}
 
@@ -253,6 +261,32 @@ public:
 		user_settings_.constants_na = orchestrator_.constants_engine().sim_avogadro_constant();
 		user_settings_.constants_ke = orchestrator_.constants_engine().sim_coulomb_constant();
 		user_settings_.constants_kcd = orchestrator_.constants_engine().sim_luminous_efficacy();
+
+		for (auto& slot : user_settings_.secondary_views) {
+			slot = IO::SecondaryViewPersistedState{};
+		}
+		if (secondary_viewport_manager_) {
+			size_t slot_index = 0;
+			for (auto& view_ptr : secondary_viewport_manager_->views()) {
+				if (slot_index >= user_settings_.secondary_views.size()) break;
+				auto& slot = user_settings_.secondary_views[slot_index++];
+				slot.active = true;
+				slot.open = view_ptr->open_state();
+				slot.name = view_ptr->name();
+				slot.radius = view_ptr->radius();
+				slot.theta = view_ptr->theta();
+				slot.phi = view_ptr->phi();
+				slot.fov_deg = view_ptr->fov_deg();
+				slot.exposure = view_ptr->exposure();
+				slot.tonemapping_mode = view_ptr->tonemapping_mode();
+				slot.projection_mode = view_ptr->projection_mode();
+				slot.max_steps = view_ptr->max_steps();
+				slot.resolution_scale = view_ptr->resolution_scale();
+				slot.follow_primary = view_ptr->follow_primary_camera();
+				slot.follow_offset_theta = view_ptr->follow_offset_theta();
+				slot.follow_offset_phi = view_ptr->follow_offset_phi();
+			}
+		}
 	}
 
 	void apply_multi_window_layout_preset(UiLayoutPreset preset) noexcept {

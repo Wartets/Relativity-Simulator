@@ -206,6 +206,38 @@ public:
 		return name_;
 	}
 
+	[[nodiscard]] double radius() const noexcept { return radius_; }
+	[[nodiscard]] double theta() const noexcept { return theta_; }
+	[[nodiscard]] double phi() const noexcept { return phi_; }
+	[[nodiscard]] double fov_deg() const noexcept { return fov_deg_; }
+	[[nodiscard]] double exposure() const noexcept { return exposure_; }
+	[[nodiscard]] int tonemapping_mode() const noexcept { return tonemapping_mode_; }
+	[[nodiscard]] int projection_mode() const noexcept { return projection_mode_; }
+	[[nodiscard]] int max_steps() const noexcept { return max_steps_; }
+	[[nodiscard]] float resolution_scale() const noexcept { return resolution_scale_; }
+	[[nodiscard]] bool follow_primary_camera() const noexcept { return follow_primary_camera_; }
+	[[nodiscard]] double follow_offset_theta() const noexcept { return follow_offset_theta_; }
+	[[nodiscard]] double follow_offset_phi() const noexcept { return follow_offset_phi_; }
+
+	void apply_saved_state(
+		double saved_radius, double saved_theta, double saved_phi, double saved_fov_deg, double saved_exposure,
+		int saved_tonemapping_mode, int saved_projection_mode, int saved_max_steps, float saved_resolution_scale,
+		bool saved_follow_primary, double saved_follow_offset_theta, double saved_follow_offset_phi
+	) noexcept {
+		radius_ = saved_radius;
+		theta_ = saved_theta;
+		phi_ = saved_phi;
+		fov_deg_ = saved_fov_deg;
+		exposure_ = saved_exposure;
+		tonemapping_mode_ = saved_tonemapping_mode;
+		projection_mode_ = saved_projection_mode;
+		max_steps_ = saved_max_steps;
+		resolution_scale_ = saved_resolution_scale;
+		follow_primary_camera_ = saved_follow_primary;
+		follow_offset_theta_ = saved_follow_offset_theta;
+		follow_offset_phi_ = saved_follow_offset_phi;
+	}
+
 	void set_performance_budget_scale(float scale) noexcept {
 		external_budget_scale_ = std::clamp(scale, 0.1f, 1.0f);
 	}

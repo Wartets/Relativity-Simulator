@@ -29,6 +29,8 @@ enum class ProfilerTaskStage : uint32_t {
 	HudOverlay = 3,
 	CameraUpdate = 4,
 	SchematicOverlay = 5,
+	PostProcessing = 6,
+	FramebufferReadback = 7,
 	Count
 };
 
@@ -40,6 +42,8 @@ enum class ProfilerTaskStage : uint32_t {
 		case ProfilerTaskStage::HudOverlay: return "HUD Overlay";
 		case ProfilerTaskStage::CameraUpdate: return "Camera Update";
 		case ProfilerTaskStage::SchematicOverlay: return "Schematic Overlay";
+		case ProfilerTaskStage::PostProcessing: return "Post-Processing";
+		case ProfilerTaskStage::FramebufferReadback: return "Framebuffer Readback";
 		default: return "Unknown Stage";
 	}
 }

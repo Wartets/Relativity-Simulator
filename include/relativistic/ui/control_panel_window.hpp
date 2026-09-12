@@ -1198,7 +1198,16 @@ private:
 		ImGui::Checkbox("Integrator Cycle Button", &tb.integrator_cycle);
 		ImGui::SameLine();
 		ImGui::Checkbox("Performance Preset Combo", &tb.performance_preset_combo);
+		ImGui::Checkbox("Quick Save/Load Buttons", &tb.quicksave_quickload);
+		ImGui::SameLine();
+		ImGui::Checkbox("Step Controller Cycle Button", &tb.step_controller_cycle);
+		ImGui::Checkbox("Render Distance Toggle Button", &tb.render_distance_toggle);
+		ImGui::SameLine();
+		ImGui::Checkbox("Pole Precision Nudge Buttons", &tb.pole_precision_nudge);
 		render_setting_tooltip("Adds shortcuts to the floating toolbar for the same controls exposed elsewhere in this panel, so frequently used settings stay reachable without opening a tab.");
+
+		ImGui::SliderFloat("Toolbar Button Padding Scale", &hud_layout_.toolbar_padding_scale, 0.4f, 3.0f, "%.2fx");
+		render_setting_tooltip("Uniformly scales the padding of every button and control in the floating viewport toolbar, letting the toolbar be shrunk down for a minimal footprint or enlarged for easier touch or high-DPI use.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Individual HUD Elements:");

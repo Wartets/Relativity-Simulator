@@ -78,10 +78,6 @@ int main(int argc, char* argv[]) {
 		Relativistic::UI::UiManager ui_manager(*orchestrator, user_settings);
 		ui_manager.initialize();
 
-		for (int i = 1; i <= 2; ++i) {
-			ui_manager.add_secondary_view("Secondary Observer Camera " + std::to_string(i));
-		}
-
 		while (orchestrator->is_running() && !ui_manager.should_close()) {
 			ui_manager.render_frame();
 		}

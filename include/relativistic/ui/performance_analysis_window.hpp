@@ -255,6 +255,8 @@ private:
 
 		draw_summary_table("Total Frame Time (ms)", ft_summary);
 		draw_summary_table("Render Dispatch (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::RenderDispatch, n));
+		draw_summary_table("Post-Processing (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::PostProcessing, n));
+		draw_summary_table("Framebuffer Readback (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::FramebufferReadback, n));
 		draw_summary_table("Texture Upload (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::TextureUpload, n));
 		draw_summary_table("HUD Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::HudOverlay, n));
 		draw_summary_table("Camera Update (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CameraUpdate, n));

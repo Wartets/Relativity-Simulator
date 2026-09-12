@@ -137,12 +137,17 @@ struct ToolbarButtonVisibility {
 	bool metric_cycle{false};
 	bool integrator_cycle{false};
 	bool performance_preset_combo{false};
+	bool quicksave_quickload{false};
+	bool step_controller_cycle{false};
+	bool render_distance_toggle{false};
+	bool pole_precision_nudge{false};
 };
 
 struct HudLayoutConfig {
 	bool master_enabled{true};
 	bool auto_arrange_enabled{false};
 	float auto_arrange_spacing{6.0f};
+	float toolbar_padding_scale{1.0f};
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
 	ToolbarButtonVisibility toolbar_buttons{};
 	std::array<bool, static_cast<size_t>(InputAction::Count)> keybind_summary_visible{};

@@ -533,9 +533,13 @@ public:
 			if (pipeline_.check_and_clear_new_frame()) {
 				std::vector<Render::GpuPixelOutput> fb;
 				uint32_t fb_w = 0, fb_h = 0;
-				pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+				{
+					const auto framebuffer_readback_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::FramebufferReadback);
+					pipeline_.copy_framebuffer(fb, fb_w, fb_h);
+				}
 				const size_t pixel_count = static_cast<size_t>(fb_w) * static_cast<size_t>(fb_h);
 				if (pixel_count > 0 && fb.size() == pixel_count) {
+					const auto post_processing_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::PostProcessing);
 					if (color_upload_buffer_.size() < pixel_count * 4) {
 						color_upload_buffer_.assign(pixel_count * 4, 0.0f);
 					}
@@ -785,6 +789,8 @@ public:
 		const ImVec2 estimated_size(900.0f, 34.0f);
 		const ImVec2 pos = hud_anchor_resolve(style.anchor, avail, estimated_size, style.offset_x, style.offset_y);
 		ImGui::SetCursorPos(pos);
+		const float toolbar_pad_scale = std::clamp(hud_layout_.toolbar_padding_scale, 0.4f, 3.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f * toolbar_pad_scale, 4.0f * toolbar_pad_scale));
 		ImGui::BeginGroup();
 
 		const auto& toolbar_keybinds = camera_controller_.config().keybinds;
@@ -1033,7 +1039,49 @@ public:
 			}
 		}
 
+		if (tb.quicksave_quickload) {
+			ImGui::SameLine();
+			if (ImGui::Button("QSave", ImVec2(56.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario("scenarios/quicksave.yaml")));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("QLoad", ImVec2(56.0f, 24.0f))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario("scenarios/quicksave.yaml")));
+			}
+		}
+
+		if (tb.step_controller_cycle) {
+			ImGui::SameLine();
+			if (ImGui::Button("StepCtrl", ImVec2(74.0f, 24.0f))) {
+				const uint32_t next_mode = (orchestrator_.parameters().step_controller_mode + 1) % 3;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(next_mode))));
+			}
+		}
+
+		if (tb.render_distance_toggle) {
+			ImGui::SameLine();
+			const bool unbounded = orchestrator_.parameters().render_distance_scale <= 0.0;
+			if (ImGui::Button(unbounded ? "Dist: Inf" : "Dist: 100M", ImVec2(84.0f, 24.0f))) {
+				const double next_distance = unbounded ? 100.0 : 0.0;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RenderDistanceScale, next_distance)));
+			}
+		}
+
+		if (tb.pole_precision_nudge) {
+			ImGui::SameLine();
+			if (ImGui::Button("Pole-", ImVec2(48.0f, 24.0f))) {
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.5, 8.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Pole+", ImVec2(48.0f, 24.0f))) {
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.5, 8.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
+			}
+		}
+
 		ImGui::EndGroup();
+		ImGui::PopStyleVar();
 	}
 
 	void render_loading_indicator(const ImVec2& avail) noexcept {
@@ -1344,13 +1392,15 @@ private:
 			const auto& profiler = orchestrator_.profiler();
 			if (!profiler.history().empty()) {
 				const auto& latest = profiler.history().back();
-				char buf[176];
+				char buf[224];
 				std::snprintf(
 					buf, sizeof(buf),
-					"HUD Overlay: %.3f ms | Camera: %.3f ms | Schematic: %.3f ms",
+					"HUD Overlay: %.3f ms | Camera: %.3f ms | Schematic: %.3f ms | Post-Process: %.3f ms | Readback: %.3f ms",
 					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)],
 					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraUpdate)],
-					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::SchematicOverlay)]
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::SchematicOverlay)],
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::PostProcessing)],
+					latest.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::FramebufferReadback)]
 				);
 				push_block(HudElementId::ProfilerStageBreakdownReadout, {HudTextLine{buf}});
 			}

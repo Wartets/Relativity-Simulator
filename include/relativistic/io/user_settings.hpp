@@ -10,10 +10,29 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_map>
+#include <array>
 
 namespace Relativistic::IO {
 
 inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 2;
+
+struct SecondaryViewPersistedState {
+	bool active{false};
+	bool open{false};
+	std::string name{};
+	double radius{60.0};
+	double theta{1.5707963267948966};
+	double phi{0.0};
+	double fov_deg{55.0};
+	double exposure{0.0};
+	int tonemapping_mode{1};
+	int projection_mode{0};
+	int max_steps{768};
+	float resolution_scale{0.5f};
+	bool follow_primary{false};
+	double follow_offset_theta{0.35};
+	double follow_offset_phi{1.5707963267948966};
+};
 
 enum class SettingsLoadPolicy : uint32_t {
 	AlwaysResetToDefaults = 0,
@@ -37,6 +56,8 @@ struct UserSettings {
 	uint32_t screenshot_overwrite_policy{1};
 	bool show_system_console{true};
 	bool window_log_console_open{false};
+	static constexpr size_t kMaxSecondaryViews = 8;
+	std::array<SecondaryViewPersistedState, kMaxSecondaryViews> secondary_views{};
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
@@ -244,6 +265,27 @@ struct UserSettings {
 			style.background_opacity = static_cast<float>(get_dbl((prefix + "background_opacity").c_str(), style.background_opacity));
 		}
 
+		for (size_t i = 0; i < kMaxSecondaryViews; ++i) {
+			const std::string prefix = "secview_" + std::to_string(i) + "_";
+			auto& slot = result.secondary_views[i];
+			slot.active = get_bool((prefix + "active").c_str(), slot.active);
+			if (!slot.active) continue;
+			slot.open = get_bool((prefix + "open").c_str(), slot.open);
+			slot.name = get_str((prefix + "name").c_str(), slot.name);
+			slot.radius = get_dbl((prefix + "radius").c_str(), slot.radius);
+			slot.theta = get_dbl((prefix + "theta").c_str(), slot.theta);
+			slot.phi = get_dbl((prefix + "phi").c_str(), slot.phi);
+			slot.fov_deg = get_dbl((prefix + "fov_deg").c_str(), slot.fov_deg);
+			slot.exposure = get_dbl((prefix + "exposure").c_str(), slot.exposure);
+			slot.tonemapping_mode = get_i32((prefix + "tonemapping_mode").c_str(), slot.tonemapping_mode);
+			slot.projection_mode = get_i32((prefix + "projection_mode").c_str(), slot.projection_mode);
+			slot.max_steps = get_i32((prefix + "max_steps").c_str(), slot.max_steps);
+			slot.resolution_scale = static_cast<float>(get_dbl((prefix + "resolution_scale").c_str(), slot.resolution_scale));
+			slot.follow_primary = get_bool((prefix + "follow_primary").c_str(), slot.follow_primary);
+			slot.follow_offset_theta = get_dbl((prefix + "follow_offset_theta").c_str(), slot.follow_offset_theta);
+			slot.follow_offset_phi = get_dbl((prefix + "follow_offset_phi").c_str(), slot.follow_offset_phi);
+		}
+
 		return result;
 	}
 
@@ -334,6 +376,27 @@ struct UserSettings {
 			out << prefix << "color_a=" << style.text_color[3] << "\n";
 			out << prefix << "show_background=" << (style.show_background ? 1 : 0) << "\n";
 			out << prefix << "background_opacity=" << style.background_opacity << "\n";
+		}
+
+		for (size_t i = 0; i < kMaxSecondaryViews; ++i) {
+			const auto& slot = secondary_views[i];
+			const std::string prefix = "secview_" + std::to_string(i) + "_";
+			out << prefix << "active=" << (slot.active ? 1 : 0) << "\n";
+			if (!slot.active) continue;
+			out << prefix << "open=" << (slot.open ? 1 : 0) << "\n";
+			out << prefix << "name=" << slot.name << "\n";
+			out << prefix << "radius=" << slot.radius << "\n";
+			out << prefix << "theta=" << slot.theta << "\n";
+			out << prefix << "phi=" << slot.phi << "\n";
+			out << prefix << "fov_deg=" << slot.fov_deg << "\n";
+			out << prefix << "exposure=" << slot.exposure << "\n";
+			out << prefix << "tonemapping_mode=" << slot.tonemapping_mode << "\n";
+			out << prefix << "projection_mode=" << slot.projection_mode << "\n";
+			out << prefix << "max_steps=" << slot.max_steps << "\n";
+			out << prefix << "resolution_scale=" << slot.resolution_scale << "\n";
+			out << prefix << "follow_primary=" << (slot.follow_primary ? 1 : 0) << "\n";
+			out << prefix << "follow_offset_theta=" << slot.follow_offset_theta << "\n";
+			out << prefix << "follow_offset_phi=" << slot.follow_offset_phi << "\n";
 		}
 	}
 };

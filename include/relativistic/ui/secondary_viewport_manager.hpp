@@ -33,6 +33,12 @@ public:
 		return *views_.back();
 	}
 
+	SecondaryViewWindow& add_view_with_state(const std::string& exact_name, bool initial_open) {
+		views_.push_back(std::make_unique<SecondaryViewWindow>(exact_name, orchestrator_));
+		views_.back()->open_state() = initial_open;
+		return *views_.back();
+	}
+
 	void remove_closed_views() noexcept {
 		std::erase_if(views_, [](const std::unique_ptr<SecondaryViewWindow>& v) { return !v->open_state(); });
 	}

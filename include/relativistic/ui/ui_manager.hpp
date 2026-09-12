@@ -224,6 +224,9 @@ public:
 			ic.annihilation.enabled = user_settings_.interaction_annihilation_enabled;
 			ic.annihilation.contact_distance_scale = user_settings_.interaction_annihilation_contact_scale;
 			ic.annihilation.require_opposite_charge = user_settings_.interaction_annihilation_require_opposite_charge;
+			ic.collisions.contact_stiffness_scale = user_settings_.interaction_collision_stiffness_scale;
+			ic.collisions.position_correction_factor = user_settings_.interaction_collision_position_correction_factor;
+			ic.fragmentation.enable_tidal_stress = user_settings_.interaction_fragmentation_tidal_stress_enabled;
 		}
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
@@ -307,6 +310,9 @@ public:
 			user_settings_.interaction_annihilation_enabled = ic.annihilation.enabled;
 			user_settings_.interaction_annihilation_contact_scale = ic.annihilation.contact_distance_scale;
 			user_settings_.interaction_annihilation_require_opposite_charge = ic.annihilation.require_opposite_charge;
+			user_settings_.interaction_collision_stiffness_scale = ic.collisions.contact_stiffness_scale;
+			user_settings_.interaction_collision_position_correction_factor = ic.collisions.position_correction_factor;
+			user_settings_.interaction_fragmentation_tidal_stress_enabled = ic.fragmentation.enable_tidal_stress;
 		}
 
 		for (auto& slot : user_settings_.secondary_views) {

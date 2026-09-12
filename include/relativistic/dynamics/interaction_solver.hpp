@@ -79,7 +79,8 @@ public:
 		std::span<PostNewtonianBody> bodies,
 		const CollisionInteractionConfig& collision_cfg,
 		const FragmentationInteractionConfig& fragmentation_cfg,
-		const AnnihilationInteractionConfig& annihilation_cfg
+		const AnnihilationInteractionConfig& annihilation_cfg,
+		double dt
 	) noexcept {
 		CollisionOutcome outcome;
 		if (!collision_cfg.enabled) return outcome;
@@ -107,12 +108,33 @@ public:
 					}
 				}
 
+				const double m1 = std::max(bodies[i].mass, 1e-30);
+				const double m2 = std::max(bodies[j].mass, 1e-30);
+				const double overlap = contact_distance - r;
+
+				if (overlap > collision_cfg.position_correction_slop) {
+					const double youngs_i = (bodies[i].critical_temperature > 0.0 && bodies[i].temperature >= bodies[i].critical_temperature) ? bodies[i].youngs_modulus_hot : bodies[i].youngs_modulus_cold;
+					const double youngs_j = (bodies[j].critical_temperature > 0.0 && bodies[j].temperature >= bodies[j].critical_temperature) ? bodies[j].youngs_modulus_hot : bodies[j].youngs_modulus_cold;
+					const double youngs_eff = 0.5 * (std::max(youngs_i, 0.0) + std::max(youngs_j, 0.0));
+					if (youngs_eff > 0.0 && dt > 0.0) {
+						const double repulsion_force = collision_cfg.contact_stiffness_scale * youngs_eff * overlap;
+						for (size_t c = 0; c < 3; ++c) {
+							bodies[i].velocity[c] += (repulsion_force / m1) * dt * normal[c];
+							bodies[j].velocity[c] -= (repulsion_force / m2) * dt * normal[c];
+						}
+					}
+
+					const double correction_mag = (std::max(overlap - collision_cfg.position_correction_slop, 0.0) / (1.0 / m1 + 1.0 / m2)) * collision_cfg.position_correction_factor;
+					for (size_t c = 0; c < 3; ++c) {
+						bodies[i].position[c] += (correction_mag / m1) * normal[c];
+						bodies[j].position[c] -= (correction_mag / m2) * normal[c];
+					}
+				}
+
 				const auto v_rel = sub3(bodies[i].velocity, bodies[j].velocity);
 				const double v_normal = dot3(v_rel, normal);
 				if (v_normal >= 0.0) continue;
 
-				const double m1 = std::max(bodies[i].mass, 1e-30);
-				const double m2 = std::max(bodies[j].mass, 1e-30);
 				const double restitution = (collision_cfg.response_model == CollisionResponseModel::Elastic)
 					? std::clamp(0.5 * (bodies[i].restitution + bodies[j].restitution) * collision_cfg.restitution_multiplier, 0.0, 1.0)
 					: 0.0;
@@ -159,6 +181,26 @@ public:
 		}
 
 		return outcome;
+	}
+
+	static void apply_tidal_stress(
+		std::span<PostNewtonianBody> bodies,
+		double central_mass,
+		const FragmentationInteractionConfig& fragmentation_cfg,
+		double gravitational_constant,
+		double dt
+	) noexcept {
+		if (!fragmentation_cfg.enabled || !fragmentation_cfg.enable_tidal_stress || dt <= 0.0 || central_mass <= 0.0) return;
+		for (auto& body : bodies) {
+			if (!body.enabled || body.radius <= 0.0) continue;
+			const double r2 = dot3(body.position, body.position);
+			if (r2 <= 1e-12) continue;
+			const double r = std::sqrt(r2);
+			const double tidal_accel_gradient = (2.0 * gravitational_constant * central_mass) / (r2 * r);
+			const double differential_accel = tidal_accel_gradient * body.radius;
+			const double tidal_stress_energy = differential_accel * differential_accel * body.mass * dt;
+			body.integrity = std::max(0.0, body.integrity - tidal_stress_energy * fragmentation_cfg.tidal_stress_to_integrity_loss);
+		}
 	}
 };
 

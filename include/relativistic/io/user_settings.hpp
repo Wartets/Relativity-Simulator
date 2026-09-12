@@ -104,6 +104,9 @@ struct UserSettings {
 	bool interaction_annihilation_enabled{false};
 	double interaction_annihilation_contact_scale{1.0};
 	bool interaction_annihilation_require_opposite_charge{true};
+	double interaction_collision_stiffness_scale{1.0e-9};
+	double interaction_collision_position_correction_factor{0.2};
+	bool interaction_fragmentation_tidal_stress_enabled{false};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "user_settings.cfg";
@@ -238,6 +241,9 @@ struct UserSettings {
 		result.interaction_annihilation_enabled = get_bool("interaction_annihilation_enabled", result.interaction_annihilation_enabled);
 		result.interaction_annihilation_contact_scale = get_dbl("interaction_annihilation_contact_scale", result.interaction_annihilation_contact_scale);
 		result.interaction_annihilation_require_opposite_charge = get_bool("interaction_annihilation_require_opposite_charge", result.interaction_annihilation_require_opposite_charge);
+		result.interaction_collision_stiffness_scale = get_dbl("interaction_collision_stiffness_scale", result.interaction_collision_stiffness_scale);
+		result.interaction_collision_position_correction_factor = get_dbl("interaction_collision_position_correction_factor", result.interaction_collision_position_correction_factor);
+		result.interaction_fragmentation_tidal_stress_enabled = get_bool("interaction_fragmentation_tidal_stress_enabled", result.interaction_fragmentation_tidal_stress_enabled);
 
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
@@ -388,6 +394,9 @@ struct UserSettings {
 		out << "interaction_annihilation_enabled=" << (interaction_annihilation_enabled ? 1 : 0) << "\n";
 		out << "interaction_annihilation_contact_scale=" << interaction_annihilation_contact_scale << "\n";
 		out << "interaction_annihilation_require_opposite_charge=" << (interaction_annihilation_require_opposite_charge ? 1 : 0) << "\n";
+		out << "interaction_collision_stiffness_scale=" << interaction_collision_stiffness_scale << "\n";
+		out << "interaction_collision_position_correction_factor=" << interaction_collision_position_correction_factor << "\n";
+		out << "interaction_fragmentation_tidal_stress_enabled=" << (interaction_fragmentation_tidal_stress_enabled ? 1 : 0) << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

@@ -124,7 +124,11 @@ enum class ParameterType : uint32_t {
 	InteractionCollisionEnergyToIntegrityLoss = 81,
 	InteractionAnnihilationEnabled = 82,
 	InteractionAnnihilationContactScale = 83,
-	InteractionAnnihilationRequireOppositeCharge = 84
+	InteractionAnnihilationRequireOppositeCharge = 84,
+	InteractionCollisionStiffnessScale = 85,
+	InteractionCollisionPositionCorrectionFactor = 86,
+	InteractionFragmentationTidalStressEnabled = 87,
+	InteractionFragmentationTidalStressToIntegrityLoss = 88
 };
 
 struct Command {

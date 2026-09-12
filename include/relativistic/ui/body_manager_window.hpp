@@ -8,6 +8,7 @@
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
+#include "relativistic/dynamics/interaction_compatibility.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -904,26 +905,39 @@ private:
 
 	void render_interactions_tab() noexcept {
 		auto& cfg = orchestrator_.interaction_config();
+		const auto bodies_span = orchestrator_.nbody_system().bodies();
 
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Electromagnetic Interactions");
 		bool electricity = cfg.electromagnetic.electricity_enabled;
 		if (ImGui::Checkbox("Enable Electricity (Coulomb Force)", &electricity)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionElectricityEnabled, electricity ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Enables attraction and repulsion forces between charged bodies following Coulomb's law, scaled by the vacuum permittivity of the surrounding medium below.");
+		render_setting_tooltip("Enables attraction and repulsion between charged bodies following Coulomb's law, scaled by the medium permittivity below. Charge is set per body in the Body Catalog tab.");
 		bool magnetism = cfg.electromagnetic.magnetism_enabled;
 		if (ImGui::Checkbox("Enable Magnetism (Dipole Force)", &magnetism)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMagnetismEnabled, magnetism ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Enables dipole-dipole magnetic forces between bodies based on their magnetic moment values, requiring both bodies to have a non-zero magnetic moment.");
+		render_setting_tooltip("Enables dipole-dipole magnetic forces derived from each body's magnetic moment value. Both interacting bodies must have a non-zero magnetic moment for a force to appear.");
+		{
+			const auto warn = Dynamics::magnetism_without_moments_warning(bodies_span, cfg.electromagnetic);
+			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+		}
 		float permittivity = static_cast<float>(cfg.electromagnetic.vacuum_permittivity);
-		if (slider_float_with_input("Vacuum Permittivity (epsilon0)", &permittivity, 1e-14f, 1.0f, "%.4e")) {
+		if (slider_float_with_input("Medium Permittivity (epsilon)", &permittivity, 1e-14f, 1.0f, "%.4e")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, static_cast<double>(permittivity))));
 		}
+		render_setting_tooltip("Electrical permittivity of the medium the bodies interact through. Reduces the Coulomb force below its vacuum strength as this value grows.");
 		float permeability = static_cast<float>(cfg.electromagnetic.vacuum_permeability);
-		if (slider_float_with_input("Vacuum Permeability (mu0)", &permeability, 1e-10f, 10.0f, "%.4e")) {
+		if (slider_float_with_input("Medium Permeability (mu)", &permeability, 1e-10f, 10.0f, "%.4e")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, static_cast<double>(permeability))));
 		}
+		render_setting_tooltip("Magnetic permeability of the medium the bodies interact through, scaling the dipole-dipole magnetic force.");
+		if (ImGui::SmallButton("Sync To Vacuum Values From Constants Engine")) {
+			const auto& engine = orchestrator_.constants_engine();
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, engine.sim_vacuum_permittivity())));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, engine.sim_vacuum_permeability())));
+		}
+		render_setting_tooltip("Overwrites the two fields above with the true vacuum permittivity and permeability derived from the fundamental constants c, G, h, kB currently active in the Physical Constants Engine window, keeping both subsystems consistent.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Collisions");
@@ -931,26 +945,44 @@ private:
 		if (ImGui::Checkbox("Enable Collisions", &collisions)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionsEnabled, collisions ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Detects and resolves physical contact between bodies whose radii overlap, applying an impulse-based collision response. See docs/other/COLLISION_MODEL.md for the underlying model.");
+		render_setting_tooltip("Detects physical contact between overlapping bodies and resolves it with a Hertzian material-stiffness repulsion plus an impulse-based restitution and friction response. See docs/other/COLLISION_MODEL.md for the underlying derivation.");
+		{
+			const auto warn = Dynamics::collisions_without_radius_warning(bodies_span, cfg.collisions);
+			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+		}
 		if (collisions) {
 			int response_idx = static_cast<int>(cfg.collisions.response_model);
 			const char* response_names[] = {"Elastic (Restitution-Based)", "Inelastic (Perfectly Damped)"};
 			if (ImGui::Combo("Response Model", &response_idx, response_names, IM_ARRAYSIZE(response_names))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionResponseModel, static_cast<double>(response_idx))));
 			}
+			render_setting_tooltip("Elastic uses each body's Restitution property to bounce apart; Inelastic removes all normal-direction relative velocity on contact.");
 			bool consider_rotation = cfg.collisions.consider_rotation;
 			if (ImGui::Checkbox("Consider Rotation", &consider_rotation)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionConsiderRotation, consider_rotation ? 1.0 : 0.0)));
 			}
+			render_setting_tooltip("Lets tangential friction impulses spin bodies up around their rotation axis, approximated as solid spheres (I = 0.4 * m * r^2).");
 			ImGui::SameLine();
 			bool consider_friction = cfg.collisions.consider_friction;
 			if (ImGui::Checkbox("Consider Friction", &consider_friction)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionConsiderFriction, consider_friction ? 1.0 : 0.0)));
 			}
+			render_setting_tooltip("Applies a Coulomb-clamped tangential impulse opposing contact-point sliding velocity, using the average of both bodies' Friction Coefficient property.");
 			float restitution_mult = static_cast<float>(cfg.collisions.restitution_multiplier);
-			if (ImGui::SliderFloat("Restitution Multiplier", &restitution_mult, 0.0f, 4.0f, "%.2fx")) {
+			if (slider_float_with_input("Restitution Multiplier", &restitution_mult, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionRestitutionMultiplier, static_cast<double>(restitution_mult))));
 			}
+			render_setting_tooltip("Global multiplier applied on top of each body's own Restitution property before it is clamped back into the physical [0, 1] range.");
+			float stiffness = static_cast<float>(cfg.collisions.contact_stiffness_scale);
+			if (slider_float_with_input("Contact Stiffness Scale", &stiffness, 0.0f, 1.0f, "%.6e")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionStiffnessScale, static_cast<double>(stiffness))));
+			}
+			render_setting_tooltip("Scales the Hertzian penetration repulsion force computed from each body's Young's Modulus property and the current overlap depth. Zero disables material-stiffness pushback and relies only on the instantaneous impulse response below.");
+			float position_correction = static_cast<float>(cfg.collisions.position_correction_factor);
+			if (slider_float_with_input("Position Correction Factor", &position_correction, 0.0f, 1.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionPositionCorrectionFactor, static_cast<double>(position_correction))));
+			}
+			render_setting_tooltip("Baumgarte-style geometric correction that nudges deeply overlapping bodies apart each step, mass-weighted, preventing residual sinking when the material stiffness above is too soft to fully separate stiff bodies in a single step.");
 		}
 
 		ImGui::Separator();
@@ -959,16 +991,22 @@ private:
 		if (ImGui::Checkbox("Enable Thermodynamics", &thermo)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionThermodynamicsEnabled, thermo ? 1.0 : 0.0)));
 		}
+		render_setting_tooltip("Tracks per-body Temperature and Heat Capacity properties and radiates energy toward the ambient temperature below via the Stefan-Boltzmann law, scaled by each body's Absorption Factor.");
+		{
+			const auto warn = Dynamics::thermodynamics_disabled_ambient_note(cfg.thermodynamics);
+			if (!warn.empty()) ImGui::TextColored(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), "%s", std::string(warn).c_str());
+		}
 		if (thermo) {
 			float ambient = static_cast<float>(cfg.thermodynamics.ambient_temperature_kelvin);
-			if (ImGui::SliderFloat("Ambient Temperature (K, -1 = none)", &ambient, -1.0f, 6000.0f, "%.1f")) {
+			if (slider_float_with_input("Ambient Temperature (K, -1 = none)", &ambient, -1.0f, 6000.0f, "%.1f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAmbientTemperature, static_cast<double>(ambient))));
 			}
-			render_setting_tooltip("Background radiative temperature bodies cool toward or heat toward via Stefan-Boltzmann emission. Set to -1 to disable ambient coupling entirely while keeping thermodynamics enabled for other subsystems.");
+			render_setting_tooltip("Background radiative temperature bodies cool toward or heat toward via Stefan-Boltzmann emission. Set to -1 to disable ambient radiative coupling entirely while keeping per-body heat capacity bookkeeping active.");
 			float coupling = static_cast<float>(cfg.thermodynamics.radiative_coupling_scale);
-			if (ImGui::SliderFloat("Radiative Coupling Scale", &coupling, 0.0f, 10.0f, "%.2fx")) {
+			if (slider_float_with_input("Radiative Coupling Scale", &coupling, 0.0f, 10.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionRadiativeCouplingScale, static_cast<double>(coupling))));
 			}
+			render_setting_tooltip("Multiplies the Stefan-Boltzmann radiative exchange rate, letting the ambient coupling be sped up or slowed down without touching the physical Stefan-Boltzmann constant itself.");
 		}
 
 		ImGui::Separator();
@@ -977,13 +1015,17 @@ private:
 		if (ImGui::Checkbox("Enable Fragmentation", &fragmentation)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationEnabled, fragmentation ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Allows bodies to shatter into smaller fragments once their integrity is depleted by high-energy collisions or tidal stress.");
+		render_setting_tooltip("Allows bodies to shatter into smaller fragments once their Integrity property is depleted by high-energy collisions and, optionally, sustained tidal stress from the central spacetime source.");
+		{
+			const auto warn = Dynamics::fragmentation_requires_source_warning(cfg.fragmentation, cfg.collisions);
+			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+		}
 		if (fragmentation) {
 			float min_fragment_mass = static_cast<float>(cfg.fragmentation.minimum_fragment_mass);
 			if (slider_float_with_input("Minimum Fragment Mass", &min_fragment_mass, 1e-9f, 1e3f, "%.4e")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMinimumFragmentMass, static_cast<double>(min_fragment_mass))));
 			}
-			render_setting_tooltip("Fragments below this mass are dispersed entirely rather than spawned as new bodies.");
+			render_setting_tooltip("Fragments whose computed mass would fall below this floor are dispersed entirely rather than spawned as new bodies, preventing runaway fragment counts.");
 			int max_fragments = static_cast<int>(cfg.fragmentation.max_fragments_per_event);
 			if (ImGui::SliderInt("Max Fragments Per Event", &max_fragments, 1, 8)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationMaxFragments, static_cast<double>(max_fragments))));
@@ -991,6 +1033,19 @@ private:
 			float energy_to_integrity = static_cast<float>(cfg.fragmentation.collision_energy_to_integrity_loss);
 			if (slider_float_with_input("Collision Energy To Integrity Loss", &energy_to_integrity, 0.0f, 1.0f, "%.4e")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionEnergyToIntegrityLoss, static_cast<double>(energy_to_integrity))));
+			}
+			render_setting_tooltip("Conversion factor from an impact's kinetic energy along the collision normal into lost Integrity for both colliding bodies.");
+			bool tidal_stress = cfg.fragmentation.enable_tidal_stress;
+			if (ImGui::Checkbox("Enable Tidal Disruption From Central Source", &tidal_stress)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationTidalStressEnabled, tidal_stress ? 1.0 : 0.0)));
+			}
+			render_setting_tooltip("Continuously erodes Integrity for bodies close to the central mass based on the differential gravitational acceleration across their physical radius, approximating tidal stretching near the Roche limit.");
+			if (tidal_stress) {
+				float tidal_to_integrity = static_cast<float>(cfg.fragmentation.tidal_stress_to_integrity_loss);
+				if (slider_float_with_input("Tidal Stress To Integrity Loss", &tidal_to_integrity, 0.0f, 1.0f, "%.4e")) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationTidalStressToIntegrityLoss, static_cast<double>(tidal_to_integrity))));
+				}
+				render_setting_tooltip("Conversion factor from tidal stress energy density into lost Integrity per second.");
 			}
 		}
 
@@ -1000,16 +1055,21 @@ private:
 		if (ImGui::Checkbox("Enable Annihilation", &annihilation)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationEnabled, annihilation ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Removes both colliding bodies entirely when they satisfy the contact and charge conditions below, modeling a complete matter-antimatter style annihilation event.");
+		render_setting_tooltip("Removes both colliding bodies entirely once they satisfy the contact and charge conditions below, modeling a complete matter-antimatter style annihilation event.");
+		{
+			const auto warn = Dynamics::annihilation_requires_charge_warning(cfg.annihilation, cfg.electromagnetic);
+			if (!warn.empty()) ImGui::TextColored(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), "%s", std::string(warn).c_str());
+		}
 		if (annihilation) {
 			bool opposite_charge = cfg.annihilation.require_opposite_charge;
 			if (ImGui::Checkbox("Require Opposite Charge", &opposite_charge)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationRequireOppositeCharge, opposite_charge ? 1.0 : 0.0)));
 			}
 			float contact_scale = static_cast<float>(cfg.annihilation.contact_distance_scale);
-			if (ImGui::SliderFloat("Contact Distance Scale", &contact_scale, 0.01f, 4.0f, "%.2fx")) {
+			if (slider_float_with_input("Contact Distance Scale", &contact_scale, 0.01f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationContactScale, static_cast<double>(contact_scale))));
 			}
+			render_setting_tooltip("Fraction of the combined radii within which annihilation triggers; values below 1 require deeper overlap than plain collision contact.");
 		}
 	}
 

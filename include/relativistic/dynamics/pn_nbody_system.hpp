@@ -127,7 +127,10 @@ public:
 
 		InteractionSolver::apply_electromagnetic(bodies_, interaction_config_.electromagnetic);
 		InteractionSolver::apply_thermodynamics(bodies_, interaction_config_.thermodynamics, dt);
-		const auto outcome = InteractionSolver::apply_collisions(bodies_, interaction_config_.collisions, interaction_config_.fragmentation, interaction_config_.annihilation);
+		if (has_central_body_) {
+			InteractionSolver::apply_tidal_stress(bodies_, central_body_.mass, interaction_config_.fragmentation, config_.gravitational_constant, dt);
+		}
+		const auto outcome = InteractionSolver::apply_collisions(bodies_, interaction_config_.collisions, interaction_config_.fragmentation, interaction_config_.annihilation, dt);
 
 		if (outcome.annihilated_body_ids.empty() && outcome.shattered_body_ids.empty()) return;
 

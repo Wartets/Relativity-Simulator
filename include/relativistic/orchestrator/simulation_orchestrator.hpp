@@ -959,6 +959,18 @@ public:
 			case ParameterType::InteractionAnnihilationRequireOppositeCharge:
 				interaction_config_.annihilation.require_opposite_charge = (val > 0.5);
 				break;
+			case ParameterType::InteractionCollisionStiffnessScale:
+				interaction_config_.collisions.contact_stiffness_scale = std::max(val, 0.0);
+				break;
+			case ParameterType::InteractionCollisionPositionCorrectionFactor:
+				interaction_config_.collisions.position_correction_factor = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::InteractionFragmentationTidalStressEnabled:
+				interaction_config_.fragmentation.enable_tidal_stress = (val > 0.5);
+				break;
+			case ParameterType::InteractionFragmentationTidalStressToIntegrityLoss:
+				interaction_config_.fragmentation.tidal_stress_to_integrity_loss = std::max(val, 0.0);
+				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
 				break;

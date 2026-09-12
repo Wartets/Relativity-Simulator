@@ -30,7 +30,8 @@ enum class SchematicColorCodingMode : uint32_t {
 	ByKineticEnergy = 5,
 	ByTemperature = 6,
 	ByChargeMagnitude = 7,
-	ByDensity = 8
+	ByDensity = 8,
+	ByPhysicalIntelligent = 9
 };
 
 enum class SchematicSphereParameterSource : uint32_t {
@@ -94,6 +95,37 @@ struct SchematicObjectDisplayConfig {
 	bool show_speed_in_tag{false};
 };
 
+enum class OffscreenIndicatorColorSource : uint32_t {
+	Fixed = 0,
+	ByMass = 1,
+	ByDistance = 2,
+	BySpeed = 3,
+	ByTemperature = 4
+};
+
+enum class OffscreenIndicatorShape : uint32_t {
+	Triangle = 0,
+	Chevron = 1,
+	Diamond = 2,
+	Dot = 3
+};
+
+struct OffscreenIndicatorConfig {
+	bool enabled{true};
+	OffscreenIndicatorShape shape{OffscreenIndicatorShape::Triangle};
+	OffscreenIndicatorColorSource color_source{OffscreenIndicatorColorSource::Fixed};
+	std::array<float, 4> fixed_color{1.0f, 0.82f, 0.35f, 0.86f};
+	double base_size_px{9.0};
+	bool scale_with_distance{false};
+	double min_size_px{5.0};
+	double max_size_px{22.0};
+	bool fade_with_distance{true};
+	double fade_reference_distance{80.0};
+	bool show_label{true};
+	bool show_distance_in_label{false};
+	double edge_margin_px{40.0};
+};
+
 struct SchematicViewConfig {
 	// The schematic camera has an independent optical mapping from the ray-traced viewport.
 	Observer::ProjectionMode projection_mode{Observer::ProjectionMode::Pinhole};
@@ -133,10 +165,14 @@ struct SchematicViewConfig {
 	double orbit_prediction_max_eccentricity{0.98};
 	double orbit_prediction_duration{120.0};
 	int orbit_prediction_substeps{2};
+	bool show_orbit_prediction_uncertainty{false};
+	double orbit_prediction_uncertainty_growth{0.02};
+	double orbit_prediction_uncertainty_opacity{0.18};
 
 	SchematicObjectDisplayConfig central_object_style{};
 	SchematicObjectDisplayConfig body_style{};
 	std::unordered_map<uint32_t, SchematicObjectDisplayConfig> body_style_overrides{};
+	OffscreenIndicatorConfig offscreen_indicator{};
 
 	[[nodiscard]] const SchematicObjectDisplayConfig& effective_body_style(uint32_t body_id) const noexcept {
 		const auto it = body_style_overrides.find(body_id);

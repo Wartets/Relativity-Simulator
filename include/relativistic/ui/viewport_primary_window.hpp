@@ -11,6 +11,7 @@
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
@@ -1210,14 +1211,18 @@ private:
 
 		{
 			const auto& style = hud_layout_.element(HudElementId::CameraDistanceReadout);
-			char buf[96];
+			char buf[160];
 			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			const auto& unit_prefs = orchestrator_.unit_preferences();
+			const double meters_per_geo_unit = orchestrator_.constants_engine().length_scale();
+			const std::string radius_display = Units::format_distance(cam.radius * meters_per_geo_unit, unit_prefs.distance, prec);
 			if (style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "r=%.*f M", prec, cam.radius);
+				std::snprintf(buf, sizeof(buf), "r=%s", radius_display.c_str());
 			} else if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.*f M | Orbit Distance: %.*f M", prec, cam.radius, prec, cam.orbit_distance);
+				const std::string orbit_display = Units::format_distance(cam.orbit_distance * meters_per_geo_unit, unit_prefs.distance, prec);
+				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %s | Orbit Distance: %s", radius_display.c_str(), orbit_display.c_str());
 			} else {
-				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %.*f M", prec, cam.radius);
+				std::snprintf(buf, sizeof(buf), "Camera Distance (r): %s", radius_display.c_str());
 			}
 			push_block(HudElementId::CameraDistanceReadout, {HudTextLine{buf}});
 		}

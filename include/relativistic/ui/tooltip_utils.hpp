@@ -14,6 +14,14 @@ inline void render_setting_tooltip(const char* text) noexcept {
 	}
 }
 
+inline void render_wrapped_colored_text(const ImVec4& color, const char* text) noexcept {
+	ImGui::PushStyleColor(ImGuiCol_Text, color);
+	ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX());
+	ImGui::TextUnformatted(text);
+	ImGui::PopTextWrapPos();
+	ImGui::PopStyleColor();
+}
+
 inline void render_setting_tooltip_warning(const char* text, const char* warning) noexcept {
 	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
 		ImGui::BeginTooltip();

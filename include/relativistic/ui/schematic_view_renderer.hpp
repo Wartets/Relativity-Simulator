@@ -276,8 +276,15 @@ private:
 		draw_list->AddPolyline(screen_pts.data(), static_cast<int>(screen_pts.size()), color, closed ? ImDrawFlags_Closed : ImDrawFlags_None, thickness);
 	}
 
-	void draw_offscreen_indicator(ImDrawList* draw_list, const std::array<double, 3>& world_position, const std::string& label) const {
-		if (rect_size_.x <= 0.0f || rect_size_.y <= 0.0f) return;
+	void draw_offscreen_indicator(
+		ImDrawList* draw_list,
+		const std::array<double, 3>& world_position,
+		const std::string& label,
+		const OffscreenIndicatorConfig& style = OffscreenIndicatorConfig{},
+		ImU32 color_override = 0,
+		double size_override = -1.0
+	) const {
+		if (rect_size_.x <= 0.0f || rect_size_.y <= 0.0f || !style.enabled) return;
 
 		const double dx = world_position[0] - camera_position_[0];
 		const double dy = world_position[1] - camera_position_[1];
@@ -300,7 +307,7 @@ private:
 
 		const ImVec2 center(rect_min_.x + rect_size_.x * 0.5f, rect_min_.y + rect_size_.y * 0.5f);
 
-		constexpr float margin = 40.0f;
+		const float margin = static_cast<float>(style.edge_margin_px);
 		const float half_w = std::max(rect_size_.x * 0.5f - margin, 1.0f);
 		const float half_h = std::max(rect_size_.y * 0.5f - margin, 1.0f);
 
@@ -311,17 +318,62 @@ private:
 		const float scale = std::min(scale_x, scale_y);
 		if (!std::isfinite(scale)) return;
 
+		const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		const float arrow_size = static_cast<float>(size_override >= 0.0
+			? size_override
+			: (style.scale_with_distance
+				? std::clamp(style.base_size_px * (60.0 / std::max(distance, 1.0)), style.min_size_px, style.max_size_px)
+				: style.base_size_px));
+
+		ImU32 indicator_color = (color_override != 0) ? color_override : ImGui::ColorConvertFloat4ToU32(ImVec4(style.fixed_color[0], style.fixed_color[1], style.fixed_color[2], style.fixed_color[3]));
+		if (style.fade_with_distance) {
+			const float fade = static_cast<float>(std::clamp(style.fade_reference_distance / std::max(distance, 1.0), 0.15, 1.0));
+			const ImVec4 base = ImGui::ColorConvertU32ToFloat4(indicator_color);
+			indicator_color = ImGui::ColorConvertFloat4ToU32(ImVec4(base.x, base.y, base.z, base.w * fade));
+		}
+
 		const ImVec2 edge_point(center.x + dir.x * scale, center.y + dir.y * scale);
 		const ImVec2 perp{-dir.y, dir.x};
-		constexpr float arrow_size = 9.0f;
-		const ImVec2 tip(edge_point.x + dir.x * arrow_size, edge_point.y + dir.y * arrow_size);
-		const ImVec2 base_a(edge_point.x - dir.x * arrow_size + perp.x * arrow_size * 0.6f, edge_point.y - dir.y * arrow_size + perp.y * arrow_size * 0.6f);
-		const ImVec2 base_b(edge_point.x - dir.x * arrow_size - perp.x * arrow_size * 0.6f, edge_point.y - dir.y * arrow_size - perp.y * arrow_size * 0.6f);
 
-		draw_list->AddTriangleFilled(tip, base_a, base_b, IM_COL32(255, 210, 90, 220));
+		switch (style.shape) {
+			case OffscreenIndicatorShape::Diamond: {
+				const ImVec2 top(edge_point.x + dir.x * arrow_size, edge_point.y + dir.y * arrow_size);
+				const ImVec2 bottom(edge_point.x - dir.x * arrow_size, edge_point.y - dir.y * arrow_size);
+				const ImVec2 left(edge_point.x + perp.x * arrow_size, edge_point.y + perp.y * arrow_size);
+				const ImVec2 right(edge_point.x - perp.x * arrow_size, edge_point.y - perp.y * arrow_size);
+				draw_list->AddQuadFilled(top, left, bottom, right, indicator_color);
+				break;
+			}
+			case OffscreenIndicatorShape::Dot: {
+				draw_list->AddCircleFilled(edge_point, arrow_size * 0.6f, indicator_color, 16);
+				break;
+			}
+			case OffscreenIndicatorShape::Chevron: {
+				const ImVec2 tip(edge_point.x + dir.x * arrow_size, edge_point.y + dir.y * arrow_size);
+				const ImVec2 base_a(edge_point.x - dir.x * arrow_size * 0.2f + perp.x * arrow_size * 0.7f, edge_point.y - dir.y * arrow_size * 0.2f + perp.y * arrow_size * 0.7f);
+				const ImVec2 base_b(edge_point.x - dir.x * arrow_size * 0.2f - perp.x * arrow_size * 0.7f, edge_point.y - dir.y * arrow_size * 0.2f - perp.y * arrow_size * 0.7f);
+				draw_list->AddLine(base_a, tip, indicator_color, 2.5f);
+				draw_list->AddLine(base_b, tip, indicator_color, 2.5f);
+				break;
+			}
+			case OffscreenIndicatorShape::Triangle:
+			default: {
+				const ImVec2 tip(edge_point.x + dir.x * arrow_size, edge_point.y + dir.y * arrow_size);
+				const ImVec2 base_a(edge_point.x - dir.x * arrow_size + perp.x * arrow_size * 0.6f, edge_point.y - dir.y * arrow_size + perp.y * arrow_size * 0.6f);
+				const ImVec2 base_b(edge_point.x - dir.x * arrow_size - perp.x * arrow_size * 0.6f, edge_point.y - dir.y * arrow_size - perp.y * arrow_size * 0.6f);
+				draw_list->AddTriangleFilled(tip, base_a, base_b, indicator_color);
+				break;
+			}
+		}
 
-		const ImVec2 text_position(edge_point.x + dir.x * 14.0f, edge_point.y + dir.y * 14.0f - 6.0f);
-		draw_list->AddText(text_position, IM_COL32(255, 220, 150, 220), label.c_str());
+		if (style.show_label) {
+			std::string full_label = label;
+			if (style.show_distance_in_label) {
+				full_label += " (" + std::to_string(distance).substr(0, 6) + ")";
+			}
+			const ImVec2 text_position(edge_point.x + dir.x * 14.0f, edge_point.y + dir.y * 14.0f - 6.0f);
+			draw_list->AddText(text_position, indicator_color, full_label.c_str());
+		}
 	}
 
 	[[nodiscard]] static double body_scalar_value(const Dynamics::PostNewtonianBody& body, SchematicColorCodingMode mode) noexcept {
@@ -368,6 +420,18 @@ private:
 			default:
 				return body.mass;
 		}
+	}
+
+	[[nodiscard]] static ImU32 compute_intelligent_color(const Dynamics::PostNewtonianBody& body) noexcept {
+		const double mass_component = std::clamp(std::log10(std::max(body.mass, 1e-9)) / 12.0 + 0.5, 0.0, 1.0);
+		const double thermal_component = std::clamp(body.temperature / 20000.0, 0.0, 1.0);
+		const double charge_component = std::clamp(std::abs(body.charge) / 5.0, 0.0, 1.0);
+		const double spin_component = std::clamp(body.spin_magnitude() / std::max(body.mass, 1e-9), 0.0, 1.0);
+
+		const float r = static_cast<float>(std::clamp(0.15 + thermal_component * 0.85 + charge_component * 0.2, 0.0, 1.0));
+		const float g = static_cast<float>(std::clamp(0.15 + mass_component * 0.5 - charge_component * 0.15, 0.0, 1.0));
+		const float b = static_cast<float>(std::clamp(0.25 + spin_component * 0.75 - thermal_component * 0.3, 0.0, 1.0));
+		return ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, 1.0f));
 	}
 
 	[[nodiscard]] static ImU32 compute_coded_color(SchematicColorCodingMode mode, double value, double min_v, double max_v, const std::array<float, 4>& fallback_color) noexcept {
@@ -558,14 +622,35 @@ private:
 
 		if (!proj.visible) {
 			if (cfg.show_tags) {
-				draw_offscreen_indicator(draw_list, body.position, "#" + std::to_string(body.id));
+				const auto& indicator_style = cfg.offscreen_indicator;
+				ImU32 mapped_color = 0;
+				switch (indicator_style.color_source) {
+					case OffscreenIndicatorColorSource::ByMass:
+						mapped_color = compute_coded_color(SchematicColorCodingMode::ByMass, body.mass, 0.0, std::max(body.mass * 4.0, 1.0), style.uniform_color);
+						break;
+					case OffscreenIndicatorColorSource::ByDistance:
+						mapped_color = compute_coded_color(SchematicColorCodingMode::ByDistanceFromCenter, body_scalar_value(body, SchematicColorCodingMode::ByDistanceFromCenter), 0.0, 500.0, style.uniform_color);
+						break;
+					case OffscreenIndicatorColorSource::BySpeed:
+						mapped_color = compute_coded_color(SchematicColorCodingMode::BySpeed, body.speed(), 0.0, std::max(body.speed() * 2.0, 0.01), style.uniform_color);
+						break;
+					case OffscreenIndicatorColorSource::ByTemperature:
+						mapped_color = compute_coded_color(SchematicColorCodingMode::ByTemperature, body.temperature, 0.0, 20000.0, style.uniform_color);
+						break;
+					case OffscreenIndicatorColorSource::Fixed:
+					default:
+						break;
+				}
+				draw_offscreen_indicator(draw_list, body.position, "#" + std::to_string(body.id), indicator_style, mapped_color);
 			}
 			return;
 		}
 
 		const double color_value = body_scalar_value(body, style.color_mode);
 		const auto fallback_color = (style.color_mode == SchematicColorCodingMode::Uniform) ? body.color : style.uniform_color;
-		const ImU32 color = compute_coded_color(style.color_mode, color_value, min_val, max_val, fallback_color);
+		const ImU32 color = (style.color_mode == SchematicColorCodingMode::ByPhysicalIntelligent)
+			? compute_intelligent_color(body)
+			: compute_coded_color(style.color_mode, color_value, min_val, max_val, fallback_color);
 
 		double pixel_radius_override = -1.0;
 		if (style.shape == SchematicObjectShape::SphereByParameter) {
@@ -607,7 +692,7 @@ private:
 
 		if (!proj.visible) {
 			if (cfg.show_tags) {
-				draw_offscreen_indicator(draw_list, center, "Central Object");
+				draw_offscreen_indicator(draw_list, center, "Central Object", cfg.offscreen_indicator);
 			}
 			return;
 		}
@@ -729,11 +814,17 @@ private:
 		});
 	}
 
-	void draw_trails(ImDrawList* draw_list, const SchematicViewConfig& cfg) const {
+	void draw_trails(ImDrawList* draw_list, const SchematicViewConfig& cfg, std::span<const Dynamics::PostNewtonianBody> bodies) const {
 		const double now = ImGui::GetTime();
 		for (const auto& [id, trail] : body_trails_) {
-			static_cast<void>(id);
 			if (trail.size() < 2) continue;
+			std::array<float, 4> base_color{0.55f, 0.75f, 1.0f, 1.0f};
+			for (const auto& b : bodies) {
+				if (b.id == id) {
+					base_color = b.color;
+					break;
+				}
+			}
 			for (size_t i = 1; i < trail.size(); ++i) {
 				const auto& a = trail[i - 1];
 				const auto& b = trail[i];
@@ -743,7 +834,7 @@ private:
 				const double age = now - b.timestamp;
 				const double t = std::clamp(1.0 - age / std::max(cfg.trail_duration_seconds, 1e-6), 0.0, 1.0);
 				const float alpha = static_cast<float>(std::pow(t, cfg.trail_fade_power));
-				const ImU32 color = IM_COL32(140, 190, 255, clamp8(static_cast<double>(alpha) * 220.0));
+				const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(base_color[0], base_color[1], base_color[2], alpha));
 				draw_list->AddLine(proj_a.screen, proj_b.screen, color, static_cast<float>(cfg.trail_line_thickness));
 			}
 		}
@@ -809,6 +900,30 @@ private:
 			});
 		}
 		return pts;
+	}
+
+	[[nodiscard]] static std::vector<std::array<double, 3>> apply_uncertainty_offset(
+		const std::vector<std::array<double, 3>>& base_points,
+		double growth_rate,
+		double sign
+	) {
+		std::vector<std::array<double, 3>> result;
+		result.reserve(base_points.size());
+		for (size_t i = 0; i < base_points.size(); ++i) {
+			const auto& p = base_points[i];
+			const double r = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+			const double offset = sign * growth_rate * static_cast<double>(i);
+			if (r > 1e-9) {
+				result.push_back({
+					p[0] * (1.0 + offset / r),
+					p[1] * (1.0 + offset / r),
+					p[2] * (1.0 + offset / r)
+				});
+			} else {
+				result.push_back(p);
+			}
+		}
+		return result;
 	}
 
 	[[nodiscard]] static std::vector<std::array<double, 3>> compute_orbit_prediction_points(
@@ -884,13 +999,20 @@ public:
 
 		update_trails(bodies, cfg);
 		if (cfg.show_trails) {
-			draw_trails(draw_list, cfg);
+			draw_trails(draw_list, cfg, bodies);
 		}
 
 		if (cfg.show_orbit_predictions) {
 			for (const auto& body : bodies) {
 				if (!body.enabled) continue;
 				const auto pts = compute_orbit_prediction_points(body, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_duration, cfg.orbit_prediction_substeps);
+				if (cfg.show_orbit_prediction_uncertainty) {
+					const auto upper_pts = apply_uncertainty_offset(pts, cfg.orbit_prediction_uncertainty_growth, 1.0);
+					const auto lower_pts = apply_uncertainty_offset(pts, cfg.orbit_prediction_uncertainty_growth, -1.0);
+					const ImU32 uncertainty_color = IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_uncertainty_opacity));
+					draw_polyline_3d(draw_list, upper_pts, uncertainty_color, 1.0f, false);
+					draw_polyline_3d(draw_list, lower_pts, uncertainty_color, 1.0f, false);
+				}
 				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), false);
 			}
 		}
@@ -938,13 +1060,20 @@ public:
 
 		update_trails(bodies, cfg);
 		if (cfg.show_trails) {
-			draw_trails(draw_list, cfg);
+			draw_trails(draw_list, cfg, bodies);
 		}
 
 		if (cfg.show_orbit_predictions) {
 			for (const auto& body : bodies) {
 				if (!body.enabled) continue;
 				const auto pts = compute_orbit_prediction_points(body, mu, cfg.orbit_prediction_segments, cfg.orbit_prediction_duration, cfg.orbit_prediction_substeps);
+				if (cfg.show_orbit_prediction_uncertainty) {
+					const auto upper_pts = apply_uncertainty_offset(pts, cfg.orbit_prediction_uncertainty_growth, 1.0);
+					const auto lower_pts = apply_uncertainty_offset(pts, cfg.orbit_prediction_uncertainty_growth, -1.0);
+					const ImU32 uncertainty_color = IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_uncertainty_opacity));
+					draw_polyline_3d(draw_list, upper_pts, uncertainty_color, 1.0f, false);
+					draw_polyline_3d(draw_list, lower_pts, uncertainty_color, 1.0f, false);
+				}
 				draw_polyline_3d(draw_list, pts, IM_COL32(170, 200, 255, clamp8(255.0 * cfg.orbit_prediction_opacity)), static_cast<float>(cfg.orbit_prediction_thickness), false);
 			}
 		}

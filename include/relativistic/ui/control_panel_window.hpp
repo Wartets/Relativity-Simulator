@@ -10,6 +10,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -193,6 +194,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Schematic View")) {
 					render_schematic_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Units & Scales")) {
+					render_units_tab();
 					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();
@@ -907,7 +912,7 @@ private:
 				if (ImGui::SliderFloat("Max Pixel Radius", &max_px, 10.0f, 400.0f, "%.1f")) style.sphere_max_pixel_radius = max_px;
 			}
 
-			const char* color_modes[] = {"Body Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy", "Physical: Temperature", "Physical: Charge", "Physical: Density"};
+			const char* color_modes[] = {"Body Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy", "Physical: Temperature", "Physical: Charge", "Physical: Density", "Physical: Intelligent Composite"};
 			int color_idx = static_cast<int>(style.color_mode);
 			if (ImGui::Combo("Color Coding", &color_idx, color_modes, IM_ARRAYSIZE(color_modes))) {
 				style.color_mode = static_cast<SchematicColorCodingMode>(color_idx);
@@ -1010,6 +1015,43 @@ private:
 		ImGui::SameLine();
 		ImGui::Checkbox("Show Object Tags", &schematic_cfg_.show_tags);
 
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Off-Screen Indicators:");
+		auto& offscreen = schematic_cfg_.offscreen_indicator;
+		ImGui::Checkbox("Enable Off-Screen Indicators", &offscreen.enabled);
+		if (offscreen.enabled) {
+			const char* shapes[] = {"Triangle", "Chevron", "Diamond", "Dot"};
+			int shape_idx = static_cast<int>(offscreen.shape);
+			if (ImGui::Combo("Indicator Shape", &shape_idx, shapes, IM_ARRAYSIZE(shapes))) offscreen.shape = static_cast<OffscreenIndicatorShape>(shape_idx);
+			const char* color_sources[] = {"Fixed Color", "By Mass", "By Distance From Center", "By Speed", "By Temperature"};
+			int color_idx = static_cast<int>(offscreen.color_source);
+			if (ImGui::Combo("Color Source", &color_idx, color_sources, IM_ARRAYSIZE(color_sources))) offscreen.color_source = static_cast<OffscreenIndicatorColorSource>(color_idx);
+			if (offscreen.color_source == OffscreenIndicatorColorSource::Fixed) {
+				ImGui::ColorEdit4("Fixed Indicator Color", offscreen.fixed_color.data());
+			}
+			float base_size = static_cast<float>(offscreen.base_size_px);
+			if (slider_float_with_input("Base Size (px)", &base_size, 2.0f, 40.0f, "%.1f")) offscreen.base_size_px = base_size;
+			ImGui::Checkbox("Scale Size With Distance", &offscreen.scale_with_distance);
+			if (offscreen.scale_with_distance) {
+				float min_size = static_cast<float>(offscreen.min_size_px);
+				if (slider_float_with_input("Min Size (px)", &min_size, 1.0f, 40.0f, "%.1f")) offscreen.min_size_px = min_size;
+				float max_size = static_cast<float>(offscreen.max_size_px);
+				if (slider_float_with_input("Max Size (px)", &max_size, 1.0f, 80.0f, "%.1f")) offscreen.max_size_px = max_size;
+			}
+			ImGui::Checkbox("Fade Opacity With Distance", &offscreen.fade_with_distance);
+			if (offscreen.fade_with_distance) {
+				float fade_ref = static_cast<float>(offscreen.fade_reference_distance);
+				if (slider_float_with_input("Fade Reference Distance", &fade_ref, 1.0f, 2000.0f, "%.1f", nullptr, 1.0f, 2000.0f)) offscreen.fade_reference_distance = fade_ref;
+			}
+			ImGui::Checkbox("Show Label", &offscreen.show_label);
+			if (offscreen.show_label) {
+				ImGui::SameLine();
+				ImGui::Checkbox("Include Distance In Label", &offscreen.show_distance_in_label);
+			}
+			float edge_margin = static_cast<float>(offscreen.edge_margin_px);
+			if (slider_float_with_input("Screen Edge Margin (px)", &edge_margin, 5.0f, 150.0f, "%.1f")) offscreen.edge_margin_px = edge_margin;
+		}
+
 		if (schematic_cfg_.show_background_grid) {
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Background Grid:");
@@ -1055,6 +1097,13 @@ private:
 		if (schematic_cfg_.show_orbit_predictions) {
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Orbit Predictions:");
+			ImGui::Checkbox("Show Uncertainty Band", &schematic_cfg_.show_orbit_prediction_uncertainty);
+			if (schematic_cfg_.show_orbit_prediction_uncertainty) {
+				float uncertainty_growth = static_cast<float>(schematic_cfg_.orbit_prediction_uncertainty_growth);
+				if (slider_float_with_input("Uncertainty Growth Rate", &uncertainty_growth, 0.0f, 0.5f, "%.4f")) schematic_cfg_.orbit_prediction_uncertainty_growth = uncertainty_growth;
+				float uncertainty_opacity = static_cast<float>(schematic_cfg_.orbit_prediction_uncertainty_opacity);
+				if (slider_float_with_input("Uncertainty Band Opacity", &uncertainty_opacity, 0.0f, 1.0f, "%.2f")) schematic_cfg_.orbit_prediction_uncertainty_opacity = uncertainty_opacity;
+			}
 			int segs = schematic_cfg_.orbit_prediction_segments;
 			if (ImGui::SliderInt("Prediction Segments", &segs, 16, 2000)) schematic_cfg_.orbit_prediction_segments = segs;
 			float prediction_duration = static_cast<float>(schematic_cfg_.orbit_prediction_duration);
@@ -1135,6 +1184,42 @@ private:
 				ImGui::Spacing();
 				render_schematic_object_style(("Override Style For Body #" + std::to_string(target_id)).c_str(), schematic_cfg_.body_style_overrides[target_id]);
 			}
+		}
+	}
+
+	void render_units_tab() noexcept {
+		auto& prefs = orchestrator_.unit_preferences();
+
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Display Units");
+		ImGui::TextWrapped("Choose the units used to display distances, masses, and velocities throughout the HUD, viewport, and every widget panel.");
+		ImGui::Separator();
+
+		const char* distance_units[] = {"Meters", "Kilometers", "Feet", "Miles", "Nautical Miles", "Astronomical Units", "Light Years", "Parsecs", "Kiloparsecs", "Solar Radii"};
+		int distance_idx = static_cast<int>(prefs.distance);
+		if (ImGui::Combo("Distance Unit", &distance_idx, distance_units, IM_ARRAYSIZE(distance_units))) {
+			prefs.distance = static_cast<Units::DistanceUnit>(distance_idx);
+		}
+
+		const char* mass_units[] = {"Kilograms", "Grams", "Pounds", "Metric Tonnes", "Solar Masses", "Earth Masses", "Jupiter Masses"};
+		int mass_idx = static_cast<int>(prefs.mass);
+		if (ImGui::Combo("Mass Unit", &mass_idx, mass_units, IM_ARRAYSIZE(mass_units))) {
+			prefs.mass = static_cast<Units::MassUnit>(mass_idx);
+		}
+
+		const char* velocity_units[] = {"Meters/Second", "Kilometers/Hour", "Miles/Hour", "Kilometers/Second", "Fraction of c", "Parsecs/Year", "Astronomical Units/Day"};
+		int velocity_idx = static_cast<int>(prefs.velocity);
+		if (ImGui::Combo("Velocity Unit", &velocity_idx, velocity_units, IM_ARRAYSIZE(velocity_units))) {
+			prefs.velocity = static_cast<Units::VelocityUnit>(velocity_idx);
+		}
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Live Preview (Camera Distance):");
+		const auto& cam = orchestrator_.camera();
+		const double distance_meters = cam.radius * orchestrator_.constants_engine().length_scale();
+		ImGui::Text("%s", Units::format_distance(distance_meters, prefs.distance).c_str());
+
+		if (ImGui::Button("Reset To SI Defaults", ImVec2(200.0f, 26.0f))) {
+			prefs = Units::UnitDisplayPreferences{};
 		}
 	}
 

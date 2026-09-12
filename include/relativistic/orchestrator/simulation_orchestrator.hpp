@@ -10,6 +10,7 @@
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -127,6 +128,7 @@ private:
 	PerformanceProfiler profiler_{};
 	Core::ConstantsEngine constants_engine_{};
 	Dynamics::InteractionConfig interaction_config_{};
+	Units::UnitDisplayPreferences unit_preferences_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
@@ -1060,6 +1062,14 @@ public:
 
 	[[nodiscard]] const Dynamics::InteractionConfig& interaction_config() const noexcept {
 		return interaction_config_;
+	}
+
+	[[nodiscard]] Units::UnitDisplayPreferences& unit_preferences() noexcept {
+		return unit_preferences_;
+	}
+
+	[[nodiscard]] const Units::UnitDisplayPreferences& unit_preferences() const noexcept {
+		return unit_preferences_;
 	}
 
 	[[nodiscard]] double physical_speed_of_light() const noexcept {

@@ -548,13 +548,14 @@ private:
 		render_setting_tooltip("Central gravitating mass in geometrized units. Governs the Schwarzschild radius rs = 2M and the overall curvature strength.");
 
 		float spin = static_cast<float>(params.spin);
-		if (ImGui::InputFloat("Spin Parameter (a)", &spin, 0.01f, 0.1f, "%.4f")) {
+		const float spin_bound = static_cast<float>(0.999 * params.mass);
+		if (slider_float_with_input("Spin Parameter (a)", &spin, -spin_bound, spin_bound, "%.4f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, std::clamp(static_cast<double>(spin), -0.999 * params.mass, 0.999 * params.mass))));
 		}
 		render_setting_tooltip("Specific angular momentum a = J / M, clamped to the subextremal range. Only meaningful for Kerr-family metrics.");
 
 		float charge = static_cast<float>(params.charge);
-		if (ImGui::InputFloat("Electric Charge (Q)", &charge, 0.01f, 0.1f, "%.4f")) {
+		if (slider_float_with_input("Electric Charge (Q)", &charge, -10.0f, 10.0f, "%.4f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge))));
 		}
 		render_setting_tooltip("Net electrostatic charge. Only meaningful for Reissner-Nordstrom and Kerr-Newman metrics.");
@@ -920,7 +921,7 @@ private:
 		render_setting_tooltip("Enables dipole-dipole magnetic forces derived from each body's magnetic moment value. Both interacting bodies must have a non-zero magnetic moment for a force to appear.");
 		{
 			const auto warn = Dynamics::magnetism_without_moments_warning(bodies_span, cfg.electromagnetic);
-			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+			if (!warn.empty()) render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), std::string(warn).c_str());
 		}
 		float permittivity = static_cast<float>(cfg.electromagnetic.vacuum_permittivity);
 		if (slider_float_with_input("Medium Permittivity (epsilon)", &permittivity, 1e-14f, 1.0f, "%.4e")) {
@@ -932,10 +933,13 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, static_cast<double>(permeability))));
 		}
 		render_setting_tooltip("Magnetic permeability of the medium the bodies interact through, scaling the dipole-dipole magnetic force.");
-		if (ImGui::SmallButton("Sync To Vacuum Values From Constants Engine")) {
+		ImGui::Spacing();
+		if (ImGui::Button("Sync To Vacuum Values From Constants Engine", ImVec2(-1.0f, 26.0f))) {
 			const auto& engine = orchestrator_.constants_engine();
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, engine.sim_vacuum_permittivity())));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, engine.sim_vacuum_permeability())));
+			cfg.electromagnetic.vacuum_permittivity = engine.sim_vacuum_permittivity();
+			cfg.electromagnetic.vacuum_permeability = engine.sim_vacuum_permeability();
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, cfg.electromagnetic.vacuum_permittivity)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, cfg.electromagnetic.vacuum_permeability)));
 		}
 		render_setting_tooltip("Overwrites the two fields above with the true vacuum permittivity and permeability derived from the fundamental constants c, G, h, kB currently active in the Physical Constants Engine window, keeping both subsystems consistent.");
 
@@ -948,7 +952,7 @@ private:
 		render_setting_tooltip("Detects physical contact between overlapping bodies and resolves it with a Hertzian material-stiffness repulsion plus an impulse-based restitution and friction response. See docs/other/COLLISION_MODEL.md for the underlying derivation.");
 		{
 			const auto warn = Dynamics::collisions_without_radius_warning(bodies_span, cfg.collisions);
-			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+			if (!warn.empty()) render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), std::string(warn).c_str());
 		}
 		if (collisions) {
 			int response_idx = static_cast<int>(cfg.collisions.response_model);
@@ -994,7 +998,7 @@ private:
 		render_setting_tooltip("Tracks per-body Temperature and Heat Capacity properties and radiates energy toward the ambient temperature below via the Stefan-Boltzmann law, scaled by each body's Absorption Factor.");
 		{
 			const auto warn = Dynamics::thermodynamics_disabled_ambient_note(cfg.thermodynamics);
-			if (!warn.empty()) ImGui::TextColored(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), "%s", std::string(warn).c_str());
+			if (!warn.empty()) render_wrapped_colored_text(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), std::string(warn).c_str());
 		}
 		if (thermo) {
 			float ambient = static_cast<float>(cfg.thermodynamics.ambient_temperature_kelvin);
@@ -1018,7 +1022,7 @@ private:
 		render_setting_tooltip("Allows bodies to shatter into smaller fragments once their Integrity property is depleted by high-energy collisions and, optionally, sustained tidal stress from the central spacetime source.");
 		{
 			const auto warn = Dynamics::fragmentation_requires_source_warning(cfg.fragmentation, cfg.collisions);
-			if (!warn.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", std::string(warn).c_str());
+			if (!warn.empty()) render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), std::string(warn).c_str());
 		}
 		if (fragmentation) {
 			float min_fragment_mass = static_cast<float>(cfg.fragmentation.minimum_fragment_mass);
@@ -1027,7 +1031,7 @@ private:
 			}
 			render_setting_tooltip("Fragments whose computed mass would fall below this floor are dispersed entirely rather than spawned as new bodies, preventing runaway fragment counts.");
 			int max_fragments = static_cast<int>(cfg.fragmentation.max_fragments_per_event);
-			if (ImGui::SliderInt("Max Fragments Per Event", &max_fragments, 1, 8)) {
+			if (slider_int_with_input("Max Fragments Per Event", &max_fragments, 1, 8)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationMaxFragments, static_cast<double>(max_fragments))));
 			}
 			float energy_to_integrity = static_cast<float>(cfg.fragmentation.collision_energy_to_integrity_loss);
@@ -1058,7 +1062,7 @@ private:
 		render_setting_tooltip("Removes both colliding bodies entirely once they satisfy the contact and charge conditions below, modeling a complete matter-antimatter style annihilation event.");
 		{
 			const auto warn = Dynamics::annihilation_requires_charge_warning(cfg.annihilation, cfg.electromagnetic);
-			if (!warn.empty()) ImGui::TextColored(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), "%s", std::string(warn).c_str());
+			if (!warn.empty()) render_wrapped_colored_text(ImVec4(0.6f, 0.75f, 1.0f, 1.0f), std::string(warn).c_str());
 		}
 		if (annihilation) {
 			bool opposite_charge = cfg.annihilation.require_opposite_charge;

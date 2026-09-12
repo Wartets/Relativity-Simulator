@@ -4,6 +4,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <imgui.h>
 #include <cmath>
 #include <algorithm>
@@ -159,6 +160,7 @@ public:
 		render_setting_tooltip("Number of SI candela represented by one simulation luminous intensity unit.");
 		draw_derived_row("Current Scale (A0 = Q0/T0)", engine.current_scale());
 		render_setting_tooltip("Number of SI Amperes represented by one simulation electric current unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_current(engine.current_scale(), orchestrator_.unit_preferences().current).c_str());
 
 		ImGui::Separator();
 		if (ImGui::Button("Reset To SI Defaults", ImVec2(180.0f, 26.0f))) {

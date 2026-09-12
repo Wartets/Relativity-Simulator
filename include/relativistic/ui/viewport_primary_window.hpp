@@ -1189,8 +1189,10 @@ private:
 			const double instant_fps = (current_frame_time_ms_ > 0.0) ? (1000.0 / current_frame_time_ms_) : 0.0;
 			const double effective_fps = has_sufficient_rolling_frames_ ? (1000.0 / rolling_average_time_ms_) : instant_fps;
 			const int prec = std::clamp(ft_style.decimal_precision, 0, 6);
+			const auto frame_rate_unit_pref = orchestrator_.unit_preferences().frame_rate;
 			if (ft_style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "%.*f FPS", prec, effective_fps);
+				const std::string fps_display = Units::format_frame_time(has_sufficient_rolling_frames_ ? rolling_average_time_ms_ : current_frame_time_ms_, frame_rate_unit_pref, prec);
+				std::snprintf(buf, sizeof(buf), "%s", fps_display.c_str());
 			} else if (ft_style.display_mode == HudDisplayMode::Extended) {
 				if (has_sufficient_rolling_frames_) {
 					std::snprintf(buf, sizeof(buf), "Frame Time: %.*f ms | Instant: %.1f FPS | Avg[%u]: %.*f ms (%.1f FPS) | Samples: %zu", prec, current_frame_time_ms_, instant_fps, static_cast<unsigned int>(target_samples), prec, rolling_average_time_ms_, 1000.0 / rolling_average_time_ms_, frame_times_history_.size());
@@ -1229,26 +1231,36 @@ private:
 
 		{
 			const auto& style = hud_layout_.element(HudElementId::CameraAnglesReadout);
-			char buf[144];
+			char buf[176];
 			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			const auto angle_unit = orchestrator_.unit_preferences().angle;
+			const double theta_disp = Units::convert_angle_from_radians(cam.theta, angle_unit);
+			const double phi_disp = Units::convert_angle_from_radians(cam.phi, angle_unit);
+			const char* angle_suffix = Units::angle_unit_suffix(angle_unit);
 			if (style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "(t,p)=(%.*f, %.*f)", prec, cam.theta, prec, cam.phi);
+				std::snprintf(buf, sizeof(buf), "(t,p)=(%.*f, %.*f) %s", prec, theta_disp, prec, phi_disp, angle_suffix);
 			} else if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f) rad | (%.1f, %.1f) deg", prec, cam.theta, prec, cam.phi, cam.theta * (180.0 / std::numbers::pi), cam.phi * (180.0 / std::numbers::pi));
+				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f) %s | (%.4f, %.4f) rad", prec, theta_disp, prec, phi_disp, angle_suffix, cam.theta, cam.phi);
 			} else {
-				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f)", prec, cam.theta, prec, cam.phi);
+				std::snprintf(buf, sizeof(buf), "Angles (theta, phi): (%.*f, %.*f) %s", prec, theta_disp, prec, phi_disp, angle_suffix);
 			}
 			push_block(HudElementId::CameraAnglesReadout, {HudTextLine{buf}});
 		}
 
 		{
 			const auto& style = hud_layout_.element(HudElementId::CameraOrientationReadout);
-			char buf[160];
+			char buf[176];
 			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			const auto angle_unit = orchestrator_.unit_preferences().angle;
+			const double deg_to_rad = std::numbers::pi / 180.0;
+			const double pitch_disp = Units::convert_angle_from_radians(cam.pitch * deg_to_rad, angle_unit);
+			const double yaw_disp = Units::convert_angle_from_radians(cam.yaw * deg_to_rad, angle_unit);
+			const double roll_disp = Units::convert_angle_from_radians(cam.roll * deg_to_rad, angle_unit);
+			const char* angle_suffix = Units::angle_unit_suffix(angle_unit);
 			if (style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "P/Y/R: %.0f/%.0f/%.0f", cam.pitch, cam.yaw, cam.roll);
+				std::snprintf(buf, sizeof(buf), "P/Y/R: %.0f/%.0f/%.0f %s", pitch_disp, yaw_disp, roll_disp, angle_suffix);
 			} else {
-				std::snprintf(buf, sizeof(buf), "Orientation (Pitch, Yaw, Roll): (%.*f, %.*f, %.*f) deg", prec, cam.pitch, prec, cam.yaw, prec, cam.roll);
+				std::snprintf(buf, sizeof(buf), "Orientation (Pitch, Yaw, Roll): (%.*f, %.*f, %.*f) %s", prec, pitch_disp, prec, yaw_disp, prec, roll_disp, angle_suffix);
 			}
 			push_block(HudElementId::CameraOrientationReadout, {HudTextLine{buf}});
 		}

@@ -1191,7 +1191,7 @@ private:
 		auto& prefs = orchestrator_.unit_preferences();
 
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Display Units");
-		ImGui::TextWrapped("Choose the units used to display distances, masses, and velocities throughout the HUD, viewport, and every widget panel.");
+		ImGui::TextWrapped("Choose the units used to display every physical quantity throughout the HUD, viewport, and every widget panel.");
 		ImGui::Separator();
 
 		const char* distance_units[] = {"Meters", "Kilometers", "Feet", "Miles", "Nautical Miles", "Astronomical Units", "Light Years", "Parsecs", "Kiloparsecs", "Solar Radii"};
@@ -1200,7 +1200,7 @@ private:
 			prefs.distance = static_cast<Units::DistanceUnit>(distance_idx);
 		}
 
-		const char* mass_units[] = {"Kilograms", "Grams", "Pounds", "Metric Tonnes", "Solar Masses", "Earth Masses", "Jupiter Masses"};
+		const char* mass_units[] = {"Kilograms", "Grams", "Pounds", "Metric Tonnes", "Solar Masses", "Earth Masses", "Jupiter Masses", "Turkeys (~11 kg)"};
 		int mass_idx = static_cast<int>(prefs.mass);
 		if (ImGui::Combo("Mass Unit", &mass_idx, mass_units, IM_ARRAYSIZE(mass_units))) {
 			prefs.mass = static_cast<Units::MassUnit>(mass_idx);
@@ -1212,11 +1212,54 @@ private:
 			prefs.velocity = static_cast<Units::VelocityUnit>(velocity_idx);
 		}
 
+		const char* energy_units[] = {"Joules", "Kilojoules", "Megajoules", "Electronvolts", "Kilowatt-Hours", "Ergs", "Foot-Pounds", "Calories"};
+		int energy_idx = static_cast<int>(prefs.energy);
+		if (ImGui::Combo("Energy Unit", &energy_idx, energy_units, IM_ARRAYSIZE(energy_units))) {
+			prefs.energy = static_cast<Units::EnergyUnit>(energy_idx);
+		}
+
+		const char* angle_units[] = {"Radians", "Degrees", "Arcminutes", "Arcseconds", "Gradians", "Revolutions", "Milliradians"};
+		int angle_idx = static_cast<int>(prefs.angle);
+		if (ImGui::Combo("Angle Unit", &angle_idx, angle_units, IM_ARRAYSIZE(angle_units))) {
+			prefs.angle = static_cast<Units::AngleUnit>(angle_idx);
+		}
+
+		const char* temperature_units[] = {"Kelvin", "Celsius", "Fahrenheit", "Rankine"};
+		int temperature_idx = static_cast<int>(prefs.temperature);
+		if (ImGui::Combo("Temperature Unit", &temperature_idx, temperature_units, IM_ARRAYSIZE(temperature_units))) {
+			prefs.temperature = static_cast<Units::TemperatureUnit>(temperature_idx);
+		}
+
+		const char* charge_units[] = {"Coulombs", "Millicoulombs", "Microcoulombs", "Elementary Charges", "Ampere-Hours", "Statcoulombs"};
+		int charge_idx = static_cast<int>(prefs.charge);
+		if (ImGui::Combo("Charge Unit", &charge_idx, charge_units, IM_ARRAYSIZE(charge_units))) {
+			prefs.charge = static_cast<Units::ChargeUnit>(charge_idx);
+		}
+
+		const char* current_units[] = {"Amperes", "Milliamperes", "Microamperes", "Kiloamperes"};
+		int current_idx = static_cast<int>(prefs.current);
+		if (ImGui::Combo("Current Unit", &current_idx, current_units, IM_ARRAYSIZE(current_units))) {
+			prefs.current = static_cast<Units::CurrentUnit>(current_idx);
+		}
+
+		const char* frame_rate_units[] = {"Frames Per Second", "Milliseconds", "Microseconds", "Hertz"};
+		int frame_rate_idx = static_cast<int>(prefs.frame_rate);
+		if (ImGui::Combo("Frame Rate Unit", &frame_rate_idx, frame_rate_units, IM_ARRAYSIZE(frame_rate_units))) {
+			prefs.frame_rate = static_cast<Units::FrameRateUnit>(frame_rate_idx);
+		}
+		render_setting_tooltip("Controls how the Frame Time / FPS HUD readout presents its headline number.");
+
 		ImGui::Separator();
-		ImGui::TextDisabled("Live Preview (Camera Distance):");
+		ImGui::TextDisabled("Live Previews:");
 		const auto& cam = orchestrator_.camera();
 		const double distance_meters = cam.radius * orchestrator_.constants_engine().length_scale();
-		ImGui::Text("%s", Units::format_distance(distance_meters, prefs.distance).c_str());
+		ImGui::Text("Camera Distance: %s", Units::format_distance(distance_meters, prefs.distance).c_str());
+		ImGui::Text("Camera Polar Angle: %s", Units::format_angle(cam.theta, prefs.angle).c_str());
+		ImGui::Text("Central Charge: %s", Units::format_charge(orchestrator_.parameters().charge, prefs.charge).c_str());
+		ImGui::Text("Reference Frame Time (16.67 ms): %s", Units::format_frame_time(16.67, prefs.frame_rate).c_str());
+		ImGui::Text("Reference Temperature (5778 K): %s", Units::format_temperature(5778.0, prefs.temperature).c_str());
+		ImGui::Text("Simulation Current Scale: %s", Units::format_current(orchestrator_.constants_engine().current_scale(), prefs.current).c_str());
+		ImGui::Text("Reference Energy (1 Joule): %s", Units::format_energy(1.0, prefs.energy).c_str());
 
 		if (ImGui::Button("Reset To SI Defaults", ImVec2(200.0f, 26.0f))) {
 			prefs = Units::UnitDisplayPreferences{};

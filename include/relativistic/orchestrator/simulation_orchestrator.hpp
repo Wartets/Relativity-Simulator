@@ -277,6 +277,8 @@ public:
 		sync_camera_spherical_from_cartesian();
 		sync_central_body_with_system();
 		sync_nbody_constants_with_engine();
+		interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
+		interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
 	}
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {

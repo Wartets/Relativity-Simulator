@@ -9,6 +9,7 @@
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/core/constants.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -131,6 +132,7 @@ public:
 					if (ImGui::SliderFloat("Temperature (K)", &temperature_k_, 500.0f, 50000.0f, "%.0f K")) {
 						recompute_spectrum();
 					}
+					ImGui::TextDisabled("%s", Units::format_temperature(static_cast<double>(temperature_k_), orchestrator.unit_preferences().temperature).c_str());
 				}
 			}
 

@@ -9,6 +9,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 #include "relativistic/dynamics/interaction_compatibility.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -86,6 +87,20 @@ private:
 	float global_velocity_[3]{0.0f, 0.0f, 0.0f};
 	float global_spin_[3]{0.0f, 0.0f, 0.0f};
 	float grid_spacing_{1.0f};
+	int bulk_parameter_index_{0};
+	float bulk_parameter_value_{1.0f};
+	bool bulk_parameter_value_log_mode_{false};
+	bool em_permittivity_log_mode_{true};
+	bool em_permeability_log_mode_{true};
+	bool collision_stiffness_log_mode_{true};
+	bool fragmentation_min_mass_log_mode_{true};
+	bool fragmentation_energy_integrity_log_mode_{true};
+	bool fragmentation_tidal_integrity_log_mode_{true};
+	bool thermodynamics_coupling_log_mode_{false};
+	bool selected_magnetic_moment_log_mode_{false};
+	bool selected_rotation_speed_log_mode_{false};
+	bool selected_lifetime_log_mode_{false};
+	bool selected_heat_capacity_log_mode_{false};
 
 public:
 	explicit BodyManagerWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -559,6 +574,8 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge))));
 		}
 		render_setting_tooltip("Net electrostatic charge. Only meaningful for Reissner-Nordstrom and Kerr-Newman metrics.");
+		const std::string central_charge_display = Units::format_charge(static_cast<double>(charge), orchestrator_.unit_preferences().charge);
+		ImGui::TextDisabled("%s", central_charge_display.c_str());
 
 		ImGui::Spacing();
 		if (ImGui::Button("Look At Central Object", ImVec2(-1.0f, 26.0f))) {
@@ -682,23 +699,26 @@ private:
 
 		if (ImGui::CollapsingHeader("Material, Thermal & Electromagnetic Properties")) {
 			float charge = static_cast<float>(b.charge);
-			if (ImGui::InputFloat("Charge", &charge, 0.01f, 1.0f, "%.4e")) { b.charge = charge; changed = true; }
+			if (slider_float_with_input("Charge", &charge, -10.0f, 10.0f, "%.4e")) { b.charge = charge; changed = true; }
+			const std::string body_charge_display = Units::format_charge(static_cast<double>(charge), orchestrator_.unit_preferences().charge);
+			render_setting_tooltip(body_charge_display.c_str());
 			float magnetic = static_cast<float>(b.magnetic_moment);
-			if (ImGui::InputFloat("Magnetic Moment", &magnetic, 0.01f, 1.0f, "%.4e")) { b.magnetic_moment = magnetic; changed = true; }
+			if (slider_float_with_input("Magnetic Moment", &magnetic, 1e-6f, 1.0e6f, "%.4e", &selected_magnetic_moment_log_mode_, 1e-9f, 1e9f)) { b.magnetic_moment = magnetic; changed = true; }
 			float rotation = static_cast<float>(b.rotation_speed);
-			if (ImGui::InputFloat("Rotation Speed", &rotation, 0.01f, 1.0f, "%.4e")) { b.rotation_speed = rotation; changed = true; }
+			if (slider_float_with_input("Rotation Speed", &rotation, 1e-6f, 1.0e6f, "%.4e", &selected_rotation_speed_log_mode_, 1e-9f, 1e9f)) { b.rotation_speed = rotation; changed = true; }
 			float friction = static_cast<float>(b.friction_coefficient);
-			if (ImGui::SliderFloat("Friction Coefficient", &friction, 0.0f, 1.0f)) { b.friction_coefficient = friction; changed = true; }
+			if (slider_float_with_input("Friction Coefficient", &friction, 0.0f, 1.0f, "%.3f")) { b.friction_coefficient = friction; changed = true; }
 			float restitution = static_cast<float>(b.restitution);
-			if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) { b.restitution = restitution; changed = true; }
+			if (slider_float_with_input("Restitution", &restitution, 0.0f, 1.0f, "%.3f")) { b.restitution = restitution; changed = true; }
 			float integrity = static_cast<float>(b.integrity);
-			if (ImGui::InputFloat("Integrity", &integrity, 0.01f, 1.0f, "%.4e")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
+			if (slider_float_with_input("Integrity", &integrity, 0.0f, 1.0f, "%.3f")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
 			float lifetime = static_cast<float>(b.lifetime);
-			if (ImGui::InputFloat("Lifetime", &lifetime, 1.0f, 10.0f, "%.4e")) { b.lifetime = std::max(0.0, static_cast<double>(lifetime)); changed = true; }
-			float temperature = static_cast<float>(b.temperature);
-			if (ImGui::InputFloat("Temperature", &temperature, 1.0f, 100.0f, "%.4e")) { b.temperature = temperature; changed = true; }
+			if (slider_float_with_input("Lifetime", &lifetime, 1e-6f, 1.0e9f, "%.4e", &selected_lifetime_log_mode_, 1e-6f, 1e12f)) { b.lifetime = std::max(0.0, static_cast<double>(lifetime)); changed = true; }
+			float temperature_kelvin = static_cast<float>(b.temperature);
+			if (slider_float_with_input("Temperature (K)", &temperature_kelvin, 0.0f, 50000.0f, "%.2f")) { b.temperature = std::max(0.0, static_cast<double>(temperature_kelvin)); changed = true; }
+			ImGui::TextDisabled("%s", Units::format_temperature(static_cast<double>(temperature_kelvin), orchestrator_.unit_preferences().temperature).c_str());
 			float heat_capacity = static_cast<float>(b.heat_capacity);
-			if (ImGui::InputFloat("Heat Capacity", &heat_capacity, 0.01f, 1.0f, "%.4e")) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
+			if (slider_float_with_input("Heat Capacity", &heat_capacity, 1e-6f, 1.0e9f, "%.4e", &selected_heat_capacity_log_mode_, 1e-6f, 1e12f)) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
 			ImGui::ColorEdit4("Primary Color", b.color.data());
 			ImGui::ColorEdit4("Secondary Color", b.color_secondary.data());
 			char composition[32]{};
@@ -882,6 +902,42 @@ private:
 				Dynamics::BulkBodyActions::cull_outside_radius(sys, limit);
 			}
 			render_setting_tooltip("Removes every body whose distance from the origin exceeds the current render distance, approximating a view-frustum cull.");
+			ImGui::SameLine();
+			if (ImGui::Button("Cull Bodies Outside Current View")) {
+				const auto& cam = orchestrator_.camera();
+				const double pitch_rad = cam.pitch * (std::numbers::pi / 180.0);
+				const double yaw_rad = cam.yaw * (std::numbers::pi / 180.0);
+				const std::array<double, 3> forward{std::cos(pitch_rad) * std::cos(yaw_rad), std::cos(pitch_rad) * std::sin(yaw_rad), std::sin(pitch_rad)};
+				const double half_fov_rad = std::clamp(cam.fov_deg, 5.0, 175.0) * (std::numbers::pi / 360.0);
+				const auto& p = orchestrator_.parameters();
+				const double max_distance = (p.render_distance_scale > 0.0) ? (p.render_distance_scale * std::max(p.mass, 1e-6)) : 1.0e7;
+				Dynamics::BulkBodyActions::cull_outside_camera_frustum(sys, cam.position, forward, half_fov_rad, max_distance);
+			}
+			render_setting_tooltip("Removes every body that falls outside the primary camera's current field-of-view cone, using its live position, orientation, and FOV.");
+
+			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Generalized Parameter Actions");
+			const char* bulk_param_names[] = {
+				"Mass", "Radius", "Charge", "Magnetic Moment", "Rotation Speed", "Friction Coefficient",
+				"Restitution", "Integrity", "Lifetime", "Temperature", "Heat Capacity",
+				"Quadrupole Moment", "Zonal J2", "Zonal J3", "Zonal J4", "Multipole Reference Radius"
+			};
+			ImGui::SetNextItemWidth(240.0f);
+			ImGui::Combo("Target Parameter", &bulk_parameter_index_, bulk_param_names, IM_ARRAYSIZE(bulk_param_names));
+			const auto bulk_param = static_cast<Dynamics::BulkScalarParameter>(bulk_parameter_index_);
+			slider_float_with_input("Value", &bulk_parameter_value_, -1.0e6f, 1.0e6f, "%.4e", &bulk_parameter_value_log_mode_, 1e-9f, 1e12f);
+			if (ImGui::Button("Set For All Bodies")) {
+				Dynamics::BulkBodyActions::set_parameter_for_all(sys, bulk_param, static_cast<double>(bulk_parameter_value_));
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Equalize (Set To Average)")) {
+				Dynamics::BulkBodyActions::equalize_parameter(sys, bulk_param);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Average (Same As Equalize)")) {
+				Dynamics::BulkBodyActions::average_parameter(sys, bulk_param);
+			}
+			render_setting_tooltip("Applies to the selected physical parameter across every enabled body: sets an explicit value, or replaces every value with the current mean.");
 		}
 		ImGui::Separator();
 
@@ -898,6 +954,7 @@ private:
 		render_setting_tooltip("Includes the 1PN spin-orbit correction when enabled and available for a two-body configuration.");
 
 		ImGui::Text("Total Mechanical Energy: %.6e", sys.compute_total_energy());
+		ImGui::TextDisabled("%s", Units::format_energy(sys.compute_total_energy(), orchestrator_.unit_preferences().energy).c_str());
 
 		const auto& gw = sys.latest_gw_emission();
 		ImGui::Text("GW Radiated Power:       %.6e W", gw.radiated_power);
@@ -924,12 +981,14 @@ private:
 			if (!warn.empty()) render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), std::string(warn).c_str());
 		}
 		float permittivity = static_cast<float>(cfg.electromagnetic.vacuum_permittivity);
-		if (slider_float_with_input("Medium Permittivity (epsilon)", &permittivity, 1e-14f, 1.0f, "%.4e")) {
+		if (slider_float_with_input("Medium Permittivity (epsilon)", &permittivity, 1e-14f, 1.0f, "%.4e", &em_permittivity_log_mode_, 1e-15f, 1e2f)) {
+			cfg.electromagnetic.vacuum_permittivity = static_cast<double>(permittivity);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, static_cast<double>(permittivity))));
 		}
-		render_setting_tooltip("Electrical permittivity of the medium the bodies interact through. Reduces the Coulomb force below its vacuum strength as this value grows.");
+		render_setting_tooltip("Electrical permittivity of the medium the bodies interact through. Reduces the Coulomb force below its vacuum strength as this value grows. Real vacuum permittivity is roughly 8.85e-12; enable Log for practical control at that scale.");
 		float permeability = static_cast<float>(cfg.electromagnetic.vacuum_permeability);
-		if (slider_float_with_input("Medium Permeability (mu)", &permeability, 1e-10f, 10.0f, "%.4e")) {
+		if (slider_float_with_input("Medium Permeability (mu)", &permeability, 1e-10f, 10.0f, "%.4e", &em_permeability_log_mode_, 1e-11f, 1e3f)) {
+			cfg.electromagnetic.vacuum_permeability = static_cast<double>(permeability);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, static_cast<double>(permeability))));
 		}
 		render_setting_tooltip("Magnetic permeability of the medium the bodies interact through, scaling the dipole-dipole magnetic force.");
@@ -978,7 +1037,7 @@ private:
 			}
 			render_setting_tooltip("Global multiplier applied on top of each body's own Restitution property before it is clamped back into the physical [0, 1] range.");
 			float stiffness = static_cast<float>(cfg.collisions.contact_stiffness_scale);
-			if (slider_float_with_input("Contact Stiffness Scale", &stiffness, 0.0f, 1.0f, "%.6e")) {
+			if (slider_float_with_input("Contact Stiffness Scale", &stiffness, 1e-15f, 1.0f, "%.6e", &collision_stiffness_log_mode_, 1e-15f, 1e3f)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionStiffnessScale, static_cast<double>(stiffness))));
 			}
 			render_setting_tooltip("Scales the Hertzian penetration repulsion force computed from each body's Young's Modulus property and the current overlap depth. Zero disables material-stiffness pushback and relies only on the instantaneous impulse response below.");
@@ -1006,6 +1065,9 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAmbientTemperature, static_cast<double>(ambient))));
 			}
 			render_setting_tooltip("Background radiative temperature bodies cool toward or heat toward via Stefan-Boltzmann emission. Set to -1 to disable ambient radiative coupling entirely while keeping per-body heat capacity bookkeeping active.");
+			if (ambient >= 0.0f) {
+				ImGui::TextDisabled("%s", Units::format_temperature(static_cast<double>(ambient), orchestrator_.unit_preferences().temperature).c_str());
+			}
 			float coupling = static_cast<float>(cfg.thermodynamics.radiative_coupling_scale);
 			if (slider_float_with_input("Radiative Coupling Scale", &coupling, 0.0f, 10.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionRadiativeCouplingScale, static_cast<double>(coupling))));
@@ -1026,7 +1088,7 @@ private:
 		}
 		if (fragmentation) {
 			float min_fragment_mass = static_cast<float>(cfg.fragmentation.minimum_fragment_mass);
-			if (slider_float_with_input("Minimum Fragment Mass", &min_fragment_mass, 1e-9f, 1e3f, "%.4e")) {
+			if (slider_float_with_input("Minimum Fragment Mass", &min_fragment_mass, 1e-9f, 1e3f, "%.4e", &fragmentation_min_mass_log_mode_, 1e-12f, 1e6f)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMinimumFragmentMass, static_cast<double>(min_fragment_mass))));
 			}
 			render_setting_tooltip("Fragments whose computed mass would fall below this floor are dispersed entirely rather than spawned as new bodies, preventing runaway fragment counts.");
@@ -1035,7 +1097,7 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationMaxFragments, static_cast<double>(max_fragments))));
 			}
 			float energy_to_integrity = static_cast<float>(cfg.fragmentation.collision_energy_to_integrity_loss);
-			if (slider_float_with_input("Collision Energy To Integrity Loss", &energy_to_integrity, 0.0f, 1.0f, "%.4e")) {
+			if (slider_float_with_input("Collision Energy To Integrity Loss", &energy_to_integrity, 1e-12f, 1.0f, "%.4e", &fragmentation_energy_integrity_log_mode_, 1e-12f, 1e2f)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionEnergyToIntegrityLoss, static_cast<double>(energy_to_integrity))));
 			}
 			render_setting_tooltip("Conversion factor from an impact's kinetic energy along the collision normal into lost Integrity for both colliding bodies.");
@@ -1046,7 +1108,7 @@ private:
 			render_setting_tooltip("Continuously erodes Integrity for bodies close to the central mass based on the differential gravitational acceleration across their physical radius, approximating tidal stretching near the Roche limit.");
 			if (tidal_stress) {
 				float tidal_to_integrity = static_cast<float>(cfg.fragmentation.tidal_stress_to_integrity_loss);
-				if (slider_float_with_input("Tidal Stress To Integrity Loss", &tidal_to_integrity, 0.0f, 1.0f, "%.4e")) {
+				if (slider_float_with_input("Tidal Stress To Integrity Loss", &tidal_to_integrity, 1e-12f, 1.0f, "%.4e", &fragmentation_tidal_integrity_log_mode_, 1e-12f, 1e2f)) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationTidalStressToIntegrityLoss, static_cast<double>(tidal_to_integrity))));
 				}
 				render_setting_tooltip("Conversion factor from tidal stress energy density into lost Integrity per second.");

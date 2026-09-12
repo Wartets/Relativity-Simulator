@@ -207,8 +207,13 @@ public:
 			auto& ic = orchestrator_.interaction_config();
 			ic.electromagnetic.electricity_enabled = user_settings_.interaction_electricity_enabled;
 			ic.electromagnetic.magnetism_enabled = user_settings_.interaction_magnetism_enabled;
-			ic.electromagnetic.vacuum_permittivity = user_settings_.interaction_vacuum_permittivity;
-			ic.electromagnetic.vacuum_permeability = user_settings_.interaction_vacuum_permeability;
+			if (user_settings_.constants_preset == static_cast<uint32_t>(Core::ConstantsPreset::Custom)) {
+				ic.electromagnetic.vacuum_permittivity = user_settings_.interaction_vacuum_permittivity;
+				ic.electromagnetic.vacuum_permeability = user_settings_.interaction_vacuum_permeability;
+			} else {
+				ic.electromagnetic.vacuum_permittivity = orchestrator_.constants_engine().sim_vacuum_permittivity();
+				ic.electromagnetic.vacuum_permeability = orchestrator_.constants_engine().sim_vacuum_permeability();
+			}
 			ic.collisions.enabled = user_settings_.interaction_collisions_enabled;
 			ic.collisions.response_model = static_cast<Dynamics::CollisionResponseModel>(user_settings_.interaction_collision_response_model);
 			ic.collisions.consider_rotation = user_settings_.interaction_collision_consider_rotation;

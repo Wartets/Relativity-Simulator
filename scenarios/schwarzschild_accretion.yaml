@@ -53,6 +53,6 @@ observers:
   - name: "PrimaryCamera"
     fov_deg: 60.0
     resolution: [1920, 1080]
-    position: [0, 0, 30, -10]
-    orientation: [0, -180, 0]
+    position: [0, -5, 37, -7]
+    orientation: [0, 130, 0]
     four_velocity: [1.0, 0.0, 0.0, 0.0]

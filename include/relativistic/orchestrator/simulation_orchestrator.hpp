@@ -558,8 +558,6 @@ public:
 		params_.wormhole_throat = s.wormhole_throat;
 		params_.warp_velocity = s.warp_velocity;
 		active_integrator_name_ = s.integrator.scheme;
-		params_.integration_rtol = s.integrator.relative_tolerance;
-		params_.integration_atol = s.integrator.absolute_tolerance;
 
 		interaction_config_.electromagnetic.electricity_enabled = s.interactions.electricity_enabled;
 		interaction_config_.electromagnetic.magnetism_enabled = s.interactions.magnetism_enabled;
@@ -592,14 +590,20 @@ public:
 			camera_.fov_deg = s.observers[0].field_of_view_deg;
 			params_.camera_fov_deg = camera_.fov_deg;
 			sync_camera_spherical_from_cartesian();
-			const double dx = -camera_.position[0];
-			const double dy = -camera_.position[1];
-			const double dz = -camera_.position[2];
-			const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
-			if (d_tot > 1e-6) {
-				camera_.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>);
-				camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
-				camera_.roll = 0.0;
+			if (s.observers[0].has_explicit_orientation) {
+				camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
+				camera_.yaw = s.observers[0].orientation[1];
+				camera_.roll = s.observers[0].orientation[2];
+			} else {
+				const double dx = -camera_.position[0];
+				const double dy = -camera_.position[1];
+				const double dz = -camera_.position[2];
+				const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+				if (d_tot > 1e-6) {
+					camera_.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>);
+					camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
+					camera_.roll = 0.0;
+				}
 			}
 		}
 
@@ -704,6 +708,8 @@ public:
 		IO::ScenarioObserverConfig obs;
 		obs.position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
 		obs.field_of_view_deg = camera_.fov_deg;
+		obs.orientation = {camera_.pitch, camera_.yaw, camera_.roll};
+		obs.has_explicit_orientation = true;
 		s.observers.push_back(obs);
 
 		for (const auto& body : nbody_system_.bodies()) {

@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/io/user_settings.hpp"
 #include "relativistic/dynamics/pn_body.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
@@ -35,6 +36,7 @@ class ScenarioSelectorWindow {
 private:
 	bool is_open_{true};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	IO::UserSettings& user_settings_;
 	InteractiveCameraController* camera_controller_{nullptr};
 	std::vector<ScenarioFileItem> presets_{};
 	int selected_index_{0};
@@ -119,10 +121,16 @@ public:
 		if (selected_index_ >= static_cast<int>(presets_.size())) {
 			selected_index_ = 0;
 		}
+		for (size_t i = 0; i < presets_.size(); ++i) {
+			if (presets_[i].is_compatible && presets_[i].definition.scenario_name == orchestrator_.active_scenario_name()) {
+				selected_index_ = static_cast<int>(i);
+				break;
+			}
+		}
 	}
 
-	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController* cam_ctrl = nullptr)
-		: orchestrator_(orchestrator), camera_controller_(cam_ctrl) {
+	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings, InteractiveCameraController* cam_ctrl = nullptr)
+		: orchestrator_(orchestrator), user_settings_(user_settings), camera_controller_(cam_ctrl) {
 		scan_scenario_directory();
 	}
 
@@ -155,7 +163,8 @@ public:
 
 private:
 	void render_catalog_tab() noexcept {
-		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Scientific Scenario Catalog");
+		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "*Scenario Catalog");
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Active Scenario: %s", orchestrator_.active_scenario_name().c_str());
 		ImGui::Separator();
 
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
@@ -208,11 +217,12 @@ private:
 		for (const size_t idx : visible_indices) {
 			const auto& item = presets_[idx];
 			const bool is_selected = (selected_index_ == static_cast<int>(idx));
+			const bool is_active_scenario = item.is_compatible && (item.definition.scenario_name == orchestrator_.active_scenario_name());
 			const std::string label = item.is_compatible
-				? (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name)
+				? ((is_active_scenario ? "[Active] " : "") + (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name))
 				: ("[Incompatible] " + item.filename);
 
-			ImGui::PushStyleColor(ImGuiCol_Text, item.is_compatible ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Text, is_active_scenario ? ImVec4(0.4f, 0.85f, 1.0f, 1.0f) : (item.is_compatible ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f)));
 			if (ImGui::Selectable(label.c_str(), is_selected)) {
 				selected_index_ = static_cast<int>(idx);
 				delete_confirm_index_ = -1;
@@ -342,6 +352,24 @@ private:
 		}
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
 			ImGui::SetTooltip("Dynamically scan the scenarios directory for newly added or modified YAML scenario files.");
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Startup Behavior");
+		bool load_on_startup = user_settings_.load_scenario_on_startup;
+		if (ImGui::Checkbox("Load A Scenario On Application Startup", &load_on_startup)) {
+			user_settings_.load_scenario_on_startup = load_on_startup;
+		}
+		render_setting_tooltip("When disabled, the application starts with a completely empty simulation and no scenario is loaded automatically.");
+		if (user_settings_.load_scenario_on_startup) {
+			ImGui::TextDisabled("Default Startup Scenario: %s", user_settings_.default_scenario_path.empty() ? "(none set)" : user_settings_.default_scenario_path.c_str());
+			if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size()) && presets_[static_cast<size_t>(selected_index_)].is_compatible) {
+				if (ImGui::Button("Set Selected Scenario As Startup Default", ImVec2(300.0f, 26.0f))) {
+					user_settings_.default_scenario_path = presets_[static_cast<size_t>(selected_index_)].filepath;
+				}
+			}
+		} else {
+			ImGui::TextDisabled("The simulation will start empty, with no scenario loaded.");
 		}
 	}
 

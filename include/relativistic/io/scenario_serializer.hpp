@@ -49,6 +49,8 @@ struct ScenarioObserverConfig {
 	double field_of_view_deg{60.0};
 	uint32_t resolution_x{1920};
 	uint32_t resolution_y{1080};
+	std::array<double, 3> orientation{0.0, 180.0, 0.0};
+	bool has_explicit_orientation{false};
 };
 
 struct ScenarioIntegratorConfig {
@@ -220,6 +222,7 @@ public:
 			ss << "    fov_deg: " << o.field_of_view_deg << "\n";
 			ss << "    resolution: [" << o.resolution_x << ", " << o.resolution_y << "]\n";
 			ss << "    position: [" << o.position[0] << ", " << o.position[1] << ", " << o.position[2] << ", " << o.position[3] << "]\n";
+			ss << "    orientation: [" << o.orientation[0] << ", " << o.orientation[1] << ", " << o.orientation[2] << "]\n";
 			ss << "    four_velocity: [" << o.four_velocity[0] << ", " << o.four_velocity[1] << ", " << o.four_velocity[2] << ", " << o.four_velocity[3] << "]\n";
 		}
 
@@ -411,6 +414,11 @@ public:
 						s.observers.back().resolution_y = static_cast<uint32_t>(res_vals[1]);
 					}
 					else if (key == "position") s.observers.back().position = parse_vec4(val);
+					else if (key == "orientation") {
+						const auto v = parse_vec4(val);
+						s.observers.back().orientation = {v[0], v[1], v[2]};
+						s.observers.back().has_explicit_orientation = true;
+					}
 					else if (key == "four_velocity") s.observers.back().four_velocity = parse_vec4(val);
 				}
 				continue;

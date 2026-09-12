@@ -169,7 +169,7 @@ public:
 		viewport_window_->set_screenshot_callback([this]() { trigger_screenshot_capture(); });
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		viewport_window_->set_open_screenshot_settings_callback([this]() { pending_screenshot_popup_open_ = true; });
-		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, &camera_controller_);
+		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, user_settings_, &camera_controller_);
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
 		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
@@ -236,6 +236,10 @@ public:
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
+
+		if (user_settings_.load_scenario_on_startup && !user_settings_.default_scenario_path.empty()) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(user_settings_.default_scenario_path)));
+		}
 
 		if (secondary_viewport_manager_) {
 			for (const auto& saved : user_settings_.secondary_views) {

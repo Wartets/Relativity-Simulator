@@ -46,7 +46,8 @@ struct UserSettings {
 	uint32_t default_camera_mode{0};
 	uint32_t default_performance_preset{1};
 	bool default_use_gpu_compute{true};
-	std::string default_scenario_path{};
+	std::string default_scenario_path{"scenarios/schwarzschild_accretion.yaml"};
+	bool load_scenario_on_startup{true};
 	std::string screenshot_output_directory{"./screenshots"};
 	std::string screenshot_filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
 	uint32_t screenshot_format{0};
@@ -192,6 +193,7 @@ struct UserSettings {
 		result.default_performance_preset = get_u32("default_performance_preset", result.default_performance_preset);
 		result.default_use_gpu_compute = get_u32("default_use_gpu_compute", result.default_use_gpu_compute ? 1 : 0) != 0;
 		result.default_scenario_path = get_str("default_scenario_path", result.default_scenario_path);
+		result.load_scenario_on_startup = get_bool("load_scenario_on_startup", result.load_scenario_on_startup);
 		result.screenshot_output_directory = get_str("screenshot_output_directory", result.screenshot_output_directory);
 		result.screenshot_filename_pattern = get_str("screenshot_filename_pattern", result.screenshot_filename_pattern);
 		result.screenshot_format = get_u32("screenshot_format", result.screenshot_format);

@@ -78,6 +78,13 @@ enum class InputAction : uint32_t {
 	StartStopBenchmarkCapture,
 	QuickSaveBenchmarkRun,
 	ToggleConstantsWindow,
+	BulkInvertAllVelocities,
+	BulkScatterBodyPositions,
+	BulkSnapBodiesToGrid,
+	BulkCullBodiesOutsideView,
+	BulkEqualizeBodyMasses,
+	BulkAverageBodyMasses,
+	BulkZeroAllSpins,
 	Count
 };
 
@@ -145,6 +152,13 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::DecreaseTimeWarp:
 		case InputAction::QuickSaveScenario:
 		case InputAction::QuickLoadScenario:
+		case InputAction::BulkInvertAllVelocities:
+		case InputAction::BulkScatterBodyPositions:
+		case InputAction::BulkSnapBodiesToGrid:
+		case InputAction::BulkCullBodiesOutsideView:
+		case InputAction::BulkEqualizeBodyMasses:
+		case InputAction::BulkAverageBodyMasses:
+		case InputAction::BulkZeroAllSpins:
 			return InputActionCategory::SimulationControl;
 		case InputAction::CycleMetric:
 		case InputAction::CycleIntegrator:
@@ -242,6 +256,13 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::StartStopBenchmarkCapture: return "Start/Stop Benchmark Capture";
 		case InputAction::QuickSaveBenchmarkRun: return "Quick Save Live Window As Benchmark Run";
 		case InputAction::ToggleConstantsWindow: return "Toggle Physical Constants Engine";
+		case InputAction::BulkInvertAllVelocities: return "Bulk: Invert All Body Velocities";
+		case InputAction::BulkScatterBodyPositions: return "Bulk: Scatter Body Positions";
+		case InputAction::BulkSnapBodiesToGrid: return "Bulk: Snap Bodies To Grid";
+		case InputAction::BulkCullBodiesOutsideView: return "Bulk: Cull Bodies Outside View";
+		case InputAction::BulkEqualizeBodyMasses: return "Bulk: Equalize Body Masses";
+		case InputAction::BulkAverageBodyMasses: return "Bulk: Average Body Masses";
+		case InputAction::BulkZeroAllSpins: return "Bulk: Zero All Body Spins";
 		default: return "Unknown Action";
 	}
 }

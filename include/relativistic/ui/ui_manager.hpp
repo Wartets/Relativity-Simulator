@@ -23,6 +23,7 @@
 #include "relativistic/ui/log_console_window.hpp"
 #include "relativistic/ui/secondary_viewport_manager.hpp"
 #include "relativistic/core/system_console.hpp"
+#include "relativistic/dynamics/bulk_body_actions.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -201,6 +202,29 @@ public:
 
 		camera_controller_.config() = user_settings_.camera_controls;
 		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
+
+		{
+			auto& ic = orchestrator_.interaction_config();
+			ic.electromagnetic.electricity_enabled = user_settings_.interaction_electricity_enabled;
+			ic.electromagnetic.magnetism_enabled = user_settings_.interaction_magnetism_enabled;
+			ic.electromagnetic.vacuum_permittivity = user_settings_.interaction_vacuum_permittivity;
+			ic.electromagnetic.vacuum_permeability = user_settings_.interaction_vacuum_permeability;
+			ic.collisions.enabled = user_settings_.interaction_collisions_enabled;
+			ic.collisions.response_model = static_cast<Dynamics::CollisionResponseModel>(user_settings_.interaction_collision_response_model);
+			ic.collisions.consider_rotation = user_settings_.interaction_collision_consider_rotation;
+			ic.collisions.consider_friction = user_settings_.interaction_collision_consider_friction;
+			ic.collisions.restitution_multiplier = user_settings_.interaction_collision_restitution_multiplier;
+			ic.thermodynamics.enabled = user_settings_.interaction_thermodynamics_enabled;
+			ic.thermodynamics.ambient_temperature_kelvin = user_settings_.interaction_ambient_temperature;
+			ic.thermodynamics.radiative_coupling_scale = user_settings_.interaction_radiative_coupling_scale;
+			ic.fragmentation.enabled = user_settings_.interaction_fragmentation_enabled;
+			ic.fragmentation.minimum_fragment_mass = user_settings_.interaction_minimum_fragment_mass;
+			ic.fragmentation.max_fragments_per_event = user_settings_.interaction_fragmentation_max_fragments;
+			ic.fragmentation.collision_energy_to_integrity_loss = user_settings_.interaction_collision_energy_to_integrity_loss;
+			ic.annihilation.enabled = user_settings_.interaction_annihilation_enabled;
+			ic.annihilation.contact_distance_scale = user_settings_.interaction_annihilation_contact_scale;
+			ic.annihilation.require_opposite_charge = user_settings_.interaction_annihilation_require_opposite_charge;
+		}
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
@@ -261,6 +285,29 @@ public:
 		user_settings_.constants_na = orchestrator_.constants_engine().sim_avogadro_constant();
 		user_settings_.constants_ke = orchestrator_.constants_engine().sim_coulomb_constant();
 		user_settings_.constants_kcd = orchestrator_.constants_engine().sim_luminous_efficacy();
+
+		{
+			const auto& ic = orchestrator_.interaction_config();
+			user_settings_.interaction_electricity_enabled = ic.electromagnetic.electricity_enabled;
+			user_settings_.interaction_magnetism_enabled = ic.electromagnetic.magnetism_enabled;
+			user_settings_.interaction_vacuum_permittivity = ic.electromagnetic.vacuum_permittivity;
+			user_settings_.interaction_vacuum_permeability = ic.electromagnetic.vacuum_permeability;
+			user_settings_.interaction_collisions_enabled = ic.collisions.enabled;
+			user_settings_.interaction_collision_response_model = static_cast<uint32_t>(ic.collisions.response_model);
+			user_settings_.interaction_collision_consider_rotation = ic.collisions.consider_rotation;
+			user_settings_.interaction_collision_consider_friction = ic.collisions.consider_friction;
+			user_settings_.interaction_collision_restitution_multiplier = ic.collisions.restitution_multiplier;
+			user_settings_.interaction_thermodynamics_enabled = ic.thermodynamics.enabled;
+			user_settings_.interaction_ambient_temperature = ic.thermodynamics.ambient_temperature_kelvin;
+			user_settings_.interaction_radiative_coupling_scale = ic.thermodynamics.radiative_coupling_scale;
+			user_settings_.interaction_fragmentation_enabled = ic.fragmentation.enabled;
+			user_settings_.interaction_minimum_fragment_mass = ic.fragmentation.minimum_fragment_mass;
+			user_settings_.interaction_fragmentation_max_fragments = ic.fragmentation.max_fragments_per_event;
+			user_settings_.interaction_collision_energy_to_integrity_loss = ic.fragmentation.collision_energy_to_integrity_loss;
+			user_settings_.interaction_annihilation_enabled = ic.annihilation.enabled;
+			user_settings_.interaction_annihilation_contact_scale = ic.annihilation.contact_distance_scale;
+			user_settings_.interaction_annihilation_require_opposite_charge = ic.annihilation.require_opposite_charge;
+		}
 
 		for (auto& slot : user_settings_.secondary_views) {
 			slot = IO::SecondaryViewPersistedState{};
@@ -619,6 +666,29 @@ private:
 			const int next_idx = (current_idx + 1) % integrator_count;
 			orchestrator_.set_active_integrator_name(kIntegratorCycle[next_idx]);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(kIntegratorCycle[next_idx])));
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkInvertAllVelocities, main_window_)) {
+			Dynamics::BulkBodyActions::invert_all_velocities(orchestrator_.nbody_system());
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkScatterBodyPositions, main_window_)) {
+			Dynamics::BulkBodyActions::scatter_positions(orchestrator_.nbody_system());
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkSnapBodiesToGrid, main_window_)) {
+			Dynamics::BulkBodyActions::snap_to_grid(orchestrator_.nbody_system(), 1.0);
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkCullBodiesOutsideView, main_window_)) {
+			const auto& p = orchestrator_.parameters();
+			const double limit = (p.render_distance_scale > 0.0) ? (p.render_distance_scale * std::max(p.mass, 1e-6)) : 1.0e7;
+			Dynamics::BulkBodyActions::cull_outside_radius(orchestrator_.nbody_system(), limit);
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkEqualizeBodyMasses, main_window_)) {
+			Dynamics::BulkBodyActions::equalize_masses(orchestrator_.nbody_system());
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkAverageBodyMasses, main_window_)) {
+			Dynamics::BulkBodyActions::average_masses(orchestrator_.nbody_system());
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::BulkZeroAllSpins, main_window_)) {
+			Dynamics::BulkBodyActions::zero_all_spins(orchestrator_.nbody_system());
 		}
 	}
 

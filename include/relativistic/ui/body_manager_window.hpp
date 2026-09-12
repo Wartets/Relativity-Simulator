@@ -7,6 +7,7 @@
 #include "relativistic/core/constants.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/dynamics/bulk_body_actions.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -141,6 +142,10 @@ public:
 				render_system_dynamics_tab();
 				ImGui::EndTabItem();
 			}
+			if (ImGui::BeginTabItem("Interactions")) {
+				render_interactions_tab();
+				ImGui::EndTabItem();
+			}
 			ImGui::EndTabBar();
 		}
 
@@ -178,17 +183,32 @@ private:
 	}
 
 	[[nodiscard]] std::string unique_name(std::string_view base) const {
-		std::string candidate = base.empty() ? "Body" : std::string(base);
+		std::string original = base.empty() ? "Body" : std::string(base);
 		const auto& bodies = orchestrator_.nbody_system().bodies();
 		auto exists = [&](std::string_view name) {
 			return std::any_of(bodies.begin(), bodies.end(), [&](const auto& body) { return body.name_view() == name; });
 		};
-		if (!exists(candidate)) return candidate;
-		for (uint32_t suffix = 2; suffix < 1000000; ++suffix) {
-			const std::string numbered = candidate + " " + std::to_string(suffix);
+
+		std::string stem = original;
+		uint32_t start_suffix = 2;
+		const size_t space_pos = original.find_last_of(' ');
+		if (space_pos != std::string::npos && space_pos + 1 < original.size()) {
+			const std::string_view tail = std::string_view(original).substr(space_pos + 1);
+			if (!tail.empty() && std::all_of(tail.begin(), tail.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+				const uint32_t parsed = static_cast<uint32_t>(std::strtoul(std::string(tail).c_str(), nullptr, 10));
+				if (parsed > 0) {
+					stem = original.substr(0, space_pos);
+					start_suffix = parsed + 1;
+				}
+			}
+		}
+
+		if (!exists(original)) return original;
+		for (uint32_t suffix = start_suffix; suffix < 1000000; ++suffix) {
+			const std::string numbered = stem + " " + std::to_string(suffix);
 			if (!exists(numbered)) return numbered;
 		}
-		return candidate;
+		return original;
 	}
 	[[nodiscard]] static std::string display_name(const Dynamics::PostNewtonianBody& body) {
 		if (body.has_name()) {
@@ -204,7 +224,7 @@ private:
 	[[nodiscard]] std::array<double, 3> compute_circular_orbit_velocity(const std::array<double, 3>& pos, double central_mass) const noexcept {
 		const double r2 = pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2];
 		const double r = std::sqrt(std::max(r2, 1e-12));
-		const double speed = std::sqrt(std::max(central_mass, 0.0) / r);
+		const double speed = std::sqrt(std::max(orchestrator_.physical_gravitational_constant() * central_mass, 0.0) / r);
 		const std::array<double, 3> up{0.0, 0.0, 1.0};
 		std::array<double, 3> tangent{
 			up[1] * pos[2] - up[2] * pos[1],
@@ -841,19 +861,25 @@ private:
 			}
 			ImGui::InputFloat("Grid Precision", &grid_spacing_, 0.1f, 1.0f, "%.4g");
 			if (ImGui::Button("Snap Positions To Grid")) {
-				const double spacing = std::max(static_cast<double>(grid_spacing_), 1e-9);
-				for (auto& body : sys.bodies()) if (body.enabled) for (double& component : body.position) component = std::round(component / spacing) * spacing;
-				sys.update_accelerations();
+				Dynamics::BulkBodyActions::snap_to_grid(sys, static_cast<double>(grid_spacing_));
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Scatter Positions")) {
-				for (auto& body : sys.bodies()) if (body.enabled) {
-					const double phase = static_cast<double>(body.id) * 2.399963229728653;
-					const double radius = std::max(1.0, distance_from_center(body));
-					body.position = {radius * std::cos(phase), radius * std::sin(phase), radius * 0.15 * std::sin(phase * 0.5)};
-				}
-				sys.update_accelerations();
+				Dynamics::BulkBodyActions::scatter_positions(sys);
 			}
+			if (ImGui::Button("Equalize Mass For All")) {
+				Dynamics::BulkBodyActions::equalize_masses(sys);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Zero All Spins")) {
+				Dynamics::BulkBodyActions::zero_all_spins(sys);
+			}
+			if (ImGui::Button("Cull Bodies Outside Render Distance")) {
+				const auto& p = orchestrator_.parameters();
+				const double limit = (p.render_distance_scale > 0.0) ? (p.render_distance_scale * std::max(p.mass, 1e-6)) : 1.0e7;
+				Dynamics::BulkBodyActions::cull_outside_radius(sys, limit);
+			}
+			render_setting_tooltip("Removes every body whose distance from the origin exceeds the current render distance, approximating a view-frustum cull.");
 		}
 		ImGui::Separator();
 
@@ -874,6 +900,117 @@ private:
 		const auto& gw = sys.latest_gw_emission();
 		ImGui::Text("GW Radiated Power:       %.6e W", gw.radiated_power);
 		render_setting_tooltip("Quadrupole-formula gravitational-wave luminosity computed from the current body configuration.");
+	}
+
+	void render_interactions_tab() noexcept {
+		auto& cfg = orchestrator_.interaction_config();
+
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Electromagnetic Interactions");
+		bool electricity = cfg.electromagnetic.electricity_enabled;
+		if (ImGui::Checkbox("Enable Electricity (Coulomb Force)", &electricity)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionElectricityEnabled, electricity ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Enables attraction and repulsion forces between charged bodies following Coulomb's law, scaled by the vacuum permittivity of the surrounding medium below.");
+		bool magnetism = cfg.electromagnetic.magnetism_enabled;
+		if (ImGui::Checkbox("Enable Magnetism (Dipole Force)", &magnetism)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMagnetismEnabled, magnetism ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Enables dipole-dipole magnetic forces between bodies based on their magnetic moment values, requiring both bodies to have a non-zero magnetic moment.");
+		float permittivity = static_cast<float>(cfg.electromagnetic.vacuum_permittivity);
+		if (slider_float_with_input("Vacuum Permittivity (epsilon0)", &permittivity, 1e-14f, 1.0f, "%.4e")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, static_cast<double>(permittivity))));
+		}
+		float permeability = static_cast<float>(cfg.electromagnetic.vacuum_permeability);
+		if (slider_float_with_input("Vacuum Permeability (mu0)", &permeability, 1e-10f, 10.0f, "%.4e")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, static_cast<double>(permeability))));
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Collisions");
+		bool collisions = cfg.collisions.enabled;
+		if (ImGui::Checkbox("Enable Collisions", &collisions)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionsEnabled, collisions ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Detects and resolves physical contact between bodies whose radii overlap, applying an impulse-based collision response. See docs/other/COLLISION_MODEL.md for the underlying model.");
+		if (collisions) {
+			int response_idx = static_cast<int>(cfg.collisions.response_model);
+			const char* response_names[] = {"Elastic (Restitution-Based)", "Inelastic (Perfectly Damped)"};
+			if (ImGui::Combo("Response Model", &response_idx, response_names, IM_ARRAYSIZE(response_names))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionResponseModel, static_cast<double>(response_idx))));
+			}
+			bool consider_rotation = cfg.collisions.consider_rotation;
+			if (ImGui::Checkbox("Consider Rotation", &consider_rotation)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionConsiderRotation, consider_rotation ? 1.0 : 0.0)));
+			}
+			ImGui::SameLine();
+			bool consider_friction = cfg.collisions.consider_friction;
+			if (ImGui::Checkbox("Consider Friction", &consider_friction)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionConsiderFriction, consider_friction ? 1.0 : 0.0)));
+			}
+			float restitution_mult = static_cast<float>(cfg.collisions.restitution_multiplier);
+			if (ImGui::SliderFloat("Restitution Multiplier", &restitution_mult, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionRestitutionMultiplier, static_cast<double>(restitution_mult))));
+			}
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Thermodynamics");
+		bool thermo = cfg.thermodynamics.enabled;
+		if (ImGui::Checkbox("Enable Thermodynamics", &thermo)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionThermodynamicsEnabled, thermo ? 1.0 : 0.0)));
+		}
+		if (thermo) {
+			float ambient = static_cast<float>(cfg.thermodynamics.ambient_temperature_kelvin);
+			if (ImGui::SliderFloat("Ambient Temperature (K, -1 = none)", &ambient, -1.0f, 6000.0f, "%.1f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAmbientTemperature, static_cast<double>(ambient))));
+			}
+			render_setting_tooltip("Background radiative temperature bodies cool toward or heat toward via Stefan-Boltzmann emission. Set to -1 to disable ambient coupling entirely while keeping thermodynamics enabled for other subsystems.");
+			float coupling = static_cast<float>(cfg.thermodynamics.radiative_coupling_scale);
+			if (ImGui::SliderFloat("Radiative Coupling Scale", &coupling, 0.0f, 10.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionRadiativeCouplingScale, static_cast<double>(coupling))));
+			}
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Fragmentation");
+		bool fragmentation = cfg.fragmentation.enabled;
+		if (ImGui::Checkbox("Enable Fragmentation", &fragmentation)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationEnabled, fragmentation ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Allows bodies to shatter into smaller fragments once their integrity is depleted by high-energy collisions or tidal stress.");
+		if (fragmentation) {
+			float min_fragment_mass = static_cast<float>(cfg.fragmentation.minimum_fragment_mass);
+			if (slider_float_with_input("Minimum Fragment Mass", &min_fragment_mass, 1e-9f, 1e3f, "%.4e")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMinimumFragmentMass, static_cast<double>(min_fragment_mass))));
+			}
+			render_setting_tooltip("Fragments below this mass are dispersed entirely rather than spawned as new bodies.");
+			int max_fragments = static_cast<int>(cfg.fragmentation.max_fragments_per_event);
+			if (ImGui::SliderInt("Max Fragments Per Event", &max_fragments, 1, 8)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationMaxFragments, static_cast<double>(max_fragments))));
+			}
+			float energy_to_integrity = static_cast<float>(cfg.fragmentation.collision_energy_to_integrity_loss);
+			if (slider_float_with_input("Collision Energy To Integrity Loss", &energy_to_integrity, 0.0f, 1.0f, "%.4e")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionEnergyToIntegrityLoss, static_cast<double>(energy_to_integrity))));
+			}
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.7f, 0.5f, 1.0f, 1.0f), "Annihilation");
+		bool annihilation = cfg.annihilation.enabled;
+		if (ImGui::Checkbox("Enable Annihilation", &annihilation)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationEnabled, annihilation ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Removes both colliding bodies entirely when they satisfy the contact and charge conditions below, modeling a complete matter-antimatter style annihilation event.");
+		if (annihilation) {
+			bool opposite_charge = cfg.annihilation.require_opposite_charge;
+			if (ImGui::Checkbox("Require Opposite Charge", &opposite_charge)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationRequireOppositeCharge, opposite_charge ? 1.0 : 0.0)));
+			}
+			float contact_scale = static_cast<float>(cfg.annihilation.contact_distance_scale);
+			if (ImGui::SliderFloat("Contact Distance Scale", &contact_scale, 0.01f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationContactScale, static_cast<double>(contact_scale))));
+			}
+		}
 	}
 
 	void apply_template_preset(BodyPresetTemplate preset) noexcept {
@@ -957,26 +1094,24 @@ private:
 		auto& sys = orchestrator_.nbody_system();
 		sys.clear_bodies();
 
-		Dynamics::PostNewtonianBody sun(
-			1, 1.0, 0.5,
-			{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
-			0.0, 2.2e-7, 0.0, 0.0, 0.5
-		);
-		sun.set_name("Sun");
+		const double central_mass = orchestrator_.parameters().mass;
 
 		Dynamics::PostNewtonianBody planet1(
-			2, 1e-4, 0.05,
-			{10.0, 0.0, 0.0}, {0.0, 0.3162, 0.0}, {0.0, 0.0, 0.0}
+			0, 1e-4, 0.05,
+			{10.0, 0.0, 0.0},
+			compute_circular_orbit_velocity({10.0, 0.0, 0.0}, central_mass),
+			{0.0, 0.0, 0.0}
 		);
-		planet1.set_name("Inner Planet");
+		planet1.set_name(unique_name("Inner Planet"));
 
 		Dynamics::PostNewtonianBody planet2(
-			3, 3e-4, 0.08,
-			{25.0, 0.0, 0.0}, {0.0, 0.2, 0.0}, {0.0, 0.0, 0.0}
+			0, 3e-4, 0.08,
+			{25.0, 0.0, 0.0},
+			compute_circular_orbit_velocity({25.0, 0.0, 0.0}, central_mass),
+			{0.0, 0.0, 0.0}
 		);
-		planet2.set_name("Outer Planet");
+		planet2.set_name(unique_name("Outer Planet"));
 
-		sys.add_body(sun);
 		sys.add_body(planet1);
 		sys.add_body(planet2);
 		sys.update_accelerations();

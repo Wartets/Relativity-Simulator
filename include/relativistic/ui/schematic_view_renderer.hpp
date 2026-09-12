@@ -402,10 +402,20 @@ private:
 		const bool can_render_true_wireframe = (style.shape == SchematicObjectShape::SphereFixedRadius) && (pixel_radius_override < 0.0);
 
 		switch (style.sphere_style) {
-			case SchematicSphereStyle::Opaque:
-				draw_list->AddCircleFilled(center_proj.screen, static_cast<float>(px_radius), color, 40);
-				draw_list->AddCircle(center_proj.screen, static_cast<float>(px_radius), IM_COL32(8, 10, 18, 210), 40, 1.2f);
+			case SchematicSphereStyle::Opaque: {
+				const ImVec4 base_col4 = ImGui::ColorConvertU32ToFloat4(color);
+				const ImU32 shadow_col = ImGui::ColorConvertFloat4ToU32(ImVec4(base_col4.x * 0.35f, base_col4.y * 0.35f, base_col4.z * 0.35f, base_col4.w));
+				const ImU32 mid_col = ImGui::ColorConvertFloat4ToU32(ImVec4(base_col4.x * 0.7f, base_col4.y * 0.7f, base_col4.z * 0.7f, base_col4.w));
+				draw_list->AddCircleFilled(center_proj.screen, static_cast<float>(px_radius), shadow_col, 48);
+				const ImVec2 mid_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.12f, center_proj.screen.y - static_cast<float>(px_radius) * 0.12f);
+				draw_list->AddCircleFilled(mid_center, static_cast<float>(px_radius) * 0.88f, mid_col, 44);
+				const ImVec2 highlight_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.32f, center_proj.screen.y - static_cast<float>(px_radius) * 0.32f);
+				draw_list->AddCircleFilled(highlight_center, static_cast<float>(px_radius) * 0.55f, color, 40);
+				const ImVec2 specular_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.42f, center_proj.screen.y - static_cast<float>(px_radius) * 0.42f);
+				draw_list->AddCircleFilled(specular_center, std::max(static_cast<float>(px_radius) * 0.18f, 1.0f), IM_COL32(255, 255, 255, 90), 24);
+				draw_list->AddCircle(center_proj.screen, static_cast<float>(px_radius), IM_COL32(8, 10, 18, 210), 48, 1.2f);
 				break;
+			}
 			case SchematicSphereStyle::Translucent: {
 				const ImVec4 col4 = ImGui::ColorConvertU32ToFloat4(color);
 				const ImU32 faded = ImGui::ColorConvertFloat4ToU32(ImVec4(col4.x, col4.y, col4.z, static_cast<float>(style.translucency_alpha)));

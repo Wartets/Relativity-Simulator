@@ -126,6 +126,7 @@ private:
 	Dynamics::PostNewtonianSystem nbody_system_{};
 	PerformanceProfiler profiler_{};
 	Core::ConstantsEngine constants_engine_{};
+	Dynamics::InteractionConfig interaction_config_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
 
 	std::atomic<bool> is_running_{true};
@@ -242,6 +243,7 @@ private:
 			} else {
 				Dynamics::RungeKutta4PNIntegrator::step(nbody_system_, sub_dt);
 			}
+			nbody_system_.step_interactions(sub_dt);
 			handle_horizon_absorption();
 			for (const auto& [index, state] : disabled_bodies) {
 				if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
@@ -254,6 +256,7 @@ public:
 		if (dt <= 0.0) return;
 
 		sync_central_body_with_system();
+		nbody_system_.set_interaction_config(interaction_config_);
 
 		if (nbody_system_.body_count() > 0) {
 			step_nbody_dynamics(dt);
@@ -899,6 +902,63 @@ public:
 			case ParameterType::ConstantSimKcd:
 				constants_engine_.set_luminous_efficacy(val);
 				break;
+			case ParameterType::InteractionElectricityEnabled:
+				interaction_config_.electromagnetic.electricity_enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionMagnetismEnabled:
+				interaction_config_.electromagnetic.magnetism_enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionVacuumPermittivity:
+				interaction_config_.electromagnetic.vacuum_permittivity = std::max(val, 1e-30);
+				break;
+			case ParameterType::InteractionVacuumPermeability:
+				interaction_config_.electromagnetic.vacuum_permeability = std::max(val, 1e-30);
+				break;
+			case ParameterType::InteractionCollisionsEnabled:
+				interaction_config_.collisions.enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionCollisionResponseModel:
+				interaction_config_.collisions.response_model = (val > 0.5) ? Dynamics::CollisionResponseModel::Inelastic : Dynamics::CollisionResponseModel::Elastic;
+				break;
+			case ParameterType::InteractionCollisionConsiderRotation:
+				interaction_config_.collisions.consider_rotation = (val > 0.5);
+				break;
+			case ParameterType::InteractionCollisionConsiderFriction:
+				interaction_config_.collisions.consider_friction = (val > 0.5);
+				break;
+			case ParameterType::InteractionCollisionRestitutionMultiplier:
+				interaction_config_.collisions.restitution_multiplier = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::InteractionThermodynamicsEnabled:
+				interaction_config_.thermodynamics.enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionAmbientTemperature:
+				interaction_config_.thermodynamics.ambient_temperature_kelvin = val;
+				break;
+			case ParameterType::InteractionRadiativeCouplingScale:
+				interaction_config_.thermodynamics.radiative_coupling_scale = std::max(val, 0.0);
+				break;
+			case ParameterType::InteractionFragmentationEnabled:
+				interaction_config_.fragmentation.enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionMinimumFragmentMass:
+				interaction_config_.fragmentation.minimum_fragment_mass = std::max(val, 1e-12);
+				break;
+			case ParameterType::InteractionFragmentationMaxFragments:
+				interaction_config_.fragmentation.max_fragments_per_event = static_cast<uint32_t>(std::clamp(val, 1.0, 8.0));
+				break;
+			case ParameterType::InteractionCollisionEnergyToIntegrityLoss:
+				interaction_config_.fragmentation.collision_energy_to_integrity_loss = std::max(val, 0.0);
+				break;
+			case ParameterType::InteractionAnnihilationEnabled:
+				interaction_config_.annihilation.enabled = (val > 0.5);
+				break;
+			case ParameterType::InteractionAnnihilationContactScale:
+				interaction_config_.annihilation.contact_distance_scale = std::clamp(val, 0.01, 4.0);
+				break;
+			case ParameterType::InteractionAnnihilationRequireOppositeCharge:
+				interaction_config_.annihilation.require_opposite_charge = (val > 0.5);
+				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
 				break;
@@ -980,6 +1040,14 @@ public:
 
 	[[nodiscard]] const Core::ConstantsEngine& constants_engine() const noexcept {
 		return constants_engine_;
+	}
+
+	[[nodiscard]] Dynamics::InteractionConfig& interaction_config() noexcept {
+		return interaction_config_;
+	}
+
+	[[nodiscard]] const Dynamics::InteractionConfig& interaction_config() const noexcept {
+		return interaction_config_;
 	}
 
 	[[nodiscard]] double physical_speed_of_light() const noexcept {

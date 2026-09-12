@@ -5,10 +5,13 @@
 #include "relativistic/dynamics/pn_acceleration.hpp"
 #include "relativistic/dynamics/pn_spin_precession.hpp"
 #include "relativistic/dynamics/pn_gravitational_waves.hpp"
+#include "relativistic/dynamics/interaction_config.hpp"
+#include "relativistic/dynamics/interaction_solver.hpp"
 #include <vector>
 #include <array>
 #include <cmath>
 #include <numeric>
+#include <numbers>
 #include <span>
 #include <limits>
 
@@ -22,6 +25,7 @@ private:
 	uint64_t step_count_{0};
 	GravitationalWaveEmission latest_gw_emission_{};
 	std::vector<PostNewtonianAccelerations> accelerations_buffer_{};
+	InteractionConfig interaction_config_{};
 	bool has_central_body_{false};
 	bool central_body_stationary_{true};
 	PostNewtonianBody central_body_{};
@@ -104,6 +108,62 @@ public:
 
 	void set_config(const PNOrderConfig& cfg) noexcept {
 		config_ = cfg;
+	}
+
+	[[nodiscard]] const InteractionConfig& interaction_config() const noexcept {
+		return interaction_config_;
+	}
+
+	[[nodiscard]] InteractionConfig& interaction_config() noexcept {
+		return interaction_config_;
+	}
+
+	void set_interaction_config(const InteractionConfig& cfg) noexcept {
+		interaction_config_ = cfg;
+	}
+
+	void step_interactions(double dt) noexcept {
+		if (bodies_.empty()) return;
+
+		InteractionSolver::apply_electromagnetic(bodies_, interaction_config_.electromagnetic);
+		InteractionSolver::apply_thermodynamics(bodies_, interaction_config_.thermodynamics, dt);
+		const auto outcome = InteractionSolver::apply_collisions(bodies_, interaction_config_.collisions, interaction_config_.fragmentation, interaction_config_.annihilation);
+
+		if (outcome.annihilated_body_ids.empty() && outcome.shattered_body_ids.empty()) return;
+
+		std::vector<PostNewtonianBody> next_bodies;
+		next_bodies.reserve(bodies_.size());
+		for (auto& body : bodies_) {
+			if (!body.enabled) continue;
+			const bool shattered = std::find(outcome.shattered_body_ids.begin(), outcome.shattered_body_ids.end(), body.id) != outcome.shattered_body_ids.end();
+			if (!shattered) {
+				next_bodies.push_back(body);
+				continue;
+			}
+			const uint32_t fragment_count = std::max<uint32_t>(interaction_config_.fragmentation.max_fragments_per_event, 1);
+			const double fragment_mass = body.mass / static_cast<double>(fragment_count);
+			if (fragment_mass < interaction_config_.fragmentation.minimum_fragment_mass) {
+				continue;
+			}
+			const double fragment_radius = body.radius / std::cbrt(static_cast<double>(fragment_count));
+			for (uint32_t f = 0; f < fragment_count; ++f) {
+				PostNewtonianBody fragment = body;
+				fragment.id = allocate_id();
+				fragment.mass = fragment_mass;
+				fragment.radius = fragment_radius;
+				fragment.integrity = 1.0;
+				const double angle = (2.0 * std::numbers::pi_v<double> * static_cast<double>(f)) / static_cast<double>(fragment_count);
+				const double offset = fragment_radius * 1.5;
+				fragment.position[0] += offset * std::cos(angle);
+				fragment.position[1] += offset * std::sin(angle);
+				fragment.velocity[0] += 0.1 * std::cos(angle);
+				fragment.velocity[1] += 0.1 * std::sin(angle);
+				next_bodies.push_back(fragment);
+			}
+		}
+
+		bodies_ = std::move(next_bodies);
+		update_accelerations();
 	}
 
 	[[nodiscard]] double time() const noexcept {

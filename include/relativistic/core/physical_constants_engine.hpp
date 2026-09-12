@@ -79,7 +79,9 @@ private:
 public:
 	static constexpr double FINE_STRUCTURE_CONSTANT = SIReferenceConstants::FINE_STRUCTURE_CONSTANT;
 
-	ConstantsEngine() noexcept = default;
+	ConstantsEngine() noexcept {
+		apply_preset(ConstantsPreset::Planck);
+	}
 
 	[[nodiscard]] constexpr ConstantsPreset active_preset() const noexcept { return active_preset_; }
 

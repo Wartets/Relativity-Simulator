@@ -105,7 +105,26 @@ enum class ParameterType : uint32_t {
 	ConstantSimKB = 62,
 	ConstantSimNA = 63,
 	ConstantSimKe = 64,
-	ConstantSimKcd = 65
+	ConstantSimKcd = 65,
+	InteractionElectricityEnabled = 66,
+	InteractionMagnetismEnabled = 67,
+	InteractionVacuumPermittivity = 68,
+	InteractionVacuumPermeability = 69,
+	InteractionCollisionsEnabled = 70,
+	InteractionCollisionResponseModel = 71,
+	InteractionCollisionConsiderRotation = 72,
+	InteractionCollisionConsiderFriction = 73,
+	InteractionCollisionRestitutionMultiplier = 74,
+	InteractionThermodynamicsEnabled = 75,
+	InteractionAmbientTemperature = 76,
+	InteractionRadiativeCouplingScale = 77,
+	InteractionFragmentationEnabled = 78,
+	InteractionMinimumFragmentMass = 79,
+	InteractionFragmentationMaxFragments = 80,
+	InteractionCollisionEnergyToIntegrityLoss = 81,
+	InteractionAnnihilationEnabled = 82,
+	InteractionAnnihilationContactScale = 83,
+	InteractionAnnihilationRequireOppositeCharge = 84
 };
 
 struct Command {

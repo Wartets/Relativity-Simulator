@@ -94,3 +94,10 @@ All metric types satisfy the `SpacetimeMetric` concept:
   - `SpectrographWindow`: Spectral radiance plots $I(\lambda)$ with 1-sigma uncertainty shading & CIE color swatches.
   - `PerformanceSettingsWindow`: Presets, render resolution scaling, & execution statistics.
   - `VisualDiagnosticsWindow`: Metric tensor components $g_{\mu\nu}$, horizon boundaries, & curvature history graphs.
+  - `BodyManagerWindow`: Celestial body & N-body catalog browser, per-body creation wizard with archetype-based randomized defaults, per-body physical/material/thermal/electromagnetic property editing, system-wide dynamics summary (total mass, center of mass, linear & angular momentum, mechanical energy, gravitational-wave luminosity), & electromagnetic/collision/thermodynamics/fragmentation/annihilation interaction configuration.
+  - `HudManagerWindow`: Per-element configuration of the on-screen telemetry overlay (anchor corner, offset, scale, color, background panel, display verbosity, & automatic gap-free stacking).
+  - `ConstantsWindow`: Editable base physical constants ($c$, $G$, $h$, $k_B$, $N_A$, $K_e$, $K_{cd}$) under SI, Planck, or Custom presets, alongside derived constants & dimensional scaling factors between simulation & SI units.
+  - `KeybindSettingsWindow`: Full keybinding rebinding interface with conflict detection, QWERTY/AZERTY layout presets, & hold/toggle activation modes for modifier-style actions.
+  - `LogConsoleWindow`: Scrollback viewer for the engine log with severity filtering (info, warning, error).
+  - `PerformanceAnalysisWindow`: Live frame-time & stage-breakdown monitoring, statistical summaries over configurable sample windows, bottleneck analysis with a weighted render-dispatch cost breakdown, & persisted benchmark run capture & comparison.
+  - `SecondaryViewportManager` / `SecondaryViewWindow`: Independent auxiliary observer viewports rendered through the software compute engine, with automatic resolution throttling as additional views are opened.

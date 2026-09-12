@@ -9,48 +9,68 @@ Scenarios are defined in YAML format & specify initial spacetime properties, num
 ```yaml
 scenario_name: "ScenarioName"
 description: "Physical scenario description"
+author: "Unknown"                            # Attribution stored inside the file
+created_at: ""                               # ISO 8601 creation timestamp, optional
+version_tag: "1.0.0"                         # Semantic version tag (major.minor.patch)
 
 spacetime:
   metric_type: "Schwarzschild | Kerr | Minkowski | ReissnerNordstrom | KerrNewman | SchwarzschildDeSitter | FLRW | MorrisThorne | Alcubierre | BSSN"
-  central_mass: 1.0                       # Central mass M in geometrized or SI units
-  central_spin: 0.0                       # Spin parameter a in [-M, M]
-  central_charge: 0.0                     # Electric charge Q
-  cosmological_lambda: 0.0                # Cosmological constant Lambda
-  wormhole_throat: 1.0                    # Throat radius b_0 for Morris-Thorne metric
-  warp_velocity: 0.0                      # Warp bubble velocity v_s for Alcubierre metric
-  speed_of_light: 1.0                     # Speed of light c (1.0 or 299792458.0)
-  gravitational_constant: 1.0             # Gravitational constant G (1.0 or 6.67430e-11)
+  central_mass: 1.0                          # Central mass M in geometrized or SI units
+  central_spin: 0.0                          # Spin parameter a in [-M, M]
+  central_charge: 0.0                        # Electric charge Q
+  cosmological_lambda: 0.0                   # Cosmological constant Lambda
+  wormhole_throat: 1.0                       # Throat radius b_0 for Morris-Thorne metric
+  warp_velocity: 0.0                         # Warp bubble velocity v_s for Alcubierre metric
+  speed_of_light: 1.0                        # Speed of light c (1.0 or 299792458.0)
+  gravitational_constant: 1.0                # Gravitational constant G (1.0 or 6.67430e-11)
 
 integrator:
   scheme: "RK45 | CashKarp | Vernier9 | GaussLegendre4 | GaussLegendre6 | Hermite4"
-  initial_step: 0.01                      # Initial step size
-  min_step: 1.0e-8                        # Minimum step size bound
-  max_step: 10.0                          # Maximum step size bound
-  relative_tolerance: 1.0e-10             # Relative error tolerance (rtol)
-  absolute_tolerance: 1.0e-14             # Absolute error tolerance (atol)
+  initial_step: 0.01                         # Initial step size
+  min_step: 1.0e-8                           # Minimum step size bound
+  max_step: 10.0                             # Maximum step size bound
+  relative_tolerance: 1.0e-10                # Relative error tolerance (rtol)
+  absolute_tolerance: 1.0e-14                # Absolute error tolerance (atol)
 
 output:
-  fits_enabled: true                      # Export FITS images & spectral cubes
-  hdf5_enabled: true                      # Export HDF5 state datasets
-  vtk_enabled: true                       # Export VTK PolyData geometry
-  export_directory: "./output"            # Target destination directory
+  fits_enabled: true                         # Export FITS images & spectral cubes
+  hdf5_enabled: true                         # Export HDF5 state datasets
+  vtk_enabled: true                          # Export VTK PolyData geometry
+  export_directory: "./output"               # Target destination directory
 
 bodies:
   - name: "BodyIdentifier"
-    body_id: 1                            # Unique integer identifier
-    mass: 1.0                             # Mass in kg or geometrized units
-    radius: 1.0                           # Mean physical radius
-    spin: 0.0                             # Spin angular momentum magnitude
-    charge: 0.0                           # Electric charge
-    position: [0.0, 10.0, 1.5707963, 0.0] # Spacetime four-position [t, r, theta, phi]
-    velocity: [1.0, 0.0, 0.0, 0.1]        # Four-velocity [u0, u1, u2, u3]
+    body_id: 1                               # Unique integer identifier
+    mass: 1.0                                # Mass in kg or geometrized units
+    radius: 1.0                              # Mean physical radius
+    spin: 0.0                                # Spin angular momentum magnitude
+    charge: 0.0                              # Electric charge
+    enabled: true                            # Whether the body participates in rendering, gravity, and integration
+    color: [0.62, 0.75, 1.0, 1.0]            # Primary RGBA display color
+    color_secondary: [0.18, 0.30, 0.75, 1.0] # Secondary RGBA display color
+    magnetic_moment: 0.0                     # Magnetic dipole moment, used by the electromagnetic interaction solver
+    rotation_speed: 0.0                      # Body rotation rate about its spin axis
+    friction_coefficient: 0.0                # Surface friction coefficient used in collision resolution
+    restitution: 0.5                         # Coefficient of restitution used in elastic collision resolution
+    integrity: 1.0                           # Structural integrity consumed by collision and tidal-stress damage
+    lifetime: 0.0                            # Optional lifetime bookkeeping value
+    temperature: 0.0                         # Body temperature in Kelvin, used by the thermodynamics interaction solver
+    heat_capacity: 0.0                       # Heat capacity used by the thermodynamics interaction solver
+    composition: ""                          # Free-form material composition label
+    position: [0.0, 10.0, 1.5707963, 0.0]    # Spacetime four-position [t, r, theta, phi]
+    velocity: [1.0, 0.0, 0.0, 0.1]           # Four-velocity [u0, u1, u2, u3]
+    quadrupole: 0.0                          # Reserved quadrupole deformation parameter
+    j2: 0.0                                  # Zonal J2 gravitational harmonic coefficient
+    j3: 0.0                                  # Zonal J3 gravitational harmonic coefficient
+    j4: 0.0                                  # Zonal J4 gravitational harmonic coefficient
+    reference_radius: 0.0                    # Reference radius at which the zonal harmonics above are defined
 
 observers:
   - name: "PrimaryObserver"
-    fov_deg: 60.0                         # Field of view in degrees
-    resolution: [1920, 1080]              # Raster dimensions [width, height]
-    position: [0.0, 50.0, 1.5707963, 0.0] # Observer coordinates [t, x1, x2, x3]
-    four_velocity: [1.0, 0.0, 0.0, 0.0]   # Comobile four-velocity [u0, u1, u2, u3]
+    fov_deg: 60.0                            # Field of view in degrees
+    resolution: [1920, 1080]                 # Raster dimensions [width, height]
+    position: [0.0, 50.0, 1.5707963, 0.0]    # Observer coordinates [t, x1, x2, x3]
+    four_velocity: [1.0, 0.0, 0.0, 0.0]      # Comobile four-velocity [u0, u1, u2, u3]
 ```
 
 ---

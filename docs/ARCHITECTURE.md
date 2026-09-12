@@ -149,6 +149,7 @@ When executing in interactive mode, `UiManager` coordinates GLFW windowing, Open
 - Spectrograph Monitor (`SpectrographWindow`): Real-time plotting of spectral radiance curves $I(\lambda)$ with $1\sigma$ confidence bands & perceived CIE sRGB color swatches.
 - Performance Settings (`PerformanceSettingsWindow`): Profiles, internal render scale adjustment, ray budget limits, & arithmetic precision toggling.
 - Interactive Camera Controller (`InteractiveCameraController`): Manages navigation modes (Free-Fly 6-DOF, Orbit Center, Spherical Boyer-Lindquist, and Cockpit Flight) with mouse-look, hotkey shortcuts, and 8 projection modes (Pinhole, AutoZoom, FisheyeStereographic, Equirectangular360, FisheyeEquidistant, FisheyeOrthographic, PaniniCylindrical, HammerAitoff).
+- Auxiliary Interface Windows: `BodyManagerWindow` (N-body catalog & interaction configuration), `HudManagerWindow` (on-screen telemetry layout), `ConstantsWindow` (physical constants presets), `KeybindSettingsWindow` (input rebinding), `LogConsoleWindow` (engine log viewer), `PerformanceAnalysisWindow` (benchmark capture & bottleneck analysis), and `SecondaryViewportManager` (auxiliary observer viewports).
 
 ---
 

@@ -67,7 +67,7 @@ The `set` command updates physical properties, optical settings, & solver tolera
 | `warp_velocity`, `warp_vel` | Float | Alcubierre metric apparent velocity $v_s$. | `set warp_velocity 2.0` |
 | `projection`, `proj` | Integer | Projection (0: Pinhole, 1: AutoZoom, 2: Fisheye, 3: 360). | `set projection 1` |
 | `timeflow`, `time_flow` | Integer | Time frame (0: Proper time $\tau$, 1: Coordinate time $t$). | `set timeflow 0` |
-| `speed`, `camera_speed` | Float | Navigation movement rate. | `set speed 15.0` |
+| `speed`, `cameran_speed` | Float | Navigation movement rate. | `set speed 15.0` |
 | `fov` | Float | Field of view in degrees. | `set fov 75.0` |
 | `exposure` | Float | Exposure compensation in EV units. | `set exposure 1.5` |
 | `tonemapper`, `tonemap` | Integer | Operator (0: Linear, 1: ACES, 2: Logarithmic, 3: Reinhard). | `set tonemapper 1` |
@@ -88,6 +88,10 @@ The `set` command updates physical properties, optical settings, & solver tolera
 | `sky_saturation` | Float | Sky color saturation factor. | `set sky_saturation 1.0` |
 | `sky_bg_r`, `sky_bg_g`, `sky_bg_b` | Float | Background color components [0.0, 1.0]. | `set sky_bg_r 0.0` |
 | `work_distribution`, `tiling` | Integer | Work layout (0: Scanlines, 1: 32x32 Tiles). | `set tiling 1` |
+| `force_realloc`, `realloc_texture` | Boolean (0/1) | Forces full GPU texture storage reallocation each frame instead of in-place sub-image updates. | `set force_realloc 1` |
+| `space_skip`, `space_skip_enabled` | Boolean (0/1) | Enables analytic ray leaping across the weak-field region beyond the space-skip radius. | `set space_skip 1` |
+| `space_skip_radius` | Float | Radius, in units of central mass M, beyond which space-skipping may activate. | `set space_skip_radius 60.0` |
+| `pole_precision` | Float | Strength of the automatic step-size damping applied near the coordinate poles. | `set pole_precision 2.5` |
 | `tickrate` | Float | Scheduler frequency in Hertz (10.0 to 1000.0). | `set tickrate 60.0` |
 | `<custom_name>` | Float | User-defined custom scalar quantity. | `set dyn_res 1.0` |
 
@@ -126,18 +130,43 @@ When executed without the `--headless` flag, `engine_cli` initializes a graphica
 | `F5` / `P` | Toggle simulation pause / resume state. |
 | `F6` | Advance simulation by a single logical tick. |
 | `F7` | Reset simulation time and orbital clocks. |
+| `F8` | Toggle Celestial Body & N-Body Manager window. |
 | `F9` | Cycle through camera navigation modes. |
 | `F10` | Toggle Telemetry & Invariants window. |
-| `F11` | Toggle Performance & Diagnostics windows. |
-| `F12` | Snap camera to equatorial position ($r = 50M$). |
+| `F11` | Toggle Performance & Engine Optimization window. |
+| `F12` | Capture a screenshot using the current capture settings. |
 | `F` | Orient camera toward coordinate origin $(0, 0, 0)$. |
 | `Home` | Reset camera roll angle to zero. |
 | `[` / `]` | Decrease / Increase navigation movement speed by 5%. |
-| `Alt` + `1` / `Numpad 1` | Snap viewpoint to equatorial front ($r = 50M$). |
-| `Alt` + `3` / `Numpad 3` | Snap viewpoint to equatorial side ($r = 50M$). |
-| `Alt` + `7` / `Numpad 7` | Snap viewpoint to north pole ($z = 50M$). |
-| `Alt` + `9` / `Numpad 9` | Snap viewpoint to south pole ($z = -50M$). |
-| `Alt` + `5` / `Numpad 5` | Snap viewpoint to ISCO orbital radius. |
+| `Numpad 1` | Snap viewpoint to equatorial front ($r = 50M$). |
+| `Numpad 3` | Snap viewpoint to equatorial side ($r = 50M$). |
+| `Numpad 7` | Snap viewpoint to north pole ($z = 50M$). |
+| `Numpad 9` | Snap viewpoint to south pole ($z = -50M$). |
+| `Numpad 5` | Snap viewpoint to ISCO orbital radius. |
+| `H` | Toggle HUD master visibility. |
+| `B` | Toggle Keybind Settings window. |
+| `M` | Cycle the active spacetime metric. |
+| `I` | Cycle the active ODE integrator. |
+| `V` | Cycle the camera projection mode. |
+| `T` | Cycle the HDR tonemapping operator. |
+| `G` | Cycle the skybox style. |
+| `U` | Toggle GPU compute offload. |
+| `N` | Toggle adaptive space-skipping. |
+| `L` | Toggle distance-based level of detail. |
+| `=` | Increase exposure compensation (EV). |
+| `-` | Decrease exposure compensation (EV). |
+| `.` | Increase the time warp factor. |
+| `,` | Decrease the time warp factor. |
+| `Insert` | Quick-save the current scenario. |
+| `Delete` | Quick-load the last quick-saved scenario. |
+| `` ` `` | Toggle fullscreen viewport mode. |
+| `R` | Toggle tiled work distribution. |
+| `0` | Cycle the adaptive step-size controller. |
+| `9` | Reset performance settings to the balanced preset. |
+| `O` | Toggle Scenario Manager & Presets window. |
+| `Y` | Toggle Curvature Diagnostics & Tensor Inspector window. |
+| `X` | Toggle Radiative Transfer & Spectrograph Monitor window. |
+| `;` | Toggle Physical Constants Engine window. |
 
 ---
 

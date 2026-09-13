@@ -99,6 +99,117 @@ dvec2 precise_sincos(double theta) {
 	return dvec2(sin_4h, cos_4h);
 }
 
+double cbrt_d(double x) {
+	float xf = float(x);
+	float sign_x = (xf < 0.0) ? -1.0 : 1.0;
+	float result = sign_x * pow(abs(xf), 1.0 / 3.0);
+	return double(result);
+}
+
+double kerr_newman_delta(double r, double mass, double a, double rq2) {
+	return r * r - 2.0 * mass * r + a * a + rq2;
+}
+
+double kerr_isco_radius_prograde_retrograde(double mass, double a) {
+	double a_star = clamp(a / mass, -0.9999999, 0.9999999);
+	double abs_a = abs(a_star);
+	double orbit_sign = (a_star >= 0.0) ? -1.0 : 1.0;
+	double cbrt_term = cbrt_d(max(1.0 - abs_a * abs_a, 0.0));
+	double z1 = 1.0 + cbrt_term * (cbrt_d(1.0 + abs_a) + cbrt_d(1.0 - abs_a));
+	double z2 = sqrt(3.0 * abs_a * abs_a + z1 * z1);
+	double r_isco_over_m = 3.0 + z2 + orbit_sign * sqrt(max((3.0 - z1) * (3.0 + z1 + 2.0 * z2), 0.0));
+	return r_isco_over_m * mass;
+}
+
+void kerr_newman_zamo_frame(
+	double r, double theta, double mass, double a, double rq2,
+	out double g00, out double g03, out double g11, out double g22, out double g33,
+	out double e0_t, out double e0_phi, out double e1_r, out double e2_th, out double e3_phi
+) {
+	float theta_f = float(theta);
+	double sin_t = double(sin(theta_f));
+	double cos_t = double(cos(theta_f));
+	double sin2_t = sin_t * sin_t;
+	double cos2_t = cos_t * cos_t;
+	double a2 = a * a;
+	double r2 = r * r;
+	double rho2 = r2 + a2 * cos2_t;
+	double delta = kerr_newman_delta(r, mass, a, rq2);
+	double two_mr_minus_q2 = 2.0 * mass * r - rq2;
+	double sigma = (r2 + a2) * (r2 + a2) - a2 * delta * sin2_t;
+
+	g00 = -(1.0 - two_mr_minus_q2 / rho2);
+	g03 = -(two_mr_minus_q2 * a * sin2_t) / rho2;
+	g11 = rho2 / delta;
+	g22 = rho2;
+	g33 = (sigma * sin2_t) / rho2;
+
+	double omega = -g03 / max(g33, 1e-30);
+	double lapse_sq = -(g00 + omega * g03);
+	double alpha = sqrt(max(lapse_sq, 1e-30));
+	e0_t = 1.0 / alpha;
+	e0_phi = omega / alpha;
+	e1_r = 1.0 / sqrt(max(g11, 1e-30));
+	e2_th = 1.0 / sqrt(max(g22, 1e-30));
+	e3_phi = 1.0 / sqrt(max(g33, 1e-30));
+}
+
+dvec4 kerr_newman_geodesic_derivative(dvec4 u, double r, double theta, double mass, double a, double rq2) {
+	float theta_f = float(theta);
+	double sin_t = double(sin(theta_f));
+	double cos_t = double(cos(theta_f));
+	double sin2_t = sin_t * sin_t;
+	double cos2_t = cos_t * cos_t;
+	double a2 = a * a;
+	double r2 = r * r;
+	double rho2 = r2 + a2 * cos2_t;
+	double rho4 = rho2 * rho2;
+	double delta = kerr_newman_delta(r, mass, a, rq2);
+	double two_mr_minus_q2 = 2.0 * mass * r - rq2;
+
+	double d1_ratio = (2.0 * mass * rho2 - two_mr_minus_q2 * 2.0 * r) / rho4;
+	double d1_g00 = d1_ratio;
+	double d1_g03 = -a * sin2_t * d1_ratio;
+	double d1_delta = 2.0 * (r - mass);
+	double d1_g11 = (2.0 * r * delta - rho2 * d1_delta) / (delta * delta);
+	double d1_g22 = 2.0 * r;
+	double sigma = (r2 + a2) * (r2 + a2) - a2 * delta * sin2_t;
+	double d1_sigma = 4.0 * r * (r2 + a2) - a2 * d1_delta * sin2_t;
+	double d1_g33 = sin2_t * (d1_sigma * rho2 - sigma * 2.0 * r) / rho4;
+
+	double sin_cos = sin_t * cos_t;
+	double d2_rho2 = -2.0 * a2 * sin_cos;
+	double d2_ratio = -two_mr_minus_q2 * d2_rho2 / rho4;
+	double d2_g00 = d2_ratio;
+	double d2_g03 = -a * (2.0 * sin_cos * two_mr_minus_q2 * rho2 - two_mr_minus_q2 * sin2_t * d2_rho2) / rho4;
+	double d2_g11 = d2_rho2 / delta;
+	double d2_g22 = d2_rho2;
+	double d2_sigma = -2.0 * a2 * delta * sin_cos;
+	double d2_term = 2.0 * sin_cos * sigma * rho2 + sin2_t * d2_sigma * rho2 - sigma * sin2_t * d2_rho2;
+	double d2_g33 = d2_term / rho4;
+
+	double inv_g00 = -sigma / (rho2 * delta);
+	double inv_g03 = -(two_mr_minus_q2 * a) / (rho2 * delta);
+	double inv_g11 = delta / rho2;
+	double inv_g22 = 1.0 / rho2;
+	double safe_sin2_t = max(sin2_t, 1e-12);
+	double inv_g33 = (delta - a2 * sin2_t) / (rho2 * delta * safe_sin2_t);
+
+	double p0 = u.x, p1 = u.y, p2 = u.z, p3 = u.w;
+
+	double term0 = d1_g00 * p1 * p0 + d2_g00 * p2 * p0 + d1_g03 * p1 * p3 + d2_g03 * p2 * p3;
+	double term1 = -0.5 * (d1_g00 * p0 * p0 + d1_g11 * p1 * p1 + d1_g22 * p2 * p2 + d1_g33 * p3 * p3 + 2.0 * d1_g03 * p0 * p3) + d1_g11 * p1 * p1 + d2_g11 * p2 * p1;
+	double term2 = -0.5 * (d2_g00 * p0 * p0 + d2_g11 * p1 * p1 + d2_g22 * p2 * p2 + d2_g33 * p3 * p3 + 2.0 * d2_g03 * p0 * p3) + d1_g22 * p1 * p2 + d2_g22 * p2 * p2;
+	double term3 = d1_g03 * p1 * p0 + d2_g03 * p2 * p0 + d1_g33 * p1 * p3 + d2_g33 * p2 * p3;
+
+	dvec4 acc;
+	acc.x = -(inv_g00 * term0 + inv_g03 * term3);
+	acc.y = -inv_g11 * term1;
+	acc.z = -inv_g22 * term2;
+	acc.w = -(inv_g03 * term0 + inv_g33 * term3);
+	return acc;
+}
+
 dvec3 compute_pinhole_ray(double u, double v, double fov) {
 	double tan_half = double(tan(float(fov * 0.5)));
 	double n1 = 1.0;
@@ -583,9 +694,11 @@ void main() {
 	dvec3 ray_dir = n_local.x * fwd + n_local.z * rgt + n_local.y * up;
 
 	double m = max(pc.metric_mass, 1e-4);
-	double a_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
+	double raw_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
+	double a_spin = (pc.metric_type == 4u) ? 0.0 : raw_spin;
+	double kn_charge_sq = (pc.metric_type == 4u || pc.metric_type == 5u) ? (pc.metric_charge * pc.metric_charge) : 0.0;
 	double rs = 2.0 * m;
-	double rh = (abs(a_spin) > 1e-12) ? (m + sqrt(max(m * m - a_spin * a_spin, 0.0))) : rs;
+	double rh = (abs(a_spin) > 1e-12 || kn_charge_sq > 1e-12) ? (m + sqrt(max(m * m - a_spin * a_spin - kn_charge_sq, 0.0))) : rs;
 
 	uint status = 0u;
 	uint iters = 0u;
@@ -598,7 +711,8 @@ void main() {
 		accum = dvec3(sky);
 	} else {
 		bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
-		double isco = (abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
+		bool use_kerr_newman_metric = (pc.metric_type == 2u || pc.metric_type == 4u || pc.metric_type == 5u) && (abs(a_spin) > 1e-9 * m || kn_charge_sq > 1e-18 * m * m);
+		double isco = use_kerr_newman_metric ? kerr_isco_radius_prograde_retrograde(m, a_spin) : ((abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m));
 		double disk_outer = 24.0 * m;
 
 		double r_obs = max(pc.observer_position.y, rh * 1.02);
@@ -624,18 +738,34 @@ void main() {
 		double n_th = dot(ray_dir, eth);
 		double n_ph = dot(ray_dir, eph);
 
-		double factor_obs = max(1.0 - rs / r_obs, 1e-6);
-		double sqrt_factor_obs = sqrt(factor_obs);
-
 		double ray_r = r_obs;
 		double ray_th = theta_obs;
 		double ray_phi = phi_obs;
-		double ray_pr = n_r / sqrt_factor_obs;
-		double ray_pth = n_th / r_obs;
-		double ray_pphi = n_ph / (r_obs * sin_to);
-
+		double ray_pr;
+		double ray_pth;
+		double ray_pphi;
+		double ray_p0 = 1.0;
 		double E_cons = 1.0;
-		double Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
+		double Lz_cons = 0.0;
+
+		if (use_kerr_newman_metric) {
+			double g00, g03, g11, g22, g33;
+			double e0_t, e0_phi, e1_r, e2_th, e3_phi;
+			kerr_newman_zamo_frame(r_obs, theta_obs, m, a_spin, kn_charge_sq, g00, g03, g11, g22, g33, e0_t, e0_phi, e1_r, e2_th, e3_phi);
+			ray_p0 = e0_t;
+			ray_pr = n_r * e1_r;
+			ray_pth = n_th * e2_th;
+			ray_pphi = e0_phi + n_ph * e3_phi;
+			E_cons = -(g00 * ray_p0 + g03 * ray_pphi);
+			Lz_cons = g03 * ray_p0 + g33 * ray_pphi;
+		} else {
+			double factor_obs = max(1.0 - rs / r_obs, 1e-6);
+			double sqrt_factor_obs = sqrt(factor_obs);
+			ray_pr = n_r / sqrt_factor_obs;
+			ray_pth = n_th / r_obs;
+			ray_pphi = n_ph / (r_obs * sin_to);
+			Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
+		}
 
 		double throughput = 1.0;
 
@@ -647,8 +777,8 @@ void main() {
 		for (uint step = 0u; step < effective_max_steps && throughput > 0.01; ++step) {
 			iters = step + 1u;
 
-			double delta_kerr = ray_r * ray_r - 2.0 * m * ray_r + a_spin * a_spin;
-			if (ray_r <= rh * 1.0001 || delta_kerr <= 0.0) {
+			double delta_kn = kerr_newman_delta(ray_r, m, a_spin, kn_charge_sq);
+			if (ray_r <= rh * 1.0001 || delta_kn <= 0.0) {
 				status = 1u;
 				throughput = 0.0;
 				break;
@@ -658,7 +788,7 @@ void main() {
 				break;
 			}
 
-			if ((pc.render_flags & (1u << 10)) != 0u) {
+			if (!use_kerr_newman_metric && (pc.render_flags & (1u << 10)) != 0u) {
 				double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
 				if (ray_r > effective_skip_r && attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
 					continue;
@@ -676,28 +806,42 @@ void main() {
 			double prev_r = ray_r;
 			double prev_th = ray_th;
 			double prev_phi = ray_phi;
+			double prev_pphi = ray_pphi;
 
-			double f = max(1.0 - rs / ray_r, 1e-6);
-			double p_t = E_cons / f;
-			double sin2_t = max(sin_t * sin_t, 1e-10);
-			double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-			double r2 = ray_r * ray_r;
+			if (use_kerr_newman_metric) {
+				dvec4 u_state = dvec4(ray_p0, ray_pr, ray_pth, ray_pphi);
+				dvec4 du_state = kerr_newman_geodesic_derivative(u_state, ray_r, ray_th, m, a_spin, kn_charge_sq);
 
-			double g100 = (rs * f) / (2.0 * r2);
-			double g111 = -rs / (2.0 * r2 * f);
-			double g122 = -ray_r * f;
-			double g133 = -ray_r * f * sin2_t;
+				ray_r += dt * ray_pr;
+				ray_th += dt * ray_pth;
+				ray_phi += dt * ray_pphi;
+				ray_p0 += dt * du_state.x;
+				ray_pr += dt * du_state.y;
+				ray_pth += dt * du_state.z;
+				ray_pphi += dt * du_state.w;
+			} else {
+				double f = max(1.0 - rs / ray_r, 1e-6);
+				double p_t = E_cons / f;
+				double sin2_t = max(sin_t * sin_t, 1e-10);
+				double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
+				double r2 = ray_r * ray_r;
 
-			double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
-			double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-			double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
+				double g100 = (rs * f) / (2.0 * r2);
+				double g111 = -rs / (2.0 * r2 * f);
+				double g122 = -ray_r * f;
+				double g133 = -ray_r * f * sin2_t;
 
-			ray_r += dt * ray_pr;
-			ray_th += dt * ray_pth;
-			ray_phi += dt * ray_pphi;
-			ray_pr += dt * d_pr;
-			ray_pth += dt * d_pth;
-			ray_pphi += dt * d_pphi;
+				double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
+				double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+				double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
+
+				ray_r += dt * ray_pr;
+				ray_th += dt * ray_pth;
+				ray_phi += dt * ray_pphi;
+				ray_pr += dt * d_pr;
+				ray_pth += dt * d_pth;
+				ray_pphi += dt * d_pphi;
+			}
 
 			if (ray_th < 0.0) {
 				ray_th = -ray_th;
@@ -715,14 +859,16 @@ void main() {
 				double s_cross = (d_th_span > 1e-12) ? clamp(abs(prev_th - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 				double r_cross = prev_r + s_cross * (ray_r - prev_r);
 				double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
+				double pphi_cross = prev_pphi + s_cross * (ray_pphi - prev_pphi);
 
 				if (r_cross >= isco && r_cross <= disk_outer) {
 					status |= 4u;
 
+					double lz_at_cross = use_kerr_newman_metric ? (pphi_cross * r_cross * r_cross) : Lz_cons;
 					double v_orb = sqrt(m / r_cross);
 					double omega_orb = v_orb / r_cross;
 					double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
-					double l_over_e = Lz_cons / max(abs(E_cons), 1e-12);
+					double l_over_e = lz_at_cross / max(abs(E_cons), 1e-12);
 					double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
 					double g_doppler = (abs(denom_g) > 1e-12) ? (sqrt(max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
 					redshift_rec = g_doppler;

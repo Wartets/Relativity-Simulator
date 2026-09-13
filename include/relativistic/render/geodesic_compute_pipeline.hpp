@@ -72,10 +72,8 @@ private:
 
 	[[nodiscard]] static bool is_metric_gpu_accelerable(const GpuCameraPushConstants& params) noexcept {
 		switch (params.metric_type) {
-			case 0U: case 1U: case 2U: case 3U: case 6U:
+			case 0U: case 1U: case 2U: case 4U: case 5U: case 6U:
 				return true;
-			case 4U: case 5U:
-				return std::abs(params.metric_charge) <= 1e-9 * std::max(params.metric_mass, 1e-4);
 			default:
 				return false;
 		}
@@ -89,9 +87,6 @@ private:
 			return false;
 		}
 		if (!is_metric_gpu_accelerable(params)) {
-			return false;
-		}
-		if (SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
 		}
 		if (params.interlace_mode != 0U) {

@@ -87,6 +87,9 @@ struct PhysicalParameters {
 	double post_vignette_strength{0.0};
 	double post_highlights{0.0};
 	double post_shadows{0.0};
+	bool interlace_rendering_enabled{false};
+	bool dynamic_resolution_enabled{false};
+	double dynamic_resolution_target_fps{60.0};
 };
 
 struct CustomParameterEntry {
@@ -939,6 +942,15 @@ public:
 				break;
 			case ParameterType::PostShadows:
 				params_.post_shadows = std::clamp(val, -1.0, 1.0);
+				break;
+			case ParameterType::InterlaceRenderingEnabled:
+				params_.interlace_rendering_enabled = (val > 0.5);
+				break;
+			case ParameterType::DynamicResolutionEnabled:
+				params_.dynamic_resolution_enabled = (val > 0.5);
+				break;
+			case ParameterType::DynamicResolutionTargetFps:
+				params_.dynamic_resolution_target_fps = std::clamp(val, 15.0, 240.0);
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));

@@ -73,6 +73,8 @@ private:
 	uint64_t last_synced_version_{0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
+	uint32_t interlace_phase_{0};
+	float dynamic_resolution_multiplier_{1.0f};
 	std::vector<double> frame_times_history_{};
 	double current_frame_time_ms_{0.0};
 	double rolling_average_time_ms_{0.0};
@@ -484,6 +486,8 @@ public:
 			cam_consts.space_skip_radius_scale = params.space_skip_radius_scale;
 			cam_consts.pole_guard_precision_scale = params.pole_guard_precision_scale;
 			cam_consts.far_field_step_scale = params.far_field_step_scale;
+			cam_consts.interlace_mode = params.interlace_rendering_enabled ? 1U : 0U;
+			cam_consts.interlace_phase = interlace_phase_;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_saturation = params.sky_saturation;
@@ -530,6 +534,9 @@ public:
 				last_logical_time_ = snap.logical_time;
 				last_precision_selector_ = precision_selector;
 				force_rerender_ = false;
+				if (params.interlace_rendering_enabled) {
+					interlace_phase_ ^= 1U;
+				}
 			}
 
 			if (pipeline_.check_and_clear_new_frame()) {

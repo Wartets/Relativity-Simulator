@@ -129,7 +129,10 @@ enum class ParameterType : uint32_t {
 	InteractionCollisionPositionCorrectionFactor = 86,
 	InteractionFragmentationTidalStressEnabled = 87,
 	InteractionFragmentationTidalStressToIntegrityLoss = 88,
-	FarFieldStepScale = 89
+	FarFieldStepScale = 89,
+	InterlaceRenderingEnabled = 90,
+	DynamicResolutionEnabled = 91,
+	DynamicResolutionTargetFps = 92
 };
 
 struct Command {

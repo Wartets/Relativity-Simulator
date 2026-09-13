@@ -729,6 +729,7 @@ public:
 		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
@@ -1104,6 +1105,7 @@ public:
 		auto render_simd_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 
 				for (size_t x = x_start; x < x_end; x += 4) {
@@ -1420,6 +1422,7 @@ public:
 		auto render_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
 				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
@@ -1797,6 +1800,7 @@ public:
 		auto render_simd_rect = [&](size_t x_start, size_t x_end, size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
 
 				for (size_t x = x_start; x < x_end; x += 8) {

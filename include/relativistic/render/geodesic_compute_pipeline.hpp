@@ -92,6 +92,9 @@ private:
 		if (SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
 		}
+		if (params.interlace_mode != 0U) {
+			return false;
+		}
 		return gpu_executor_->dispatch_and_readback(params, output);
 	}
 

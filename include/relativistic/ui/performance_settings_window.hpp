@@ -33,6 +33,7 @@ private:
 	int step_controller_mode_{1};
 	float pole_guard_precision_{2.5f};
 	float far_field_step_scale_{1.0f};
+	bool interlace_enabled_{false};
 
 public:
 	explicit PerformanceSettingsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -63,6 +64,9 @@ public:
 		step_controller_mode_ = static_cast<int>(p.step_controller_mode);
 		pole_guard_precision_ = static_cast<float>(p.pole_guard_precision_scale);
 		far_field_step_scale_ = static_cast<float>(p.far_field_step_scale);
+		interlace_enabled_ = p.interlace_rendering_enabled;
+		enable_dynamic_resolution_ = p.dynamic_resolution_enabled;
+		target_framerate_ = static_cast<float>(p.dynamic_resolution_target_fps);
 	}
 
 	void render() {
@@ -217,15 +221,23 @@ public:
 			render_setting_tooltip("Force full OpenGL texture memory reallocation each frame instead of in-place sub-image updates.");
 
 			if (ImGui::Checkbox("Enable Dynamic Resolution Throttling", &enable_dynamic_resolution_)) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("dyn_res", enable_dynamic_resolution_ ? 1.0 : 0.0)));
-				}
-				render_setting_tooltip("Dynamically adjusts the internal render scale to maintain a target framerate.");
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionEnabled, enable_dynamic_resolution_ ? 1.0 : 0.0)));
+			}
+			render_setting_tooltip("Dynamically scales the render resolution every frame to hold a target framerate. The Internal Render Scale above acts as the upper bound it will never exceed.");
 			if (enable_dynamic_resolution_) {
 				if (ImGui::SliderFloat("Target Frame Rate", &target_framerate_, 30.0f, 144.0f, "%.0f FPS")) {
-					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_custom_param("target_fps", target_framerate_)));
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionTargetFps, static_cast<double>(target_framerate_))));
 				}
 				render_setting_tooltip("Reduces resolution when the framerate drops below the target and increases it when the framerate exceeds the target.");
 			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.5f, 0.95f, 0.85f, 1.0f), "Interlaced Ray Tracing");
+			if (ImGui::Checkbox("Enable Interlaced Rendering (Alternating Scanlines)", &interlace_enabled_)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InterlaceRenderingEnabled, interlace_enabled_ ? 1.0 : 0.0)));
+			}
+			render_setting_tooltip("Traces only every other scanline each frame and keeps the previous frame's data for the untraced rows, roughly halving per-frame geodesic integration cost. Introduces a brief one-frame lag on half the image during fast camera motion. Falls back to the CPU render path automatically since the Vulkan compute shader does not implement scanline interlacing.");
 
 			ImGui::Spacing();
 			ImGui::Separator();

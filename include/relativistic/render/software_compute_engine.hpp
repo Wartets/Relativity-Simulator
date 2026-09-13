@@ -823,8 +823,9 @@ public:
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
 						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
+						const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
-						const double dt = -std::clamp(smooth_dt, 0.004, 3.5) * pole_guard;
+						const double dt = -std::clamp(smooth_dt * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard;
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;
@@ -1191,8 +1192,9 @@ public:
 							if (bundle.active_mask[l]) {
 								const double r_scale = std::max(bundle.x1[l] - rh, 0.02 * m);
 								const double smooth_dt = 0.06 * std::sqrt(bundle.x1[l] * r_scale);
+								const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((bundle.x1[l] - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 								const double pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
-								bundle.step_size[l] = -std::clamp(smooth_dt, 0.005, 4.0) * pole_guard;
+								bundle.step_size[l] = -std::clamp(smooth_dt * far_field_factor, 0.005, 4.0 * params.far_field_step_scale) * pole_guard;
 							} else {
 								bundle.step_size[l] = -0.01;
 							}

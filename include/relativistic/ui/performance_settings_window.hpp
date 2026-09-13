@@ -32,6 +32,7 @@ private:
 	float motion_quality_scale_{0.65f};
 	int step_controller_mode_{1};
 	float pole_guard_precision_{2.5f};
+	float far_field_step_scale_{1.0f};
 
 public:
 	explicit PerformanceSettingsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -61,6 +62,7 @@ public:
 		motion_quality_scale_ = static_cast<float>(p.motion_quality_scale);
 		step_controller_mode_ = static_cast<int>(p.step_controller_mode);
 		pole_guard_precision_ = static_cast<float>(p.pole_guard_precision_scale);
+		far_field_step_scale_ = static_cast<float>(p.far_field_step_scale);
 	}
 
 	void render() {
@@ -199,6 +201,14 @@ public:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, static_cast<double>(pole_guard_precision_))));
 			}
 			render_setting_tooltip("Strengthens the automatic step-size reduction applied near the coordinate poles (theta near 0 or pi) for both the CPU solver and the Vulkan GPU compute shader. Higher values suppress the thin bright artifact line sometimes visible through the poles of a black hole, at a small performance cost. The default is already set high enough to resolve this artifact under most conditions.");
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.7f, 1.0f), "Far-Field Step Acceleration");
+			if (slider_float_with_input("Far-Field Step Multiplier", &far_field_step_scale_, 1.0f, 8.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::FarFieldStepScale, static_cast<double>(far_field_step_scale_))));
+			}
+			render_setting_tooltip("Progressively enlarges the geodesic integration step size for rays whose current radius exceeds roughly 20 Schwarzschild radii, where spacetime curvature is weak and large steps introduce negligible error. Values above 1x reduce the iteration count spent on rays escaping to the sky, cutting render cost with no visible impact near the black hole itself. Set to 1x to disable.");
 
 			bool force_tex_realloc = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::FORCE_TEXTURE_REALLOCATION) != 0U;
 			if (ImGui::Checkbox("Force GPU Texture Storage Reallocation (glTexImage2D)", &force_tex_realloc)) {

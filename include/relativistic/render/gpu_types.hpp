@@ -82,6 +82,7 @@ struct alignas(16) GpuCameraPushConstants {
 	double sky_background_b{0.0};
 	double space_skip_radius_scale{40.0};
 	double pole_guard_precision_scale{2.5};
+	double far_field_step_scale{2.0};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

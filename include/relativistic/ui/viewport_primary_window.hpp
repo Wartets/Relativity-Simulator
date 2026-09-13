@@ -483,6 +483,7 @@ public:
 			}
 			cam_consts.space_skip_radius_scale = params.space_skip_radius_scale;
 			cam_consts.pole_guard_precision_scale = params.pole_guard_precision_scale;
+			cam_consts.far_field_step_scale = params.far_field_step_scale;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
 			cam_consts.sky_saturation = params.sky_saturation;

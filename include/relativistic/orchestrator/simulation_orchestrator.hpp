@@ -90,6 +90,7 @@ struct PhysicalParameters {
 	bool interlace_rendering_enabled{false};
 	bool dynamic_resolution_enabled{false};
 	double dynamic_resolution_target_fps{60.0};
+	bool adaptive_tile_prepass_enabled{false};
 };
 
 struct CustomParameterEntry {
@@ -476,6 +477,7 @@ public:
 			case ParameterType::SpaceSkippingEnabled:
 			case ParameterType::SpaceSkipRadiusScale:
 			case ParameterType::FarFieldStepScale:
+			case ParameterType::AdaptiveTilePrepassEnabled:
 			case ParameterType::Custom:
 				return true;
 			default:
@@ -951,6 +953,9 @@ public:
 				break;
 			case ParameterType::DynamicResolutionTargetFps:
 				params_.dynamic_resolution_target_fps = std::clamp(val, 15.0, 240.0);
+				break;
+			case ParameterType::AdaptiveTilePrepassEnabled:
+				params_.adaptive_tile_prepass_enabled = (val > 0.5);
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));

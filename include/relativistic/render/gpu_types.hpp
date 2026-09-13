@@ -121,6 +121,7 @@ namespace RenderFlags {
 	static constexpr uint32_t FORCE_TEXTURE_REALLOCATION = 1U << 8;
 	static constexpr uint32_t USE_LOD_SYSTEM = 1U << 9;
 	static constexpr uint32_t SPACE_SKIP_ENABLED = 1U << 10;
+	static constexpr uint32_t ADAPTIVE_TILE_PREPASS = 1U << 11;
 }
 
 }

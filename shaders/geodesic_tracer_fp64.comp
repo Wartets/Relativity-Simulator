@@ -57,6 +57,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double sky_background_b;
 	double space_skip_radius_scale;
 	double pole_guard_precision_scale;
+	double far_field_step_scale;
 } pc;
 
 struct PixelOutput {
@@ -669,7 +670,8 @@ void main() {
 			double sin_t = sincos_ray_th.x;
 			double cos_t = sincos_ray_th.y;
 			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.15, 1.0);
-			double dt = -clamp(0.05 * sqrt(ray_r * r_scale), 0.004, 3.5) * pole_guard;
+			double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+			double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard;
 
 			double prev_r = ray_r;
 			double prev_th = ray_th;

@@ -252,7 +252,8 @@ private:
 			const double cur_r = x(1);
 			const double r_scale = std::max(cur_r - rh, 0.02 * m);
 			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0 * params.pole_guard_precision_scale, 0.15, 1.0);
-			const double dt = -std::clamp(0.05 * std::sqrt(cur_r * r_scale), 0.004, 3.5) * pole_guard;
+			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((cur_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+			const double dt = -std::clamp(0.05 * std::sqrt(cur_r * r_scale) * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard;
 
 			const double prev_r = x(1);
 			const double prev_theta = x(2);
@@ -1308,6 +1309,62 @@ public:
 			}
 		};
 
+		const bool adaptive_prepass_enabled = (params.render_flags & RenderFlags::ADAPTIVE_TILE_PREPASS) != 0U;
+
+		auto compute_tile_ray_direction = [&](size_t px, size_t py) noexcept -> std::array<double, 3> {
+			const double v_norm = 1.0 - (static_cast<double>(py) + 0.5) / static_cast<double>(height) * 2.0;
+			const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
+			const double u_norm = is_allsky
+				? (((static_cast<double>(px) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
+				: (((static_cast<double>(px) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
+			const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(proj_mode, u_norm, v_norm, fov_rad);
+			return {
+				n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x,
+				n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y,
+				n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z
+			};
+		};
+
+		auto tile_is_pure_far_field_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept -> bool {
+			if (!adaptive_prepass_enabled || has_accretion_disk || r_obs < 60.0 * rh) {
+				return false;
+			}
+			const std::array<std::pair<size_t, size_t>, 4> corners{{{x0, y0}, {x1 - 1, y0}, {x0, y1 - 1}, {x1 - 1, y1 - 1}}};
+			for (const auto& corner : corners) {
+				const auto dir = compute_tile_ray_direction(corner.first, corner.second);
+				const double radial_component = dir[0] * er_x + dir[1] * er_y + dir[2] * er_z;
+				const double lateral_a = dir[0] * eth_x + dir[1] * eth_y + dir[2] * eth_z;
+				const double lateral_b = dir[0] * eph_x + dir[1] * eph_y + dir[2] * eph_z;
+				const double impact_parameter = r_obs * std::sqrt(std::max(lateral_a * lateral_a + lateral_b * lateral_b, 1e-30));
+				if (radial_component > -0.2 || impact_parameter < 40.0 * rh) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		auto fill_tile_with_analytic_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept {
+			for (size_t y = y0; y < y1; ++y) {
+				for (size_t x = x0; x < x1; ++x) {
+					const size_t idx = y * width + x;
+					if (idx >= output_framebuffer.size()) continue;
+					const auto dir = compute_tile_ray_direction(x, y);
+					const auto sky_rgb = compute_sky_radiance(dir[0], dir[1], dir[2], params);
+					const auto mapped_srgb = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+					output_framebuffer[idx] = GpuPixelOutput{
+						.r = mapped_srgb[0],
+						.g = mapped_srgb[1],
+						.b = mapped_srgb[2],
+						.a = 1.0f,
+						.redshift = 1.0f,
+						.affine_parameter = 0.0f,
+						.status_flags = PixelFlags::CELESTIAL_HIT,
+						.iterations_used = 1
+					};
+				}
+			}
+		};
+
 		auto render_simd_slice = [&](size_t y_start, size_t y_end) noexcept {
 			render_simd_rect(0, width, y_start, y_end);
 		};
@@ -1319,7 +1376,13 @@ public:
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				const size_t tx = (t % tiles_x) * TILE;
 				const size_t ty = (t / tiles_x) * TILE;
-				render_simd_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
+				const size_t tile_x_end = std::min(tx + TILE, width);
+				const size_t tile_y_end = std::min(ty + TILE, height);
+				if (tile_is_pure_far_field_sky(tx, tile_x_end, ty, tile_y_end)) {
+					fill_tile_with_analytic_sky(tx, tile_x_end, ty, tile_y_end);
+					continue;
+				}
+				render_simd_rect(tx, tile_x_end, ty, tile_y_end);
 			}
 		};
 

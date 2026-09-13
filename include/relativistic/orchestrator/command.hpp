@@ -132,7 +132,8 @@ enum class ParameterType : uint32_t {
 	FarFieldStepScale = 89,
 	InterlaceRenderingEnabled = 90,
 	DynamicResolutionEnabled = 91,
-	DynamicResolutionTargetFps = 92
+	DynamicResolutionTargetFps = 92,
+	AdaptiveTilePrepassEnabled = 93
 };
 
 struct Command {

@@ -407,6 +407,19 @@ public:
 				active_scale = std::clamp(active_scale, 0.1f, 2.0f);
 			}
 
+			if (params.dynamic_resolution_enabled) {
+				const double target_frame_ms = 1000.0 / std::max(params.dynamic_resolution_target_fps, 1.0);
+				const double last_frame_ms = pipeline_.telemetry().execution_time_ms;
+				if (last_frame_ms > target_frame_ms * 1.08) {
+					dynamic_resolution_multiplier_ = std::max(dynamic_resolution_multiplier_ * 0.94f, 0.25f);
+				} else if (last_frame_ms > 0.0 && last_frame_ms < target_frame_ms * 0.82) {
+					dynamic_resolution_multiplier_ = std::min(dynamic_resolution_multiplier_ * 1.03f, 1.0f);
+				}
+			} else {
+				dynamic_resolution_multiplier_ = 1.0f;
+			}
+			active_scale = std::clamp(active_scale * dynamic_resolution_multiplier_, 0.1f, 2.0f);
+
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
 			const uint32_t target_w = std::clamp(static_cast<uint32_t>(avail.x * active_scale), 64u, 3840u);
 			const uint32_t target_h = std::clamp(static_cast<uint32_t>(avail.y * active_scale), 64u, 2160u);
@@ -477,6 +490,9 @@ public:
 			cam_consts.render_flags = params.visual_overlays_flags;
 			if (params.lod_enabled) {
 				cam_consts.render_flags |= Render::RenderFlags::USE_LOD_SYSTEM;
+			}
+			if (params.adaptive_tile_prepass_enabled) {
+				cam_consts.render_flags |= Render::RenderFlags::ADAPTIVE_TILE_PREPASS;
 			}
 			cam_consts.lod_distance_threshold = params.lod_distance_scale * params.mass;
 			cam_consts.lod_reduced_steps = params.lod_reduced_ray_steps;
@@ -1079,12 +1095,12 @@ public:
 		if (tb.pole_precision_nudge) {
 			ImGui::SameLine();
 			if (ImGui::Button("Pole-", ImVec2(48.0f, 24.0f))) {
-				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.5, 8.0);
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.1, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Pole+", ImVec2(48.0f, 24.0f))) {
-				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.5, 8.0);
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.1, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
 		}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/io/scenario_locator.hpp"
 #include "relativistic/ui/camera_control_config.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
@@ -46,7 +47,7 @@ struct UserSettings {
 	uint32_t default_camera_mode{0};
 	uint32_t default_performance_preset{1};
 	bool default_use_gpu_compute{true};
-	std::string default_scenario_path{"scenarios/schwarzschild_accretion.yaml"};
+	std::string default_scenario_path{ScenarioLocator::kBuiltInStartupScenario};
 	bool load_scenario_on_startup{true};
 	std::string screenshot_output_directory{"./screenshots"};
 	std::string screenshot_filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
@@ -346,6 +347,7 @@ struct UserSettings {
 		out << "default_camera_mode=" << default_camera_mode << "\n";
 		out << "default_performance_preset=" << default_performance_preset << "\n";
 		out << "default_use_gpu_compute=" << (default_use_gpu_compute ? 1 : 0) << "\n";
+		out << "load_scenario_on_startup=" << (load_scenario_on_startup ? 1 : 0) << "\n";
 		out << "default_scenario_path=" << default_scenario_path << "\n";
 		out << "screenshot_output_directory=" << screenshot_output_directory << "\n";
 		out << "screenshot_filename_pattern=" << screenshot_filename_pattern << "\n";

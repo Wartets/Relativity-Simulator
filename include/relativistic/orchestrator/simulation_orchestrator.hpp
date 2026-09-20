@@ -6,6 +6,7 @@
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/io/scenario_locator.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
@@ -100,24 +101,25 @@ struct CustomParameterEntry {
 };
 
 struct CameraState {
-	std::array<double, 3> position{0.0, 32.0, 0.0};
+	std::array<double, 3> position{-5.0, 37.0, -7.0};
 	std::array<double, 3> target{0.0, 0.0, 0.0};
 	std::array<double, 3> velocity{0.0, 0.0, 0.0};
 	double pitch{0.0};
-	double yaw{180.0};
+	double yaw{130.0};
 	double roll{0.0};
 	double fov_deg{60.0};
 	double speed{15.0};
-	double radius{32.0};
-	double theta{1.5707963267948966};
-	double phi{1.5707963267948966};
-	double orbit_distance{32.0};
+	double radius{37.986839};
+	double theta{1.7561299};
+	double phi{1.7051178};
+	double orbit_distance{37.986839};
 };
 
 template <size_t QueueCapacity = 1024>
 class SimulationOrchestrator {
 public:
 	static constexpr uint32_t CUSTOM_PERFORMANCE_PRESET = 6;
+	static constexpr const char* CUSTOM_SCENARIO_NAME = "Custom Spacetime";
 
 private:
 	Core::SpscQueue<Command, QueueCapacity> command_queue_;
@@ -128,7 +130,9 @@ private:
 	CameraState camera_{};
 	std::string active_metric_name_{"Schwarzschild"};
 	std::string active_integrator_name_{"RK45"};
-	std::string active_scenario_name_{"Custom Spacetime"};
+	std::string active_scenario_name_{CUSTOM_SCENARIO_NAME};
+	std::string active_scenario_path_{};
+	CameraState home_camera_{};
 	Dynamics::PostNewtonianSystem nbody_system_{};
 	PerformanceProfiler profiler_{};
 	Core::ConstantsEngine constants_engine_{};
@@ -183,6 +187,29 @@ private:
 		cfg.speed_of_light = constants_engine_.sim_speed_of_light();
 		cfg.gravitational_constant = constants_engine_.sim_gravitational_constant();
 		nbody_system_.set_config(cfg);
+	}
+
+	void restore_home_camera() noexcept {
+		const double preserved_speed = camera_.speed;
+		camera_ = home_camera_;
+		camera_.speed = preserved_speed;
+		camera_.velocity = {0.0, 0.0, 0.0};
+		params_.camera_fov_deg = camera_.fov_deg;
+		sync_camera_spherical_from_cartesian();
+		camera_.orbit_distance = camera_.radius;
+	}
+
+	void restore_active_scenario() noexcept {
+		if (active_scenario_path_.empty()) {
+			return;
+		}
+		const std::string scenario_path = active_scenario_path_;
+		CommandResult reload_result{};
+		load_scenario_file(scenario_path.c_str(), reload_result);
+		if (!reload_result.success) {
+			active_scenario_name_ = CUSTOM_SCENARIO_NAME;
+			active_scenario_path_.clear();
+		}
 	}
 
 	void handle_horizon_absorption() noexcept {
@@ -280,6 +307,8 @@ public:
 	}
 	SimulationOrchestrator() noexcept {
 		sync_camera_spherical_from_cartesian();
+		camera_.orbit_distance = camera_.radius;
+		home_camera_ = camera_;
 		sync_central_body_with_system();
 		sync_nbody_constants_with_engine();
 		interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
@@ -334,10 +363,13 @@ public:
 				constants_engine_ = Core::ConstantsEngine{};
 				sync_nbody_constants_with_engine();
 				sync_camera_spherical_from_cartesian();
+				camera_.orbit_distance = camera_.radius;
+				home_camera_ = camera_;
 				sync_central_body_with_system();
 				for (auto& entry : custom_params_) {
 					entry.active = false;
 				}
+				restore_active_scenario();
 				state_version_.fetch_add(1, std::memory_order_release);
 				std::strncpy(res.message, "Simulation reset to initial state", sizeof(res.message) - 1);
 				break;
@@ -373,8 +405,7 @@ public:
 				std::strncpy(res.message, "Camera speed set", sizeof(res.message) - 1);
 				break;
 			case CommandType::CameraReset:
-				camera_ = CameraState{};
-				sync_camera_spherical_from_cartesian();
+				restore_home_camera();
 				std::strncpy(res.message, "Camera reset to default", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetMetric:
@@ -530,7 +561,11 @@ public:
 	}
 
 	void load_scenario_file(const char* filepath, CommandResult& res) noexcept {
-		std::ifstream file(filepath);
+		const auto resolved_path = IO::ScenarioLocator::resolve_file(filepath);
+		std::ifstream file;
+		if (resolved_path.has_value()) {
+			file.open(*resolved_path);
+		}
 		if (!file.is_open()) {
 			res.success = false;
 			std::strncpy(res.message, "Failed to open scenario file", sizeof(res.message) - 1);
@@ -557,6 +592,7 @@ public:
 			return;
 		}
 		active_scenario_name_ = s.scenario_name;
+		active_scenario_path_ = resolved_path->generic_string();
 		active_metric_name_ = s.metric_type;
 		params_.mass = s.central_mass;
 		params_.spin = s.central_spin;
@@ -597,6 +633,9 @@ public:
 			camera_.fov_deg = s.observers[0].field_of_view_deg;
 			params_.camera_fov_deg = camera_.fov_deg;
 			sync_camera_spherical_from_cartesian();
+			camera_.orbit_distance = camera_.radius;
+			camera_.target = {0.0, 0.0, 0.0};
+			camera_.velocity = {0.0, 0.0, 0.0};
 			if (s.observers[0].has_explicit_orientation) {
 				camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
 				camera_.yaw = s.observers[0].orientation[1];
@@ -612,6 +651,10 @@ public:
 					camera_.roll = 0.0;
 				}
 			}
+		}
+
+		if (!s.observers.empty()) {
+			home_camera_ = camera_;
 		}
 
 		nbody_system_.clear_bodies();
@@ -1182,6 +1225,14 @@ public:
 
 	void set_active_scenario_name(std::string_view name) {
 		active_scenario_name_ = name;
+	}
+
+	[[nodiscard]] const std::string& active_scenario_path() const noexcept {
+		return active_scenario_path_;
+	}
+
+	void set_active_scenario_path(std::string_view path) {
+		active_scenario_path_ = path;
 	}
 
 	[[nodiscard]] bool is_running() const noexcept {

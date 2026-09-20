@@ -860,7 +860,6 @@ public:
 		if (tb.reset_view) {
 			if (ImGui::Button("Reset View", ImVec2(78.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
-				camera_controller_.snap_to_equatorial_front(33.24);
 			}
 			ImGui::SameLine();
 		}

@@ -415,6 +415,10 @@ add_executable(test_bssn_gauge_wave tests/test_bssn_gauge_wave.cpp)
 target_link_libraries(test_bssn_gauge_wave PRIVATE relativistic_core)
 add_test(NAME test_bssn_gauge_wave COMMAND test_bssn_gauge_wave)
 
+add_executable(test_default_startup_scenario tests/test_default_startup_scenario.cpp)
+target_link_libraries(test_default_startup_scenario PRIVATE relativistic_core)
+add_test(NAME test_default_startup_scenario COMMAND test_default_startup_scenario WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(test_ui_multi_window tests/test_ui_multi_window.cpp)
 target_link_libraries(test_ui_multi_window PRIVATE relativistic_core imgui_lib)
 add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)

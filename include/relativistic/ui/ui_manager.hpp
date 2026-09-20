@@ -1,6 +1,8 @@
 #pragma once
 
 #include "relativistic/io/user_settings.hpp"
+#include "relativistic/io/scenario_locator.hpp"
+#include "relativistic/core/engine_log.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
@@ -170,6 +172,10 @@ public:
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		viewport_window_->set_open_screenshot_settings_callback([this]() { pending_screenshot_popup_open_ = true; });
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, user_settings_, &camera_controller_);
+		scenario_window_->set_settings_persist_callback([this]() {
+			export_runtime_settings();
+			user_settings_.save();
+		});
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
 		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
@@ -237,9 +243,7 @@ public:
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
 
-		if (user_settings_.load_scenario_on_startup && !user_settings_.default_scenario_path.empty()) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(user_settings_.default_scenario_path)));
-		}
+		queue_startup_scenario();
 
 		if (secondary_viewport_manager_) {
 			for (const auto& saved : user_settings_.secondary_views) {
@@ -493,6 +497,26 @@ public:
 	}
 
 private:
+	void queue_startup_scenario() {
+		if (!user_settings_.load_scenario_on_startup) {
+			return;
+		}
+
+		const auto startup = IO::ScenarioLocator::resolve_startup_scenario(user_settings_.default_scenario_path);
+		if (!startup.has_value()) {
+			Core::log_error("No valid startup scenario could be located; the simulation starts empty.");
+			return;
+		}
+
+		if (startup->used_fallback) {
+			const std::string configured = user_settings_.default_scenario_path.empty() ? std::string("(none)") : user_settings_.default_scenario_path;
+			Core::log_warning("Startup scenario '" + configured + "' is unavailable or invalid; falling back to '" + startup->path + "'.");
+			user_settings_.default_scenario_path = std::string(IO::ScenarioLocator::kBuiltInStartupScenario);
+		}
+
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(startup->path)));
+	}
+
 	[[nodiscard]] std::string key_hint(InputAction action) const noexcept {
 		const auto& b = camera_controller_.config().keybinds.get(action);
 		if (b.primary_key == GLFW_KEY_UNKNOWN && b.secondary_key == GLFW_KEY_UNKNOWN) {

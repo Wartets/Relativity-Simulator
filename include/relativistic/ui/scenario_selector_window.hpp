@@ -3,8 +3,10 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/io/scenario_locator.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/dynamics/pn_body.hpp"
+#include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <vector>
@@ -12,6 +14,7 @@
 #include <string_view>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <algorithm>
 #include <cfloat>
@@ -44,6 +47,13 @@ private:
 	int sort_mode_{0};
 	float left_pane_width_{300.0f};
 	int delete_confirm_index_{-1};
+	int active_preset_index_{-1};
+	int startup_preset_index_{-1};
+	bool startup_is_built_in_{true};
+	std::string tracked_active_path_{};
+	std::string tracked_active_name_{};
+	std::string tracked_startup_path_{};
+	std::function<void()> persist_settings_callback_{};
 
 	char custom_path_buffer_[256]{"scenarios/custom_scenario.yaml"};
 	bool confirm_overwrite_custom_path_{false};
@@ -64,20 +74,23 @@ private:
 
 public:
 	void scan_scenario_directory() {
-		presets_.clear();
-		std::vector<std::string> search_paths = {"scenarios", "../scenarios", "./scenarios"};
-		std::string target_dir;
-		for (const auto& path_str : search_paths) {
-			if (std::filesystem::exists(path_str) && std::filesystem::is_directory(path_str)) {
-				target_dir = path_str;
-				break;
-			}
+		std::string previous_selection;
+		if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size())) {
+			previous_selection = presets_[static_cast<size_t>(selected_index_)].filepath;
 		}
-		if (target_dir.empty()) {
+		presets_.clear();
+		selected_index_ = -1;
+		delete_confirm_index_ = -1;
+
+		const auto scenario_dir = IO::ScenarioLocator::find_directory();
+		if (!scenario_dir.has_value()) {
+			refresh_preset_markers(true);
 			return;
 		}
 
-		for (const auto& entry : std::filesystem::directory_iterator(target_dir)) {
+		std::error_code iteration_ec;
+		for (std::filesystem::directory_iterator dir_it(*scenario_dir, iteration_ec), dir_end; !iteration_ec && dir_it != dir_end; dir_it.increment(iteration_ec)) {
+			const auto& entry = *dir_it;
 			if (!entry.is_regular_file()) continue;
 			const auto ext = entry.path().extension().string();
 			if (ext != ".yaml" && ext != ".yml") continue;
@@ -118,15 +131,19 @@ public:
 			return a.filename < b.filename;
 		});
 
-		if (selected_index_ >= static_cast<int>(presets_.size())) {
+		selected_index_ = locate_preset_by_path(previous_selection);
+		const bool select_active_preset = selected_index_ < 0;
+		refresh_preset_markers(true);
+		if (select_active_preset && active_preset_index_ >= 0) {
+			selected_index_ = active_preset_index_;
+		}
+		if (selected_index_ < 0 && !presets_.empty()) {
 			selected_index_ = 0;
 		}
-		for (size_t i = 0; i < presets_.size(); ++i) {
-			if (presets_[i].is_compatible && presets_[i].definition.scenario_name == orchestrator_.active_scenario_name()) {
-				selected_index_ = static_cast<int>(i);
-				break;
-			}
-		}
+	}
+
+	void set_settings_persist_callback(std::function<void()> callback) noexcept {
+		persist_settings_callback_ = std::move(callback);
 	}
 
 	explicit ScenarioSelectorWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings, InteractiveCameraController* cam_ctrl = nullptr)
@@ -163,8 +180,25 @@ public:
 
 private:
 	void render_catalog_tab() noexcept {
-		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "*Scenario Catalog");
+		if (refresh_preset_markers(false) && active_preset_index_ >= 0) {
+			selected_index_ = active_preset_index_;
+			delete_confirm_index_ = -1;
+		}
+
+		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Scenario Catalog");
 		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Active Scenario: %s", orchestrator_.active_scenario_name().c_str());
+		if (orchestrator_.active_scenario_path().empty()) {
+			ImGui::TextDisabled("Active File: (not loaded from a file)");
+		} else {
+			ImGui::TextDisabled("Active File: %s", orchestrator_.active_scenario_path().c_str());
+		}
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Active");
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "Startup");
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.5f, 1.0f), "Compatible");
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Incompatible");
 		ImGui::Separator();
 
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
@@ -217,12 +251,22 @@ private:
 		for (const size_t idx : visible_indices) {
 			const auto& item = presets_[idx];
 			const bool is_selected = (selected_index_ == static_cast<int>(idx));
-			const bool is_active_scenario = item.is_compatible && (item.definition.scenario_name == orchestrator_.active_scenario_name());
-			const std::string label = item.is_compatible
-				? ((is_active_scenario ? "[Active] " : "") + (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name))
+			const bool is_active_scenario = (active_preset_index_ == static_cast<int>(idx));
+			const bool is_startup_scenario = (startup_preset_index_ == static_cast<int>(idx));
+			const std::string display_name = item.is_compatible
+				? (item.definition.scenario_name.empty() ? item.filename : item.definition.scenario_name)
 				: ("[Incompatible] " + item.filename);
+			const std::string label = std::string(is_active_scenario ? "[Active] " : "") + (is_startup_scenario ? "[Startup] " : "") + display_name + "##scenario_entry_" + std::to_string(idx);
 
-			ImGui::PushStyleColor(ImGuiCol_Text, is_active_scenario ? ImVec4(0.4f, 0.85f, 1.0f, 1.0f) : (item.is_compatible ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f)));
+			if (is_active_scenario) {
+				const ImVec2 row_min = ImGui::GetCursorScreenPos();
+				const ImVec2 row_max(row_min.x + ImGui::GetContentRegionAvail().x, row_min.y + ImGui::GetTextLineHeight());
+				ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, IM_COL32(45, 120, 165, 90), 3.0f);
+			}
+			const ImVec4 entry_color = is_active_scenario
+				? ImVec4(0.4f, 0.85f, 1.0f, 1.0f)
+				: (!item.is_compatible ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f) : (is_startup_scenario ? ImVec4(0.95f, 0.85f, 0.35f, 1.0f) : ImVec4(0.35f, 1.0f, 0.5f, 1.0f)));
+			ImGui::PushStyleColor(ImGuiCol_Text, entry_color);
 			if (ImGui::Selectable(label.c_str(), is_selected)) {
 				selected_index_ = static_cast<int>(idx);
 				delete_confirm_index_ = -1;
@@ -232,6 +276,12 @@ private:
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
 				ImGui::BeginTooltip();
 				ImGui::Text("File: %s", item.filename.c_str());
+				if (is_active_scenario) {
+					ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Currently active scenario");
+				}
+				if (is_startup_scenario) {
+					ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "Loaded automatically at startup");
+				}
 				if (!item.definition.version_tag.empty()) {
 					ImGui::Text("Version: %s", item.definition.version_tag.c_str());
 				}
@@ -262,9 +312,17 @@ private:
 		if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size())) {
 			const auto& item = presets_[static_cast<size_t>(selected_index_)];
 			const auto& def = item.definition;
+			const bool detail_is_active = (active_preset_index_ == selected_index_);
+			const bool detail_is_startup = (startup_preset_index_ == selected_index_);
 
 			if (item.is_compatible) {
-				ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", def.scenario_name.c_str());
+				ImGui::TextColored(detail_is_active ? ImVec4(0.4f, 0.85f, 1.0f, 1.0f) : ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", def.scenario_name.c_str());
+				if (detail_is_active) {
+					ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Currently active scenario");
+				}
+				if (detail_is_startup) {
+					ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "Loaded automatically at startup");
+				}
 				ImGui::TextDisabled("File: %s", item.filename.c_str());
 				ImGui::TextDisabled("Author: %s", def.author.empty() ? "Unknown" : def.author.c_str());
 				ImGui::TextDisabled("Version: %s", def.version_tag.empty() ? "Unversioned" : def.version_tag.c_str());
@@ -307,6 +365,12 @@ private:
 				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
 					ImGui::SetTooltip("Load and activate this validated scenario from disk into the simulation core. Any unsaved changes to the current session will be lost.");
 				}
+				ImGui::BeginDisabled(detail_is_startup);
+				if (ImGui::Button(detail_is_startup ? "Already The Startup Scenario" : "Use As Startup Scenario", ImVec2(240.0f, 26.0f))) {
+					assign_startup_scenario(item.filepath);
+				}
+				ImGui::EndDisabled();
+				render_setting_tooltip("Saves this scenario as the one loaded automatically every time the application starts. The choice is saved immediately.");
 			} else {
 				ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Incompatible: %s", item.filename.c_str());
 				ImGui::Separator();
@@ -321,17 +385,23 @@ private:
 
 			ImGui::Spacing();
 			ImGui::Separator();
-			const bool confirming_delete = (delete_confirm_index_ == selected_index_);
+			const bool deletion_protected = (item.filename == IO::ScenarioLocator::kBuiltInStartupFileName);
+			const bool confirming_delete = (delete_confirm_index_ == selected_index_) && !deletion_protected;
 			if (!confirming_delete) {
+				ImGui::BeginDisabled(deletion_protected);
 				if (ImGui::Button("Delete Scenario File", ImVec2(200.0f, 26.0f))) {
 					delete_confirm_index_ = selected_index_;
 				}
-				render_setting_tooltip("Permanently deletes this scenario file from disk. This action cannot be undone.");
+				ImGui::EndDisabled();
+				render_setting_tooltip(deletion_protected ? "The built-in startup scenario is protected and cannot be deleted from the interface." : "Permanently deletes this scenario file from disk. This action cannot be undone.");
 			} else {
 				ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Permanently delete this file? This cannot be undone.");
 				if (ImGui::Button("Confirm Delete", ImVec2(140.0f, 26.0f))) {
 					std::error_code ec;
 					std::filesystem::remove(item.filepath, ec);
+					if (!ec && detail_is_startup) {
+						restore_built_in_startup_scenario();
+					}
 					delete_confirm_index_ = -1;
 					selected_index_ = -1;
 					scan_scenario_directory();
@@ -355,22 +425,64 @@ private:
 		}
 
 		ImGui::Separator();
+		render_startup_behavior_section();
+	}
+
+	void render_startup_behavior_section() noexcept {
 		ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Startup Behavior");
 		bool load_on_startup = user_settings_.load_scenario_on_startup;
 		if (ImGui::Checkbox("Load A Scenario On Application Startup", &load_on_startup)) {
 			user_settings_.load_scenario_on_startup = load_on_startup;
+			persist_settings();
 		}
-		render_setting_tooltip("When disabled, the application starts with a completely empty simulation and no scenario is loaded automatically.");
-		if (user_settings_.load_scenario_on_startup) {
-			ImGui::TextDisabled("Default Startup Scenario: %s", user_settings_.default_scenario_path.empty() ? "(none set)" : user_settings_.default_scenario_path.c_str());
-			if (selected_index_ >= 0 && selected_index_ < static_cast<int>(presets_.size()) && presets_[static_cast<size_t>(selected_index_)].is_compatible) {
-				if (ImGui::Button("Set Selected Scenario As Startup Default", ImVec2(300.0f, 26.0f))) {
-					user_settings_.default_scenario_path = presets_[static_cast<size_t>(selected_index_)].filepath;
+		render_setting_tooltip("When disabled, the application starts with a completely empty simulation and no scenario is loaded automatically. The choice is saved immediately.");
+		if (!user_settings_.load_scenario_on_startup) {
+			ImGui::TextDisabled("The simulation will start empty, with no scenario loaded.");
+			return;
+		}
+
+		const bool startup_available = startup_preset_index_ >= 0;
+		std::string preview;
+		if (startup_available) {
+			const auto& startup_item = presets_[static_cast<size_t>(startup_preset_index_)];
+			preview = startup_item.definition.scenario_name.empty() ? startup_item.filename : startup_item.definition.scenario_name;
+		} else if (user_settings_.default_scenario_path.empty()) {
+			preview = "(none set)";
+		} else {
+			preview = user_settings_.default_scenario_path + " (unavailable)";
+		}
+
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+		if (ImGui::BeginCombo("Startup Scenario", preview.c_str())) {
+			for (size_t i = 0; i < presets_.size(); ++i) {
+				const auto& candidate = presets_[i];
+				if (!candidate.is_compatible) {
+					continue;
+				}
+				const bool is_current = (startup_preset_index_ == static_cast<int>(i));
+				const std::string entry_label = (candidate.definition.scenario_name.empty() ? candidate.filename : candidate.definition.scenario_name) + "##startup_choice_" + std::to_string(i);
+				if (ImGui::Selectable(entry_label.c_str(), is_current)) {
+					assign_startup_scenario(candidate.filepath);
+				}
+				if (is_current) {
+					ImGui::SetItemDefaultFocus();
 				}
 			}
-		} else {
-			ImGui::TextDisabled("The simulation will start empty, with no scenario loaded.");
+			ImGui::EndCombo();
 		}
+		render_setting_tooltip("Scenario loaded automatically every time the application starts. The choice is saved immediately.");
+
+		if (!startup_available) {
+			render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "The configured startup scenario is unavailable; the built-in startup scenario will be loaded instead.");
+		}
+		ImGui::TextDisabled("Stored Startup Path: %s", user_settings_.default_scenario_path.empty() ? "(none set)" : user_settings_.default_scenario_path.c_str());
+
+		ImGui::BeginDisabled(startup_is_built_in_);
+		if (ImGui::Button("Restore Built-In Startup Scenario", ImVec2(280.0f, 26.0f))) {
+			restore_built_in_startup_scenario();
+		}
+		ImGui::EndDisabled();
+		render_setting_tooltip("Sets the startup scenario back to the built-in Schwarzschild black hole and accretion disk scenario.");
 	}
 
 	void render_save_export_tab() noexcept {
@@ -522,6 +634,72 @@ private:
 		}
 	}
 
+	[[nodiscard]] int locate_preset_by_path(std::string_view path) const {
+		if (path.empty()) {
+			return -1;
+		}
+		for (size_t i = 0; i < presets_.size(); ++i) {
+			if (presets_[i].filepath == path || IO::ScenarioLocator::same_file(presets_[i].filepath, path)) {
+				return static_cast<int>(i);
+			}
+		}
+		return -1;
+	}
+
+	[[nodiscard]] int locate_active_preset() const {
+		const std::string& active_path = orchestrator_.active_scenario_path();
+		if (!active_path.empty()) {
+			return locate_preset_by_path(active_path);
+		}
+		const std::string& active_name = orchestrator_.active_scenario_name();
+		for (size_t i = 0; i < presets_.size(); ++i) {
+			if (presets_[i].is_compatible && presets_[i].definition.scenario_name == active_name) {
+				return static_cast<int>(i);
+			}
+		}
+		return -1;
+	}
+
+	bool refresh_preset_markers(bool force) {
+		const std::string& active_path = orchestrator_.active_scenario_path();
+		const std::string& active_name = orchestrator_.active_scenario_name();
+		const bool active_changed = force || active_path != tracked_active_path_ || active_name != tracked_active_name_;
+		const bool startup_changed = force || user_settings_.default_scenario_path != tracked_startup_path_;
+
+		if (active_changed) {
+			tracked_active_path_ = active_path;
+			tracked_active_name_ = active_name;
+			active_preset_index_ = locate_active_preset();
+		}
+		if (startup_changed) {
+			tracked_startup_path_ = user_settings_.default_scenario_path;
+			startup_preset_index_ = locate_preset_by_path(tracked_startup_path_);
+			startup_is_built_in_ = IO::ScenarioLocator::same_file(tracked_startup_path_, IO::ScenarioLocator::kBuiltInStartupScenario);
+		}
+		return active_changed;
+	}
+
+	void persist_settings() {
+		if (persist_settings_callback_) {
+			persist_settings_callback_();
+		} else {
+			user_settings_.save();
+		}
+	}
+
+	void assign_startup_scenario(const std::string& filepath) {
+		user_settings_.default_scenario_path = IO::ScenarioLocator::portable_path(filepath);
+		user_settings_.load_scenario_on_startup = true;
+		refresh_preset_markers(false);
+		persist_settings();
+	}
+
+	void restore_built_in_startup_scenario() {
+		user_settings_.default_scenario_path = std::string(IO::ScenarioLocator::kBuiltInStartupScenario);
+		refresh_preset_markers(false);
+		persist_settings();
+	}
+
 	[[nodiscard]] static std::string sanitize_filename_stem(std::string_view name) {
 		std::string stem;
 		stem.reserve(name.size());
@@ -641,9 +819,11 @@ private:
 	}
 
 	void save_current_as_new_preset() {
-		std::string target_dir = "scenarios";
 		std::error_code ec;
-		if (!std::filesystem::exists(target_dir, ec)) {
+		std::string target_dir(IO::ScenarioLocator::kDirectoryName);
+		if (const auto located_dir = IO::ScenarioLocator::find_directory(); located_dir.has_value()) {
+			target_dir = located_dir->generic_string();
+		} else {
 			std::filesystem::create_directories(target_dir, ec);
 		}
 
@@ -677,6 +857,7 @@ private:
 			}
 		}
 
+		const std::string previous_scenario_name = orchestrator_.active_scenario_name();
 		orchestrator_.set_active_scenario_name(candidate_scenario_name);
 
 		Orchestrator::CommandResult res{};
@@ -693,6 +874,11 @@ private:
 			save_output_directory_
 		);
 
+		if (res.success) {
+			orchestrator_.set_active_scenario_path(candidate_path);
+		} else {
+			orchestrator_.set_active_scenario_name(previous_scenario_name);
+		}
 		save_feedback_is_error_ = !res.success;
 		save_feedback_message_ = res.success
 			? ("Saved preset '" + candidate_scenario_name + "' to " + candidate_path)

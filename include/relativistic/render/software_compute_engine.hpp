@@ -19,10 +19,19 @@
 #include <numbers>
 #include <algorithm>
 #include <array>
+#include <chrono>
 
 namespace Relativistic::Render {
 
 class SoftwareComputeEngine {
+public:
+	struct RenderStageStats {
+		std::atomic<int64_t> tile_prepass_skip_ns{0};
+		std::atomic<int64_t> full_trace_ns{0};
+		std::atomic<uint64_t> tile_prepass_skip_count{0};
+		std::atomic<uint64_t> full_trace_tile_count{0};
+	};
+
 private:
 	[[nodiscard]] static constexpr uint32_t hash_u32(uint32_t x) noexcept {
 		x ^= x >> 16;
@@ -1039,7 +1048,8 @@ public:
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -1379,10 +1389,22 @@ public:
 				const size_t tile_x_end = std::min(tx + TILE, width);
 				const size_t tile_y_end = std::min(ty + TILE, height);
 				if (tile_is_pure_far_field_sky(tx, tile_x_end, ty, tile_y_end)) {
+					const auto skip_t0 = std::chrono::steady_clock::now();
 					fill_tile_with_analytic_sky(tx, tile_x_end, ty, tile_y_end);
+					if (stage_stats != nullptr) {
+						const auto skip_t1 = std::chrono::steady_clock::now();
+						stage_stats->tile_prepass_skip_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(skip_t1 - skip_t0).count(), std::memory_order_relaxed);
+						stage_stats->tile_prepass_skip_count.fetch_add(1, std::memory_order_relaxed);
+					}
 					continue;
 				}
+				const auto trace_t0 = std::chrono::steady_clock::now();
 				render_simd_rect(tx, tile_x_end, ty, tile_y_end);
+				if (stage_stats != nullptr) {
+					const auto trace_t1 = std::chrono::steady_clock::now();
+					stage_stats->full_trace_ns.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(trace_t1 - trace_t0).count(), std::memory_order_relaxed);
+					stage_stats->full_trace_tile_count.fetch_add(1, std::memory_order_relaxed);
+				}
 			}
 		};
 
@@ -2127,8 +2149,10 @@ public:
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
 	) noexcept {
+		static_cast<void>(stage_stats);
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, pool, cancel_flag);
@@ -2141,13 +2165,14 @@ public:
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
 		} else {
-			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag);
+			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
 		}
 	}
 
@@ -2155,9 +2180,10 @@ public:
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
 	) noexcept {
-		dispatch_fp32(params, output_framebuffer, pool, cancel_flag);
+		dispatch_fp32(params, output_framebuffer, pool, cancel_flag, stage_stats);
 	}
 };
 

@@ -31,6 +31,11 @@ enum class ProfilerTaskStage : uint32_t {
 	SchematicOverlay = 5,
 	PostProcessing = 6,
 	FramebufferReadback = 7,
+	GpuDispatchExecution = 8,
+	CpuDispatchExecution = 9,
+	AdaptiveTilePrepassSky = 10,
+	PixelClassification = 11,
+	CameraConstantsBuild = 12,
 	Count
 };
 
@@ -44,6 +49,11 @@ enum class ProfilerTaskStage : uint32_t {
 		case ProfilerTaskStage::SchematicOverlay: return "Schematic Overlay";
 		case ProfilerTaskStage::PostProcessing: return "Post-Processing";
 		case ProfilerTaskStage::FramebufferReadback: return "Framebuffer Readback";
+		case ProfilerTaskStage::GpuDispatchExecution: return "GPU Dispatch Execution";
+		case ProfilerTaskStage::CpuDispatchExecution: return "CPU Dispatch Execution";
+		case ProfilerTaskStage::AdaptiveTilePrepassSky: return "Adaptive Tile Prepass (Analytic Sky)";
+		case ProfilerTaskStage::PixelClassification: return "Pixel Classification";
+		case ProfilerTaskStage::CameraConstantsBuild: return "Camera Constants Build";
 		default: return "Unknown Stage";
 	}
 }
@@ -110,6 +120,23 @@ struct FrameSampleInput {
 	bool simd_pipeline{false};
 	bool gpu_compute_enabled{false};
 	uint32_t step_controller_mode{0};
+	uint32_t motion_quality_mode{0};
+	double motion_quality_scale{1.0};
+	bool space_skipping_enabled{false};
+	double space_skip_radius_scale{40.0};
+	double pole_guard_precision_scale{2.5};
+	double far_field_step_scale{2.0};
+	bool lod_enabled{false};
+	double lod_distance_scale{400.0};
+	uint32_t lod_reduced_ray_steps{256};
+	double render_distance_scale{100.0};
+	bool interlace_rendering_enabled{false};
+	bool dynamic_resolution_enabled{false};
+	double dynamic_resolution_target_fps{60.0};
+	bool adaptive_tile_prepass_enabled{false};
+	uint32_t rolling_average_frame_count{10};
+	double integration_rtol{1e-10};
+	double integration_atol{1e-14};
 	std::string metric_name{};
 	std::string integrator_name{};
 };
@@ -135,6 +162,23 @@ struct FrameSample {
 	bool simd_pipeline{false};
 	bool gpu_compute_enabled{false};
 	uint32_t step_controller_mode{0};
+	uint32_t motion_quality_mode{0};
+	double motion_quality_scale{1.0};
+	bool space_skipping_enabled{false};
+	double space_skip_radius_scale{40.0};
+	double pole_guard_precision_scale{2.5};
+	double far_field_step_scale{2.0};
+	bool lod_enabled{false};
+	double lod_distance_scale{400.0};
+	uint32_t lod_reduced_ray_steps{256};
+	double render_distance_scale{100.0};
+	bool interlace_rendering_enabled{false};
+	bool dynamic_resolution_enabled{false};
+	double dynamic_resolution_target_fps{60.0};
+	bool adaptive_tile_prepass_enabled{false};
+	uint32_t rolling_average_frame_count{10};
+	double integration_rtol{1e-10};
+	double integration_atol{1e-14};
 	std::string metric_name{};
 	std::string integrator_name{};
 	std::array<double, static_cast<size_t>(ProfilerTaskStage::Count)> stage_time_ms{};
@@ -153,6 +197,23 @@ struct BenchmarkConfigSnapshot {
 	uint32_t screen_width{0};
 	uint32_t screen_height{0};
 	uint32_t step_controller_mode{0};
+	uint32_t motion_quality_mode{1};
+	double motion_quality_scale{0.65};
+	bool space_skipping_enabled{false};
+	double space_skip_radius_scale{40.0};
+	double pole_guard_precision_scale{2.5};
+	double far_field_step_scale{2.0};
+	bool lod_enabled{false};
+	double lod_distance_scale{400.0};
+	uint32_t lod_reduced_ray_steps{256};
+	double render_distance_scale{100.0};
+	bool interlace_rendering_enabled{false};
+	bool dynamic_resolution_enabled{false};
+	double dynamic_resolution_target_fps{60.0};
+	bool adaptive_tile_prepass_enabled{false};
+	uint32_t rolling_average_frame_count{10};
+	double integration_rtol{1e-10};
+	double integration_atol{1e-14};
 };
 
 struct BenchmarkRun {
@@ -257,6 +318,23 @@ private:
 		run.config.screen_width = last.screen_width;
 		run.config.screen_height = last.screen_height;
 		run.config.step_controller_mode = last.step_controller_mode;
+		run.config.motion_quality_mode = last.motion_quality_mode;
+		run.config.motion_quality_scale = last.motion_quality_scale;
+		run.config.space_skipping_enabled = last.space_skipping_enabled;
+		run.config.space_skip_radius_scale = last.space_skip_radius_scale;
+		run.config.pole_guard_precision_scale = last.pole_guard_precision_scale;
+		run.config.far_field_step_scale = last.far_field_step_scale;
+		run.config.lod_enabled = last.lod_enabled;
+		run.config.lod_distance_scale = last.lod_distance_scale;
+		run.config.lod_reduced_ray_steps = last.lod_reduced_ray_steps;
+		run.config.render_distance_scale = last.render_distance_scale;
+		run.config.interlace_rendering_enabled = last.interlace_rendering_enabled;
+		run.config.dynamic_resolution_enabled = last.dynamic_resolution_enabled;
+		run.config.dynamic_resolution_target_fps = last.dynamic_resolution_target_fps;
+		run.config.adaptive_tile_prepass_enabled = last.adaptive_tile_prepass_enabled;
+		run.config.rolling_average_frame_count = last.rolling_average_frame_count;
+		run.config.integration_rtol = last.integration_rtol;
+		run.config.integration_atol = last.integration_atol;
 
 		std::vector<double> frame_times;
 		std::vector<double> fps_values;
@@ -339,6 +417,23 @@ public:
 		sample.simd_pipeline = input.simd_pipeline;
 		sample.gpu_compute_enabled = input.gpu_compute_enabled;
 		sample.step_controller_mode = input.step_controller_mode;
+		sample.motion_quality_mode = input.motion_quality_mode;
+		sample.motion_quality_scale = input.motion_quality_scale;
+		sample.space_skipping_enabled = input.space_skipping_enabled;
+		sample.space_skip_radius_scale = input.space_skip_radius_scale;
+		sample.pole_guard_precision_scale = input.pole_guard_precision_scale;
+		sample.far_field_step_scale = input.far_field_step_scale;
+		sample.lod_enabled = input.lod_enabled;
+		sample.lod_distance_scale = input.lod_distance_scale;
+		sample.lod_reduced_ray_steps = input.lod_reduced_ray_steps;
+		sample.render_distance_scale = input.render_distance_scale;
+		sample.interlace_rendering_enabled = input.interlace_rendering_enabled;
+		sample.dynamic_resolution_enabled = input.dynamic_resolution_enabled;
+		sample.dynamic_resolution_target_fps = input.dynamic_resolution_target_fps;
+		sample.adaptive_tile_prepass_enabled = input.adaptive_tile_prepass_enabled;
+		sample.rolling_average_frame_count = input.rolling_average_frame_count;
+		sample.integration_rtol = input.integration_rtol;
+		sample.integration_atol = input.integration_atol;
 		sample.metric_name = input.metric_name;
 		sample.integrator_name = input.integrator_name;
 		sample.stage_time_ms = pending_stage_ms_;
@@ -470,6 +565,9 @@ public:
 		double dominant_value = 0.0;
 		for (size_t st = 0; st < static_cast<size_t>(ProfilerTaskStage::Count); ++st) {
 			if (st == static_cast<size_t>(ProfilerTaskStage::FrameTotal)) continue;
+			if (st == static_cast<size_t>(ProfilerTaskStage::GpuDispatchExecution) || st == static_cast<size_t>(ProfilerTaskStage::CpuDispatchExecution)
+				|| st == static_cast<size_t>(ProfilerTaskStage::AdaptiveTilePrepassSky) || st == static_cast<size_t>(ProfilerTaskStage::PixelClassification)
+				|| st == static_cast<size_t>(ProfilerTaskStage::CameraConstantsBuild)) continue;
 			if (stage_totals[st] > dominant_value) {
 				dominant_value = stage_totals[st];
 				dominant_idx = st;
@@ -526,6 +624,23 @@ public:
 			out << "cfg_width=" << run.config.screen_width << "\n";
 			out << "cfg_height=" << run.config.screen_height << "\n";
 			out << "cfg_step_controller=" << run.config.step_controller_mode << "\n";
+			out << "cfg_motion_quality_mode=" << run.config.motion_quality_mode << "\n";
+			out << "cfg_motion_quality_scale=" << run.config.motion_quality_scale << "\n";
+			out << "cfg_space_skip_enabled=" << (run.config.space_skipping_enabled ? 1 : 0) << "\n";
+			out << "cfg_space_skip_radius=" << run.config.space_skip_radius_scale << "\n";
+			out << "cfg_pole_guard_precision=" << run.config.pole_guard_precision_scale << "\n";
+			out << "cfg_far_field_step_scale=" << run.config.far_field_step_scale << "\n";
+			out << "cfg_lod_enabled=" << (run.config.lod_enabled ? 1 : 0) << "\n";
+			out << "cfg_lod_distance_scale=" << run.config.lod_distance_scale << "\n";
+			out << "cfg_lod_reduced_steps=" << run.config.lod_reduced_ray_steps << "\n";
+			out << "cfg_render_distance_scale=" << run.config.render_distance_scale << "\n";
+			out << "cfg_interlace_enabled=" << (run.config.interlace_rendering_enabled ? 1 : 0) << "\n";
+			out << "cfg_dynamic_res_enabled=" << (run.config.dynamic_resolution_enabled ? 1 : 0) << "\n";
+			out << "cfg_dynamic_res_target_fps=" << run.config.dynamic_resolution_target_fps << "\n";
+			out << "cfg_adaptive_tile_prepass=" << (run.config.adaptive_tile_prepass_enabled ? 1 : 0) << "\n";
+			out << "cfg_rolling_average_count=" << run.config.rolling_average_frame_count << "\n";
+			out << "cfg_integration_rtol=" << run.config.integration_rtol << "\n";
+			out << "cfg_integration_atol=" << run.config.integration_atol << "\n";
 			out << "ft_mean=" << run.frame_time_summary.mean << "\n";
 			out << "ft_median=" << run.frame_time_summary.median << "\n";
 			out << "ft_min=" << run.frame_time_summary.min_value << "\n";
@@ -596,6 +711,23 @@ public:
 			else if (key == "cfg_width") current.config.screen_width = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
 			else if (key == "cfg_height") current.config.screen_height = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
 			else if (key == "cfg_step_controller") current.config.step_controller_mode = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
+			else if (key == "cfg_motion_quality_mode") current.config.motion_quality_mode = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
+			else if (key == "cfg_motion_quality_scale") current.config.motion_quality_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_space_skip_enabled") current.config.space_skipping_enabled = (val == "1");
+			else if (key == "cfg_space_skip_radius") current.config.space_skip_radius_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_pole_guard_precision") current.config.pole_guard_precision_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_far_field_step_scale") current.config.far_field_step_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_lod_enabled") current.config.lod_enabled = (val == "1");
+			else if (key == "cfg_lod_distance_scale") current.config.lod_distance_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_lod_reduced_steps") current.config.lod_reduced_ray_steps = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
+			else if (key == "cfg_render_distance_scale") current.config.render_distance_scale = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_interlace_enabled") current.config.interlace_rendering_enabled = (val == "1");
+			else if (key == "cfg_dynamic_res_enabled") current.config.dynamic_resolution_enabled = (val == "1");
+			else if (key == "cfg_dynamic_res_target_fps") current.config.dynamic_resolution_target_fps = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_adaptive_tile_prepass") current.config.adaptive_tile_prepass_enabled = (val == "1");
+			else if (key == "cfg_rolling_average_count") current.config.rolling_average_frame_count = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 10));
+			else if (key == "cfg_integration_rtol") current.config.integration_rtol = std::strtod(val.c_str(), nullptr);
+			else if (key == "cfg_integration_atol") current.config.integration_atol = std::strtod(val.c_str(), nullptr);
 			else if (key == "ft_mean") current.frame_time_summary.mean = std::strtod(val.c_str(), nullptr);
 			else if (key == "ft_median") current.frame_time_summary.median = std::strtod(val.c_str(), nullptr);
 			else if (key == "ft_min") current.frame_time_summary.min_value = std::strtod(val.c_str(), nullptr);

@@ -467,6 +467,8 @@ public:
 			}
 
 			Render::GpuCameraPushConstants cam_consts{};
+			{
+			const auto camera_constants_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraConstantsBuild);
 			cam_consts.screen_width = current_width_;
 			cam_consts.screen_height = current_height_;
 			cam_consts.field_of_view_rad = cam.fov_deg * (std::numbers::pi / 180.0);
@@ -527,6 +529,7 @@ public:
 			cam_consts.tetrad_e1 = {0.0, cp * cy, cp * sy, sp};
 			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
 			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
+			}
 
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
 			const bool precision_changed = (precision_selector != last_precision_selector_);
@@ -712,6 +715,23 @@ public:
 				frame_input.simd_pipeline = (params.visual_overlays_flags & Render::RenderFlags::USE_SCALAR_PIPELINE) == 0U;
 				frame_input.gpu_compute_enabled = params.use_gpu_compute;
 				frame_input.step_controller_mode = params.step_controller_mode;
+				frame_input.motion_quality_mode = params.motion_quality_mode;
+				frame_input.motion_quality_scale = params.motion_quality_scale;
+				frame_input.space_skipping_enabled = params.space_skipping_enabled;
+				frame_input.space_skip_radius_scale = params.space_skip_radius_scale;
+				frame_input.pole_guard_precision_scale = params.pole_guard_precision_scale;
+				frame_input.far_field_step_scale = params.far_field_step_scale;
+				frame_input.lod_enabled = params.lod_enabled;
+				frame_input.lod_distance_scale = params.lod_distance_scale;
+				frame_input.lod_reduced_ray_steps = params.lod_reduced_ray_steps;
+				frame_input.render_distance_scale = params.render_distance_scale;
+				frame_input.interlace_rendering_enabled = params.interlace_rendering_enabled;
+				frame_input.dynamic_resolution_enabled = params.dynamic_resolution_enabled;
+				frame_input.dynamic_resolution_target_fps = params.dynamic_resolution_target_fps;
+				frame_input.adaptive_tile_prepass_enabled = params.adaptive_tile_prepass_enabled;
+				frame_input.rolling_average_frame_count = params.rolling_average_frame_count;
+				frame_input.integration_rtol = params.integration_rtol;
+				frame_input.integration_atol = params.integration_atol;
 				frame_input.metric_name = orchestrator_.active_metric_name();
 				frame_input.integrator_name = orchestrator_.active_integrator_name();
 
@@ -719,6 +739,9 @@ public:
 				const double frame_total_ms = std::chrono::duration<double, std::milli>(frame_render_end - frame_render_start_).count();
 				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::FrameTotal, frame_total_ms);
 				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::RenderDispatch, tel.execution_time_ms);
+				orchestrator_.profiler().record_stage_duration(tel.used_gpu_path ? Orchestrator::ProfilerTaskStage::GpuDispatchExecution : Orchestrator::ProfilerTaskStage::CpuDispatchExecution, tel.execution_time_ms);
+				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky, tel.tile_prepass_skip_ms);
+				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::PixelClassification, tel.pixel_classification_ms);
 				orchestrator_.profiler().record_frame(frame_input);
 			}
 

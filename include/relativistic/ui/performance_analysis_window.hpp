@@ -28,11 +28,16 @@ private:
 	float capture_duration_seconds_{10.0f};
 	int capture_frame_count_{300};
 	char capture_label_buffer_[96]{"Benchmark Run"};
+	bool capture_label_auto_{true};
+	std::string last_suggested_label_{};
 
 	int selected_run_indices_[2]{-1, -1};
 	bool show_only_matching_signature_{false};
 	int history_capacity_input_{3600};
 	int plot_window_{240};
+	int benchmark_sort_mode_{0};
+	bool benchmark_sort_descending_{true};
+	char benchmark_search_filter_[64]{};
 
 public:
 	explicit PerformanceAnalysisWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -132,16 +137,51 @@ private:
 			render_setting_tooltip("Fraction of recently completed frames dispatched through the Vulkan compute path versus the CPU SIMD/scalar fallback. Also available as a standalone HUD readout.");
 
 			ImGui::Spacing();
-			ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Stage Time Share (last %zu frames)", window_count);
+			ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Stage Time Share (last %zu frames, sorted by cost)", window_count);
 			double frame_total = stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)];
 			if (frame_total <= 1e-9) frame_total = 1.0;
+			std::vector<size_t> sorted_stage_indices;
 			for (size_t st = 0; st < static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count); ++st) {
 				if (st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)) continue;
+				if (st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::GpuDispatchExecution) || st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::CpuDispatchExecution)
+					|| st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky) || st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::PixelClassification)
+					|| st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraConstantsBuild)) continue;
+				sorted_stage_indices.push_back(st);
+			}
+			std::sort(sorted_stage_indices.begin(), sorted_stage_indices.end(), [&](size_t a, size_t b) { return stage_totals[a] > stage_totals[b]; });
+			for (const size_t st : sorted_stage_indices) {
 				const auto stage = static_cast<Orchestrator::ProfilerTaskStage>(st);
 				const float share = static_cast<float>(std::clamp(stage_totals[st] / frame_total, 0.0, 1.0));
 				ImGui::ProgressBar(share, ImVec2(-1.0f, 0.0f), (std::string(Orchestrator::profiler_stage_name(stage)) + " " + std::to_string(static_cast<int>(share * 100.0f)) + "%").c_str());
 			}
-			render_setting_tooltip("Share of accumulated frame time spent in each instrumented pipeline stage. The largest bar identifies where optimization effort is likely to pay off first; see the Bottleneck Analysis tab for recommendations.");
+			render_setting_tooltip("Share of accumulated frame time spent in each instrumented pipeline stage, sorted from most to least expensive. The largest bar identifies where optimization effort is likely to pay off first; see the Bottleneck Analysis tab for recommendations.");
+
+			ImGui::Spacing();
+			if (ImGui::CollapsingHeader("Detailed Render Sub-Task Breakdown")) {
+				double render_dispatch_total = stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
+				if (render_dispatch_total <= 1e-9) render_dispatch_total = 1.0;
+				std::vector<size_t> render_sub_stages{
+					static_cast<size_t>(Orchestrator::ProfilerTaskStage::GpuDispatchExecution),
+					static_cast<size_t>(Orchestrator::ProfilerTaskStage::CpuDispatchExecution),
+					static_cast<size_t>(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky),
+					static_cast<size_t>(Orchestrator::ProfilerTaskStage::PixelClassification),
+					static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraConstantsBuild)
+				};
+				std::sort(render_sub_stages.begin(), render_sub_stages.end(), [&](size_t a, size_t b) { return stage_totals[a] > stage_totals[b]; });
+				for (const size_t st : render_sub_stages) {
+					const auto stage = static_cast<Orchestrator::ProfilerTaskStage>(st);
+					const float share = static_cast<float>(std::clamp(stage_totals[st] / render_dispatch_total, 0.0, 1.0));
+					const double avg_ms = stage_totals[st] / static_cast<double>(window_count);
+					ImGui::ProgressBar(share, ImVec2(-1.0f, 0.0f), (std::string(Orchestrator::profiler_stage_name(stage)) + " " + std::to_string(static_cast<int>(share * 100.0f)) + "% (avg " + std::to_string(avg_ms).substr(0, 5) + " ms)").c_str());
+				}
+				if (render_pipeline_ != nullptr) {
+					const auto& live_tel = render_pipeline_->telemetry();
+					ImGui::Spacing();
+					ImGui::Text("Adaptive Tile Prepass Skip: %llu tiles (%.3f ms) | Full Ray-Traced Tiles: %llu tiles (%.3f ms)", static_cast<unsigned long long>(live_tel.tile_prepass_skip_tile_count), live_tel.tile_prepass_skip_ms, static_cast<unsigned long long>(live_tel.full_raytrace_tile_count), live_tel.full_raytrace_tiles_ms);
+					render_setting_tooltip("Tile counts and cumulative elapsed time from the most recently completed CPU-tiled render, split between tiles the Adaptive Tile Sky Prepass analytically filled without ray-tracing and tiles that were fully integrated. Only populated when Tiled Work Distribution and Adaptive Tile Sky Prepass are both enabled and the CPU path is active.");
+				}
+				render_setting_tooltip("Breaks the coarse Render Dispatch stage above down into the individual sub-tasks measured inside the ray-tracing pipeline itself, expressed as a share of total render dispatch time rather than total frame time.");
+			}
 		}
 
 		ImGui::Separator();
@@ -255,6 +295,11 @@ private:
 
 		draw_summary_table("Total Frame Time (ms)", ft_summary);
 		draw_summary_table("Render Dispatch (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::RenderDispatch, n));
+		draw_summary_table("GPU Dispatch Execution (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::GpuDispatchExecution, n));
+		draw_summary_table("CPU Dispatch Execution (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CpuDispatchExecution, n));
+		draw_summary_table("Adaptive Tile Prepass Sky (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky, n));
+		draw_summary_table("Pixel Classification (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::PixelClassification, n));
+		draw_summary_table("Camera Constants Build (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CameraConstantsBuild, n));
 		draw_summary_table("Post-Processing (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::PostProcessing, n));
 		draw_summary_table("Framebuffer Readback (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::FramebufferReadback, n));
 		draw_summary_table("Texture Upload (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::TextureUpload, n));
@@ -385,6 +430,23 @@ private:
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WorkDistributionMode, run.config.tiled_distribution ? 1.0 : 0.0)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_SCALAR_PIPELINE, !run.config.simd_pipeline)));
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(run.config.step_controller_mode))));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityMode, static_cast<double>(run.config.motion_quality_mode))));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityScale, run.config.motion_quality_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, run.config.space_skipping_enabled ? 1.0 : 0.0)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkipRadiusScale, run.config.space_skip_radius_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, run.config.pole_guard_precision_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::FarFieldStepScale, run.config.far_field_step_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, run.config.lod_enabled ? 1.0 : 0.0)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodDistanceThreshold, run.config.lod_distance_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodReducedSteps, static_cast<double>(run.config.lod_reduced_ray_steps))));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RenderDistanceScale, run.config.render_distance_scale)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InterlaceRenderingEnabled, run.config.interlace_rendering_enabled ? 1.0 : 0.0)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionEnabled, run.config.dynamic_resolution_enabled ? 1.0 : 0.0)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionTargetFps, run.config.dynamic_resolution_target_fps)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::AdaptiveTilePrepassEnabled, run.config.adaptive_tile_prepass_enabled ? 1.0 : 0.0)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RollingAverageFrameCount, static_cast<double>(run.config.rolling_average_frame_count))));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, run.config.integration_rtol)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, run.config.integration_atol)));
 		orchestrator_.set_physical_param(Orchestrator::ParameterType::Custom, static_cast<double>(run.config.precision_mode), "precision_mode");
 	}
 
@@ -412,45 +474,39 @@ private:
 			ImGui::TableSetupColumn("Delta (B - A)");
 			ImGui::TableHeadersRow();
 
+			auto format_metric_value = [](const char* fmt, double v) -> std::string {
+				char buf[64];
+				if (std::strcmp(fmt, "%.3f") == 0) {
+					std::snprintf(buf, sizeof(buf), "%.3f", v);
+				} else if (std::strcmp(fmt, "%.2f") == 0) {
+					std::snprintf(buf, sizeof(buf), "%.2f", v);
+				} else if (std::strcmp(fmt, "%.1f") == 0) {
+					std::snprintf(buf, sizeof(buf), "%.1f", v);
+				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
+					std::snprintf(buf, sizeof(buf), "%.1f%%", v);
+				} else if (std::strcmp(fmt, "%.3e") == 0) {
+					std::snprintf(buf, sizeof(buf), "%.3e", v);
+				} else {
+					std::snprintf(buf, sizeof(buf), "%.0f", v);
+				}
+				return std::string(buf);
+			};
+
 			auto row = [&](const char* metric_label, double va, double vb, const char* fmt) {
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::TextUnformatted(metric_label);
 
 				ImGui::TableSetColumnIndex(1);
-				if (std::strcmp(fmt, "%.3f") == 0) {
-					ImGui::Text("%.3f", va);
-				} else if (std::strcmp(fmt, "%.1f") == 0) {
-					ImGui::Text("%.1f", va);
-				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
-					ImGui::Text("%.1f%%", va);
-				} else {
-					ImGui::Text("%.0f", va);
-				}
+				ImGui::TextUnformatted(format_metric_value(fmt, va).c_str());
 
 				ImGui::TableSetColumnIndex(2);
-				if (std::strcmp(fmt, "%.3f") == 0) {
-					ImGui::Text("%.3f", vb);
-				} else if (std::strcmp(fmt, "%.1f") == 0) {
-					ImGui::Text("%.1f", vb);
-				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
-					ImGui::Text("%.1f%%", vb);
-				} else {
-					ImGui::Text("%.0f", vb);
-				}
+				ImGui::TextUnformatted(format_metric_value(fmt, vb).c_str());
 
 				ImGui::TableSetColumnIndex(3);
 				const double delta = vb - va;
 				const ImVec4 color = (delta <= 0.0) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.55f, 0.35f, 1.0f);
-				if (std::strcmp(fmt, "%.3f") == 0) {
-					ImGui::TextColored(color, "%.3f", delta);
-				} else if (std::strcmp(fmt, "%.1f") == 0) {
-					ImGui::TextColored(color, "%.1f", delta);
-				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
-					ImGui::TextColored(color, "%.1f%%", delta);
-				} else {
-					ImGui::TextColored(color, "%.0f", delta);
-				}
+				ImGui::TextColored(color, "%s", format_metric_value(fmt, delta).c_str());
 			};
 
 			row("Mean Frame Time (ms)", a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f");
@@ -462,14 +518,56 @@ private:
 			row("GPU Path Ratio (%%)", a.gpu_path_ratio * 100.0, b.gpu_path_ratio * 100.0, "%.1f%%");
 			row("Resolution Scale", a.config.resolution_scale, b.config.resolution_scale, "%.2f");
 			row("Max Ray Steps", static_cast<double>(a.config.max_ray_steps), static_cast<double>(b.config.max_ray_steps), "%.0f");
+			row("Motion Quality Scale", a.config.motion_quality_scale, b.config.motion_quality_scale, "%.2f");
+			row("Space Skip Radius (M)", a.config.space_skip_radius_scale, b.config.space_skip_radius_scale, "%.1f");
+			row("Pole Guard Precision", a.config.pole_guard_precision_scale, b.config.pole_guard_precision_scale, "%.2f");
+			row("Far-Field Step Multiplier", a.config.far_field_step_scale, b.config.far_field_step_scale, "%.2f");
+			row("LOD Distance Threshold (M)", a.config.lod_distance_scale, b.config.lod_distance_scale, "%.0f");
+			row("LOD Reduced Steps", static_cast<double>(a.config.lod_reduced_ray_steps), static_cast<double>(b.config.lod_reduced_ray_steps), "%.0f");
+			row("Render Distance (M)", a.config.render_distance_scale, b.config.render_distance_scale, "%.0f");
+			row("Dynamic Res Target FPS", a.config.dynamic_resolution_target_fps, b.config.dynamic_resolution_target_fps, "%.0f");
+			row("Rolling Average Window (N)", static_cast<double>(a.config.rolling_average_frame_count), static_cast<double>(b.config.rolling_average_frame_count), "%.0f");
+			row("Integration rtol", a.config.integration_rtol, b.config.integration_rtol, "%.3e");
+			row("Integration atol", a.config.integration_atol, b.config.integration_atol, "%.3e");
 
 			ImGui::EndTable();
 		}
 	}
 
+	[[nodiscard]] std::string build_suggested_label() const {
+		const auto& p = orchestrator_.parameters();
+		static constexpr const char* kPresetNames[] = {"Potato", "Perf", "Balanced", "High", "Ultra", "Extreme", "Custom"};
+		const uint32_t preset_idx = std::min<uint32_t>(p.performance_preset, 6U);
+		std::string metric_short = orchestrator_.active_metric_name();
+		const size_t space_pos = metric_short.find(' ');
+		if (space_pos != std::string::npos) metric_short = metric_short.substr(0, space_pos);
+		std::string integrator_short = orchestrator_.active_integrator_name();
+		const size_t int_space = integrator_short.find(' ');
+		if (int_space != std::string::npos) integrator_short = integrator_short.substr(0, int_space);
+		return metric_short + "_" + integrator_short + "_" + kPresetNames[preset_idx];
+	}
+
 	void render_benchmark_runs_tab(Orchestrator::PerformanceProfiler& profiler) {
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Capture a Benchmark Run");
-		ImGui::InputText("Run Label", capture_label_buffer_, sizeof(capture_label_buffer_));
+
+		if (capture_label_auto_ && !profiler.is_capturing()) {
+			const std::string suggested = build_suggested_label();
+			if (suggested != last_suggested_label_) {
+				std::strncpy(capture_label_buffer_, suggested.c_str(), sizeof(capture_label_buffer_) - 1);
+				capture_label_buffer_[sizeof(capture_label_buffer_) - 1] = '\0';
+				last_suggested_label_ = suggested;
+			}
+		}
+		if (ImGui::InputText("Run Label", capture_label_buffer_, sizeof(capture_label_buffer_))) {
+			capture_label_auto_ = false;
+		}
+		ImGui::SameLine();
+		if (ImGui::Checkbox("Auto-Name", &capture_label_auto_)) {
+			if (capture_label_auto_) {
+				last_suggested_label_.clear();
+			}
+		}
+		render_setting_tooltip("When enabled, the run label is regenerated automatically from the active metric, integrator, and performance preset. Typing in the field disables auto-naming; the checkbox re-enables it.");
 
 		const char* modes[] = {"By Duration", "By Frame Count"};
 		ImGui::Combo("Capture Mode", &capture_mode_, modes, IM_ARRAYSIZE(modes));
@@ -502,32 +600,103 @@ private:
 		ImGui::Checkbox("Only Show Runs Matching Current Engine Signature", &show_only_matching_signature_);
 		render_setting_tooltip("Hides benchmark runs captured under a different internal data-layout signature, since their timings are not directly comparable to runs captured with the current build.");
 
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputTextWithHint("##BenchmarkSearch", "Filter by label, metric, or integrator...", benchmark_search_filter_, sizeof(benchmark_search_filter_));
+		ImGui::SameLine();
+		const char* benchmark_sort_options[] = {
+			"Sort: Timestamp", "Sort: Label", "Sort: Mean Frame Time", "Sort: P95 Frame Time", "Sort: Mean FPS",
+			"Sort: Resolution Scale", "Sort: Ray Steps", "Sort: GPU Ratio", "Sort: Metric", "Sort: Integrator"
+		};
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::Combo("##BenchmarkSortMode", &benchmark_sort_mode_, benchmark_sort_options, IM_ARRAYSIZE(benchmark_sort_options));
+		ImGui::SameLine();
+		if (ImGui::ArrowButton("##BenchmarkSortDirection", benchmark_sort_descending_ ? ImGuiDir_Down : ImGuiDir_Up)) {
+			benchmark_sort_descending_ = !benchmark_sort_descending_;
+		}
+		render_setting_tooltip("Chooses how the saved runs table below is ordered, and toggles between ascending and descending order.");
+
 		const auto& runs = profiler.saved_runs();
 		if (runs.empty()) {
 			ImGui::TextDisabled("No benchmark runs saved yet.");
 		}
 
-		ImGui::BeginChild("BenchmarkRunsTableRegion", ImVec2(0.0f, 260.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
-		if (ImGui::BeginTable("BenchmarkRunsTable", 9, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable)) {
+		std::vector<size_t> visible_run_indices;
+		visible_run_indices.reserve(runs.size());
+		const std::string benchmark_filter_str(benchmark_search_filter_);
+		for (size_t i = 0; i < runs.size(); ++i) {
+			const auto& run = runs[i];
+			if (show_only_matching_signature_ && run.engine_signature != profiler.engine_signature()) continue;
+			if (!benchmark_filter_str.empty()) {
+				if (run.label.find(benchmark_filter_str) == std::string::npos &&
+				    run.config.metric_name.find(benchmark_filter_str) == std::string::npos &&
+				    run.config.integrator_name.find(benchmark_filter_str) == std::string::npos) {
+					continue;
+				}
+			}
+			visible_run_indices.push_back(i);
+		}
+
+		std::sort(visible_run_indices.begin(), visible_run_indices.end(), [&](size_t a, size_t b) {
+			const auto& ra = runs[a];
+			const auto& rb = runs[b];
+			bool less;
+			switch (benchmark_sort_mode_) {
+				case 1: less = ra.label < rb.label; break;
+				case 2: less = ra.frame_time_summary.mean < rb.frame_time_summary.mean; break;
+				case 3: less = ra.frame_time_summary.percentile_95 < rb.frame_time_summary.percentile_95; break;
+				case 4: less = ra.fps_summary.mean < rb.fps_summary.mean; break;
+				case 5: less = ra.config.resolution_scale < rb.config.resolution_scale; break;
+				case 6: less = ra.config.max_ray_steps < rb.config.max_ray_steps; break;
+				case 7: less = ra.gpu_path_ratio < rb.gpu_path_ratio; break;
+				case 8: less = ra.config.metric_name < rb.config.metric_name; break;
+				case 9: less = ra.config.integrator_name < rb.config.integrator_name; break;
+				case 0:
+				default: less = ra.timestamp < rb.timestamp; break;
+			}
+			return benchmark_sort_descending_ ? !less : less;
+		});
+
+		ImGui::BeginChild("BenchmarkRunsTableRegion", ImVec2(0.0f, 340.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
+		if (ImGui::BeginTable("BenchmarkRunsTable", 29, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX)) {
 			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 160.0f);
 			ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+			ImGui::TableSetupColumn("Metric", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+			ImGui::TableSetupColumn("Integrator", ImGuiTableColumnFlags_WidthFixed, 130.0f);
 			ImGui::TableSetupColumn("Mean FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
 			ImGui::TableSetupColumn("P95 FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("P99 FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
 			ImGui::TableSetupColumn("Mean FPS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Min FPS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
 			ImGui::TableSetupColumn("Res Scale", ImGuiTableColumnFlags_WidthFixed, 80.0f);
 			ImGui::TableSetupColumn("Ray Steps", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Precision", ImGuiTableColumnFlags_WidthFixed, 100.0f);
 			ImGui::TableSetupColumn("GPU Ratio", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableSetupColumn("Tiled", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+			ImGui::TableSetupColumn("SIMD", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+			ImGui::TableSetupColumn("Step Ctrl", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+			ImGui::TableSetupColumn("Motion Quality", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+			ImGui::TableSetupColumn("Space Skip", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+			ImGui::TableSetupColumn("Pole Guard", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Far-Field Step", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+			ImGui::TableSetupColumn("LOD", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+			ImGui::TableSetupColumn("Render Distance", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+			ImGui::TableSetupColumn("Interlace", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+			ImGui::TableSetupColumn("Dynamic Res", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+			ImGui::TableSetupColumn("Tile Prepass", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Rolling Avg N", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+			ImGui::TableSetupColumn("rtol / atol", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+			ImGui::TableSetupColumn("Resolution", ImGuiTableColumnFlags_WidthFixed, 100.0f);
 			ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 260.0f);
 			ImGui::TableHeadersRow();
 
-			for (size_t i = 0; i < runs.size(); ++i) {
+			for (const size_t i : visible_run_indices) {
 				const auto& run = runs[i];
-				if (show_only_matching_signature_ && run.engine_signature != profiler.engine_signature()) continue;
 
 				ImGui::TableNextRow();
 				ImGui::PushID(static_cast<int>(i));
 
-				ImGui::TableSetColumnIndex(0);
+				int col = 0;
+				ImGui::TableSetColumnIndex(col++);
 				const bool signature_mismatch = run.engine_signature != profiler.engine_signature();
 				if (signature_mismatch) {
 					ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "%s [!]", run.label.c_str());
@@ -544,15 +713,51 @@ private:
 					ImGui::EndTooltip();
 				}
 
-				ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(run.timestamp.c_str());
-				ImGui::TableSetColumnIndex(2); ImGui::Text("%.3f", run.frame_time_summary.mean);
-				ImGui::TableSetColumnIndex(3); ImGui::Text("%.3f", run.frame_time_summary.percentile_95);
-				ImGui::TableSetColumnIndex(4); ImGui::Text("%.1f", run.fps_summary.mean);
-				ImGui::TableSetColumnIndex(5); ImGui::Text("%.2fx", run.config.resolution_scale);
-				ImGui::TableSetColumnIndex(6); ImGui::Text("%u", run.config.max_ray_steps);
-				ImGui::TableSetColumnIndex(7); ImGui::Text("%.0f%%", run.gpu_path_ratio * 100.0);
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.timestamp.c_str());
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.metric_name.c_str());
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.integrator_name.c_str());
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.mean);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.percentile_95);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.percentile_99);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1f", run.fps_summary.mean);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1f", run.fps_summary.min_value);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2fx", run.config.resolution_scale);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%u", run.config.max_ray_steps);
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.precision_mode == 0 ? "FP64" : "Double-Single");
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.0f%%", run.gpu_path_ratio * 100.0);
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.tiled_distribution ? "Yes" : "No");
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.simd_pipeline ? "Yes" : "No");
+				ImGui::TableSetColumnIndex(col++);
+				{
+					static constexpr const char* kStepCtrlNames[] = {"Standard", "PI-30", "PID-42"};
+					ImGui::TextUnformatted(kStepCtrlNames[std::min<uint32_t>(run.config.step_controller_mode, 2U)]);
+				}
+				ImGui::TableSetColumnIndex(col++);
+				{
+					static constexpr const char* kMotionModes[] = {"Disabled", "Automatic", "Fixed"};
+					ImGui::Text("%s (%.2fx)", kMotionModes[std::min<uint32_t>(run.config.motion_quality_mode, 2U)], run.config.motion_quality_scale);
+				}
+				ImGui::TableSetColumnIndex(col++);
+				ImGui::TextUnformatted(run.config.space_skipping_enabled ? (std::to_string(run.config.space_skip_radius_scale).substr(0, 5) + " M").c_str() : "Off");
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2f", run.config.pole_guard_precision_scale);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2fx", run.config.far_field_step_scale);
+				ImGui::TableSetColumnIndex(col++);
+				ImGui::TextUnformatted(run.config.lod_enabled ? (std::to_string(static_cast<int>(run.config.lod_distance_scale)) + " M / " + std::to_string(run.config.lod_reduced_ray_steps) + " steps").c_str() : "Off");
+				ImGui::TableSetColumnIndex(col++);
+				if (run.config.render_distance_scale > 0.0) {
+					ImGui::Text("%.0f M", run.config.render_distance_scale);
+				} else {
+					ImGui::TextUnformatted("Unbounded");
+				}
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.interlace_rendering_enabled ? "Yes" : "No");
+				ImGui::TableSetColumnIndex(col++);
+				ImGui::TextUnformatted(run.config.dynamic_resolution_enabled ? (std::to_string(static_cast<int>(run.config.dynamic_resolution_target_fps)) + " fps target").c_str() : "Off");
+				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.adaptive_tile_prepass_enabled ? "Yes" : "No");
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%u", run.config.rolling_average_frame_count);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1e / %.1e", run.config.integration_rtol, run.config.integration_atol);
+				ImGui::TableSetColumnIndex(col++); ImGui::Text("%ux%u", run.config.screen_width, run.config.screen_height);
 
-				ImGui::TableSetColumnIndex(8);
+				ImGui::TableSetColumnIndex(col++);
 				if (ImGui::SmallButton("A")) selected_run_indices_[0] = static_cast<int>(i);
 				ImGui::SameLine();
 				if (ImGui::SmallButton("B")) selected_run_indices_[1] = static_cast<int>(i);

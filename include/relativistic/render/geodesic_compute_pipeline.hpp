@@ -44,6 +44,11 @@ struct PipelineExecutionTelemetry {
 	uint32_t min_iterations_used{0};
 	uint32_t max_iterations_used{0};
 	bool used_gpu_path{false};
+	double tile_prepass_skip_ms{0.0};
+	double full_raytrace_tiles_ms{0.0};
+	uint64_t tile_prepass_skip_tile_count{0};
+	uint64_t full_raytrace_tile_count{0};
+	double pixel_classification_ms{0.0};
 };
 
 class GeodesicComputePipeline {
@@ -122,6 +127,7 @@ private:
 			const auto t_start = std::chrono::high_resolution_clock::now();
 
 			bool rendered_on_gpu = false;
+			SoftwareComputeEngine::RenderStageStats stage_stats{};
 			if (use_gpu_compute_.load(std::memory_order_relaxed)) {
 				std::vector<GpuPixelOutput> gpu_output;
 				if (try_gpu_dispatch(current_job, gpu_output) && gpu_output.size() == req_pixels) {
@@ -132,9 +138,9 @@ private:
 
 			if (!rendered_on_gpu) {
 				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get(), &cancel_render_);
+					SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get(), &cancel_render_, &stage_stats);
 				} else {
-					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get(), &cancel_render_);
+					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get(), &cancel_render_, &stage_stats);
 				}
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
@@ -144,6 +150,7 @@ private:
 			}
 			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
+			const auto classify_t0 = std::chrono::high_resolution_clock::now();
 			uint64_t absorbed = 0;
 			uint64_t celestial = 0;
 			uint64_t disk_hits = 0;
@@ -163,6 +170,8 @@ private:
 			if (back_buffer_.empty()) {
 				iter_min = 0;
 			}
+			const auto classify_t1 = std::chrono::high_resolution_clock::now();
+			const double classification_ms = std::chrono::duration<double, std::milli>(classify_t1 - classify_t0).count();
 
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
@@ -180,6 +189,11 @@ private:
 				telemetry_.average_iterations_used = (req_pixels > 0) ? (iteration_sum / static_cast<double>(req_pixels)) : 0.0;
 				telemetry_.min_iterations_used = iter_min;
 				telemetry_.max_iterations_used = iter_max;
+				telemetry_.tile_prepass_skip_ms = static_cast<double>(stage_stats.tile_prepass_skip_ns.load(std::memory_order_relaxed)) / 1.0e6;
+				telemetry_.full_raytrace_tiles_ms = static_cast<double>(stage_stats.full_trace_ns.load(std::memory_order_relaxed)) / 1.0e6;
+				telemetry_.tile_prepass_skip_tile_count = stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);
+				telemetry_.full_raytrace_tile_count = stage_stats.full_trace_tile_count.load(std::memory_order_relaxed);
+				telemetry_.pixel_classification_ms = classification_ms;
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}
@@ -281,6 +295,7 @@ public:
 			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 
 			bool rendered_on_gpu = false;
+			SoftwareComputeEngine::RenderStageStats headless_stage_stats{};
 			if (use_gpu_compute_.load(std::memory_order_relaxed)) {
 				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
 				if (front_buffer_.size() >= total_pixels) {
@@ -294,12 +309,16 @@ public:
 
 			if (!rendered_on_gpu) {
 				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, thread_pool_.get());
+					SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, thread_pool_.get(), nullptr, &headless_stage_stats);
 				} else {
-					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, thread_pool_.get());
+					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, thread_pool_.get(), nullptr, &headless_stage_stats);
 				}
 			}
 			telemetry_.used_gpu_path = rendered_on_gpu;
+			telemetry_.tile_prepass_skip_ms = static_cast<double>(headless_stage_stats.tile_prepass_skip_ns.load(std::memory_order_relaxed)) / 1.0e6;
+			telemetry_.full_raytrace_tiles_ms = static_cast<double>(headless_stage_stats.full_trace_ns.load(std::memory_order_relaxed)) / 1.0e6;
+			telemetry_.tile_prepass_skip_tile_count = headless_stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);
+			telemetry_.full_raytrace_tile_count = headless_stage_stats.full_trace_tile_count.load(std::memory_order_relaxed);
 			new_frame_ready_.store(true, std::memory_order_release);
 			return;
 		}

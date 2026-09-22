@@ -41,6 +41,8 @@ private:
 	bool mass_log_mode_{false};
 	bool lambda_log_mode_{true};
 	bool warp_log_mode_{false};
+	double mass_quantity_kg_{0.0};
+	std::string mass_expr_error_{};
 
 	float camera_speed_{10.0f};
 	float camera_fov_{60.0f};
@@ -249,6 +251,17 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
 			render_setting_tooltip("Central gravitating mass in geometrized units (M). Governs Schwarzschild radius rs = 2M and spacetime curvature strength. Enable Log for finer control across small or very large magnitudes.");
+
+			const double active_mass_scale = orchestrator_.constants_engine().mass_scale();
+			mass_quantity_kg_ = static_cast<double>(mass_) * active_mass_scale;
+			if (smart_quantity_input("M  [dim: Mass]", &mass_quantity_kg_, Units::Dimensions::Mass, mass_expr_error_)) {
+				if (active_mass_scale > 0.0) {
+					const double new_mass = mass_quantity_kg_ / active_mass_scale;
+					mass_ = static_cast<float>(new_mass);
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, new_mass)));
+				}
+			}
+			render_setting_tooltip("Enter the central mass as a plain value or as a unit-aware expression, for example \"1.989e30 kg\" or \"1 msun\". The value must have dimensions of mass and is converted through the simulation's current Mass Scale factor from the Physical Constants Engine.");
 		}
 
 		if (needs_spin) {

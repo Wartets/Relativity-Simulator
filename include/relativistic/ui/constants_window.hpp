@@ -22,11 +22,15 @@ private:
 	double h_quantity_{0.0};
 	double kb_quantity_{0.0};
 	double ke_quantity_{0.0};
+	double na_quantity_{0.0};
+	double kcd_quantity_{0.0};
 	std::string c_expr_error_{};
 	std::string g_expr_error_{};
 	std::string h_expr_error_{};
 	std::string kb_expr_error_{};
 	std::string ke_expr_error_{};
+	std::string na_expr_error_{};
+	std::string kcd_expr_error_{};
 
 	[[nodiscard]] static float value_to_slider(double value, double min_val, double max_val) noexcept {
 		if (value <= 0.0) return 0.0f;
@@ -138,6 +142,11 @@ public:
 
 		render_log_constant_slider("Avogadro Constant (NA)", engine.sim_avogadro_constant(), 1e10, 1e30, Orchestrator::ParameterType::ConstantSimNA);
 		render_setting_tooltip("Number of elementary entities per mole. Sets the amount-of-substance unit conversion factor (N0). Rarely needs adjustment for relativistic simulations.");
+		na_quantity_ = engine.sim_avogadro_constant();
+		if (smart_quantity_input("NA  [entities per mole, dimensionless in this engine]", &na_quantity_, Units::Dimensions::Dimensionless, na_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimNA, na_quantity_)));
+		}
+		render_setting_tooltip("Enter the Avogadro constant as a plain value or as a scientific-notation expression, for example \"6.02214076e23\". Amount-of-substance is not tracked as a physical dimension by this engine, so only dimensionless expressions are accepted here.");
 
 		ImGui::Spacing();
 
@@ -151,6 +160,11 @@ public:
 
 		render_log_constant_slider("Luminous Efficacy (Kcd)", engine.sim_luminous_efficacy(), 1e-6, 1e6, Orchestrator::ParameterType::ConstantSimKcd);
 		render_setting_tooltip("Luminous intensity scale. Sets the I0 dimensional coefficient used for photometric quantities.");
+		kcd_quantity_ = engine.sim_luminous_efficacy();
+		if (smart_quantity_input("Kcd  [lm/W, dimensionless in this engine]", &kcd_quantity_, Units::Dimensions::Dimensionless, kcd_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimKcd, kcd_quantity_)));
+		}
+		render_setting_tooltip("Enter the luminous efficacy as a plain value or as a scientific-notation expression, for example \"683\". Luminous intensity is not tracked as a physical dimension by this engine, so only dimensionless expressions are accepted here.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.6f, 1.0f), "Derived Fundamental Constants");

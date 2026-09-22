@@ -75,7 +75,7 @@ struct UnitToken {
 
 class UnitRegistry {
 private:
-	static constexpr std::array<UnitToken, 60> kUnits{{
+	static constexpr std::array<UnitToken, 66> kUnits{{
 		{"m", 1.0, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
 		{"km", 1000.0, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
 		{"cm", 0.01, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
@@ -135,7 +135,13 @@ private:
 		{"mpa", 1.0e6, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
 		{"bar", 1.0e5, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
 		{"atm", 101325.0, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
-		{"coul", 1.0, 0.0, DimensionVector{0, 0, 1, 1, 0, 0}}
+		{"coul", 1.0, 0.0, DimensionVector{0, 0, 1, 1, 0, 0}},
+		{"erg", 1.0e-7, 0.0, DimensionVector{2, 1, -2, 0, 0, 0}},
+		{"cal", 4.184, 0.0, DimensionVector{2, 1, -2, 0, 0, 0}},
+		{"ev", 1.602176634e-19, 0.0, DimensionVector{2, 1, -2, 0, 0, 0}},
+		{"hp", 745.6998715822702, 0.0, DimensionVector{2, 1, -3, 0, 0, 0}},
+		{"tesla", 1.0, 0.0, DimensionVector{0, 1, -2, -1, 0, 0}},
+		{"gauss", 1.0e-4, 0.0, DimensionVector{0, 1, -2, -1, 0, 0}}
 	}};
 
 public:
@@ -488,7 +494,10 @@ public:
 		QuantityValue result = evaluator.parse_additive();
 		evaluator.skip_whitespace();
 		if (evaluator.pos_ != evaluator.text_.size()) {
-			throw ExpressionError("Unexpected trailing characters near position " + std::to_string(evaluator.pos_));
+			throw ExpressionError(
+				"Unexpected trailing characters '" + std::string(evaluator.text_.substr(evaluator.pos_)) +
+				"' near position " + std::to_string(evaluator.pos_)
+			);
 		}
 		if (!std::isfinite(result.value)) {
 			throw ExpressionError("Expression evaluated to a non-finite value");
@@ -548,6 +557,16 @@ namespace Dimensions {
 	inline constexpr DimensionVector PlanckAction{2, 1, -1, 0, 0, 0};
 	inline constexpr DimensionVector BoltzmannConstant{2, 1, -2, 0, -1, 0};
 	inline constexpr DimensionVector CoulombConstant{3, 1, -4, -2, 0, 0};
+	inline constexpr DimensionVector Area{2, 0, 0, 0, 0, 0};
+	inline constexpr DimensionVector Volume{3, 0, 0, 0, 0, 0};
+	inline constexpr DimensionVector Density{-3, 1, 0, 0, 0, 0};
+	inline constexpr DimensionVector AngularVelocity{0, 0, -1, 0, 0, 1};
+	inline constexpr DimensionVector MomentOfInertia{2, 1, 0, 0, 0, 0};
+	inline constexpr DimensionVector Torque{2, 1, -2, 0, 0, 0};
+	inline constexpr DimensionVector Luminosity{2, 1, -3, 0, 0, 0};
+	inline constexpr DimensionVector MagneticField{0, 1, -2, -1, 0, 0};
+	inline constexpr DimensionVector MassFlowRate{0, 1, -1, 0, 0, 0};
+	inline constexpr DimensionVector Momentum{1, 1, -1, 0, 0, 0};
 }
 
 }

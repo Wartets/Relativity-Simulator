@@ -122,6 +122,38 @@ namespace RenderFlags {
 	static constexpr uint32_t USE_LOD_SYSTEM = 1U << 9;
 	static constexpr uint32_t SPACE_SKIP_ENABLED = 1U << 10;
 	static constexpr uint32_t ADAPTIVE_TILE_PREPASS = 1U << 11;
+	static constexpr uint32_t ENABLE_3D_BODY_RAYTRACING = 1U << 12;
+	static constexpr uint32_t ENABLE_BODY_DOPPLER_BEAMING = 1U << 13;
+	static constexpr uint32_t ENABLE_BODY_GRAV_REDSHIFT = 1U << 14;
+	static constexpr uint32_t ENABLE_ATMOSPHERE_SCATTERING = 1U << 15;
 }
+
+struct alignas(16) GpuBodyData {
+	std::array<double, 4> position{0.0, 0.0, 0.0, 0.0};
+	std::array<double, 4> velocity{0.0, 0.0, 0.0, 0.0};
+	std::array<double, 4> color_primary{0.62, 0.75, 1.0, 1.0};
+	std::array<double, 4> color_secondary{0.18, 0.30, 0.75, 1.0};
+	std::array<double, 4> atmosphere_color{0.3, 0.6, 1.0, 0.4};
+
+	double radius{1.0};
+	double mass{1.0};
+	double charge{0.0};
+	double temperature{5778.0};
+
+	double noise_scale{4.0};
+	double noise_roughness{0.5};
+	double atmosphere_thickness{0.15};
+	double specular_roughness{0.3};
+
+	double emission_intensity{0.0};
+	double rotation_speed{0.1};
+	double oblateness_ratio{1.0};
+	uint32_t body_id{0};
+
+	uint32_t geometry_model{0};
+	uint32_t surface_texture_mode{0};
+	uint32_t atmosphere_mode{0};
+	uint32_t preset_3d{0};
+};
 
 }

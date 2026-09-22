@@ -46,6 +46,61 @@ private:
 		return static_cast<float>(hash_u32(x) & 0x00FFFFFFU) * (1.0f / 16777216.0f);
 	}
 
+	struct FastNoise3D {
+		static inline float hash(int32_t x, int32_t y, int32_t z) noexcept {
+			int32_t n = x + y * 57 + z * 113;
+			n = (n << 13) ^ n;
+			return (1.0f - static_cast<float>((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f);
+		}
+
+		static inline float noise(float x, float y, float z) noexcept {
+			const int32_t xi = static_cast<int32_t>(std::floor(x));
+			const int32_t yi = static_cast<int32_t>(std::floor(y));
+			const int32_t zi = static_cast<int32_t>(std::floor(z));
+
+			const float fx = x - static_cast<float>(xi);
+			const float fy = y - static_cast<float>(yi);
+			const float fz = z - static_cast<float>(zi);
+
+			const float u = fx * fx * (3.0f - 2.0f * fx);
+			const float v = fy * fy * (3.0f - 2.0f * fy);
+			const float w = fz * fz * (3.0f - 2.0f * fz);
+
+			const float c000 = hash(xi, yi, zi);
+			const float c100 = hash(xi + 1, yi, zi);
+			const float c010 = hash(xi, yi + 1, zi);
+			const float c110 = hash(xi + 1, yi + 1, zi);
+			const float c001 = hash(xi, yi, zi + 1);
+			const float c101 = hash(xi + 1, yi, zi + 1);
+			const float c011 = hash(xi, yi + 1, zi + 1);
+			const float c111 = hash(xi + 1, yi + 1, zi + 1);
+
+			const float c00 = c000 * (1.0f - u) + c100 * u;
+			const float c10 = c010 * (1.0f - u) + c110 * u;
+			const float c01 = c001 * (1.0f - u) + c101 * u;
+			const float c11 = c011 * (1.0f - u) + c111 * u;
+
+			const float c0 = c00 * (1.0f - v) + c10 * v;
+			const float c1 = c01 * (1.0f - v) + c11 * v;
+
+			return c0 * (1.0f - w) + c1 * w;
+		}
+
+		static inline float fbm(float x, float y, float z, int octaves = 4, float roughness = 0.5f) noexcept {
+			float total = 0.0f;
+			float amplitude = 1.0f;
+			float frequency = 1.0f;
+			float max_val = 0.0f;
+			for (int i = 0; i < octaves; ++i) {
+				total += noise(x * frequency, y * frequency, z * frequency) * amplitude;
+				max_val += amplitude;
+				amplitude *= roughness;
+				frequency *= 2.0f;
+			}
+			return total / std::max(max_val, 1e-5f);
+		}
+	};
+
 public:
 	[[nodiscard]] static bool requires_exact_metric_path(const GpuCameraPushConstants& params) noexcept {
 		const double mass_scale = std::max(params.metric_mass, 1e-4);
@@ -2161,6 +2216,17 @@ public:
 		}
 	}
 
+	static void dispatch_fp64_scalar(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		static_cast<void>(bodies);
+		dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
+	}
+
 	static void dispatch_fp64(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
@@ -2174,6 +2240,18 @@ public:
 		} else {
 			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
 		}
+	}
+
+	static void dispatch_fp64(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
+	) noexcept {
+		static_cast<void>(bodies);
+		dispatch_fp64(params, output_framebuffer, pool, cancel_flag, stage_stats);
 	}
 
 	static void dispatch_double_single(

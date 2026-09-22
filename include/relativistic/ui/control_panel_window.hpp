@@ -199,6 +199,10 @@ public:
 					render_schematic_tab();
 					ImGui::EndTabItem();
 				}
+				if (ImGui::BeginTabItem("3D Body Render")) {
+					render_body_3d_render_tab();
+					ImGui::EndTabItem();
+				}
 				if (ImGui::BeginTabItem("Units & Scales")) {
 					render_units_tab();
 					ImGui::EndTabItem();
@@ -1092,6 +1096,43 @@ private:
 			}
 		}
 		ImGui::PopID();
+	}
+
+	void render_body_3d_render_tab() noexcept {
+		auto& params = orchestrator_.parameters();
+		bool enable_3d = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U;
+		if (ImGui::Checkbox("Enable Realistic 3D Celestial Body Ray-Tracing Pipeline", &enable_3d)) {
+			if (enable_3d) {
+				params.visual_overlays_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+			} else {
+				params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+			}
+		}
+		render_setting_tooltip("Toggles the 3D ray-traced rendering pipeline for all active celestial bodies. When enabled, photons intersect 3D oblate spheroid surface geometry and procedural shaders in real-time.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Relativistic Surface Effects:");
+
+		bool doppler = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U;
+		if (ImGui::Checkbox("Doppler Beaming & Relativistic Aberration", &doppler)) {
+			if (doppler) params.visual_overlays_flags |= Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING;
+			else params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING;
+		}
+		render_setting_tooltip("Applies relativistic Doppler boosting (g^3) and searchlight beaming to body surface radiance based on body orbital velocity.");
+
+		bool redshift = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
+		if (ImGui::Checkbox("Gravitational Redshift Surface Attenuation", &redshift)) {
+			if (redshift) params.visual_overlays_flags |= Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT;
+			else params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT;
+		}
+		render_setting_tooltip("Attenuates surface radiance according to metric gravitational time dilation near compact gravitating objects.");
+
+		bool atmos = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U;
+		if (ImGui::Checkbox("Atmospheric Rayleigh Rim Scattering", &atmos)) {
+			if (atmos) params.visual_overlays_flags |= Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING;
+			else params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING;
+		}
+		render_setting_tooltip("Enables analytical Rayleigh limb shell rim scattering around planetary atmospheres.");
 	}
 
 	void render_schematic_tab() noexcept {

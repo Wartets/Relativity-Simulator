@@ -790,6 +790,46 @@ private:
 			if (ImGui::InputText("Composition", composition, sizeof(composition))) { b.set_composition(composition); changed = true; }
 		}
 
+		if (ImGui::CollapsingHeader("3D Surface & Physics Rendering (Projection-Aware)")) {
+			const char* geom_models[] = {"Oblate Spheroid (Spin/J2 Deformed)", "Rigid Sphere"};
+			int geom_idx = static_cast<int>(b.geometry_model);
+			if (ImGui::Combo("3D Geometry Model", &geom_idx, geom_models, IM_ARRAYSIZE(geom_models))) {
+				b.geometry_model = static_cast<Dynamics::Body3DGeometryModel>(geom_idx);
+				changed = true;
+			}
+			render_setting_tooltip("Defines 3D geometry shape: Oblate Spheroid deforms dynamically based on spin and J2 quadrupole moment.");
+
+			const char* preset_names[] = {"Star (Granulation + Limb Darkening)", "Terrestrial Planet (Continents + Ocean)", "Gas Giant (Bands + Vortex Swirl)", "Metallic Moon (Crater Relief)", "Neutron Star (Magnetic Polar Caps)", "Custom"};
+			int preset_idx = static_cast<int>(b.preset_3d);
+			if (ImGui::Combo("3D Surface Shader Preset", &preset_idx, preset_names, IM_ARRAYSIZE(preset_names))) {
+				b.preset_3d = static_cast<Dynamics::Body3DPreset>(preset_idx);
+				changed = true;
+			}
+			render_setting_tooltip("Selects the procedural 3D surface shader model applied during physical ray-tracing.");
+
+			const char* tex_modes[] = {"Procedural Noise Shader", "Color Palette", "Solid Color"};
+			int tex_idx = static_cast<int>(b.surface_texture_mode);
+			if (ImGui::Combo("Surface Texture Mode", &tex_idx, tex_modes, IM_ARRAYSIZE(tex_modes))) {
+				b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(tex_idx);
+				changed = true;
+			}
+
+			const char* atmos_modes[] = {"Rayleigh Limb Shell (Rim Glow)", "Volumetric Scattering", "Off"};
+			int atmos_idx = static_cast<int>(b.atmosphere_mode);
+			if (ImGui::Combo("Atmosphere Scattering Mode", &atmos_idx, atmos_modes, IM_ARRAYSIZE(atmos_modes))) {
+				b.atmosphere_mode = static_cast<Dynamics::Body3DAtmosphereMode>(atmos_idx);
+				changed = true;
+			}
+
+			if (ImGui::SliderFloat("Surface Noise Scale", &b.surface_noise_scale, 0.5f, 20.0f, "%.2f")) changed = true;
+			if (ImGui::SliderFloat("Surface Roughness", &b.surface_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
+			if (ImGui::SliderFloat("Atmosphere Thickness", &b.atmosphere_thickness, 0.01f, 0.5f, "%.3f")) changed = true;
+			if (ImGui::ColorEdit4("Atmosphere Color", b.atmosphere_color.data())) changed = true;
+			if (ImGui::SliderFloat("Specular Roughness", &b.specular_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
+			if (ImGui::SliderFloat("Emission Intensity", &b.emission_intensity, 0.0f, 5.0f, "%.2f")) changed = true;
+			if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, 0.0f, 2.0f, "%.3f rad/s")) changed = true;
+		}
+
 		ImGui::Spacing();
 		const auto& prefs = orchestrator_.unit_preferences();
 		ImGui::Text("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * body_speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(b.kinetic_energy(), prefs.energy).c_str());

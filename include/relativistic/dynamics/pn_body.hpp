@@ -6,9 +6,53 @@
 #include <cmath>
 #include <algorithm>
 #include <string_view>
-#include <array>
 
 namespace Relativistic::Dynamics {
+
+enum class Body3DGeometryModel : uint32_t {
+	OblateSpheroid  = 0,
+	RigidSphere     = 1,
+	Sphere          = 1, // alias
+	ProlateSpheroid = 2,
+	TriaxialEllipsoid = 3,
+	Toroid          = 4,
+	Mesh            = 5
+};
+
+enum class Body3DSurfaceTextureMode : uint32_t {
+	ProceduralNoise     = 0,
+	SolidColor          = 1,
+	ColorPalette        = 2,
+	BandedGasGiant      = 3,
+	CrateredTerrestrial = 4,
+	StellarGranulation  = 5,
+	AccretionFlow       = 6
+};
+
+enum class Body3DAtmosphereMode : uint32_t {
+	RayleighLimbShell   = 0,
+	VolumetricScattering = 1,
+	Off                 = 2,
+	None                = 2, // alias
+	ThickHaze           = 3,
+	VolumetricMie       = 4,
+	GlowingCorona       = 5
+};
+
+enum class Body3DPreset : uint32_t {
+	Star             = 0,
+	Terrestrial      = 1,
+	TerrestrialPlanet = 1, // alias
+	GasGiant         = 2,
+	IceGiant         = 3,
+	Metallic         = 4,
+	Moon             = 4, // alias
+	Asteroid         = 5,
+	NeutronStar      = 6,
+	Pulsar           = 7,
+	BlackHole        = 8,
+	Custom           = 9
+};
 
 struct alignas(64) PostNewtonianBody {
 	uint32_t id{0};
@@ -46,17 +90,26 @@ struct alignas(64) PostNewtonianBody {
 	double reference_radius{0.0};
 	std::array<char, 32> name{};
 
+	Body3DGeometryModel      geometry_model{Body3DGeometryModel::OblateSpheroid};
+	Body3DSurfaceTextureMode surface_texture_mode{Body3DSurfaceTextureMode::ProceduralNoise};
+	Body3DAtmosphereMode     atmosphere_mode{Body3DAtmosphereMode::RayleighLimbShell};
+	Body3DPreset             preset_3d{Body3DPreset::Star};
+	float surface_noise_scale{4.0f};
+	float surface_roughness{0.5f};
+	float atmosphere_thickness{0.15f};
+	std::array<float, 4> atmosphere_color{0.3f, 0.6f, 1.0f, 0.4f};
+	float emission_intensity{0.0f};
+	float specular_roughness{0.3f};
+	float rotation_speed_3d{0.1f};
+	std::array<double, 3> rotation_axis_3d{0.0, 0.0, 1.0};
+
 	void set_name(std::string_view new_name) noexcept {
 		const size_t len = std::min(new_name.size(), name.size() - 1);
-		for (size_t i = 0; i < len; ++i) {
-			name[i] = new_name[i];
-		}
+		for (size_t i = 0; i < len; ++i) { name[i] = new_name[i]; }
 		name[len] = '\0';
 	}
 
-	[[nodiscard]] bool has_name() const noexcept {
-		return name[0] != '\0';
-	}
+	[[nodiscard]] bool has_name() const noexcept { return name[0] != '\0'; }
 
 	[[nodiscard]] std::string_view name_view() const noexcept {
 		return std::string_view(name.data());
@@ -91,24 +144,16 @@ struct alignas(64) PostNewtonianBody {
 		  reference_radius((r_ref > 0.0) ? r_ref : r) {}
 
 	[[nodiscard]] double speed_squared() const noexcept {
-		return velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2];
+		return velocity[0]*velocity[0] + velocity[1]*velocity[1] + velocity[2]*velocity[2];
 	}
-
-	[[nodiscard]] double speed() const noexcept {
-		return std::sqrt(speed_squared());
-	}
+	[[nodiscard]] double speed() const noexcept { return std::sqrt(speed_squared()); }
 
 	[[nodiscard]] double spin_magnitude_squared() const noexcept {
-		return spin[0] * spin[0] + spin[1] * spin[1] + spin[2] * spin[2];
+		return spin[0]*spin[0] + spin[1]*spin[1] + spin[2]*spin[2];
 	}
+	[[nodiscard]] double spin_magnitude() const noexcept { return std::sqrt(spin_magnitude_squared()); }
 
-	[[nodiscard]] double spin_magnitude() const noexcept {
-		return std::sqrt(spin_magnitude_squared());
-	}
-
-	[[nodiscard]] double kinetic_energy() const noexcept {
-		return 0.5 * mass * speed_squared();
-	}
+	[[nodiscard]] double kinetic_energy() const noexcept { return 0.5 * mass * speed_squared(); }
 
 	void set_composition(std::string_view value) noexcept {
 		const size_t len = std::min(value.size(), composition.size() - 1);
@@ -117,4 +162,11 @@ struct alignas(64) PostNewtonianBody {
 	}
 };
 
+}
+
+namespace Relativistic {
+using Dynamics::Body3DGeometryModel;
+using Dynamics::Body3DSurfaceTextureMode;
+using Dynamics::Body3DAtmosphereMode;
+using Dynamics::Body3DPreset;
 }

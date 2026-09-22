@@ -11,6 +11,7 @@
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/units/unit_aware_widgets.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -247,10 +248,15 @@ private:
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
 
 		if (needs_mass) {
-			if (slider_float_with_input("Central Mass (M)", &mass_, 0.01f, 100.0f, "%.3f", &mass_log_mode_)) {
+			const double active_mass_scale_disp = orchestrator_.constants_engine().mass_scale();
+			double mass_kg_disp = static_cast<double>(mass_) * active_mass_scale_disp;
+			const double mass_min_kg_disp = 0.01 * active_mass_scale_disp;
+			const double mass_max_kg_disp = 100.0 * active_mass_scale_disp;
+			if (unit_aware_slider_double("Central Mass (M)", &mass_kg_disp, mass_min_kg_disp, mass_max_kg_disp, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.3f", &mass_log_mode_)) {
+				mass_ = static_cast<float>(mass_kg_disp / active_mass_scale_disp);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
-			render_setting_tooltip("Central gravitating mass in geometrized units (M). Governs Schwarzschild radius rs = 2M and spacetime curvature strength. Enable Log for finer control across small or very large magnitudes.");
+			render_setting_tooltip(("Central gravitating mass, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ". Governs Schwarzschild radius rs = 2M and spacetime curvature strength. Enable Log for finer control across small or very large magnitudes.").c_str());
 
 			const double active_mass_scale = orchestrator_.constants_engine().mass_scale();
 			mass_quantity_kg_ = static_cast<double>(mass_) * active_mass_scale;
@@ -277,10 +283,12 @@ private:
 		}
 
 		if (needs_charge) {
-			if (ImGui::SliderFloat("Electric Charge (Q)", &charge_, -1.0f, 1.0f, "%.3f")) {
+			double charge_disp = static_cast<double>(charge_);
+			if (unit_aware_slider_double("Electric Charge (Q)", &charge_disp, -1.0, 1.0, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.3f")) {
+				charge_ = static_cast<float>(charge_disp);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
 			}
-			render_setting_tooltip("Net electrostatic charge in Coulomb geometrized units. Creates an inner Cauchy horizon and counteracts gravitational attraction.");
+			render_setting_tooltip(("Net electrostatic charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ". Creates an inner Cauchy horizon and counteracts gravitational attraction.").c_str());
 		}
 
 		if (needs_lambda) {
@@ -401,16 +409,30 @@ private:
 		}
 		render_setting_tooltip("Observer navigation paradigm (6-DOF Free Fly, Spherical Boyer-Lindquist Orbit, Cockpit Flight).");
 
-		if (slider_float_with_input("Field of View (FOV)", &camera_fov_, 10.0f, 160.0f, "%.1f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(static_cast<double>(camera_fov_))));
+		{
+			double fov_rad_disp = static_cast<double>(camera_fov_) * (std::numbers::pi / 180.0);
+			const double fov_min_rad_disp = 10.0 * (std::numbers::pi / 180.0);
+			const double fov_max_rad_disp = 160.0 * (std::numbers::pi / 180.0);
+			if (unit_aware_slider_double("Field of View (FOV)", &fov_rad_disp, fov_min_rad_disp, fov_max_rad_disp, UnitCategory::Angle, orchestrator_.unit_preferences(), "%.1f")) {
+				camera_fov_ = static_cast<float>(fov_rad_disp * (180.0 / std::numbers::pi));
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(static_cast<double>(camera_fov_))));
+			}
 		}
-		render_setting_tooltip("Horizontal angular aperture in degrees. Can also be dynamically zoomed using mouse wheel scroll.");
+		render_setting_tooltip(("Horizontal angular aperture, displayed in " + std::string(Units::angle_unit_suffix(orchestrator_.unit_preferences().angle)) + ". Can also be dynamically zoomed using mouse wheel scroll.").c_str());
 
-		if (ImGui::SliderFloat("Navigation Speed", &camera_speed_, 0.1f, 100.0f, "%.1f m/s")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_speed(static_cast<double>(camera_speed_))));
-			camera_controller_.set_uniform_speed(static_cast<double>(camera_speed_));
+		{
+			const auto& speed_ce = orchestrator_.constants_engine();
+			const double speed_scale_mps = speed_ce.length_scale() / speed_ce.time_scale();
+			double speed_disp = static_cast<double>(camera_speed_) * speed_scale_mps;
+			const double speed_min_disp = 0.1 * speed_scale_mps;
+			const double speed_max_disp = 100.0 * speed_scale_mps;
+			if (unit_aware_slider_double("Navigation Speed", &speed_disp, speed_min_disp, speed_max_disp, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) {
+				camera_speed_ = static_cast<float>(speed_disp / speed_scale_mps);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_speed(static_cast<double>(camera_speed_))));
+				camera_controller_.set_uniform_speed(static_cast<double>(camera_speed_));
+			}
 		}
-		render_setting_tooltip("Translational observer traversal speed in coordinate units per second. Hold Shift to sprint, Ctrl to crawl.");
+		render_setting_tooltip(("Translational observer traversal speed, displayed in " + std::string(Units::velocity_unit_suffix(orchestrator_.unit_preferences().velocity)) + ". Hold Shift to sprint, Ctrl to crawl.").c_str());
 
 		if (ImGui::SliderFloat("Exposure Compensation (EV)", &camera_exposure_, -6.0f, 6.0f, "%.2f EV")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));

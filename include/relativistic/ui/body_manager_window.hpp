@@ -10,6 +10,7 @@
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 #include "relativistic/dynamics/interaction_compatibility.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include <vector>
 #include <string>
@@ -650,19 +651,29 @@ private:
 		}
 		render_setting_tooltip("Assigns a human-readable label to this body, shown throughout the catalog, tags, and saved scenarios instead of its numeric identifier.");
 
-		float m = static_cast<float>(b.mass);
-		if (slider_float_with_input("Mass", &m, 0.001f, 1.0e6f, "%.4f", &selected_mass_log_mode_, 1e-12f, 1e36f)) {
-			b.mass = std::max(0.0, static_cast<double>(m));
-			changed = true;
+		{
+			const double body_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+			double body_mass_kg = b.mass * body_mass_scale_kg;
+			const double body_mass_min_kg = 0.001 * body_mass_scale_kg;
+			const double body_mass_max_kg = 1.0e6 * body_mass_scale_kg;
+			if (unit_aware_slider_double("Mass", &body_mass_kg, body_mass_min_kg, body_mass_max_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &selected_mass_log_mode_, 1e-12 * body_mass_scale_kg, 1e36 * body_mass_scale_kg)) {
+				b.mass = std::max(0.0, body_mass_kg / body_mass_scale_kg);
+				changed = true;
+			}
 		}
-		render_setting_tooltip("Gravitating mass of this body in the same geometrized unit system as the central mass.");
+		render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ".").c_str());
 
-		float r = static_cast<float>(b.radius);
-		if (slider_float_with_input("Physical Radius", &r, 0.001f, 1.0e5f, "%.4f", &selected_radius_log_mode_, 1e-6f, 1e12f)) {
-			b.radius = std::max(1e-6, static_cast<double>(r));
-			changed = true;
+		{
+			const double body_length_scale_m = orchestrator_.constants_engine().length_scale();
+			double body_radius_m = b.radius * body_length_scale_m;
+			const double body_radius_min_m = 0.001 * body_length_scale_m;
+			const double body_radius_max_m = 1.0e5 * body_length_scale_m;
+			if (unit_aware_slider_double("Physical Radius", &body_radius_m, body_radius_min_m, body_radius_max_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &selected_radius_log_mode_, 1e-6 * body_length_scale_m, 1e12 * body_length_scale_m)) {
+				b.radius = std::max(1e-6, body_radius_m / body_length_scale_m);
+				changed = true;
+			}
 		}
-		render_setting_tooltip("Visual and collision radius used for rendering and default multipole reference radius.");
+		render_setting_tooltip(("Visual and collision radius, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ", used for rendering and default multipole reference radius.").c_str());
 
 		float pos[3] = {static_cast<float>(b.position[0]), static_cast<float>(b.position[1]), static_cast<float>(b.position[2])};
 		if (ImGui::InputFloat3("Position (x, y, z)", pos)) {
@@ -727,10 +738,9 @@ private:
 		render_setting_tooltip("Reference radius at which the zonal harmonic coefficients above are defined, typically the body's equatorial radius.");
 
 		if (ImGui::CollapsingHeader("Material, Thermal & Electromagnetic Properties")) {
-			float charge = static_cast<float>(b.charge);
-			if (slider_float_with_input("Charge", &charge, -10.0f, 10.0f, "%.4e")) { b.charge = charge; changed = true; }
-			const std::string body_charge_display = Units::format_charge(static_cast<double>(charge), orchestrator_.unit_preferences().charge);
-			render_setting_tooltip(body_charge_display.c_str());
+			double charge_disp = static_cast<double>(b.charge);
+			if (unit_aware_slider_double("Charge", &charge_disp, -10.0, 10.0, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.4e")) { b.charge = static_cast<float>(charge_disp); changed = true; }
+			render_setting_tooltip(("Charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ".").c_str());
 			float magnetic = static_cast<float>(b.magnetic_moment);
 			if (slider_float_with_input("Magnetic Moment", &magnetic, 1e-6f, 1.0e6f, "%.4e", &selected_magnetic_moment_log_mode_, 1e-9f, 1e9f)) { b.magnetic_moment = magnetic; changed = true; }
 			float rotation = static_cast<float>(b.rotation_speed);
@@ -743,9 +753,8 @@ private:
 			if (slider_float_with_input("Integrity", &integrity, 0.0f, 1.0f, "%.3f")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
 			float lifetime = static_cast<float>(b.lifetime);
 			if (slider_float_with_input("Lifetime", &lifetime, 1e-6f, 1.0e9f, "%.4e", &selected_lifetime_log_mode_, 1e-6f, 1e12f)) { b.lifetime = std::max(0.0, static_cast<double>(lifetime)); changed = true; }
-			float temperature_kelvin = static_cast<float>(b.temperature);
-			if (slider_float_with_input("Temperature (K)", &temperature_kelvin, 0.0f, 50000.0f, "%.2f")) { b.temperature = std::max(0.0, static_cast<double>(temperature_kelvin)); changed = true; }
-			ImGui::TextDisabled("%s", Units::format_temperature(static_cast<double>(temperature_kelvin), orchestrator_.unit_preferences().temperature).c_str());
+			double temperature_disp = static_cast<double>(b.temperature);
+			if (unit_aware_slider_double("Temperature", &temperature_disp, 0.0, 50000.0, UnitCategory::Temperature, orchestrator_.unit_preferences(), "%.2f")) { b.temperature = std::max(0.0, temperature_disp); changed = true; }
 			float heat_capacity = static_cast<float>(b.heat_capacity);
 			if (slider_float_with_input("Heat Capacity", &heat_capacity, 1e-6f, 1.0e9f, "%.4e", &selected_heat_capacity_log_mode_, 1e-6f, 1e12f)) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
 			ImGui::ColorEdit4("Primary Color", b.color.data());

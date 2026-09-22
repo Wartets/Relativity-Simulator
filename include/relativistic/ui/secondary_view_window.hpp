@@ -151,14 +151,24 @@ private:
 			return;
 		}
 
-		const auto consts = build_push_constants(width, height);
+		auto consts = build_push_constants(width, height);
+		std::vector<Render::GpuBodyData> gpu_bodies;
+		const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+		gpu_bodies.reserve(nbody_sys.size());
+		for (const auto& b : nbody_sys) {
+			if (b.enabled) gpu_bodies.push_back(b.to_gpu_body_data());
+		}
+		if (!gpu_bodies.empty()) {
+			consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+		}
+
 		if (has_rendered_once_ && !auto_refresh_ && consts == last_consts_) {
 			return;
 		}
 
 		const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
 		std::vector<Render::GpuPixelOutput> fb(pixel_count, Render::GpuPixelOutput{});
-		Render::SoftwareComputeEngine::dispatch_fp64(consts, fb, nullptr, nullptr);
+		Render::SoftwareComputeEngine::dispatch_fp64(consts, fb, gpu_bodies, nullptr, nullptr);
 
 		if (color_upload_buffer_.size() < pixel_count * 4) {
 			color_upload_buffer_.assign(pixel_count * 4, 0.0f);

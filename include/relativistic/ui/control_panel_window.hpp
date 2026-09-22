@@ -1305,6 +1305,66 @@ private:
 		}
 		render_setting_tooltip("Controls how the Frame Time / FPS HUD readout presents its headline number.");
 
+		const char* time_units[] = {"Seconds", "Milliseconds", "Microseconds", "Nanoseconds", "Minutes", "Hours", "Days", "Years"};
+		int time_idx = static_cast<int>(prefs.time);
+		if (ImGui::Combo("Time Unit", &time_idx, time_units, IM_ARRAYSIZE(time_units))) {
+			prefs.time = static_cast<Units::TimeUnit>(time_idx);
+		}
+
+		const char* accel_units[] = {"Meters/Second^2", "Centimeters/Second^2", "Feet/Second^2", "Standard Gravity (g)", "Kilometers/Second^2"};
+		int accel_idx = static_cast<int>(prefs.acceleration);
+		if (ImGui::Combo("Acceleration Unit", &accel_idx, accel_units, IM_ARRAYSIZE(accel_units))) {
+			prefs.acceleration = static_cast<Units::AccelerationUnit>(accel_idx);
+		}
+
+		const char* ang_vel_units[] = {"Radians/Second", "Degrees/Second", "Revolutions/Minute (RPM)", "Hertz (Hz)"};
+		int ang_vel_idx = static_cast<int>(prefs.angular_velocity);
+		if (ImGui::Combo("Angular Velocity Unit", &ang_vel_idx, ang_vel_units, IM_ARRAYSIZE(ang_vel_units))) {
+			prefs.angular_velocity = static_cast<Units::AngularVelocityUnit>(ang_vel_idx);
+		}
+
+		const char* density_units[] = {"Kilograms/Meter^3", "Grams/Centimeter^3", "Pounds/Foot^3", "Solar Masses/Parsec^3"};
+		int density_idx = static_cast<int>(prefs.density);
+		if (ImGui::Combo("Density Unit", &density_idx, density_units, IM_ARRAYSIZE(density_units))) {
+			prefs.density = static_cast<Units::DensityUnit>(density_idx);
+		}
+
+		const char* pressure_units[] = {"Pascals", "Kilopascals", "Megapascals", "Gigapascals", "Bars", "Atmospheres", "PSI"};
+		int pressure_idx = static_cast<int>(prefs.pressure);
+		if (ImGui::Combo("Pressure Unit", &pressure_idx, pressure_units, IM_ARRAYSIZE(pressure_units))) {
+			prefs.pressure = static_cast<Units::PressureUnit>(pressure_idx);
+		}
+
+		const char* power_units[] = {"Watts", "Kilowatts", "Megawatts", "Solar Luminosities", "Horsepower"};
+		int power_idx = static_cast<int>(prefs.power);
+		if (ImGui::Combo("Power Unit", &power_idx, power_units, IM_ARRAYSIZE(power_units))) {
+			prefs.power = static_cast<Units::PowerUnit>(power_idx);
+		}
+
+		const char* frequency_units[] = {"Hertz", "Kilohertz", "Megahertz", "Gigahertz"};
+		int freq_idx = static_cast<int>(prefs.frequency);
+		if (ImGui::Combo("Frequency Unit", &freq_idx, frequency_units, IM_ARRAYSIZE(frequency_units))) {
+			prefs.frequency = static_cast<Units::FrequencyUnit>(freq_idx);
+		}
+
+		const char* force_units[] = {"Newtons", "Kilonewtons", "Dynes", "Pounds-Force"};
+		int force_idx = static_cast<int>(prefs.force);
+		if (ImGui::Combo("Force Unit", &force_idx, force_units, IM_ARRAYSIZE(force_units))) {
+			prefs.force = static_cast<Units::ForceUnit>(force_idx);
+		}
+
+		const char* magnetic_units[] = {"Teslas", "Gauss", "Microteslas"};
+		int mag_idx = static_cast<int>(prefs.magnetic_field);
+		if (ImGui::Combo("Magnetic Field Unit", &mag_idx, magnetic_units, IM_ARRAYSIZE(magnetic_units))) {
+			prefs.magnetic_field = static_cast<Units::MagneticFieldUnit>(mag_idx);
+		}
+
+		const char* voltage_units[] = {"Volts", "Millivolts", "Kilovolts", "Megavolts"};
+		int volt_idx = static_cast<int>(prefs.voltage);
+		if (ImGui::Combo("Voltage Unit", &volt_idx, voltage_units, IM_ARRAYSIZE(voltage_units))) {
+			prefs.voltage = static_cast<Units::VoltageUnit>(volt_idx);
+		}
+
 		ImGui::Separator();
 		ImGui::TextDisabled("Live Previews:");
 		const auto& cam = orchestrator_.camera();
@@ -1316,6 +1376,11 @@ private:
 		ImGui::Text("Reference Temperature (5778 K): %s", Units::format_temperature(5778.0, prefs.temperature).c_str());
 		ImGui::Text("Simulation Current Scale: %s", Units::format_current(orchestrator_.constants_engine().current_scale(), prefs.current).c_str());
 		ImGui::Text("Reference Energy (1 Joule): %s", Units::format_energy(1.0, prefs.energy).c_str());
+		ImGui::Text("Reference Time (3600 s): %s", Units::format_time(3600.0, prefs.time).c_str());
+		ImGui::Text("Standard Gravity Acceleration: %s", Units::format_acceleration(9.80665, prefs.acceleration).c_str());
+		ImGui::Text("ZAMO Angular Velocity: %s", Units::format_angular_velocity(1.0, prefs.angular_velocity).c_str());
+		ImGui::Text("Reference Power (100 W): %s", Units::format_power(100.0, prefs.power).c_str());
+		ImGui::Text("Reference Pressure (1 atm): %s", Units::format_pressure(101325.0, prefs.pressure).c_str());
 
 		if (ImGui::Button("Reset To SI Defaults", ImVec2(200.0f, 26.0f))) {
 			prefs = Units::UnitDisplayPreferences{};

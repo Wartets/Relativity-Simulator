@@ -1,12 +1,14 @@
 #pragma once
 
-#include "relativistic/units/unit_system.hpp"
-#include "relativistic/ui/numeric_slider_utils.hpp"
-#include <imgui.h>
+#include <cstdint>
+#include <cmath>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include "relativistic/units/unit_system.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
+#include <imgui.h>
 
 namespace Relativistic::UI {
 
@@ -18,7 +20,17 @@ enum class UnitCategory : uint32_t {
 	Angle,
 	Temperature,
 	Charge,
-	Current
+	Current,
+	Time,
+	Acceleration,
+	AngularVelocity,
+	Density,
+	Pressure,
+	Power,
+	Frequency,
+	Force,
+	MagneticField,
+	Voltage
 };
 
 [[nodiscard]] inline const char* unit_category_suffix(UnitCategory category, const Units::UnitDisplayPreferences& prefs) noexcept {
@@ -31,6 +43,16 @@ enum class UnitCategory : uint32_t {
 		case UnitCategory::Temperature: return Units::temperature_unit_suffix(prefs.temperature);
 		case UnitCategory::Charge: return Units::charge_unit_suffix(prefs.charge);
 		case UnitCategory::Current: return Units::current_unit_suffix(prefs.current);
+		case UnitCategory::Time: return Units::time_unit_suffix(prefs.time);
+		case UnitCategory::Acceleration: return Units::acceleration_unit_suffix(prefs.acceleration);
+		case UnitCategory::AngularVelocity: return Units::angular_velocity_unit_suffix(prefs.angular_velocity);
+		case UnitCategory::Density: return Units::density_unit_suffix(prefs.density);
+		case UnitCategory::Pressure: return Units::pressure_unit_suffix(prefs.pressure);
+		case UnitCategory::Power: return Units::power_unit_suffix(prefs.power);
+		case UnitCategory::Frequency: return Units::frequency_unit_suffix(prefs.frequency);
+		case UnitCategory::Force: return Units::force_unit_suffix(prefs.force);
+		case UnitCategory::MagneticField: return Units::magnetic_field_unit_suffix(prefs.magnetic_field);
+		case UnitCategory::Voltage: return Units::voltage_unit_suffix(prefs.voltage);
 		default: return "";
 	}
 }
@@ -45,6 +67,16 @@ enum class UnitCategory : uint32_t {
 		case UnitCategory::Temperature: return Units::convert_temperature_from_kelvin(canonical, prefs.temperature);
 		case UnitCategory::Charge: return Units::convert_charge_from_coulombs(canonical, prefs.charge);
 		case UnitCategory::Current: return Units::convert_current_from_amperes(canonical, prefs.current);
+		case UnitCategory::Time: return Units::convert_time_from_seconds(canonical, prefs.time);
+		case UnitCategory::Acceleration: return Units::convert_acceleration_from_mps2(canonical, prefs.acceleration);
+		case UnitCategory::AngularVelocity: return Units::convert_angular_velocity_from_radps(canonical, prefs.angular_velocity);
+		case UnitCategory::Density: return Units::convert_density_from_kg_m3(canonical, prefs.density);
+		case UnitCategory::Pressure: return Units::convert_pressure_from_pascals(canonical, prefs.pressure);
+		case UnitCategory::Power: return Units::convert_power_from_watts(canonical, prefs.power);
+		case UnitCategory::Frequency: return Units::convert_frequency_from_hertz(canonical, prefs.frequency);
+		case UnitCategory::Force: return Units::convert_force_from_newtons(canonical, prefs.force);
+		case UnitCategory::MagneticField: return Units::convert_magnetic_field_from_teslas(canonical, prefs.magnetic_field);
+		case UnitCategory::Voltage: return Units::convert_voltage_from_volts(canonical, prefs.voltage);
 		default: return canonical;
 	}
 }
@@ -59,6 +91,16 @@ enum class UnitCategory : uint32_t {
 		case UnitCategory::Temperature: return Units::convert_temperature_to_kelvin(displayed, prefs.temperature);
 		case UnitCategory::Charge: return Units::convert_charge_to_coulombs(displayed, prefs.charge);
 		case UnitCategory::Current: return Units::convert_current_to_amperes(displayed, prefs.current);
+		case UnitCategory::Time: return Units::convert_time_to_seconds(displayed, prefs.time);
+		case UnitCategory::Acceleration: return Units::convert_acceleration_to_mps2(displayed, prefs.acceleration);
+		case UnitCategory::AngularVelocity: return Units::convert_angular_velocity_to_radps(displayed, prefs.angular_velocity);
+		case UnitCategory::Density: return Units::convert_density_to_kg_m3(displayed, prefs.density);
+		case UnitCategory::Pressure: return Units::convert_pressure_to_pascals(displayed, prefs.pressure);
+		case UnitCategory::Power: return Units::convert_power_to_watts(displayed, prefs.power);
+		case UnitCategory::Frequency: return Units::convert_frequency_to_hertz(displayed, prefs.frequency);
+		case UnitCategory::Force: return Units::convert_force_to_newtons(displayed, prefs.force);
+		case UnitCategory::MagneticField: return Units::convert_magnetic_field_to_teslas(displayed, prefs.magnetic_field);
+		case UnitCategory::Voltage: return Units::convert_voltage_to_volts(displayed, prefs.voltage);
 		default: return displayed;
 	}
 }
@@ -113,6 +155,91 @@ enum class UnitCategory : uint32_t {
 		*canonical_value = unit_category_to_canonical(category, static_cast<double>(displayed_value), prefs);
 	}
 	return changed;
+}
+
+[[nodiscard]] inline bool unit_aware_input_double3(
+	const char* base_label,
+	double pos_canonical[3],
+	UnitCategory category,
+	const Units::UnitDisplayPreferences& prefs,
+	const char* format = "%.4f"
+) noexcept {
+	const char* suffix = unit_category_suffix(category, prefs);
+	char labeled[192];
+	if (suffix != nullptr && suffix[0] != '\0') {
+		std::snprintf(labeled, sizeof(labeled), "%s (%s)", base_label, suffix);
+	} else {
+		std::snprintf(labeled, sizeof(labeled), "%s", base_label);
+	}
+
+	float displayed[3] = {
+		static_cast<float>(unit_category_from_canonical(category, pos_canonical[0], prefs)),
+		static_cast<float>(unit_category_from_canonical(category, pos_canonical[1], prefs)),
+		static_cast<float>(unit_category_from_canonical(category, pos_canonical[2], prefs))
+	};
+
+	if (ImGui::InputFloat3(labeled, displayed, format)) {
+		pos_canonical[0] = unit_category_to_canonical(category, static_cast<double>(displayed[0]), prefs);
+		pos_canonical[1] = unit_category_to_canonical(category, static_cast<double>(displayed[1]), prefs);
+		pos_canonical[2] = unit_category_to_canonical(category, static_cast<double>(displayed[2]), prefs);
+		return true;
+	}
+	return false;
+}
+
+[[nodiscard]] inline bool unit_aware_input_float3(
+	const char* base_label,
+	float pos_canonical[3],
+	UnitCategory category,
+	const Units::UnitDisplayPreferences& prefs,
+	const char* format = "%.4f"
+) noexcept {
+	double double_vec[3] = { static_cast<double>(pos_canonical[0]), static_cast<double>(pos_canonical[1]), static_cast<double>(pos_canonical[2]) };
+	if (unit_aware_input_double3(base_label, double_vec, category, prefs, format)) {
+		pos_canonical[0] = static_cast<float>(double_vec[0]);
+		pos_canonical[1] = static_cast<float>(double_vec[1]);
+		pos_canonical[2] = static_cast<float>(double_vec[2]);
+		return true;
+	}
+	return false;
+}
+
+[[nodiscard]] inline bool unit_aware_input_double(
+	const char* base_label,
+	double* canonical_val,
+	UnitCategory category,
+	const Units::UnitDisplayPreferences& prefs,
+	const char* format = "%.4f"
+) noexcept {
+	const char* suffix = unit_category_suffix(category, prefs);
+	char labeled[192];
+	if (suffix != nullptr && suffix[0] != '\0') {
+		std::snprintf(labeled, sizeof(labeled), "%s (%s)", base_label, suffix);
+	} else {
+		std::snprintf(labeled, sizeof(labeled), "%s", base_label);
+	}
+
+	float displayed = static_cast<float>(unit_category_from_canonical(category, *canonical_val, prefs));
+	if (ImGui::InputFloat(labeled, &displayed, 0.0f, 0.0f, format)) {
+		*canonical_val = unit_category_to_canonical(category, static_cast<double>(displayed), prefs);
+		return true;
+	}
+	return false;
+}
+
+[[nodiscard]] inline bool unit_aware_input_float(
+	const char* base_label,
+	float* canonical_val,
+	UnitCategory category,
+	const Units::UnitDisplayPreferences& prefs,
+	const char* format = "%.4f"
+) noexcept {
+	double double_val = static_cast<double>(*canonical_val);
+	if (unit_aware_input_double(base_label, &double_val, category, prefs, format)) {
+		*canonical_val = static_cast<float>(double_val);
+		return true;
+	}
+	return false;
 }
 
 }

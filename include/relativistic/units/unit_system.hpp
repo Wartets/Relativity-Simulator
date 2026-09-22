@@ -94,6 +94,84 @@ enum class FrameRateUnit : uint32_t {
 	Hertz = 3
 };
 
+enum class TimeUnit : uint32_t {
+	Seconds = 0,
+	Milliseconds = 1,
+	Microseconds = 2,
+	Nanoseconds = 3,
+	Minutes = 4,
+	Hours = 5,
+	Days = 6,
+	Years = 7
+};
+
+enum class AccelerationUnit : uint32_t {
+	MetersPerSecondSquared = 0,
+	CentimetersPerSecondSquared = 1,
+	FeetPerSecondSquared = 2,
+	StandardGravity = 3,
+	KilometersPerSecondSquared = 4
+};
+
+enum class AngularVelocityUnit : uint32_t {
+	RadiansPerSecond = 0,
+	DegreesPerSecond = 1,
+	RevolutionsPerMinute = 2,
+	Hertz = 3
+};
+
+enum class DensityUnit : uint32_t {
+	KilogramsPerCubicMeter = 0,
+	GramsPerCubicCentimeter = 1,
+	PoundsPerCubicFoot = 2,
+	SolarMassesPerCubicParsec = 3
+};
+
+enum class PressureUnit : uint32_t {
+	Pascals = 0,
+	Kilopascals = 1,
+	Megapascals = 2,
+	Gigapascals = 3,
+	Bars = 4,
+	Atmospheres = 5,
+	PSI = 6
+};
+
+enum class PowerUnit : uint32_t {
+	Watts = 0,
+	Kilowatts = 1,
+	Megawatts = 2,
+	SolarLuminosities = 3,
+	Horsepower = 4
+};
+
+enum class FrequencyUnit : uint32_t {
+	Hertz = 0,
+	Kilohertz = 1,
+	Megahertz = 2,
+	Gigahertz = 3
+};
+
+enum class ForceUnit : uint32_t {
+	Newtons = 0,
+	Kilonewtons = 1,
+	Dynes = 2,
+	PoundsForce = 3
+};
+
+enum class MagneticFieldUnit : uint32_t {
+	Teslas = 0,
+	Gauss = 1,
+	Microteslas = 2
+};
+
+enum class VoltageUnit : uint32_t {
+	Volts = 0,
+	Millivolts = 1,
+	Kilovolts = 2,
+	Megavolts = 3
+};
+
 struct UnitDisplayPreferences {
 	DistanceUnit distance{DistanceUnit::Meters};
 	MassUnit mass{MassUnit::Kilograms};
@@ -104,6 +182,16 @@ struct UnitDisplayPreferences {
 	ChargeUnit charge{ChargeUnit::Coulombs};
 	CurrentUnit current{CurrentUnit::Amperes};
 	FrameRateUnit frame_rate{FrameRateUnit::FramesPerSecond};
+	TimeUnit time{TimeUnit::Seconds};
+	AccelerationUnit acceleration{AccelerationUnit::MetersPerSecondSquared};
+	AngularVelocityUnit angular_velocity{AngularVelocityUnit::RadiansPerSecond};
+	DensityUnit density{DensityUnit::KilogramsPerCubicMeter};
+	PressureUnit pressure{PressureUnit::Pascals};
+	PowerUnit power{PowerUnit::Watts};
+	FrequencyUnit frequency{FrequencyUnit::Hertz};
+	ForceUnit force{ForceUnit::Newtons};
+	MagneticFieldUnit magnetic_field{MagneticFieldUnit::Teslas};
+	VoltageUnit voltage{VoltageUnit::Volts};
 };
 
 namespace Detail {
@@ -142,6 +230,15 @@ namespace Detail {
 	inline constexpr double AMPERES_PER_MILLIAMPERE = 1.0e-3;
 	inline constexpr double AMPERES_PER_MICROAMPERE = 1.0e-6;
 	inline constexpr double AMPERES_PER_KILOAMPERE = 1.0e3;
+
+	inline constexpr double STANDARD_GRAVITY_MPS2 = 9.80665;
+	inline constexpr double WATTS_PER_SOLAR_LUMINOSITY = 3.828e26;
+	inline constexpr double WATTS_PER_HORSEPOWER = 745.6998715822702;
+	inline constexpr double PASCALS_PER_BAR = 1.0e5;
+	inline constexpr double PASCALS_PER_ATM = 101325.0;
+	inline constexpr double PASCALS_PER_PSI = 6894.757293168361;
+	inline constexpr double NEWTONS_PER_POUND_FORCE = 4.4482216152605;
+	inline constexpr double TESLAS_PER_GAUSS = 1.0e-4;
 }
 
 [[nodiscard]] inline const char* distance_unit_suffix(DistanceUnit unit) noexcept {
@@ -545,6 +642,414 @@ namespace Detail {
 	std::ostringstream ss;
 	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
 	ss << convert_frame_time_ms_to_display(frame_time_ms, unit) << " " << frame_rate_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* time_unit_suffix(TimeUnit unit) noexcept {
+	switch (unit) {
+		case TimeUnit::Seconds: return "s";
+		case TimeUnit::Milliseconds: return "ms";
+		case TimeUnit::Microseconds: return "us";
+		case TimeUnit::Nanoseconds: return "ns";
+		case TimeUnit::Minutes: return "min";
+		case TimeUnit::Hours: return "h";
+		case TimeUnit::Days: return "d";
+		case TimeUnit::Years: return "yr";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_time_from_seconds(double seconds, TimeUnit unit) noexcept {
+	switch (unit) {
+		case TimeUnit::Seconds: return seconds;
+		case TimeUnit::Milliseconds: return seconds * 1.0e3;
+		case TimeUnit::Microseconds: return seconds * 1.0e6;
+		case TimeUnit::Nanoseconds: return seconds * 1.0e9;
+		case TimeUnit::Minutes: return seconds / 60.0;
+		case TimeUnit::Hours: return seconds / 3600.0;
+		case TimeUnit::Days: return seconds / 86400.0;
+		case TimeUnit::Years: return seconds / Detail::SECONDS_PER_JULIAN_YEAR;
+		default: return seconds;
+	}
+}
+
+[[nodiscard]] inline double convert_time_to_seconds(double value, TimeUnit unit) noexcept {
+	switch (unit) {
+		case TimeUnit::Seconds: return value;
+		case TimeUnit::Milliseconds: return value * 1.0e-3;
+		case TimeUnit::Microseconds: return value * 1.0e-6;
+		case TimeUnit::Nanoseconds: return value * 1.0e-9;
+		case TimeUnit::Minutes: return value * 60.0;
+		case TimeUnit::Hours: return value * 3600.0;
+		case TimeUnit::Days: return value * 86400.0;
+		case TimeUnit::Years: return value * Detail::SECONDS_PER_JULIAN_YEAR;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_time(double seconds, TimeUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_time_from_seconds(seconds, unit) << " " << time_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* acceleration_unit_suffix(AccelerationUnit unit) noexcept {
+	switch (unit) {
+		case AccelerationUnit::MetersPerSecondSquared: return "m/s^2";
+		case AccelerationUnit::CentimetersPerSecondSquared: return "cm/s^2";
+		case AccelerationUnit::FeetPerSecondSquared: return "ft/s^2";
+		case AccelerationUnit::StandardGravity: return "g";
+		case AccelerationUnit::KilometersPerSecondSquared: return "km/s^2";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_acceleration_from_mps2(double mps2, AccelerationUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case AccelerationUnit::MetersPerSecondSquared: return mps2;
+		case AccelerationUnit::CentimetersPerSecondSquared: return mps2 * 100.0;
+		case AccelerationUnit::FeetPerSecondSquared: return mps2 / METERS_PER_FOOT;
+		case AccelerationUnit::StandardGravity: return mps2 / STANDARD_GRAVITY_MPS2;
+		case AccelerationUnit::KilometersPerSecondSquared: return mps2 / 1000.0;
+		default: return mps2;
+	}
+}
+
+[[nodiscard]] inline double convert_acceleration_to_mps2(double value, AccelerationUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case AccelerationUnit::MetersPerSecondSquared: return value;
+		case AccelerationUnit::CentimetersPerSecondSquared: return value / 100.0;
+		case AccelerationUnit::FeetPerSecondSquared: return value * METERS_PER_FOOT;
+		case AccelerationUnit::StandardGravity: return value * STANDARD_GRAVITY_MPS2;
+		case AccelerationUnit::KilometersPerSecondSquared: return value * 1000.0;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_acceleration(double mps2, AccelerationUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_acceleration_from_mps2(mps2, unit) << " " << acceleration_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* angular_velocity_unit_suffix(AngularVelocityUnit unit) noexcept {
+	switch (unit) {
+		case AngularVelocityUnit::RadiansPerSecond: return "rad/s";
+		case AngularVelocityUnit::DegreesPerSecond: return "deg/s";
+		case AngularVelocityUnit::RevolutionsPerMinute: return "rpm";
+		case AngularVelocityUnit::Hertz: return "Hz";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_angular_velocity_from_radps(double radps, AngularVelocityUnit unit) noexcept {
+	constexpr double pi = 3.14159265358979323846;
+	switch (unit) {
+		case AngularVelocityUnit::RadiansPerSecond: return radps;
+		case AngularVelocityUnit::DegreesPerSecond: return radps * (180.0 / pi);
+		case AngularVelocityUnit::RevolutionsPerMinute: return radps * (60.0 / (2.0 * pi));
+		case AngularVelocityUnit::Hertz: return radps / (2.0 * pi);
+		default: return radps;
+	}
+}
+
+[[nodiscard]] inline double convert_angular_velocity_to_radps(double value, AngularVelocityUnit unit) noexcept {
+	constexpr double pi = 3.14159265358979323846;
+	switch (unit) {
+		case AngularVelocityUnit::RadiansPerSecond: return value;
+		case AngularVelocityUnit::DegreesPerSecond: return value * (pi / 180.0);
+		case AngularVelocityUnit::RevolutionsPerMinute: return value * ((2.0 * pi) / 60.0);
+		case AngularVelocityUnit::Hertz: return value * (2.0 * pi);
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_angular_velocity(double radps, AngularVelocityUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_angular_velocity_from_radps(radps, unit) << " " << angular_velocity_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* density_unit_suffix(DensityUnit unit) noexcept {
+	switch (unit) {
+		case DensityUnit::KilogramsPerCubicMeter: return "kg/m^3";
+		case DensityUnit::GramsPerCubicCentimeter: return "g/cm^3";
+		case DensityUnit::PoundsPerCubicFoot: return "lb/ft^3";
+		case DensityUnit::SolarMassesPerCubicParsec: return "M_sun/pc^3";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_density_from_kg_m3(double kg_m3, DensityUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case DensityUnit::KilogramsPerCubicMeter: return kg_m3;
+		case DensityUnit::GramsPerCubicCentimeter: return kg_m3 * 0.001;
+		case DensityUnit::PoundsPerCubicFoot: return kg_m3 / (KG_PER_POUND / (METERS_PER_FOOT * METERS_PER_FOOT * METERS_PER_FOOT));
+		case DensityUnit::SolarMassesPerCubicParsec: return kg_m3 / (KG_PER_SOLAR_MASS / (METERS_PER_PARSEC * METERS_PER_PARSEC * METERS_PER_PARSEC));
+		default: return kg_m3;
+	}
+}
+
+[[nodiscard]] inline double convert_density_to_kg_m3(double value, DensityUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case DensityUnit::KilogramsPerCubicMeter: return value;
+		case DensityUnit::GramsPerCubicCentimeter: return value * 1000.0;
+		case DensityUnit::PoundsPerCubicFoot: return value * (KG_PER_POUND / (METERS_PER_FOOT * METERS_PER_FOOT * METERS_PER_FOOT));
+		case DensityUnit::SolarMassesPerCubicParsec: return value * (KG_PER_SOLAR_MASS / (METERS_PER_PARSEC * METERS_PER_PARSEC * METERS_PER_PARSEC));
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_density(double kg_m3, DensityUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_density_from_kg_m3(kg_m3, unit) << " " << density_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* pressure_unit_suffix(PressureUnit unit) noexcept {
+	switch (unit) {
+		case PressureUnit::Pascals: return "Pa";
+		case PressureUnit::Kilopascals: return "kPa";
+		case PressureUnit::Megapascals: return "MPa";
+		case PressureUnit::Gigapascals: return "GPa";
+		case PressureUnit::Bars: return "bar";
+		case PressureUnit::Atmospheres: return "atm";
+		case PressureUnit::PSI: return "psi";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_pressure_from_pascals(double pascals, PressureUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case PressureUnit::Pascals: return pascals;
+		case PressureUnit::Kilopascals: return pascals / 1.0e3;
+		case PressureUnit::Megapascals: return pascals / 1.0e6;
+		case PressureUnit::Gigapascals: return pascals / 1.0e9;
+		case PressureUnit::Bars: return pascals / PASCALS_PER_BAR;
+		case PressureUnit::Atmospheres: return pascals / PASCALS_PER_ATM;
+		case PressureUnit::PSI: return pascals / PASCALS_PER_PSI;
+		default: return pascals;
+	}
+}
+
+[[nodiscard]] inline double convert_pressure_to_pascals(double value, PressureUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case PressureUnit::Pascals: return value;
+		case PressureUnit::Kilopascals: return value * 1.0e3;
+		case PressureUnit::Megapascals: return value * 1.0e6;
+		case PressureUnit::Gigapascals: return value * 1.0e9;
+		case PressureUnit::Bars: return value * PASCALS_PER_BAR;
+		case PressureUnit::Atmospheres: return value * PASCALS_PER_ATM;
+		case PressureUnit::PSI: return value * PASCALS_PER_PSI;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_pressure(double pascals, PressureUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::scientific << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_pressure_from_pascals(pascals, unit) << " " << pressure_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* power_unit_suffix(PowerUnit unit) noexcept {
+	switch (unit) {
+		case PowerUnit::Watts: return "W";
+		case PowerUnit::Kilowatts: return "kW";
+		case PowerUnit::Megawatts: return "MW";
+		case PowerUnit::SolarLuminosities: return "L_sun";
+		case PowerUnit::Horsepower: return "hp";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_power_from_watts(double watts, PowerUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case PowerUnit::Watts: return watts;
+		case PowerUnit::Kilowatts: return watts / 1.0e3;
+		case PowerUnit::Megawatts: return watts / 1.0e6;
+		case PowerUnit::SolarLuminosities: return watts / WATTS_PER_SOLAR_LUMINOSITY;
+		case PowerUnit::Horsepower: return watts / WATTS_PER_HORSEPOWER;
+		default: return watts;
+	}
+}
+
+[[nodiscard]] inline double convert_power_to_watts(double value, PowerUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case PowerUnit::Watts: return value;
+		case PowerUnit::Kilowatts: return value * 1.0e3;
+		case PowerUnit::Megawatts: return value * 1.0e6;
+		case PowerUnit::SolarLuminosities: return value * WATTS_PER_SOLAR_LUMINOSITY;
+		case PowerUnit::Horsepower: return value * WATTS_PER_HORSEPOWER;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_power(double watts, PowerUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::scientific << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_power_from_watts(watts, unit) << " " << power_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* frequency_unit_suffix(FrequencyUnit unit) noexcept {
+	switch (unit) {
+		case FrequencyUnit::Hertz: return "Hz";
+		case FrequencyUnit::Kilohertz: return "kHz";
+		case FrequencyUnit::Megahertz: return "MHz";
+		case FrequencyUnit::Gigahertz: return "GHz";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_frequency_from_hertz(double hertz, FrequencyUnit unit) noexcept {
+	switch (unit) {
+		case FrequencyUnit::Hertz: return hertz;
+		case FrequencyUnit::Kilohertz: return hertz / 1.0e3;
+		case FrequencyUnit::Megahertz: return hertz / 1.0e6;
+		case FrequencyUnit::Gigahertz: return hertz / 1.0e9;
+		default: return hertz;
+	}
+}
+
+[[nodiscard]] inline double convert_frequency_to_hertz(double value, FrequencyUnit unit) noexcept {
+	switch (unit) {
+		case FrequencyUnit::Hertz: return value;
+		case FrequencyUnit::Kilohertz: return value * 1.0e3;
+		case FrequencyUnit::Megahertz: return value * 1.0e6;
+		case FrequencyUnit::Gigahertz: return value * 1.0e9;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_frequency(double hertz, FrequencyUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_frequency_from_hertz(hertz, unit) << " " << frequency_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* force_unit_suffix(ForceUnit unit) noexcept {
+	switch (unit) {
+		case ForceUnit::Newtons: return "N";
+		case ForceUnit::Kilonewtons: return "kN";
+		case ForceUnit::Dynes: return "dyn";
+		case ForceUnit::PoundsForce: return "lbf";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_force_from_newtons(double newtons, ForceUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case ForceUnit::Newtons: return newtons;
+		case ForceUnit::Kilonewtons: return newtons / 1.0e3;
+		case ForceUnit::Dynes: return newtons * 1.0e5;
+		case ForceUnit::PoundsForce: return newtons / NEWTONS_PER_POUND_FORCE;
+		default: return newtons;
+	}
+}
+
+[[nodiscard]] inline double convert_force_to_newtons(double value, ForceUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case ForceUnit::Newtons: return value;
+		case ForceUnit::Kilonewtons: return value * 1.0e3;
+		case ForceUnit::Dynes: return value * 1.0e-5;
+		case ForceUnit::PoundsForce: return value * NEWTONS_PER_POUND_FORCE;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_force(double newtons, ForceUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::scientific << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_force_from_newtons(newtons, unit) << " " << force_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* magnetic_field_unit_suffix(MagneticFieldUnit unit) noexcept {
+	switch (unit) {
+		case MagneticFieldUnit::Teslas: return "T";
+		case MagneticFieldUnit::Gauss: return "G";
+		case MagneticFieldUnit::Microteslas: return "uT";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_magnetic_field_from_teslas(double teslas, MagneticFieldUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case MagneticFieldUnit::Teslas: return teslas;
+		case MagneticFieldUnit::Gauss: return teslas / TESLAS_PER_GAUSS;
+		case MagneticFieldUnit::Microteslas: return teslas * 1.0e6;
+		default: return teslas;
+	}
+}
+
+[[nodiscard]] inline double convert_magnetic_field_to_teslas(double value, MagneticFieldUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case MagneticFieldUnit::Teslas: return value;
+		case MagneticFieldUnit::Gauss: return value * TESLAS_PER_GAUSS;
+		case MagneticFieldUnit::Microteslas: return value * 1.0e-6;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_magnetic_field(double teslas, MagneticFieldUnit unit, int precision = 4) noexcept {
+	std::ostringstream ss;
+	ss << std::scientific << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_magnetic_field_from_teslas(teslas, unit) << " " << magnetic_field_unit_suffix(unit);
+	return ss.str();
+}
+
+[[nodiscard]] inline const char* voltage_unit_suffix(VoltageUnit unit) noexcept {
+	switch (unit) {
+		case VoltageUnit::Volts: return "V";
+		case VoltageUnit::Millivolts: return "mV";
+		case VoltageUnit::Kilovolts: return "kV";
+		case VoltageUnit::Megavolts: return "MV";
+		default: return "";
+	}
+}
+
+[[nodiscard]] inline double convert_voltage_from_volts(double volts, VoltageUnit unit) noexcept {
+	switch (unit) {
+		case VoltageUnit::Volts: return volts;
+		case VoltageUnit::Millivolts: return volts * 1.0e3;
+		case VoltageUnit::Kilovolts: return volts / 1.0e3;
+		case VoltageUnit::Megavolts: return volts / 1.0e6;
+		default: return volts;
+	}
+}
+
+[[nodiscard]] inline double convert_voltage_to_volts(double value, VoltageUnit unit) noexcept {
+	switch (unit) {
+		case VoltageUnit::Volts: return value;
+		case VoltageUnit::Millivolts: return value * 1.0e-3;
+		case VoltageUnit::Kilovolts: return value * 1.0e3;
+		case VoltageUnit::Megavolts: return value * 1.0e6;
+		default: return value;
+	}
+}
+
+[[nodiscard]] inline std::string format_voltage(double volts, VoltageUnit unit, int precision = 3) noexcept {
+	std::ostringstream ss;
+	ss << std::scientific << std::setprecision(std::clamp(precision, 0, 8));
+	ss << convert_voltage_from_volts(volts, unit) << " " << voltage_unit_suffix(unit);
 	return ss.str();
 }
 

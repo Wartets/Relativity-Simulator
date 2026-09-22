@@ -1314,12 +1314,16 @@ private:
 		{
 			const auto& style = hud_layout_.element(HudElementId::MetricSummaryReadout);
 			char buf[192];
+			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			const auto& unit_prefs = orchestrator_.unit_preferences();
+			const std::string mass_disp = Units::format_mass(params.mass, unit_prefs.mass, prec);
+			const std::string charge_disp = Units::format_charge(params.charge, unit_prefs.charge, prec);
 			if (style.display_mode == HudDisplayMode::Compact) {
 				std::snprintf(buf, sizeof(buf), "%s", orchestrator_.active_metric_name().c_str());
 			} else if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.3f, Spin=%.3f, Charge=%.3f) | Integrator: %s", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge, orchestrator_.active_integrator_name().c_str());
+				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%s, Spin=%.3f, Charge=%s) | Integrator: %s", orchestrator_.active_metric_name().c_str(), mass_disp.c_str(), params.spin, charge_disp.c_str(), orchestrator_.active_integrator_name().c_str());
 			} else {
-				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%.2f, Spin=%.2f, Charge=%.2f)", orchestrator_.active_metric_name().c_str(), params.mass, params.spin, params.charge);
+				std::snprintf(buf, sizeof(buf), "Metric: %s (Mass=%s, Spin=%.2f, Charge=%s)", orchestrator_.active_metric_name().c_str(), mass_disp.c_str(), params.spin, charge_disp.c_str());
 			}
 			push_block(HudElementId::MetricSummaryReadout, {HudTextLine{buf}});
 		}
@@ -1339,13 +1343,16 @@ private:
 
 		{
 			const auto& style = hud_layout_.element(HudElementId::SimulationClockReadout);
-			char buf[112];
+			char buf[128];
+			const int prec = std::clamp(style.decimal_precision, 0, 6);
+			const auto& unit_prefs = orchestrator_.unit_preferences();
+			const std::string time_display = Units::format_time(snap.logical_time, unit_prefs.time, prec);
 			if (style.display_mode == HudDisplayMode::Compact) {
-				std::snprintf(buf, sizeof(buf), "t=%.2f s", snap.logical_time);
+				std::snprintf(buf, sizeof(buf), "t=%s", time_display.c_str());
 			} else if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu | Rate: %.0f Hz", snap.logical_time, static_cast<unsigned long long>(snap.tick_index), snap.tick_rate_hz);
+				std::snprintf(buf, sizeof(buf), "Logical Time: %s | Tick #%llu | Rate: %.0f Hz", time_display.c_str(), static_cast<unsigned long long>(snap.tick_index), snap.tick_rate_hz);
 			} else {
-				std::snprintf(buf, sizeof(buf), "Logical Time: %.3f s | Tick #%llu", snap.logical_time, static_cast<unsigned long long>(snap.tick_index));
+				std::snprintf(buf, sizeof(buf), "Logical Time: %s | Tick #%llu", time_display.c_str(), static_cast<unsigned long long>(snap.tick_index));
 			}
 			push_block(HudElementId::SimulationClockReadout, {HudTextLine{buf}});
 		}

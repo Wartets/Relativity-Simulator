@@ -199,6 +199,24 @@ public:
 	}
 
 private:
+	template <typename Engine>
+	[[nodiscard]] static double get_speed_scale(const Engine& engine) noexcept {
+		if constexpr (requires { engine.speed_scale(); }) {
+			return static_cast<double>(engine.speed_scale());
+		} else if constexpr (requires { engine.velocity_scale(); }) {
+			return static_cast<double>(engine.velocity_scale());
+		} else if constexpr (requires { engine.time_scale(); }) {
+			const double ts = static_cast<double>(engine.time_scale());
+			return (ts > 0.0) ? (static_cast<double>(engine.length_scale()) / ts) : 299792458.0;
+		} else if constexpr (requires { engine.speed_of_light(); }) {
+			return static_cast<double>(engine.speed_of_light());
+		} else if constexpr (requires { engine.c(); }) {
+			return static_cast<double>(engine.c());
+		} else {
+			return 299792458.0;
+		}
+	}
+
 	void look_at(const std::array<double, 3>& target) noexcept {
 		auto& camera = orchestrator_.camera();
 		const double dx = target[0] - camera.position[0];
@@ -424,7 +442,7 @@ private:
 		auto velocity = compute_circular_orbit_velocity({static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])}, central_mass);
 		const double speed_scale = random_real(0.82, 1.18);
 		if (std::abs(velocity[0]) < 1e-12 && std::abs(velocity[1]) < 1e-12 && std::abs(velocity[2]) < 1e-12) {
-			velocity = {0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
+			velocity = std::array<double, 3>{0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
 		}
 		new_body_vel_[0] = static_cast<float>(velocity[0] * speed_scale);
 		new_body_vel_[1] = static_cast<float>(velocity[1] * speed_scale);
@@ -626,6 +644,10 @@ private:
 		auto& b = bodies[static_cast<size_t>(selected_body_index_)];
 		bool changed = false;
 
+		const double body_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+		const double body_length_scale_m = orchestrator_.constants_engine().length_scale();
+		const double body_speed_scale_mps = get_speed_scale(orchestrator_.constants_engine());
+
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", display_name(b).c_str());
 		ImGui::TextDisabled("Identifier: #%u", b.id);
 		if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
@@ -655,7 +677,6 @@ private:
 		render_setting_tooltip("Assigns a human-readable label to this body, shown throughout the catalog, tags, and saved scenarios instead of its numeric identifier.");
 
 		{
-			const double body_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
 			double body_mass_kg = b.mass * body_mass_scale_kg;
 			const double body_mass_min_kg = 0.001 * body_mass_scale_kg;
 			const double body_mass_max_kg = 1.0e6 * body_mass_scale_kg;
@@ -667,7 +688,6 @@ private:
 		render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ".").c_str());
 
 		{
-			const double body_length_scale_m = orchestrator_.constants_engine().length_scale();
 			double body_radius_m = b.radius * body_length_scale_m;
 			const double body_radius_min_m = 0.001 * body_length_scale_m;
 			const double body_radius_max_m = 1.0e5 * body_length_scale_m;
@@ -678,19 +698,19 @@ private:
 		}
 		render_setting_tooltip(("Visual and collision radius, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ", used for rendering and default multipole reference radius.").c_str());
 
-		float pos[3] = {static_cast<float>(b.position[0]), static_cast<float>(b.position[1]), static_cast<float>(b.position[2])};
-		if (ImGui::InputFloat3("Position (x, y, z)", pos)) {
-			b.position = {static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2])};
+		double pos_m[3] = {b.position[0] * body_length_scale_m, b.position[1] * body_length_scale_m, b.position[2] * body_length_scale_m};
+		if (unit_aware_input_double3("Position (x, y, z)", pos_m, UnitCategory::Distance, orchestrator_.unit_preferences())) {
+			b.position = std::array<double, 3>{pos_m[0] / body_length_scale_m, pos_m[1] / body_length_scale_m, pos_m[2] / body_length_scale_m};
 			changed = true;
 		}
-		render_setting_tooltip("Cartesian position relative to the central object, in the same coordinate units used by the simulation.");
+		render_setting_tooltip(("Cartesian position relative to the central object, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ".").c_str());
 
-		float vel[3] = {static_cast<float>(b.velocity[0]), static_cast<float>(b.velocity[1]), static_cast<float>(b.velocity[2])};
-		if (ImGui::InputFloat3("Velocity (vx, vy, vz)", vel)) {
-			b.velocity = {static_cast<double>(vel[0]), static_cast<double>(vel[1]), static_cast<double>(vel[2])};
+		double vel_mps[3] = {b.velocity[0] * body_speed_scale_mps, b.velocity[1] * body_speed_scale_mps, b.velocity[2] * body_speed_scale_mps};
+		if (unit_aware_input_double3("Velocity (vx, vy, vz)", vel_mps, UnitCategory::Velocity, orchestrator_.unit_preferences())) {
+			b.velocity = std::array<double, 3>{vel_mps[0] / body_speed_scale_mps, vel_mps[1] / body_speed_scale_mps, vel_mps[2] / body_speed_scale_mps};
 			changed = true;
 		}
-		render_setting_tooltip("Instantaneous coordinate velocity of this body.");
+		render_setting_tooltip(("Instantaneous coordinate velocity of this body, displayed in " + std::string(Units::velocity_unit_suffix(orchestrator_.unit_preferences().velocity)) + ".").c_str());
 
 		if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
 			b.velocity = compute_circular_orbit_velocity(b.position, orchestrator_.parameters().mass);
@@ -700,7 +720,7 @@ private:
 
 		float spin[3] = {static_cast<float>(b.spin[0]), static_cast<float>(b.spin[1]), static_cast<float>(b.spin[2])};
 		if (ImGui::InputFloat3("Spin Vector", spin)) {
-			b.spin = {static_cast<double>(spin[0]), static_cast<double>(spin[1]), static_cast<double>(spin[2])};
+			b.spin = std::array<double, 3>{static_cast<double>(spin[0]), static_cast<double>(spin[1]), static_cast<double>(spin[2])};
 			changed = true;
 		}
 		render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms.");
@@ -749,16 +769,16 @@ private:
 			render_setting_tooltip(("Charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ".").c_str());
 			float magnetic = static_cast<float>(b.magnetic_moment);
 			if (slider_float_with_input("Magnetic Moment", &magnetic, 1e-6f, 1.0e6f, "%.4e", &selected_magnetic_moment_log_mode_, 1e-9f, 1e9f)) { b.magnetic_moment = magnetic; changed = true; }
-			float rotation = static_cast<float>(b.rotation_speed);
-			if (slider_float_with_input("Rotation Speed", &rotation, 1e-6f, 1.0e6f, "%.4e", &selected_rotation_speed_log_mode_, 1e-9f, 1e9f)) { b.rotation_speed = rotation; changed = true; }
+			double rotation_disp = static_cast<double>(b.rotation_speed);
+			if (unit_aware_slider_double("Rotation Speed", &rotation_disp, 1e-6, 1.0e6, UnitCategory::AngularVelocity, orchestrator_.unit_preferences(), "%.4e", &selected_rotation_speed_log_mode_, 1e-9, 1e9)) { b.rotation_speed = static_cast<float>(rotation_disp); changed = true; }
 			float friction = static_cast<float>(b.friction_coefficient);
 			if (slider_float_with_input("Friction Coefficient", &friction, 0.0f, 1.0f, "%.3f")) { b.friction_coefficient = friction; changed = true; }
 			float restitution = static_cast<float>(b.restitution);
 			if (slider_float_with_input("Restitution", &restitution, 0.0f, 1.0f, "%.3f")) { b.restitution = restitution; changed = true; }
 			float integrity = static_cast<float>(b.integrity);
 			if (slider_float_with_input("Integrity", &integrity, 0.0f, 1.0f, "%.3f")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
-			float lifetime = static_cast<float>(b.lifetime);
-			if (slider_float_with_input("Lifetime", &lifetime, 1e-6f, 1.0e9f, "%.4e", &selected_lifetime_log_mode_, 1e-6f, 1e12f)) { b.lifetime = std::max(0.0, static_cast<double>(lifetime)); changed = true; }
+			double lifetime_disp = static_cast<double>(b.lifetime);
+			if (unit_aware_slider_double("Lifetime", &lifetime_disp, 1e-6, 1.0e9, UnitCategory::Time, orchestrator_.unit_preferences(), "%.4e", &selected_lifetime_log_mode_, 1e-6, 1e12)) { b.lifetime = std::max(0.0, lifetime_disp); changed = true; }
 			double temperature_disp = static_cast<double>(b.temperature);
 			if (unit_aware_slider_double("Temperature", &temperature_disp, 0.0, 50000.0, UnitCategory::Temperature, orchestrator_.unit_preferences(), "%.2f")) { b.temperature = std::max(0.0, temperature_disp); changed = true; }
 			float heat_capacity = static_cast<float>(b.heat_capacity);
@@ -771,7 +791,8 @@ private:
 		}
 
 		ImGui::Spacing();
-		ImGui::Text("Speed: %.6e | Kinetic Energy: %.6e", b.speed(), b.kinetic_energy());
+		const auto& prefs = orchestrator_.unit_preferences();
+		ImGui::Text("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * body_speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(b.kinetic_energy(), prefs.energy).c_str());
 
 		ImGui::Spacing();
 		if (ImGui::Button("Look At This Body", ImVec2(150.0f, 24.0f))) {
@@ -856,8 +877,8 @@ private:
 				}
 			}
 		}
-		ImGui::InputFloat3("Initial Position (x, y, z)", new_body_pos_);
-		ImGui::InputFloat3("Initial Velocity (vx, vy, vz)", new_body_vel_);
+		static_cast<void>(unit_aware_input_float3("Initial Position (x, y, z)", new_body_pos_, UnitCategory::Distance, orchestrator_.unit_preferences()));
+		static_cast<void>(unit_aware_input_float3("Initial Velocity (vx, vy, vz)", new_body_vel_, UnitCategory::Velocity, orchestrator_.unit_preferences()));
 		if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
 			randomize_creation_defaults();
 		}
@@ -926,9 +947,9 @@ private:
 		}
 		render_setting_tooltip("Forces an immediate recomputation of accelerations and gravitational-wave emission from the current body states.");
 		if (ImGui::CollapsingHeader("Global Body Actions", ImGuiTreeNodeFlags_DefaultOpen)) {
-			ImGui::InputFloat3("Velocity For All", global_velocity_);
+			static_cast<void>(unit_aware_input_float3("Velocity For All", global_velocity_, UnitCategory::Velocity, orchestrator_.unit_preferences()));
 			if (ImGui::Button("Set Velocity For All")) {
-				for (auto& body : sys.bodies()) if (body.enabled) body.velocity = {global_velocity_[0], global_velocity_[1], global_velocity_[2]};
+				for (auto& body : sys.bodies()) if (body.enabled) body.velocity = std::array<double, 3>{global_velocity_[0], global_velocity_[1], global_velocity_[2]};
 				sys.update_accelerations();
 			}
 			ImGui::SameLine();
@@ -938,7 +959,7 @@ private:
 			}
 			ImGui::InputFloat3("Spin For All", global_spin_);
 			if (ImGui::Button("Set Spin For All")) {
-				for (auto& body : sys.bodies()) if (body.enabled) body.spin = {global_spin_[0], global_spin_[1], global_spin_[2]};
+				for (auto& body : sys.bodies()) if (body.enabled) body.spin = std::array<double, 3>{global_spin_[0], global_spin_[1], global_spin_[2]};
 				sys.update_accelerations();
 			}
 			ImGui::InputFloat("Grid Precision", &grid_spacing_, 0.1f, 1.0f, "%.4g");

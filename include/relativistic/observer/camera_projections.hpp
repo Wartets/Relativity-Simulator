@@ -31,7 +31,7 @@ public:
 	) noexcept {
 		const Scalar tan_half_fov = std::tan(fov_rad * static_cast<Scalar>(0.5));
 		const Scalar n1 = static_cast<Scalar>(1.0);
-		const Scalar n2 = -v_screen * tan_half_fov;
+		const Scalar n2 = v_screen * tan_half_fov;
 		const Scalar n3 = u_screen * tan_half_fov;
 
 		const Scalar len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);

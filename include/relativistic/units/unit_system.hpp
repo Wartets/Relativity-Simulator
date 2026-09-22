@@ -265,6 +265,20 @@ namespace Detail {
 	}
 }
 
+[[nodiscard]] inline double convert_velocity_to_mps(double value, VelocityUnit unit) noexcept {
+	using namespace Detail;
+	switch (unit) {
+		case VelocityUnit::MetersPerSecond: return value;
+		case VelocityUnit::KilometersPerHour: return value / 3.6;
+		case VelocityUnit::MilesPerHour: return value * METERS_PER_MILE / 3600.0;
+		case VelocityUnit::KilometersPerSecond: return value * METERS_PER_KM;
+		case VelocityUnit::FractionOfC: return value * SPEED_OF_LIGHT_MPS;
+		case VelocityUnit::ParsecsPerYear: return (value * METERS_PER_PARSEC) / SECONDS_PER_JULIAN_YEAR;
+		case VelocityUnit::AstronomicalUnitsPerDay: return (value * METERS_PER_AU) / 86400.0;
+		default: return value;
+	}
+}
+
 [[nodiscard]] inline const char* energy_unit_suffix(EnergyUnit unit) noexcept {
 	switch (unit) {
 		case EnergyUnit::Joules: return "J";

@@ -599,23 +599,31 @@ private:
 		emit(SchematicVectorKind::RotationAxis, body.spin, body.spin_magnitude());
 	}
 
-	[[nodiscard]] static std::string build_object_tag(const Dynamics::PostNewtonianBody& body, const SchematicObjectDisplayConfig& style) {
+	[[nodiscard]] static std::string build_object_tag(const Dynamics::PostNewtonianBody& body, const SchematicObjectDisplayConfig& style, const Units::UnitDisplayPreferences* unit_prefs = nullptr) {
 		std::string tag;
 		if (style.show_id_in_tag) {
 			tag += "#" + std::to_string(body.id);
 		}
 		if (style.show_mass_in_tag) {
 			if (!tag.empty()) tag += " ";
-			tag += "M=" + std::to_string(body.mass).substr(0, 6);
+			if (unit_prefs) {
+				tag += "M=" + Units::format_mass(body.mass, unit_prefs->mass);
+			} else {
+				tag += "M=" + std::to_string(body.mass).substr(0, 6);
+			}
 		}
 		if (style.show_speed_in_tag) {
 			if (!tag.empty()) tag += " ";
-			tag += "v=" + std::to_string(body.speed()).substr(0, 6);
+			if (unit_prefs) {
+				tag += "v=" + Units::format_velocity(body.speed(), unit_prefs->velocity);
+			} else {
+				tag += "v=" + std::to_string(body.speed()).substr(0, 6);
+			}
 		}
 		return tag;
 	}
 
-	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val) const {
+	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val, const Units::UnitDisplayPreferences* unit_prefs = nullptr) const {
 		if (!body.enabled) return;
 		const auto& style = cfg.effective_body_style(body.id);
 		const auto proj = project(body.position);
@@ -666,7 +674,7 @@ private:
 		}
 
 		if (cfg.show_tags && style.show_tag) {
-			const std::string tag = build_object_tag(body, style);
+			const std::string tag = build_object_tag(body, style, unit_prefs);
 			if (!tag.empty()) {
 				double px_radius_for_tag;
 				if (style.shape == SchematicObjectShape::Point) {
@@ -1094,8 +1102,9 @@ public:
 		}
 
 		if (cfg.show_bodies) {
+			const auto& unit_prefs = orchestrator.unit_preferences();
 			for (const auto& body : bodies) {
-				draw_body(draw_list, body, cfg, min_val, max_val);
+				draw_body(draw_list, body, cfg, min_val, max_val, &unit_prefs);
 			}
 		}
 	}

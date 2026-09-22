@@ -8,10 +8,12 @@
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/bardeen_shadow.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <array>
 #include <cmath>
 #include <numbers>
 #include <algorithm>
+#include <string>
 
 namespace Relativistic::UI {
 
@@ -122,9 +124,15 @@ public:
 			refresh_radial_profile(params.mass, params.spin);
 		}
 
+		const auto& unit_prefs = orchestrator_.unit_preferences();
+		const double length_scale_m = orchestrator_.constants_engine().length_scale();
+		const std::string r_disp = Units::format_distance(cam.radius * length_scale_m, unit_prefs.distance);
+		const std::string theta_disp = Units::format_angle(cam.theta, unit_prefs.angle);
+		const std::string phi_disp = Units::format_angle(cam.phi, unit_prefs.angle);
+
 		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Active Model: %s", orchestrator_.active_metric_name().c_str());
-		ImGui::Text("Observer Position: r = %.4f M, theta = %.4f, phi = %.4f", cam.radius, cam.theta, cam.phi);
-		render_setting_tooltip("Current camera position in geometrized Boyer-Lindquist-style coordinates, in units of central mass M. Curvature quantities below are evaluated at this point.");
+		ImGui::Text("Observer Position: r = %s, theta = %s, phi = %s", r_disp.c_str(), theta_disp.c_str(), phi_disp.c_str());
+		render_setting_tooltip("Current camera position in geometrized Boyer-Lindquist-style coordinates, converted to physical user units. Curvature quantities below are evaluated at this point.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Local Curvature Invariants");
@@ -145,11 +153,15 @@ public:
 		const double r_ergo = metric.outer_ergosphere_radius(cam.theta);
 		const double a_star = (params.mass > 1e-12) ? (params.spin / params.mass) : 0.0;
 
-		ImGui::Text("Outer Horizon Radius (r+): %.4f M", r_plus);
+		const std::string r_plus_disp = Units::format_distance(r_plus * length_scale_m, unit_prefs.distance);
+		const std::string r_minus_disp = Units::format_distance(r_minus * length_scale_m, unit_prefs.distance);
+		const std::string r_ergo_disp = Units::format_distance(r_ergo * length_scale_m, unit_prefs.distance);
+
+		ImGui::Text("Outer Horizon Radius (r+): %s", r_plus_disp.c_str());
 		render_setting_tooltip("Boyer-Lindquist radius of the event horizon. Nothing, including light, escapes from inside this surface.");
-		ImGui::Text("Inner Horizon Radius (r-): %.4f M", r_minus);
+		ImGui::Text("Inner Horizon Radius (r-): %s", r_minus_disp.c_str());
 		render_setting_tooltip("Cauchy horizon of the Kerr solution. Only relevant inside r+; classically unstable and not physically traversable in realistic collapse.");
-		ImGui::Text("Outer Ergosphere Radius: %.4f M", r_ergo);
+		ImGui::Text("Outer Ergosphere Radius: %s", r_ergo_disp.c_str());
 		render_setting_tooltip("Boundary of the ergoregion at the observer's polar angle. Inside it, no observer can remain static relative to infinity due to frame dragging, though escape is still possible.");
 		ImGui::Text("Spin Parameter (a* = a/M): %.4f", a_star);
 		if (metric.is_extremal()) {

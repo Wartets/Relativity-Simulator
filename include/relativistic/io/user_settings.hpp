@@ -5,6 +5,7 @@
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -72,6 +73,7 @@ struct UserSettings {
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
 	UI::SchematicViewConfig schematic_view{};
+	Units::UnitDisplayPreferences unit_preferences{};
 
 	uint32_t last_window_layout{0};
 	bool multi_window_mode{true};
@@ -264,6 +266,25 @@ struct UserSettings {
 		result.body_manager_new_body_mass_log_mode = get_bool("body_manager_new_body_mass_log_mode", result.body_manager_new_body_mass_log_mode);
 		result.body_manager_new_body_radius_log_mode = get_bool("body_manager_new_body_radius_log_mode", result.body_manager_new_body_radius_log_mode);
 
+		result.unit_preferences.distance = static_cast<Units::DistanceUnit>(get_u32("unit_distance", static_cast<uint32_t>(result.unit_preferences.distance)));
+		result.unit_preferences.velocity = static_cast<Units::VelocityUnit>(get_u32("unit_velocity", static_cast<uint32_t>(result.unit_preferences.velocity)));
+		result.unit_preferences.mass = static_cast<Units::MassUnit>(get_u32("unit_mass", static_cast<uint32_t>(result.unit_preferences.mass)));
+		result.unit_preferences.energy = static_cast<Units::EnergyUnit>(get_u32("unit_energy", static_cast<uint32_t>(result.unit_preferences.energy)));
+		result.unit_preferences.temperature = static_cast<Units::TemperatureUnit>(get_u32("unit_temperature", static_cast<uint32_t>(result.unit_preferences.temperature)));
+		result.unit_preferences.angle = static_cast<Units::AngleUnit>(get_u32("unit_angle", static_cast<uint32_t>(result.unit_preferences.angle)));
+		result.unit_preferences.charge = static_cast<Units::ChargeUnit>(get_u32("unit_charge", static_cast<uint32_t>(result.unit_preferences.charge)));
+		result.unit_preferences.current = static_cast<Units::CurrentUnit>(get_u32("unit_current", static_cast<uint32_t>(result.unit_preferences.current)));
+		result.unit_preferences.time = static_cast<Units::TimeUnit>(get_u32("unit_time", static_cast<uint32_t>(result.unit_preferences.time)));
+		result.unit_preferences.acceleration = static_cast<Units::AccelerationUnit>(get_u32("unit_acceleration", static_cast<uint32_t>(result.unit_preferences.acceleration)));
+		result.unit_preferences.angular_velocity = static_cast<Units::AngularVelocityUnit>(get_u32("unit_angular_velocity", static_cast<uint32_t>(result.unit_preferences.angular_velocity)));
+		result.unit_preferences.density = static_cast<Units::DensityUnit>(get_u32("unit_density", static_cast<uint32_t>(result.unit_preferences.density)));
+		result.unit_preferences.pressure = static_cast<Units::PressureUnit>(get_u32("unit_pressure", static_cast<uint32_t>(result.unit_preferences.pressure)));
+		result.unit_preferences.power = static_cast<Units::PowerUnit>(get_u32("unit_power", static_cast<uint32_t>(result.unit_preferences.power)));
+		result.unit_preferences.frequency = static_cast<Units::FrequencyUnit>(get_u32("unit_frequency", static_cast<uint32_t>(result.unit_preferences.frequency)));
+		result.unit_preferences.force = static_cast<Units::ForceUnit>(get_u32("unit_force", static_cast<uint32_t>(result.unit_preferences.force)));
+		result.unit_preferences.magnetic_field = static_cast<Units::MagneticFieldUnit>(get_u32("unit_magnetic_field", static_cast<uint32_t>(result.unit_preferences.magnetic_field)));
+		result.unit_preferences.voltage = static_cast<Units::VoltageUnit>(get_u32("unit_voltage", static_cast<uint32_t>(result.unit_preferences.voltage)));
+
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
 		result.camera_controls.free_fly.vertical_speed = get_dbl("cam_ff_vertical_speed", result.camera_controls.free_fly.vertical_speed);
@@ -424,6 +445,24 @@ struct UserSettings {
 		out << "body_manager_bulk_parameter_index=" << body_manager_bulk_parameter_index << "\n";
 		out << "body_manager_new_body_mass_log_mode=" << (body_manager_new_body_mass_log_mode ? 1 : 0) << "\n";
 		out << "body_manager_new_body_radius_log_mode=" << (body_manager_new_body_radius_log_mode ? 1 : 0) << "\n";
+		out << "unit_distance=" << static_cast<uint32_t>(unit_preferences.distance) << "\n";
+		out << "unit_velocity=" << static_cast<uint32_t>(unit_preferences.velocity) << "\n";
+		out << "unit_mass=" << static_cast<uint32_t>(unit_preferences.mass) << "\n";
+		out << "unit_energy=" << static_cast<uint32_t>(unit_preferences.energy) << "\n";
+		out << "unit_temperature=" << static_cast<uint32_t>(unit_preferences.temperature) << "\n";
+		out << "unit_angle=" << static_cast<uint32_t>(unit_preferences.angle) << "\n";
+		out << "unit_charge=" << static_cast<uint32_t>(unit_preferences.charge) << "\n";
+		out << "unit_current=" << static_cast<uint32_t>(unit_preferences.current) << "\n";
+		out << "unit_time=" << static_cast<uint32_t>(unit_preferences.time) << "\n";
+		out << "unit_acceleration=" << static_cast<uint32_t>(unit_preferences.acceleration) << "\n";
+		out << "unit_angular_velocity=" << static_cast<uint32_t>(unit_preferences.angular_velocity) << "\n";
+		out << "unit_density=" << static_cast<uint32_t>(unit_preferences.density) << "\n";
+		out << "unit_pressure=" << static_cast<uint32_t>(unit_preferences.pressure) << "\n";
+		out << "unit_power=" << static_cast<uint32_t>(unit_preferences.power) << "\n";
+		out << "unit_frequency=" << static_cast<uint32_t>(unit_preferences.frequency) << "\n";
+		out << "unit_force=" << static_cast<uint32_t>(unit_preferences.force) << "\n";
+		out << "unit_magnetic_field=" << static_cast<uint32_t>(unit_preferences.magnetic_field) << "\n";
+		out << "unit_voltage=" << static_cast<uint32_t>(unit_preferences.voltage) << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

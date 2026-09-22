@@ -197,6 +197,8 @@ public:
 		log_console_window_.open_state() = user_settings_.window_log_console_open;
 		log_console_window_.attach_system_console_flag(user_settings_.show_system_console);
 
+		orchestrator_.unit_preferences() = user_settings_.unit_preferences;
+
 		orchestrator_.constants_engine().apply_preset_by_index(user_settings_.constants_preset);
 		if (user_settings_.constants_preset == 2) {
 			orchestrator_.constants_engine().set_speed_of_light(user_settings_.constants_c);
@@ -279,6 +281,7 @@ public:
 
 	void export_runtime_settings() noexcept {
 		user_settings_.camera_controls = camera_controller_.config();
+		user_settings_.unit_preferences = orchestrator_.unit_preferences();
 		user_settings_.multi_window_mode = multi_window_mode_;
 		user_settings_.last_window_layout = static_cast<uint32_t>(current_layout_);
 		user_settings_.default_camera_mode = orchestrator_.parameters().camera_mode;

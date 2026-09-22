@@ -201,23 +201,36 @@ public:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Dimensional Scaling Factors (SI = Simulation x Factor)");
+		const auto& unit_prefs = orchestrator_.unit_preferences();
 		draw_derived_row("Time Scale (T0)", engine.time_scale());
 		render_setting_tooltip("Number of SI seconds represented by one simulation time unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_time(engine.time_scale(), unit_prefs.time).c_str());
+
 		draw_derived_row("Length Scale (L0)", engine.length_scale());
 		render_setting_tooltip("Number of SI meters represented by one simulation length unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_distance(engine.length_scale(), unit_prefs.distance).c_str());
+
 		draw_derived_row("Mass Scale (M0)", engine.mass_scale());
 		render_setting_tooltip("Number of SI kilograms represented by one simulation mass unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_mass(engine.mass_scale(), unit_prefs.mass).c_str());
+
 		draw_derived_row("Charge Scale (Q0)", engine.charge_scale());
 		render_setting_tooltip("Number of SI Coulombs represented by one simulation charge unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_charge(engine.charge_scale(), unit_prefs.charge).c_str());
+
 		draw_derived_row("Temperature Scale (K0)", engine.temperature_scale());
 		render_setting_tooltip("Number of SI Kelvin represented by one simulation temperature unit.");
+		ImGui::TextDisabled("Displayed As: %s", Units::format_temperature(engine.temperature_scale(), unit_prefs.temperature).c_str());
+
 		draw_derived_row("Amount Scale (N0)", engine.amount_scale());
 		render_setting_tooltip("Number of SI moles represented by one simulation amount-of-substance unit.");
+
 		draw_derived_row("Luminous Intensity Scale (I0)", engine.luminous_intensity_scale());
 		render_setting_tooltip("Number of SI candela represented by one simulation luminous intensity unit.");
+
 		draw_derived_row("Current Scale (A0 = Q0/T0)", engine.current_scale());
 		render_setting_tooltip("Number of SI Amperes represented by one simulation electric current unit.");
-		ImGui::TextDisabled("Displayed As: %s", Units::format_current(engine.current_scale(), orchestrator_.unit_preferences().current).c_str());
+		ImGui::TextDisabled("Displayed As: %s", Units::format_current(engine.current_scale(), unit_prefs.current).c_str());
 
 		ImGui::Separator();
 		if (ImGui::Button("Reset To SI Defaults", ImVec2(180.0f, 26.0f))) {

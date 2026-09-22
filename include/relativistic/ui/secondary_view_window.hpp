@@ -4,6 +4,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/software_compute_engine.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/units/unit_aware_widgets.hpp"
 #include <imgui.h>
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -275,10 +276,8 @@ public:
 			render_setting_tooltip("When enabled, this observer's angular position is derived from the primary viewport camera plus a fixed offset below, keeping the two views correlated as the primary camera moves.");
 
 			if (follow_primary_camera_) {
-				float off_theta = static_cast<float>(follow_offset_theta_);
-				if (ImGui::SliderFloat("Offset Theta", &off_theta, -1.5f, 1.5f, "%.3f rad")) follow_offset_theta_ = off_theta;
-				float off_phi = static_cast<float>(follow_offset_phi_);
-				if (ImGui::SliderFloat("Offset Phi", &off_phi, -3.1416f, 3.1416f, "%.3f rad")) follow_offset_phi_ = off_phi;
+				static_cast<void>(unit_aware_slider_double("Offset Theta", &follow_offset_theta_, -1.5, 1.5, UnitCategory::Angle, orchestrator_->unit_preferences(), "%.3f"));
+				static_cast<void>(unit_aware_slider_double("Offset Phi", &follow_offset_phi_, -std::numbers::pi_v<double>, std::numbers::pi_v<double>, UnitCategory::Angle, orchestrator_->unit_preferences(), "%.3f"));
 			} else {
 				ImGui::TextDisabled("Quick View Direction:");
 				const double half_pi = std::numbers::pi_v<double> / 2.0;
@@ -297,12 +296,13 @@ public:
 				if (ImGui::Button("45deg Elevated", ImVec2(110.0f, 22.0f))) { theta_ = half_pi - 0.7853981634; }
 				render_setting_tooltip("Snaps this observer to a common cardinal viewing direction relative to the coordinate origin. Left-drag the image above to orbit freely, and scroll over it to zoom.");
 
-				float r = static_cast<float>(radius_);
-				if (ImGui::SliderFloat("Radius", &r, 2.0f, 500.0f, "%.2f M", ImGuiSliderFlags_Logarithmic)) radius_ = r;
-				float th = static_cast<float>(theta_);
-				if (ImGui::SliderAngle("Polar Angle (theta)", &th, 0.5f, 179.5f)) theta_ = th;
-				float ph = static_cast<float>(phi_);
-				if (ImGui::SliderAngle("Azimuthal Angle (phi)", &ph, -180.0f, 180.0f)) phi_ = ph;
+				const double dist_scale = orchestrator_->constants_engine().length_scale();
+				double r_meters = radius_ * dist_scale;
+				if (unit_aware_slider_double("Radius", &r_meters, 2.0 * dist_scale, 500.0 * dist_scale, UnitCategory::Distance, orchestrator_->unit_preferences(), "%.2f")) {
+					radius_ = r_meters / dist_scale;
+				}
+				static_cast<void>(unit_aware_slider_double("Polar Angle (theta)", &theta_, 0.005, std::numbers::pi_v<double> - 0.005, UnitCategory::Angle, orchestrator_->unit_preferences(), "%.2f"));
+				static_cast<void>(unit_aware_slider_double("Azimuthal Angle (phi)", &phi_, -std::numbers::pi_v<double>, std::numbers::pi_v<double>, UnitCategory::Angle, orchestrator_->unit_preferences(), "%.2f"));
 				if (ImGui::Button("Reset To Equatorial View", ImVec2(-1.0f, 24.0f))) {
 					theta_ = std::numbers::pi_v<double> / 2.0;
 					phi_ = 0.0;
@@ -312,8 +312,10 @@ public:
 
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Optics");
-			float fov = static_cast<float>(fov_deg_);
-			if (ImGui::SliderFloat("Field of View", &fov, 10.0f, 150.0f, "%.1f")) fov_deg_ = fov;
+			double fov_rad = fov_deg_ * (std::numbers::pi / 180.0);
+			if (unit_aware_slider_double("Field of View", &fov_rad, 10.0 * (std::numbers::pi / 180.0), 150.0 * (std::numbers::pi / 180.0), UnitCategory::Angle, orchestrator_->unit_preferences(), "%.1f")) {
+				fov_deg_ = fov_rad * (180.0 / std::numbers::pi);
+			}
 			float exposure = static_cast<float>(exposure_);
 			if (ImGui::SliderFloat("Exposure", &exposure, -6.0f, 6.0f, "%.2f EV")) exposure_ = exposure;
 			const char* tonemappers[] = {"Linear Unclamped", "ACES Filmic Curve", "Logarithmic Extended HDR", "Reinhard Modified"};

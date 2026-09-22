@@ -210,12 +210,14 @@ public:
 				if (ImGui::SliderFloat("Magnetic Field (log10 Tesla)", &mag_log, -4.0f, 3.0f, "10^%.2f T")) {
 					magnetic_field_tesla_ = std::pow(10.0f, mag_log);
 				}
+				ImGui::TextDisabled("User Units: %s", Units::format_magnetic_field(static_cast<double>(magnetic_field_tesla_), orchestrator.unit_preferences().magnetic_field).c_str());
 				render_setting_tooltip("Local magnetic field strength threading the emitting plasma. Astrophysical accretion flows near stellar-mass black holes typically range from roughly 10 to 10000 Tesla close to the horizon.");
 
 				float density_log = std::log10(std::max(electron_density_, 1.0f));
 				if (ImGui::SliderFloat("Electron Density (log10 per m^3)", &density_log, 10.0f, 24.0f, "10^%.2f m^-3")) {
 					electron_density_ = std::pow(10.0f, density_log);
 				}
+				ImGui::TextDisabled("User Units: %s", Units::format_density(static_cast<double>(electron_density_), orchestrator.unit_preferences().density).c_str());
 				render_setting_tooltip("Number density of relativistic electrons contributing to synchrotron emission. Higher densities raise both emissivity and self-absorption.");
 
 				Optics::PolarizedPlasmaState<double> plasma;

@@ -1555,11 +1555,14 @@ private:
 		{
 			const auto& style = hud_layout_.element(HudElementId::ConstantsQuickReadout);
 			const auto& constants = orchestrator_.constants_engine();
+			const auto& unit_prefs = orchestrator_.unit_preferences();
 			static constexpr const char* kPresetLabels[] = {"SI", "Planck", "Custom"};
 			const uint32_t preset_idx = std::min<uint32_t>(static_cast<uint32_t>(constants.active_preset()), 2U);
-			char buf[160];
+			char buf[192];
 			if (style.display_mode == HudDisplayMode::Extended) {
-				std::snprintf(buf, sizeof(buf), "Constants: %s | c=%.3e | G=%.3e | L0=%.3e m", kPresetLabels[preset_idx], constants.sim_speed_of_light(), constants.sim_gravitational_constant(), constants.length_scale());
+				const std::string c_disp = Units::format_velocity(constants.sim_speed_of_light(), unit_prefs.velocity);
+				const std::string l0_disp = Units::format_distance(constants.length_scale(), unit_prefs.distance);
+				std::snprintf(buf, sizeof(buf), "Constants: %s | c=%s | G=%.3e | L0=%s", kPresetLabels[preset_idx], c_disp.c_str(), constants.sim_gravitational_constant(), l0_disp.c_str());
 			} else {
 				std::snprintf(buf, sizeof(buf), "Constants: %s Preset", kPresetLabels[preset_idx]);
 			}

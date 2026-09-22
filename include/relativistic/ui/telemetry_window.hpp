@@ -7,9 +7,11 @@
 #include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/metrics/bardeen_shadow.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/units/unit_system.hpp"
 #include <cmath>
 #include <numbers>
 #include <algorithm>
+#include <string>
 
 namespace Relativistic::UI {
 
@@ -80,7 +82,12 @@ public:
 				}
 			}
 
-			ImGui::Text("Observer Position: r = %.4f, theta = %.4f", cam.radius, cam.theta);
+			const auto& unit_prefs = orchestrator.unit_preferences();
+			const double length_scale_m = orchestrator.constants_engine().length_scale();
+			const std::string r_disp = Units::format_distance(cam.radius * length_scale_m, unit_prefs.distance);
+			const std::string theta_disp = Units::format_angle(cam.theta, unit_prefs.angle);
+
+			ImGui::Text("Observer Position: r = %s, theta = %s", r_disp.c_str(), theta_disp.c_str());
 			ImGui::Separator();
 			ImGui::Text("Ricci Scalar Curvature (R): %.6e", cached_r_scalar_);
 			ImGui::Text("Kretschmann Invariant (K1): %.6e", cached_k1_);
@@ -108,7 +115,8 @@ public:
 
 			if (std::abs(params.spin) > 1e-9) {
 				const double omega_zamo = Metrics::compute_zamo_angular_velocity(metric, obs_pos);
-				ImGui::Text("ZAMO Frame-Dragging Rate: %.6f rad/M", omega_zamo);
+				const std::string zamo_disp = Units::format_angular_velocity(omega_zamo, unit_prefs.angular_velocity);
+				ImGui::Text("ZAMO Frame-Dragging Rate: %s", zamo_disp.c_str());
 				render_setting_tooltip("Angular velocity a zero-angular-momentum observer is forced to co-rotate at due to Lense-Thirring frame dragging at this radius and latitude.");
 			}
 
@@ -128,9 +136,10 @@ public:
 			const double r_isco = kerr_isco_radius(params.mass, params.spin);
 			const auto photon_radii = Metrics::BardeenKerrShadow(params.mass, params.spin, cam.theta).photon_orbit_radii();
 
-			auto proximity_row = [](const char* label, double observer_radius, double reference, ImVec4 warn_color) {
+			auto proximity_row = [&](const char* label, double observer_radius, double reference, ImVec4 warn_color) {
 				const bool inside = observer_radius <= reference;
-				ImGui::TextColored(inside ? warn_color : ImVec4(0.5f, 0.9f, 0.55f, 1.0f), "%s: %.4f M (observer %s)", label, reference, inside ? "inside" : "outside");
+				const std::string ref_dist = Units::format_distance(reference * length_scale_m, unit_prefs.distance);
+				ImGui::TextColored(inside ? warn_color : ImVec4(0.5f, 0.9f, 0.55f, 1.0f), "%s: %s (observer %s)", label, ref_dist.c_str(), inside ? "inside" : "outside");
 			};
 
 			proximity_row("Event Horizon", cam.radius, r_h, ImVec4(1.0f, 0.25f, 0.25f, 1.0f));
@@ -141,7 +150,8 @@ public:
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.5f, 1.0f), "Simulation State");
 			const auto snap = orchestrator.scheduler().snapshot();
-			ImGui::Text("Logical Time: %.4f s", snap.logical_time);
+			const std::string time_disp = Units::format_time(snap.logical_time, unit_prefs.time);
+			ImGui::Text("Logical Time: %s", time_disp.c_str());
 			ImGui::Text("Tick Rate: %.2f Hz", snap.tick_rate_hz);
 			ImGui::Text("Warp Factor: %.2fx", snap.warp_factor);
 			ImGui::Text("Active Metric: %s", orchestrator.active_metric_name().c_str());

@@ -10,6 +10,7 @@
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 #include "relativistic/dynamics/interaction_compatibility.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/io/user_settings.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -51,6 +52,7 @@ private:
 
 	bool is_open_{false};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	IO::UserSettings* persisted_settings_{nullptr};
 
 	int selected_body_index_{-1};
 	int creation_preset_{0};
@@ -108,12 +110,38 @@ public:
 		randomize_creation_defaults();
 	}
 
+	void attach_persisted_settings(IO::UserSettings& settings) noexcept {
+		persisted_settings_ = &settings;
+		sort_mode_ = static_cast<int>(settings.body_manager_sort_mode);
+		sort_descending_ = settings.body_manager_sort_descending;
+		std::strncpy(search_filter_, settings.body_manager_search_filter.c_str(), sizeof(search_filter_) - 1);
+		search_filter_[sizeof(search_filter_) - 1] = '\0';
+		list_pane_width_ = settings.body_manager_list_pane_width;
+		bulk_parameter_index_ = static_cast<int>(settings.body_manager_bulk_parameter_index);
+		new_body_mass_log_mode_ = settings.body_manager_new_body_mass_log_mode;
+		new_body_radius_log_mode_ = settings.body_manager_new_body_radius_log_mode;
+	}
+
+	void sync_persisted_settings() noexcept {
+		if (persisted_settings_ == nullptr) return;
+		persisted_settings_->body_manager_sort_mode = static_cast<uint32_t>(sort_mode_);
+		persisted_settings_->body_manager_sort_descending = sort_descending_;
+		persisted_settings_->body_manager_search_filter = search_filter_;
+		persisted_settings_->body_manager_list_pane_width = list_pane_width_;
+		persisted_settings_->body_manager_bulk_parameter_index = static_cast<uint32_t>(bulk_parameter_index_);
+		persisted_settings_->body_manager_new_body_mass_log_mode = new_body_mass_log_mode_;
+		persisted_settings_->body_manager_new_body_radius_log_mode = new_body_radius_log_mode_;
+	}
+
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;
 	}
 
 	void render() {
-		if (!is_open_) return;
+		if (!is_open_) {
+			sync_persisted_settings();
+			return;
+		}
 
 		ImGui::SetNextWindowPos(ImVec2(15.0f, 400.0f), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(600.0f, 680.0f), ImGuiCond_FirstUseEver);
@@ -165,6 +193,7 @@ public:
 			ImGui::EndTabBar();
 		}
 
+		sync_persisted_settings();
 		ImGui::End();
 	}
 

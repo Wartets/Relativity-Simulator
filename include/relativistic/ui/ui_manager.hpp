@@ -105,7 +105,9 @@ public:
 		  diagnostics_window_(orchestrator),
 		  body_manager_window_(orchestrator),
 		  constants_window_(orchestrator),
-		  secondary_viewport_manager_(std::make_unique<SecondaryViewportManager>(orchestrator)) {}
+		  secondary_viewport_manager_(std::make_unique<SecondaryViewportManager>(orchestrator)) {
+		body_manager_window_.attach_persisted_settings(user_settings_);
+	}
 
 	~UiManager() {
 		shutdown();

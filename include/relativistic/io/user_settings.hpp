@@ -61,6 +61,14 @@ struct UserSettings {
 	static constexpr size_t kMaxSecondaryViews = 8;
 	std::array<SecondaryViewPersistedState, kMaxSecondaryViews> secondary_views{};
 
+	uint32_t body_manager_sort_mode{0};
+	bool body_manager_sort_descending{false};
+	std::string body_manager_search_filter{};
+	float body_manager_list_pane_width{230.0f};
+	uint32_t body_manager_bulk_parameter_index{0};
+	bool body_manager_new_body_mass_log_mode{true};
+	bool body_manager_new_body_radius_log_mode{true};
+
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
 	UI::SchematicViewConfig schematic_view{};
@@ -248,6 +256,14 @@ struct UserSettings {
 		result.interaction_collision_position_correction_factor = get_dbl("interaction_collision_position_correction_factor", result.interaction_collision_position_correction_factor);
 		result.interaction_fragmentation_tidal_stress_enabled = get_bool("interaction_fragmentation_tidal_stress_enabled", result.interaction_fragmentation_tidal_stress_enabled);
 
+		result.body_manager_sort_mode = get_u32("body_manager_sort_mode", result.body_manager_sort_mode);
+		result.body_manager_sort_descending = get_bool("body_manager_sort_descending", result.body_manager_sort_descending);
+		result.body_manager_search_filter = get_str("body_manager_search_filter", result.body_manager_search_filter);
+		result.body_manager_list_pane_width = static_cast<float>(get_dbl("body_manager_list_pane_width", result.body_manager_list_pane_width));
+		result.body_manager_bulk_parameter_index = get_u32("body_manager_bulk_parameter_index", result.body_manager_bulk_parameter_index);
+		result.body_manager_new_body_mass_log_mode = get_bool("body_manager_new_body_mass_log_mode", result.body_manager_new_body_mass_log_mode);
+		result.body_manager_new_body_radius_log_mode = get_bool("body_manager_new_body_radius_log_mode", result.body_manager_new_body_radius_log_mode);
+
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
 		result.camera_controls.free_fly.vertical_speed = get_dbl("cam_ff_vertical_speed", result.camera_controls.free_fly.vertical_speed);
@@ -401,6 +417,13 @@ struct UserSettings {
 		out << "interaction_collision_stiffness_scale=" << interaction_collision_stiffness_scale << "\n";
 		out << "interaction_collision_position_correction_factor=" << interaction_collision_position_correction_factor << "\n";
 		out << "interaction_fragmentation_tidal_stress_enabled=" << (interaction_fragmentation_tidal_stress_enabled ? 1 : 0) << "\n";
+		out << "body_manager_sort_mode=" << body_manager_sort_mode << "\n";
+		out << "body_manager_sort_descending=" << (body_manager_sort_descending ? 1 : 0) << "\n";
+		out << "body_manager_search_filter=" << body_manager_search_filter << "\n";
+		out << "body_manager_list_pane_width=" << body_manager_list_pane_width << "\n";
+		out << "body_manager_bulk_parameter_index=" << body_manager_bulk_parameter_index << "\n";
+		out << "body_manager_new_body_mass_log_mode=" << (body_manager_new_body_mass_log_mode ? 1 : 0) << "\n";
+		out << "body_manager_new_body_radius_log_mode=" << (body_manager_new_body_radius_log_mode ? 1 : 0) << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

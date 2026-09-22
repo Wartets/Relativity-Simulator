@@ -1,12 +1,54 @@
 #pragma once
 
 #include <imgui.h>
+#include "relativistic/units/expression_engine.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
+#include <string>
+#include <cstring>
 
 namespace Relativistic::UI {
+
+inline bool smart_quantity_input(
+	const char* label,
+	double* value_si,
+	const Units::DimensionVector& expected_dimension,
+	std::string& error_out
+) noexcept {
+	static thread_local char text_buffer[128];
+	static thread_local const void* bound_value_ptr = nullptr;
+	ImGui::PushID(label);
+
+	if (bound_value_ptr != static_cast<const void*>(value_si) || !ImGui::IsItemActive()) {
+		if (bound_value_ptr != static_cast<const void*>(value_si)) {
+			std::snprintf(text_buffer, sizeof(text_buffer), "%.10g", *value_si);
+			bound_value_ptr = value_si;
+		}
+	}
+
+	bool committed = false;
+	if (ImGui::InputText("##SmartQuantityInput", text_buffer, sizeof(text_buffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
+		std::string local_error;
+		const auto parsed = Units::ExpressionEvaluator::evaluate_expect_dimension(text_buffer, expected_dimension, &local_error);
+		if (parsed.has_value()) {
+			*value_si = *parsed;
+			error_out.clear();
+			committed = true;
+		} else {
+			error_out = local_error;
+		}
+	}
+	ImGui::SameLine();
+	ImGui::TextUnformatted(label);
+	if (!error_out.empty()) {
+		ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "%s", error_out.c_str());
+	}
+
+	ImGui::PopID();
+	return committed;
+}
 
 namespace Detail {
 

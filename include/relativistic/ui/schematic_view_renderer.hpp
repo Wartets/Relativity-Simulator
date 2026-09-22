@@ -100,7 +100,7 @@ private:
 				const double fov_scale = fov_rad_ / (60.0 * std::numbers::pi_v<double> / 180.0);
 				if (fov_scale < eps) return std::nullopt;
 				const double u = phi / (std::numbers::pi_v<double> * fov_scale);
-				const double v = (std::numbers::pi_v<double> * 0.5 - theta) / (std::numbers::pi_v<double> * 0.5 * fov_scale);
+				const double v = -(std::numbers::pi_v<double> * 0.5 - theta) / (std::numbers::pi_v<double> * 0.5 * fov_scale);
 				return std::make_pair(u, v);
 			}
 			case Observer::ProjectionMode::PaniniCylindrical: {

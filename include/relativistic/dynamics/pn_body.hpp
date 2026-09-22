@@ -6,6 +6,7 @@
 #include <cmath>
 #include <algorithm>
 #include <string_view>
+#include "relativistic/render/gpu_types.hpp"
 
 namespace Relativistic::Dynamics {
 
@@ -159,6 +160,32 @@ struct alignas(64) PostNewtonianBody {
 		const size_t len = std::min(value.size(), composition.size() - 1);
 		for (size_t i = 0; i < len; ++i) composition[i] = value[i];
 		composition[len] = '\0';
+	}
+
+	[[nodiscard]] Render::GpuBodyData to_gpu_body_data() const noexcept {
+		Render::GpuBodyData gpu{};
+		gpu.position = {position[0], position[1], position[2], 0.0};
+		gpu.velocity = {velocity[0], velocity[1], velocity[2], 0.0};
+		gpu.color_primary = {color[0], color[1], color[2], color[3]};
+		gpu.color_secondary = {color_secondary[0], color_secondary[1], color_secondary[2], color_secondary[3]};
+		gpu.atmosphere_color = {atmosphere_color[0], atmosphere_color[1], atmosphere_color[2], atmosphere_color[3]};
+		gpu.radius = radius;
+		gpu.mass = mass;
+		gpu.charge = charge;
+		gpu.temperature = temperature;
+		gpu.noise_scale = static_cast<double>(surface_noise_scale);
+		gpu.noise_roughness = static_cast<double>(surface_roughness);
+		gpu.atmosphere_thickness = static_cast<double>(atmosphere_thickness);
+		gpu.specular_roughness = static_cast<double>(specular_roughness);
+		gpu.emission_intensity = static_cast<double>(emission_intensity);
+		gpu.rotation_speed = static_cast<double>(rotation_speed_3d);
+		gpu.oblateness_ratio = (std::abs(j2) > 1e-9) ? (1.0 - j2) : 1.0;
+		gpu.body_id = id;
+		gpu.geometry_model = static_cast<uint32_t>(geometry_model);
+		gpu.surface_texture_mode = static_cast<uint32_t>(surface_texture_mode);
+		gpu.atmosphere_mode = static_cast<uint32_t>(atmosphere_mode);
+		gpu.preset_3d = static_cast<uint32_t>(preset_3d);
+		return gpu;
 	}
 };
 

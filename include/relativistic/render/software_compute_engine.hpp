@@ -101,6 +101,182 @@ private:
 		}
 	};
 
+	struct BodyHitResult {
+		bool hit{false};
+		double t_hit{1e30};
+		GpuPixelOutput color{};
+		uint32_t body_id{0};
+	};
+
+	[[nodiscard]] static BodyHitResult evaluate_3d_bodies(
+		const std::array<double, 3>& ray_pos,
+		const std::array<double, 3>& ray_dir,
+		std::span<const GpuBodyData> bodies,
+		const GpuCameraPushConstants& params
+	) noexcept {
+		BodyHitResult best_result{};
+		if (bodies.empty()) return best_result;
+
+		const bool enable_doppler = (params.render_flags & RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U;
+		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
+		const bool enable_atmo = (params.render_flags & RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U;
+
+		for (const auto& body : bodies) {
+			const double bx = body.position[0];
+			const double by = body.position[1];
+			const double bz = body.position[2];
+
+			const double ox = ray_pos[0] - bx;
+			const double oy = ray_pos[1] - by;
+			const double oz = ray_pos[2] - bz;
+
+			const double radius = std::max(body.radius, 1e-6);
+			const double oblateness = std::clamp(body.oblateness_ratio, 0.1, 5.0);
+
+			const double inv_a2 = 1.0 / (radius * radius);
+			const double inv_b2 = 1.0 / (radius * radius);
+			const double inv_c2 = 1.0 / ((radius * oblateness) * (radius * oblateness));
+
+			const double A = ray_dir[0] * ray_dir[0] * inv_a2 + ray_dir[1] * ray_dir[1] * inv_b2 + ray_dir[2] * ray_dir[2] * inv_c2;
+			const double B = 2.0 * (ox * ray_dir[0] * inv_a2 + oy * ray_dir[1] * inv_b2 + oz * ray_dir[2] * inv_c2);
+			const double C = ox * ox * inv_a2 + oy * oy * inv_b2 + oz * oz * inv_c2 - 1.0;
+
+			const double discr = B * B - 4.0 * A * C;
+			if (discr < 0.0) continue;
+
+			const double sqrt_discr = std::sqrt(discr);
+			const double t1 = (-B - sqrt_discr) / (2.0 * A);
+			const double t2 = (-B + sqrt_discr) / (2.0 * A);
+
+			double t = -1.0;
+			if (t1 > 1e-5) t = t1;
+			else if (t2 > 1e-5) t = t2;
+
+			if (t <= 1e-5 || t >= best_result.t_hit) continue;
+
+			const double hit_x = ray_pos[0] + t * ray_dir[0];
+			const double hit_y = ray_pos[1] + t * ray_dir[1];
+			const double hit_z = ray_pos[2] + t * ray_dir[2];
+
+			const double lx = hit_x - bx;
+			const double ly = hit_y - by;
+			const double lz = hit_z - bz;
+
+			double nx = lx * inv_a2;
+			double ny = ly * inv_b2;
+			double nz = lz * inv_c2;
+			const double n_len = std::sqrt(nx * nx + ny * ny + nz * nz);
+			if (n_len > 1e-12) {
+				nx /= n_len; ny /= n_len; nz /= n_len;
+			}
+
+			const double norm_lz = std::clamp(lz / (radius * oblateness), -1.0, 1.0);
+			const double theta = std::acos(norm_lz);
+			const double rot_angle = body.rotation_speed * static_cast<double>(params.time);
+			const double phi = std::atan2(ly, lx) + rot_angle;
+
+			const float noise_scale_f = static_cast<float>(body.noise_scale);
+			const float roughness_f = static_cast<float>(body.noise_roughness);
+			const float sample_x = static_cast<float>(std::sin(theta) * std::cos(phi)) * noise_scale_f;
+			const float sample_y = static_cast<float>(std::sin(theta) * std::sin(phi)) * noise_scale_f;
+			const float sample_z = static_cast<float>(std::cos(theta)) * noise_scale_f;
+
+			const float n_val = FastNoise3D::fbm(sample_x, sample_y, sample_z, 4, roughness_f);
+
+			float r_surf = static_cast<float>(body.color_primary[0]);
+			float g_surf = static_cast<float>(body.color_primary[1]);
+			float b_surf = static_cast<float>(body.color_primary[2]);
+
+			const float r2 = static_cast<float>(body.color_secondary[0]);
+			const float g2 = static_cast<float>(body.color_secondary[1]);
+			const float b2 = static_cast<float>(body.color_secondary[2]);
+
+			const uint32_t mode = body.surface_texture_mode;
+			if (mode == 0U) {
+				const float mix_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
+				r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
+				g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
+				b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
+			} else if (mode == 3U) {
+				const float band = std::sin(static_cast<float>(theta) * 12.0f + n_val * 3.0f);
+				const float mix_t = std::clamp((band + 1.0f) * 0.5f, 0.0f, 1.0f);
+				r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
+				g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
+				b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
+			} else if (mode == 5U) {
+				const float gran = std::pow(std::abs(n_val), 0.7f);
+				const float cos_v = static_cast<float>(std::abs(nx * (-ray_dir[0]) + ny * (-ray_dir[1]) + nz * (-ray_dir[2])));
+				const float limb = 0.6f + 0.4f * cos_v;
+				const float emission = static_cast<float>(std::max(body.emission_intensity, 1.0));
+				r_surf = (r_surf * gran + 0.2f) * limb * emission;
+				g_surf = (g_surf * gran + 0.15f) * limb * emission;
+				b_surf = (b_surf * gran + 0.05f) * limb * emission;
+			} else if (mode == 4U) {
+				const float crater = (n_val > 0.3f) ? 0.75f : 1.0f;
+				r_surf *= crater; g_surf *= crater; b_surf *= crater;
+			}
+
+			const double view_dot_n = std::max(0.0, -(ray_dir[0] * nx + ray_dir[1] * ny + ray_dir[2] * nz));
+			float light_factor = static_cast<float>(0.2 + 0.8 * view_dot_n);
+
+			if (body.emission_intensity > 0.0) {
+				light_factor += static_cast<float>(body.emission_intensity);
+			}
+
+			r_surf *= light_factor;
+			g_surf *= light_factor;
+			b_surf *= light_factor;
+
+			if (enable_doppler) {
+				const double vx = body.velocity[0];
+				const double vy = body.velocity[1];
+				const double vz = body.velocity[2];
+				const double v_sq = vx * vx + vy * vy + vz * vz;
+				if (v_sq > 1e-12) {
+					const double beta = std::min(std::sqrt(v_sq), 0.9999);
+					const double beta_dot_n = (vx * ray_dir[0] + vy * ray_dir[1] + vz * ray_dir[2]) / beta;
+					const double gamma = 1.0 / std::sqrt(1.0 - beta * beta);
+					const double doppler = 1.0 / (gamma * (1.0 - beta * beta_dot_n));
+					const float d_factor = static_cast<float>(std::clamp(doppler * doppler * doppler, 0.1, 10.0));
+					r_surf *= d_factor;
+					g_surf *= d_factor;
+					b_surf *= d_factor;
+				}
+			}
+
+			if (enable_redshift && body.mass > 0.0) {
+				const double z_factor = std::sqrt(std::max(1.0 - 2.0 * body.mass / radius, 0.05));
+				const float z_f = static_cast<float>(z_factor);
+				r_surf *= z_f;
+				g_surf *= (z_f * 0.9f);
+				b_surf *= (z_f * 0.7f);
+			}
+
+			if (enable_atmo && body.atmosphere_mode != 2U) {
+				const float rim = std::pow(1.0f - static_cast<float>(view_dot_n), 3.0f);
+				const float atmo_thick = static_cast<float>(body.atmosphere_thickness);
+				const float ar = static_cast<float>(body.atmosphere_color[0]);
+				const float ag = static_cast<float>(body.atmosphere_color[1]);
+				const float ab = static_cast<float>(body.atmosphere_color[2]);
+				const float aa = static_cast<float>(body.atmosphere_color[3]);
+				r_surf = r_surf * (1.0f - rim * aa) + ar * rim * atmo_thick * 2.0f;
+				g_surf = g_surf * (1.0f - rim * aa) + ag * rim * atmo_thick * 2.0f;
+				b_surf = b_surf * (1.0f - rim * aa) + ab * rim * atmo_thick * 2.0f;
+			}
+
+			best_result.hit = true;
+			best_result.t_hit = t;
+			best_result.body_id = body.body_id;
+			best_result.color.r = r_surf;
+			best_result.color.g = g_surf;
+			best_result.color.b = b_surf;
+			best_result.color.a = 1.0f;
+			best_result.color.status_flags |= PixelFlags::CELESTIAL_HIT;
+		}
+
+		return best_result;
+	}
+
 public:
 	[[nodiscard]] static bool requires_exact_metric_path(const GpuCameraPushConstants& params) noexcept {
 		const double mass_scale = std::max(params.metric_mass, 1e-4);
@@ -737,6 +913,7 @@ public:
 	static void dispatch_fp64_scalar(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies = {},
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
@@ -811,6 +988,20 @@ public:
 					const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
+
+					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U || !bodies.empty()) && !bodies.empty()) {
+						const std::array<double, 3> ray_orig{
+							params.observer_position[1] * std::sin(params.observer_position[2]) * std::cos(params.observer_position[3]),
+							params.observer_position[1] * std::sin(params.observer_position[2]) * std::sin(params.observer_position[3]),
+							params.observer_position[1] * std::cos(params.observer_position[2])
+						};
+						const std::array<double, 3> ray_direction{ray_dir_x, ray_dir_y, ray_dir_z};
+						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params);
+						if (body_hit.hit) {
+							output_framebuffer[pixel_idx] = body_hit.color;
+							continue;
+						}
+					}
 
 					const double r_obs = std::max(params.observer_position[1], rh * 1.02);
 					const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
@@ -1506,6 +1697,7 @@ public:
 	static void dispatch_fp32_scalar(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies = {},
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr
 	) noexcept {
@@ -2207,51 +2399,50 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr,
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
+		dispatch_fp32(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
+	}
+
+	static void dispatch_fp32(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
+	) noexcept {
 		static_cast<void>(stage_stats);
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
-			dispatch_fp32_scalar(params, output_framebuffer, pool, cancel_flag);
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) || !bodies.empty()) {
+			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 		} else {
 			dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
 		}
 	}
 
-	static void dispatch_fp64_scalar(
+	static void dispatch_fp64(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
-		std::span<const GpuBodyData> bodies,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
 	) noexcept {
-		static_cast<void>(bodies);
-		dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
+		dispatch_fp64(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
 	}
 
 	static void dispatch_fp64(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr,
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
-			dispatch_fp64_scalar(params, output_framebuffer, pool, cancel_flag);
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) || !bodies.empty()) {
+			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 		} else {
 			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
 		}
-	}
-
-	static void dispatch_fp64(
-		const GpuCameraPushConstants& params,
-		std::span<GpuPixelOutput> output_framebuffer,
-		std::span<const GpuBodyData> bodies,
-		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr,
-		RenderStageStats* stage_stats = nullptr
-	) noexcept {
-		static_cast<void>(bodies);
-		dispatch_fp64(params, output_framebuffer, pool, cancel_flag, stage_stats);
 	}
 
 	static void dispatch_double_single(
@@ -2261,7 +2452,18 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr,
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
-		dispatch_fp32(params, output_framebuffer, pool, cancel_flag, stage_stats);
+		dispatch_fp32(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
+	}
+
+	static void dispatch_double_single(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
+	) noexcept {
+		dispatch_fp32(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 	}
 };
 

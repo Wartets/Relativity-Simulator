@@ -70,6 +70,7 @@ private:
 	uint32_t rendered_height_{2160};
 
 	GpuCameraPushConstants pending_constants_{};
+	std::vector<GpuBodyData> pending_bodies_{};
 	std::unique_ptr<Core::ThreadPool> thread_pool_{};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
@@ -103,6 +104,7 @@ private:
 	void worker_loop(std::stop_token st) noexcept {
 		while (!st.stop_requested() && is_running_.load(std::memory_order_relaxed)) {
 			GpuCameraPushConstants current_job;
+			std::vector<GpuBodyData> current_bodies;
 			{
 				std::unique_lock<std::mutex> lock(mutex_);
 				cv_.wait(lock, [&]() {
@@ -114,6 +116,7 @@ private:
 				}
 
 				current_job = pending_constants_;
+				current_bodies = pending_bodies_;
 				request_pending_.store(false, std::memory_order_relaxed);
 				is_rendering_.store(true, std::memory_order_relaxed);
 			}
@@ -138,9 +141,9 @@ private:
 
 			if (!rendered_on_gpu) {
 				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, thread_pool_.get(), &cancel_render_, &stage_stats);
+					SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
 				} else {
-					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, thread_pool_.get(), &cancel_render_, &stage_stats);
+					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
 				}
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
@@ -289,7 +292,7 @@ public:
 		return gpu_executor_ != nullptr && gpu_executor_->is_ready();
 	}
 
-	void dispatch(const GpuCameraPushConstants& camera_constants) {
+	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
 			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
@@ -309,9 +312,9 @@ public:
 
 			if (!rendered_on_gpu) {
 				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, thread_pool_.get(), nullptr, &headless_stage_stats);
+					SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
 				} else {
-					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, thread_pool_.get(), nullptr, &headless_stage_stats);
+					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
 				}
 			}
 			telemetry_.used_gpu_path = rendered_on_gpu;
@@ -330,6 +333,7 @@ public:
 			}
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			pending_bodies_.assign(bodies.begin(), bodies.end());
 			request_pending_.store(true, std::memory_order_release);
 		}
 		cv_.notify_one();

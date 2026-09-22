@@ -259,10 +259,17 @@ public:
 			Render::GpuCameraPushConstants capture_consts = last_camera_constants_;
 			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * resolution_scale), 64u, 7680u);
 			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * resolution_scale), 64u, 4320u);
-			high_res_capture_pending_.fetch_add(1, std::memory_order_relaxed);
-			std::jthread([this, capture_consts, ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
+			std::vector<Render::GpuBodyData> capture_bodies;
+			const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+			capture_bodies.reserve(nbody_sys.size());
+			for (const auto& b : nbody_sys) {
+				if (b.enabled) capture_bodies.push_back(b.to_gpu_body_data());
+			}
+			if (!capture_bodies.empty()) capture_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+
+			std::jthread([this, capture_consts, capture_bodies = std::move(capture_bodies), ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
 				std::vector<Render::GpuPixelOutput> fb(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
-				Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, nullptr, nullptr);
+				Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, capture_bodies, nullptr, nullptr);
 				ctx.width = capture_consts.screen_width;
 				ctx.height = capture_consts.screen_height;
 				const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
@@ -529,6 +536,19 @@ public:
 			cam_consts.tetrad_e1 = {0.0, cp * cy, cp * sy, sp};
 			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
 			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
+			cam_consts.time = orchestrator_.scheduler().snapshot().logical_time;
+			}
+
+			std::vector<Render::GpuBodyData> gpu_bodies;
+			const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+			gpu_bodies.reserve(nbody_sys.size());
+			for (const auto& b : nbody_sys) {
+				if (b.enabled) {
+					gpu_bodies.push_back(b.to_gpu_body_data());
+				}
+			}
+			if (!gpu_bodies.empty()) {
+				cam_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
 			}
 
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
@@ -548,7 +568,7 @@ public:
 			if (is_dirty) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);
 				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
-				pipeline_.dispatch(cam_consts);
+				pipeline_.dispatch(cam_consts, gpu_bodies);
 				last_camera_constants_ = cam_consts;
 				last_logical_time_ = snap.logical_time;
 				last_precision_selector_ = precision_selector;

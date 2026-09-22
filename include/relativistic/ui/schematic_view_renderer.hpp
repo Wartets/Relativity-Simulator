@@ -422,16 +422,132 @@ private:
 		}
 	}
 
-	[[nodiscard]] static ImU32 compute_intelligent_color(const Dynamics::PostNewtonianBody& body) noexcept {
-		const double mass_component = std::clamp(std::log10(std::max(body.mass, 1e-9)) / 12.0 + 0.5, 0.0, 1.0);
-		const double thermal_component = std::clamp(body.temperature / 20000.0, 0.0, 1.0);
-		const double charge_component = std::clamp(std::abs(body.charge) / 5.0, 0.0, 1.0);
-		const double spin_component = std::clamp(body.spin_magnitude() / std::max(body.mass, 1e-9), 0.0, 1.0);
+	struct ProjectedEllipse {
+		bool visible{false};
+		ImVec2 center{0.0f, 0.0f};
+		float rx{0.0f};
+		float ry{0.0f};
+	};
 
-		const float r = static_cast<float>(std::clamp(0.15 + thermal_component * 0.85 + charge_component * 0.2, 0.0, 1.0));
-		const float g = static_cast<float>(std::clamp(0.15 + mass_component * 0.5 - charge_component * 0.15, 0.0, 1.0));
-		const float b = static_cast<float>(std::clamp(0.25 + spin_component * 0.75 - thermal_component * 0.3, 0.0, 1.0));
-		return ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, 1.0f));
+	[[nodiscard]] ProjectedEllipse compute_screen_ellipse(const std::array<double, 3>& world_center, double physical_radius) const noexcept {
+		ProjectedEllipse res;
+		if (physical_radius <= 0.0) return res;
+		const auto center_proj = project(world_center);
+		if (!center_proj.visible) return res;
+
+		res.center = center_proj.screen;
+		res.visible = true;
+
+		const std::array<double, 3> offset_right{
+			world_center[0] + tetrad_right_[0] * physical_radius,
+			world_center[1] + tetrad_right_[1] * physical_radius,
+			world_center[2] + tetrad_right_[2] * physical_radius
+		};
+		const auto edge_right = project(offset_right);
+
+		const std::array<double, 3> offset_up{
+			world_center[0] + tetrad_up_[0] * physical_radius,
+			world_center[1] + tetrad_up_[1] * physical_radius,
+			world_center[2] + tetrad_up_[2] * physical_radius
+		};
+		const auto edge_up = project(offset_up);
+
+		if (edge_right.visible) {
+			const float dx = edge_right.screen.x - center_proj.screen.x;
+			const float dy = edge_right.screen.y - center_proj.screen.y;
+			res.rx = std::sqrt(dx * dx + dy * dy);
+		} else {
+			res.rx = 0.0f;
+		}
+
+		if (edge_up.visible) {
+			const float dx = edge_up.screen.x - center_proj.screen.x;
+			const float dy = edge_up.screen.y - center_proj.screen.y;
+			res.ry = std::sqrt(dx * dx + dy * dy);
+		} else {
+			res.ry = res.rx;
+		}
+
+		if (res.rx <= 0.0f && res.ry <= 0.0f) res.visible = false;
+		if (res.rx <= 0.0f) res.rx = res.ry;
+		if (res.ry <= 0.0f) res.ry = res.rx;
+		return res;
+	}
+
+	[[nodiscard]] static std::array<float, 3> blackbody_to_rgb(double temp_k) noexcept {
+		struct Stop { double temp; std::array<float, 3> rgb; };
+		static constexpr std::array<Stop, 8> table{{
+			{ 800.0,   {1.00f, 0.22f, 0.00f} },
+			{ 1500.0,  {1.00f, 0.45f, 0.10f} },
+			{ 3000.0,  {1.00f, 0.70f, 0.40f} },
+			{ 5778.0,  {1.00f, 0.97f, 0.90f} },
+			{ 8000.0,  {0.85f, 0.90f, 1.00f} },
+			{ 15000.0, {0.65f, 0.80f, 1.00f} },
+			{ 30000.0, {0.40f, 0.60f, 1.00f} },
+			{ 40000.0, {0.30f, 0.45f, 1.00f} }
+		}};
+
+		const double T = std::clamp(temp_k, 800.0, 40000.0);
+		if (T <= table.front().temp) return table.front().rgb;
+		if (T >= table.back().temp) return table.back().rgb;
+
+		for (size_t i = 0; i < table.size() - 1; ++i) {
+			if (T >= table[i].temp && T <= table[i + 1].temp) {
+				const float frac = static_cast<float>((T - table[i].temp) / (table[i + 1].temp - table[i].temp));
+				return {
+					table[i].rgb[0] + frac * (table[i + 1].rgb[0] - table[i].rgb[0]),
+					table[i].rgb[1] + frac * (table[i + 1].rgb[1] - table[i].rgb[1]),
+					table[i].rgb[2] + frac * (table[i + 1].rgb[2] - table[i].rgb[2])
+				};
+			}
+		}
+		return table.back().rgb;
+	}
+
+	[[nodiscard]] static ImU32 compute_intelligent_color(const Dynamics::PostNewtonianBody& body) noexcept {
+		const double temp = (body.temperature > 0.0) ? body.temperature : 5778.0;
+		auto bb_rgb = blackbody_to_rgb(temp);
+
+		std::array<float, 3> comp_shift{0.0f, 0.0f, 0.0f};
+		float brightness_boost = 0.0f;
+		const char comp_char = static_cast<char>(std::toupper(static_cast<unsigned char>(body.composition[0])));
+		switch (comp_char) {
+			case 'H': comp_shift = { -0.02f,  0.02f,  0.06f }; break;
+			case 'C': comp_shift = {  0.12f, -0.05f, -0.05f }; break;
+			case 'R': comp_shift = {  0.12f,  0.07f, -0.05f }; break;
+			case 'M': comp_shift = {  0.00f,  0.00f,  0.00f }; brightness_boost = 0.12f; break;
+			case 'G': comp_shift = {  0.08f,  0.05f, -0.02f }; break;
+			case 'N': comp_shift = { -0.05f,  0.05f,  0.20f }; break;
+			default: break;
+		}
+
+		const double charge_n = std::clamp(body.charge / 5.0, -1.0, 1.0);
+		float charge_r = 0.0f, charge_g = 0.0f, charge_b = 0.0f;
+		if (charge_n > 0.0) {
+			charge_r = static_cast<float>(charge_n * 0.15);
+			charge_g = static_cast<float>(charge_n * 0.10);
+		} else if (charge_n < 0.0) {
+			charge_r = static_cast<float>(-charge_n * 0.08);
+			charge_b = static_cast<float>(-charge_n * 0.15);
+		}
+
+		const double spin_n = std::clamp(body.spin_magnitude() / std::max(body.mass, 1e-9), 0.0, 1.0);
+		const float spin_blue_add = static_cast<float>(spin_n * 0.14);
+
+		const double vol = (4.0 / 3.0) * std::numbers::pi_v<double> * std::pow(std::max(body.radius, 1e-6), 3.0);
+		const double density = body.mass / std::max(vol, 1e-12);
+		const double density_n = std::clamp(std::log10(density + 1.0) / 8.0, 0.0, 1.0);
+		const float brightness_mult = static_cast<float>(0.65 + 0.35 * density_n) + brightness_boost;
+
+		const double compactness = std::clamp(2.0 * body.mass / std::max(body.radius, 1e-6), 0.0, 0.95);
+		const float redshift_r_add = static_cast<float>(compactness * 0.25);
+		const float redshift_b_sub = static_cast<float>(compactness * 0.15);
+
+		float r = std::clamp((bb_rgb[0] + comp_shift[0] + charge_r + redshift_r_add) * brightness_mult, 0.0f, 1.0f);
+		float g = std::clamp((bb_rgb[1] + comp_shift[1] + charge_g) * brightness_mult, 0.0f, 1.0f);
+		float b = std::clamp((bb_rgb[2] + comp_shift[2] + charge_b + spin_blue_add - redshift_b_sub) * brightness_mult, 0.0f, 1.0f);
+
+		return IM_COL32(clamp8(r * 255.0f), clamp8(g * 255.0f), clamp8(b * 255.0f), 255);
 	}
 
 	[[nodiscard]] static ImU32 compute_coded_color(SchematicColorCodingMode mode, double value, double min_v, double max_v, const std::array<float, 4>& fallback_color) noexcept {
@@ -443,13 +559,195 @@ private:
 		return ImGui::ColorConvertFloat4ToU32(ImVec4(rgb[0], rgb[1], rgb[2], fallback_color[3]));
 	}
 
+	void draw_body_halo(
+		ImDrawList* draw_list,
+		ImVec2 center,
+		float px_rx,
+		float px_ry,
+		const std::array<float, 4>& halo_color,
+		float halo_strength,
+		float halo_radius_factor
+	) const {
+		if (halo_strength <= 0.0f || px_rx <= 0.0f) return;
+		const float max_halo_r = std::max(px_rx, px_ry) * halo_radius_factor;
+		constexpr int passes = 6;
+		for (int i = passes; i >= 1; --i) {
+			const float t = static_cast<float>(i) / static_cast<float>(passes);
+			const float cur_r_x = px_rx + (max_halo_r - px_rx) * t;
+			const float cur_r_y = px_ry + (max_halo_r - px_ry) * t;
+			const float alpha = halo_color[3] * halo_strength * (1.0f - t * 0.85f) * 0.35f;
+			const ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(halo_color[0], halo_color[1], halo_color[2], alpha));
+			if (std::abs(cur_r_x - cur_r_y) < 1.0f) {
+				draw_list->AddCircleFilled(center, cur_r_x, col, 36);
+			} else {
+				draw_list->AddEllipseFilled(center, ImVec2(cur_r_x, cur_r_y), col, 0.0f, 36);
+			}
+		}
+	}
+
+	void draw_body_outline(
+		ImDrawList* draw_list,
+		ImVec2 center,
+		float px_rx,
+		float px_ry,
+		const SchematicBodyOutlineStyle& outline
+	) const {
+		if (!outline.enabled || px_rx <= 0.0f) return;
+
+		if (outline.glow_enabled && outline.glow_radius > 0.0f) {
+			constexpr int glow_passes = 5;
+			for (int i = glow_passes; i >= 1; --i) {
+				const float t = static_cast<float>(i) / static_cast<float>(glow_passes);
+				const float glow_r_x = px_rx + outline.glow_radius * t;
+				const float glow_r_y = px_ry + outline.glow_radius * t;
+				const float alpha = outline.glow_color[3] * outline.glow_alpha * (1.0f - t * 0.7f) * 0.4f;
+				const ImU32 glow_col = ImGui::ColorConvertFloat4ToU32(ImVec4(outline.glow_color[0], outline.glow_color[1], outline.glow_color[2], alpha));
+				if (std::abs(glow_r_x - glow_r_y) < 1.0f) {
+					draw_list->AddCircle(center, glow_r_x, glow_col, 40, outline.thickness + outline.glow_radius * t * 0.5f);
+				} else {
+					draw_list->AddEllipse(center, ImVec2(glow_r_x, glow_r_y), glow_col, 0.0f, 40, outline.thickness + outline.glow_radius * t * 0.5f);
+				}
+			}
+		}
+
+		const ImU32 outline_col = ImGui::ColorConvertFloat4ToU32(ImVec4(outline.color[0], outline.color[1], outline.color[2], outline.color[3]));
+		if (std::abs(px_rx - px_ry) < 1.0f) {
+			draw_list->AddCircle(center, px_rx, outline_col, 48, outline.thickness);
+		} else {
+			draw_list->AddEllipse(center, ImVec2(px_rx, px_ry), outline_col, 0.0f, 48, outline.thickness);
+		}
+	}
+
+	void draw_shaded_sphere(
+		ImDrawList* draw_list,
+		ImVec2 center,
+		float px_rx,
+		float px_ry,
+		ImU32 primary_color,
+		const std::array<float, 4>& secondary_color,
+		const SchematicBodyShadingConfig& shading
+	) const {
+		const ImVec4 base_col = ImGui::ColorConvertU32ToFloat4(primary_color);
+
+		float shadow_r = base_col.x * shading.ambient_strength;
+		float shadow_g = base_col.y * shading.ambient_strength;
+		float shadow_b = base_col.z * shading.ambient_strength;
+		if (shading.use_secondary_color_as_shadow) {
+			shadow_r = (shadow_r + secondary_color[0] * shading.ambient_strength) * 0.5f;
+			shadow_g = (shadow_g + secondary_color[1] * shading.ambient_strength) * 0.5f;
+			shadow_b = (shadow_b + secondary_color[2] * shading.ambient_strength) * 0.5f;
+		}
+		const ImU32 shadow_col = ImGui::ColorConvertFloat4ToU32(ImVec4(shadow_r, shadow_g, shadow_b, base_col.w));
+
+		if (std::abs(px_rx - px_ry) < 1.0f) {
+			draw_list->AddCircleFilled(center, px_rx, shadow_col, 48);
+		} else {
+			draw_list->AddEllipseFilled(center, ImVec2(px_rx, px_ry), shadow_col, 0.0f, 48);
+		}
+
+		const float lx = shading.light_direction[0];
+		const float ly = shading.light_direction[1];
+		const float l_len = std::sqrt(lx * lx + ly * ly);
+		ImVec2 light_offset{0.0f, 0.0f};
+		if (l_len > 1e-4f) {
+			light_offset.x = (lx / l_len) * px_rx * 0.25f;
+			light_offset.y = (-ly / l_len) * px_ry * 0.25f;
+		}
+
+		const float diff_r = std::clamp(base_col.x * shading.diffuse_strength, 0.0f, 1.0f);
+		const float diff_g = std::clamp(base_col.y * shading.diffuse_strength, 0.0f, 1.0f);
+		const float diff_b = std::clamp(base_col.z * shading.diffuse_strength, 0.0f, 1.0f);
+		const ImU32 diff_col = ImGui::ColorConvertFloat4ToU32(ImVec4(diff_r, diff_g, diff_b, base_col.w));
+
+		const ImVec2 lit_center(center.x + light_offset.x, center.y + light_offset.y);
+		if (std::abs(px_rx - px_ry) < 1.0f) {
+			draw_list->AddCircleFilled(lit_center, px_rx * 0.82f, diff_col, 44);
+		} else {
+			draw_list->AddEllipseFilled(lit_center, ImVec2(px_rx * 0.82f, px_ry * 0.82f), diff_col, 0.0f, 44);
+		}
+
+		const ImVec2 highlight_center(center.x + light_offset.x * 1.4f, center.y + light_offset.y * 1.4f);
+		if (std::abs(px_rx - px_ry) < 1.0f) {
+			draw_list->AddCircleFilled(highlight_center, px_rx * 0.52f, primary_color, 40);
+		} else {
+			draw_list->AddEllipseFilled(highlight_center, ImVec2(px_rx * 0.52f, px_ry * 0.52f), primary_color, 0.0f, 40);
+		}
+
+		if (shading.specular_strength > 0.001f) {
+			const ImVec2 spec_center(center.x + light_offset.x * 1.8f, center.y + light_offset.y * 1.8f);
+			const float spec_alpha = std::clamp(shading.specular_strength, 0.0f, 1.0f) * base_col.w;
+			const ImU32 spec_col = ImGui::ColorConvertFloat4ToU32(ImVec4(1.0f, 1.0f, 1.0f, spec_alpha));
+			const float spec_r_x = std::max(px_rx * (0.22f - std::min(shading.specular_shininess * 0.004f, 0.15f)), 1.0f);
+			const float spec_r_y = std::max(px_ry * (0.22f - std::min(shading.specular_shininess * 0.004f, 0.15f)), 1.0f);
+			if (std::abs(spec_r_x - spec_r_y) < 1.0f) {
+				draw_list->AddCircleFilled(spec_center, spec_r_x, spec_col, 24);
+			} else {
+				draw_list->AddEllipseFilled(spec_center, ImVec2(spec_r_x, spec_r_y), spec_col, 0.0f, 24);
+			}
+		}
+
+		if (shading.limb_darkening_power > 0.01f) {
+			const float limb_alpha = std::clamp(shading.limb_darkening_power * 0.65f, 0.0f, 0.95f);
+			const ImU32 limb_col = IM_COL32(8, 10, 18, clamp8(255.0f * limb_alpha));
+			if (std::abs(px_rx - px_ry) < 1.0f) {
+				draw_list->AddCircle(center, px_rx, limb_col, 48, std::max(px_rx * 0.15f, 1.2f));
+			} else {
+				draw_list->AddEllipse(center, ImVec2(px_rx, px_ry), limb_col, 0.0f, 48, std::max(px_rx * 0.15f, 1.2f));
+			}
+		}
+	}
+
+	void draw_gradient_sphere(
+		ImDrawList* draw_list,
+		ImVec2 center,
+		float px_rx,
+		float px_ry,
+		const std::vector<SchematicGradientStop>& stops,
+		bool radial,
+		float angle_deg
+	) const {
+		if (stops.empty() || px_rx <= 0.0f) return;
+
+		if (radial) {
+			for (int i = static_cast<int>(stops.size()) - 1; i >= 0; --i) {
+				const auto& stop = stops[static_cast<size_t>(i)];
+				const float factor = std::clamp(stop.position, 0.0f, 1.0f);
+				const float cur_rx = std::max(px_rx * (1.0f - factor * 0.85f), 1.0f);
+				const float cur_ry = std::max(px_ry * (1.0f - factor * 0.85f), 1.0f);
+				const ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(stop.color[0], stop.color[1], stop.color[2], stop.color[3]));
+				if (std::abs(cur_rx - cur_ry) < 1.0f) {
+					draw_list->AddCircleFilled(center, cur_rx, col, 40);
+				} else {
+					draw_list->AddEllipseFilled(center, ImVec2(cur_rx, cur_ry), col, 0.0f, 40);
+				}
+			}
+		} else {
+			const float rad = angle_deg * (std::numbers::pi_v<float> / 180.0f);
+			const ImVec2 dir{std::cos(rad), std::sin(rad)};
+			const size_t stop_count = stops.size();
+			for (size_t i = 0; i < stop_count; ++i) {
+				const auto& stop = stops[i];
+				const float pos_offset = (stop.position - 0.5f) * px_rx * 0.8f;
+				const ImVec2 pos_center(center.x + dir.x * pos_offset, center.y + dir.y * pos_offset);
+				const float scale = 1.0f - static_cast<float>(i) * (0.6f / static_cast<float>(std::max(stop_count, size_t(1))));
+				const ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(stop.color[0], stop.color[1], stop.color[2], stop.color[3]));
+				if (std::abs(px_rx - px_ry) < 1.0f) {
+					draw_list->AddCircleFilled(pos_center, px_rx * scale, col, 36);
+				} else {
+					draw_list->AddEllipseFilled(pos_center, ImVec2(px_rx * scale, px_ry * scale), col, 0.0f, 36);
+				}
+			}
+		}
+	}
+
 	void draw_object_shape(
 		ImDrawList* draw_list,
 		const std::array<double, 3>& center_world,
 		double physical_radius,
 		const SchematicObjectDisplayConfig& style,
 		ImU32 color,
-		double pixel_radius_override
+		double pixel_radius_override,
+		const std::array<float, 4>& secondary_color = {0.18f, 0.30f, 0.75f, 1.0f}
 	) const {
 		const auto center_proj = project(center_world);
 		if (!center_proj.visible) return;
@@ -459,32 +757,60 @@ private:
 			return;
 		}
 
-		const double px_radius = (pixel_radius_override >= 0.0)
-			? pixel_radius_override
-			: std::clamp(compute_screen_radius(center_world, physical_radius), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius);
+		const auto ellipse = compute_screen_ellipse(center_world, physical_radius);
+		float px_rx = (pixel_radius_override >= 0.0) ? static_cast<float>(pixel_radius_override) : ellipse.rx;
+		float px_ry = (pixel_radius_override >= 0.0) ? static_cast<float>(pixel_radius_override) : ellipse.ry;
+		px_rx = static_cast<float>(std::clamp(static_cast<double>(px_rx), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius));
+		px_ry = static_cast<float>(std::clamp(static_cast<double>(px_ry), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius));
+
+		draw_body_halo(draw_list, center_proj.screen, px_rx, px_ry, style.halo_color, style.halo_strength, style.halo_radius_factor);
 
 		const bool can_render_true_wireframe = (style.shape == SchematicObjectShape::SphereFixedRadius) && (pixel_radius_override < 0.0);
 
 		switch (style.sphere_style) {
+			case SchematicSphereStyle::RealisticShaded: {
+				draw_shaded_sphere(draw_list, center_proj.screen, px_rx, px_ry, color, secondary_color, style.shading);
+				break;
+			}
+			case SchematicSphereStyle::GradientFill: {
+				draw_gradient_sphere(draw_list, center_proj.screen, px_rx, px_ry, style.gradient_stops, style.gradient_radial, style.gradient_angle_deg);
+				break;
+			}
 			case SchematicSphereStyle::Opaque: {
 				const ImVec4 base_col4 = ImGui::ColorConvertU32ToFloat4(color);
 				const ImU32 shadow_col = ImGui::ColorConvertFloat4ToU32(ImVec4(base_col4.x * 0.35f, base_col4.y * 0.35f, base_col4.z * 0.35f, base_col4.w));
 				const ImU32 mid_col = ImGui::ColorConvertFloat4ToU32(ImVec4(base_col4.x * 0.7f, base_col4.y * 0.7f, base_col4.z * 0.7f, base_col4.w));
-				draw_list->AddCircleFilled(center_proj.screen, static_cast<float>(px_radius), shadow_col, 48);
-				const ImVec2 mid_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.12f, center_proj.screen.y - static_cast<float>(px_radius) * 0.12f);
-				draw_list->AddCircleFilled(mid_center, static_cast<float>(px_radius) * 0.88f, mid_col, 44);
-				const ImVec2 highlight_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.32f, center_proj.screen.y - static_cast<float>(px_radius) * 0.32f);
-				draw_list->AddCircleFilled(highlight_center, static_cast<float>(px_radius) * 0.55f, color, 40);
-				const ImVec2 specular_center(center_proj.screen.x - static_cast<float>(px_radius) * 0.42f, center_proj.screen.y - static_cast<float>(px_radius) * 0.42f);
-				draw_list->AddCircleFilled(specular_center, std::max(static_cast<float>(px_radius) * 0.18f, 1.0f), IM_COL32(255, 255, 255, 90), 24);
-				draw_list->AddCircle(center_proj.screen, static_cast<float>(px_radius), IM_COL32(8, 10, 18, 210), 48, 1.2f);
+				if (std::abs(px_rx - px_ry) < 1.0f) {
+					draw_list->AddCircleFilled(center_proj.screen, px_rx, shadow_col, 48);
+					const ImVec2 mid_center(center_proj.screen.x - px_rx * 0.12f, center_proj.screen.y - px_rx * 0.12f);
+					draw_list->AddCircleFilled(mid_center, px_rx * 0.88f, mid_col, 44);
+					const ImVec2 highlight_center(center_proj.screen.x - px_rx * 0.32f, center_proj.screen.y - px_rx * 0.32f);
+					draw_list->AddCircleFilled(highlight_center, px_rx * 0.55f, color, 40);
+					const ImVec2 specular_center(center_proj.screen.x - px_rx * 0.42f, center_proj.screen.y - px_rx * 0.42f);
+					draw_list->AddCircleFilled(specular_center, std::max(px_rx * 0.18f, 1.0f), IM_COL32(255, 255, 255, 90), 24);
+					draw_list->AddCircle(center_proj.screen, px_rx, IM_COL32(8, 10, 18, 210), 48, 1.2f);
+				} else {
+					draw_list->AddEllipseFilled(center_proj.screen, ImVec2(px_rx, px_ry), shadow_col, 0.0f, 48);
+					const ImVec2 mid_center(center_proj.screen.x - px_rx * 0.12f, center_proj.screen.y - px_ry * 0.12f);
+					draw_list->AddEllipseFilled(mid_center, ImVec2(px_rx * 0.88f, px_ry * 0.88f), mid_col, 0.0f, 44);
+					const ImVec2 highlight_center(center_proj.screen.x - px_rx * 0.32f, center_proj.screen.y - px_ry * 0.32f);
+					draw_list->AddEllipseFilled(highlight_center, ImVec2(px_rx * 0.55f, px_ry * 0.55f), color, 0.0f, 40);
+					const ImVec2 specular_center(center_proj.screen.x - px_rx * 0.42f, center_proj.screen.y - px_ry * 0.42f);
+					draw_list->AddEllipseFilled(specular_center, ImVec2(std::max(px_rx * 0.18f, 1.0f), std::max(px_ry * 0.18f, 1.0f)), IM_COL32(255, 255, 255, 90), 0.0f, 24);
+					draw_list->AddEllipse(center_proj.screen, ImVec2(px_rx, px_ry), IM_COL32(8, 10, 18, 210), 0.0f, 48, 1.2f);
+				}
 				break;
 			}
 			case SchematicSphereStyle::Translucent: {
 				const ImVec4 col4 = ImGui::ColorConvertU32ToFloat4(color);
 				const ImU32 faded = ImGui::ColorConvertFloat4ToU32(ImVec4(col4.x, col4.y, col4.z, static_cast<float>(style.translucency_alpha)));
-				draw_list->AddCircleFilled(center_proj.screen, static_cast<float>(px_radius), faded, 40);
-				draw_list->AddCircle(center_proj.screen, static_cast<float>(px_radius), color, 40, 1.3f);
+				if (std::abs(px_rx - px_ry) < 1.0f) {
+					draw_list->AddCircleFilled(center_proj.screen, px_rx, faded, 40);
+					draw_list->AddCircle(center_proj.screen, px_rx, color, 40, 1.3f);
+				} else {
+					draw_list->AddEllipseFilled(center_proj.screen, ImVec2(px_rx, px_ry), faded, 0.0f, 40);
+					draw_list->AddEllipse(center_proj.screen, ImVec2(px_rx, px_ry), color, 0.0f, 40, 1.3f);
+				}
 				break;
 			}
 			case SchematicSphereStyle::Wireframe:
@@ -494,11 +820,19 @@ private:
 				} else {
 					const ImVec4 col4 = ImGui::ColorConvertU32ToFloat4(color);
 					const ImU32 faded = ImGui::ColorConvertFloat4ToU32(ImVec4(col4.x, col4.y, col4.z, 0.28f));
-					draw_list->AddCircleFilled(center_proj.screen, static_cast<float>(px_radius), faded, 40);
-					draw_list->AddCircle(center_proj.screen, static_cast<float>(px_radius), color, 40, 1.4f);
+					if (std::abs(px_rx - px_ry) < 1.0f) {
+						draw_list->AddCircleFilled(center_proj.screen, px_rx, faded, 40);
+						draw_list->AddCircle(center_proj.screen, px_rx, color, 40, 1.4f);
+					} else {
+						draw_list->AddEllipseFilled(center_proj.screen, ImVec2(px_rx, px_ry), faded, 0.0f, 40);
+						draw_list->AddEllipse(center_proj.screen, ImVec2(px_rx, px_ry), color, 0.0f, 40, 1.4f);
+					}
 				}
 				break;
 		}
+
+		// Outline pass (drawn after body)
+		draw_body_outline(draw_list, center_proj.screen, px_rx, px_ry, style.outline);
 	}
 
 	void draw_body_vector(
@@ -667,7 +1001,7 @@ private:
 		}
 
 		const double physical_radius = std::max(body.radius, 1e-4) * style.radius_scale;
-		draw_object_shape(draw_list, body.position, physical_radius, style, color, pixel_radius_override);
+		draw_object_shape(draw_list, body.position, physical_radius, style, color, pixel_radius_override, body.color_secondary);
 
 		if (cfg.show_vectors) {
 			draw_all_body_vectors(draw_list, body, cfg, color);

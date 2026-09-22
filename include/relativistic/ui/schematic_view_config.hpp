@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <unordered_map>
 #include "relativistic/observer/camera_projections.hpp"
 
@@ -18,7 +19,9 @@ enum class SchematicObjectShape : uint32_t {
 enum class SchematicSphereStyle : uint32_t {
 	Opaque = 0,
 	Translucent = 1,
-	Wireframe = 2
+	Wireframe = 2,
+	RealisticShaded = 3,
+	GradientFill = 4
 };
 
 enum class SchematicColorCodingMode : uint32_t {
@@ -75,6 +78,32 @@ struct SchematicVectorStyle {
 	std::array<float, 4> manual_color{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
+struct SchematicGradientStop {
+	float position{0.0f};
+	std::array<float, 4> color{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
+struct SchematicBodyOutlineStyle {
+	bool enabled{false};
+	std::array<float, 4> color{0.08f, 0.10f, 0.18f, 0.95f};
+	float thickness{1.5f};
+	bool glow_enabled{false};
+	float glow_radius{6.0f};
+	std::array<float, 4> glow_color{0.4f, 0.7f, 1.0f, 0.5f};
+	float glow_alpha{0.4f};
+};
+
+struct SchematicBodyShadingConfig {
+	float ambient_strength{0.25f};
+	float diffuse_strength{0.75f};
+	float specular_strength{0.35f};
+	float specular_shininess{18.0f};
+	float limb_darkening_power{0.4f};
+	std::array<float, 3> light_direction{-0.57735f, -0.57735f, 0.57735f};
+	bool use_secondary_color_as_shadow{false};
+	float shadow_terminator_softness{0.12f};
+};
+
 struct SchematicObjectDisplayConfig {
 	SchematicObjectShape shape{SchematicObjectShape::SphereFixedRadius};
 	SchematicSphereStyle sphere_style{SchematicSphereStyle::Opaque};
@@ -93,6 +122,18 @@ struct SchematicObjectDisplayConfig {
 	bool show_id_in_tag{true};
 	bool show_mass_in_tag{false};
 	bool show_speed_in_tag{false};
+
+	SchematicBodyShadingConfig shading{};
+	SchematicBodyOutlineStyle outline{};
+	std::vector<SchematicGradientStop> gradient_stops{
+		SchematicGradientStop{0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+		SchematicGradientStop{1.0f, {0.2f, 0.4f, 0.8f, 1.0f}}
+	};
+	bool gradient_radial{true};
+	float gradient_angle_deg{0.0f};
+	float halo_strength{0.0f};
+	std::array<float, 4> halo_color{0.4f, 0.7f, 1.0f, 0.4f};
+	float halo_radius_factor{1.8f};
 };
 
 enum class OffscreenIndicatorColorSource : uint32_t {

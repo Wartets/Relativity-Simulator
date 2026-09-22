@@ -933,7 +933,7 @@ private:
 				float pr = static_cast<float>(style.point_pixel_radius);
 				if (ImGui::SliderFloat("Marker Pixel Radius", &pr, 1.0f, 20.0f, "%.1f")) style.point_pixel_radius = pr;
 			} else {
-				const char* sphere_styles[] = {"Opaque", "Translucent", "Wireframe Cage"};
+				const char* sphere_styles[] = {"Opaque", "Translucent", "Wireframe Cage", "Realistic Shaded", "Gradient Fill"};
 				int sphere_idx = static_cast<int>(style.sphere_style);
 				if (ImGui::Combo("Sphere Style", &sphere_idx, sphere_styles, IM_ARRAYSIZE(sphere_styles))) {
 					style.sphere_style = static_cast<SchematicSphereStyle>(sphere_idx);
@@ -947,6 +947,35 @@ private:
 					if (ImGui::SliderInt("Wireframe Rings", &rings, 2, 16)) style.wireframe_rings = rings;
 					int segs = style.wireframe_segments;
 					if (ImGui::SliderInt("Wireframe Segments", &segs, 8, 64)) style.wireframe_segments = segs;
+				}
+				if (style.sphere_style == SchematicSphereStyle::RealisticShaded) {
+					if (ImGui::TreeNode("Shading Pipeline Configuration")) {
+						ImGui::SliderFloat("Ambient Strength", &style.shading.ambient_strength, 0.0f, 1.0f, "%.2f");
+						ImGui::SliderFloat("Diffuse Strength", &style.shading.diffuse_strength, 0.0f, 2.0f, "%.2f");
+						ImGui::SliderFloat("Specular Strength", &style.shading.specular_strength, 0.0f, 2.0f, "%.2f");
+						ImGui::SliderFloat("Specular Shininess", &style.shading.specular_shininess, 1.0f, 128.0f, "%.1f");
+						ImGui::SliderFloat("Limb Darkening Power", &style.shading.limb_darkening_power, 0.0f, 1.0f, "%.2f");
+						ImGui::InputFloat3("Light Direction Vector", style.shading.light_direction.data());
+						ImGui::Checkbox("Use Secondary Color as Shadow Tint", &style.shading.use_secondary_color_as_shadow);
+						ImGui::TreePop();
+					}
+				}
+				if (style.sphere_style == SchematicSphereStyle::GradientFill) {
+					if (ImGui::TreeNode("Gradient Configuration")) {
+						ImGui::Checkbox("Radial Gradient", &style.gradient_radial);
+						if (!style.gradient_radial) {
+							ImGui::SliderFloat("Gradient Angle", &style.gradient_angle_deg, 0.0f, 360.0f, "%.1f deg");
+						}
+						for (size_t s = 0; s < style.gradient_stops.size(); ++s) {
+							ImGui::PushID(static_cast<int>(s));
+							std::string stop_label = "Stop #" + std::to_string(s + 1) + " Pos";
+							ImGui::SliderFloat(stop_label.c_str(), &style.gradient_stops[s].position, 0.0f, 1.0f, "%.2f");
+							std::string col_label = "Stop #" + std::to_string(s + 1) + " Color";
+							ImGui::ColorEdit4(col_label.c_str(), style.gradient_stops[s].color.data());
+							ImGui::PopID();
+						}
+						ImGui::TreePop();
+					}
 				}
 
 				if (style.shape == SchematicObjectShape::SphereFixedRadius) {
@@ -968,12 +997,49 @@ private:
 				if (ImGui::SliderFloat("Max Pixel Radius", &max_px, 10.0f, 400.0f, "%.1f")) style.sphere_max_pixel_radius = max_px;
 			}
 
+			if (ImGui::TreeNode("Body Outline & Glow Style")) {
+				ImGui::Checkbox("Enable Perimeter Outline", &style.outline.enabled);
+				if (style.outline.enabled) {
+					ImGui::ColorEdit4("Outline Color", style.outline.color.data());
+					ImGui::SliderFloat("Outline Thickness", &style.outline.thickness, 0.5f, 10.0f, "%.1f px");
+					ImGui::Checkbox("Enable Outer Edge Glow", &style.outline.glow_enabled);
+					if (style.outline.glow_enabled) {
+						ImGui::SliderFloat("Glow Expansion Radius", &style.outline.glow_radius, 1.0f, 30.0f, "%.1f px");
+						ImGui::ColorEdit4("Glow Color", style.outline.glow_color.data());
+						ImGui::SliderFloat("Glow Alpha Multiplier", &style.outline.glow_alpha, 0.05f, 1.0f, "%.2f");
+					}
+				}
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Body Outer Ambient Halo")) {
+				ImGui::SliderFloat("Halo Strength", &style.halo_strength, 0.0f, 2.0f, "%.2f");
+				if (style.halo_strength > 0.0f) {
+					ImGui::ColorEdit4("Halo Color", style.halo_color.data());
+					ImGui::SliderFloat("Halo Radius Multiplier", &style.halo_radius_factor, 1.1f, 5.0f, "%.2fx");
+				}
+				ImGui::TreePop();
+			}
+
 			const char* color_modes[] = {"Body Color", "By Mass", "By Speed", "By Spin Magnitude", "By Distance From Center", "By Kinetic Energy", "Physical: Temperature", "Physical: Charge", "Physical: Density", "Physical: Intelligent Composite"};
 			int color_idx = static_cast<int>(style.color_mode);
 			if (ImGui::Combo("Color Coding", &color_idx, color_modes, IM_ARRAYSIZE(color_modes))) {
 				style.color_mode = static_cast<SchematicColorCodingMode>(color_idx);
 			}
 			ImGui::ColorEdit4("Base / Fallback Color", style.uniform_color.data());
+
+			if (style.color_mode == SchematicColorCodingMode::ByPhysicalIntelligent) {
+				if (ImGui::TreeNode("Physical Intelligence Color Mode Info")) {
+					ImGui::TextWrapped("PhysColorize engine calculates body surface color dynamically from physical attributes:");
+					ImGui::BulletText("Temperature: Blackbody radiation lookup (Wien's law from 800K to 40,000K).");
+					ImGui::BulletText("Composition: Shift based on material type ('H'=cyan, 'C'=reddish, 'R'=ochre, 'M'=silver, 'N'=violet).");
+					ImGui::BulletText("Charge: Positive charge shifts to warm gold; negative charge shifts to cool violet.");
+					ImGui::BulletText("Spin: Relativistic polarization blue boost proportional to angular momentum.");
+					ImGui::BulletText("Density: Scales perceptual brightness (high density = high luminosity).");
+					ImGui::BulletText("Gravitational Redshift: Compactness ratio (2M/r) shifts spectrum towards red.");
+					ImGui::TreePop();
+				}
+			}
 
 			ImGui::Separator();
 			ImGui::Checkbox("Show Tag", &style.show_tag);

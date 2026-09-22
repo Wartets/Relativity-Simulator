@@ -507,12 +507,13 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Free Fly 6-DOF Axis Speeds:");
-		float ff_fwd = static_cast<float>(cfg.free_fly.forward_speed);
-		if (ImGui::SliderFloat("Forward/Back Speed", &ff_fwd, 0.1f, 200.0f, "%.1f")) cfg.free_fly.forward_speed = static_cast<double>(ff_fwd);
-		float ff_lat = static_cast<float>(cfg.free_fly.lateral_speed);
-		if (ImGui::SliderFloat("Left/Right Speed", &ff_lat, 0.1f, 200.0f, "%.1f")) cfg.free_fly.lateral_speed = static_cast<double>(ff_lat);
-		float ff_vert = static_cast<float>(cfg.free_fly.vertical_speed);
-		if (ImGui::SliderFloat("Up/Down Speed", &ff_vert, 0.1f, 200.0f, "%.1f")) cfg.free_fly.vertical_speed = static_cast<double>(ff_vert);
+		const double ff_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
+		double ff_fwd = cfg.free_fly.forward_speed * ff_speed_scale_mps;
+		if (unit_aware_slider_double("Forward/Back Speed", &ff_fwd, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.forward_speed = ff_fwd / ff_speed_scale_mps;
+		double ff_lat = cfg.free_fly.lateral_speed * ff_speed_scale_mps;
+		if (unit_aware_slider_double("Left/Right Speed", &ff_lat, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.lateral_speed = ff_lat / ff_speed_scale_mps;
+		double ff_vert = cfg.free_fly.vertical_speed * ff_speed_scale_mps;
+		if (unit_aware_slider_double("Up/Down Speed", &ff_vert, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.vertical_speed = ff_vert / ff_speed_scale_mps;
 		bool ff_invert_vert = cfg.free_fly.invert_vertical;
 		if (ImGui::Checkbox("Invert Up/Down Keys", &ff_invert_vert)) cfg.free_fly.invert_vertical = ff_invert_vert;
 		ImGui::SameLine();
@@ -525,8 +526,9 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Orbit Center Mode:");
-		float orb_dist = static_cast<float>(cfg.orbit.orbit_distance_speed);
-		if (ImGui::SliderFloat("Zoom Speed", &orb_dist, 0.1f, 200.0f, "%.1f")) cfg.orbit.orbit_distance_speed = static_cast<double>(orb_dist);
+		const double orbit_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
+		double orb_dist = cfg.orbit.orbit_distance_speed * orbit_speed_scale_mps;
+		if (unit_aware_slider_double("Zoom Speed", &orb_dist, 0.1 * orbit_speed_scale_mps, 200.0 * orbit_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.orbit.orbit_distance_speed = orb_dist / orbit_speed_scale_mps;
 		float orb_pitch = static_cast<float>(cfg.orbit.pitch_speed_deg_s);
 		if (ImGui::SliderFloat("Pitch Speed", &orb_pitch, 1.0f, 180.0f, "%.1f deg/s")) cfg.orbit.pitch_speed_deg_s = static_cast<double>(orb_pitch);
 		float orb_yaw = static_cast<float>(cfg.orbit.yaw_speed_deg_s);

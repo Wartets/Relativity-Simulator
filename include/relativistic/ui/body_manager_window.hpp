@@ -586,11 +586,14 @@ private:
 		ImGui::TextDisabled("Metric: %s", orchestrator_.active_metric_name().c_str());
 		ImGui::Separator();
 
-		float mass = static_cast<float>(params.mass);
-		if (slider_float_with_input("Central Mass (M)", &mass, 0.001f, 1.0e6f, "%.4f", &central_mass_log_mode_, 1e-12f, 1e36f)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, static_cast<double>(mass)))));
+		{
+			const double central_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+			double central_mass_kg = static_cast<double>(params.mass) * central_mass_scale_kg;
+			if (unit_aware_slider_double("Central Mass (M)", &central_mass_kg, 0.001 * central_mass_scale_kg, 1.0e6 * central_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &central_mass_log_mode_, 1e-12 * central_mass_scale_kg, 1e36 * central_mass_scale_kg)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, central_mass_kg / central_mass_scale_kg))));
+			}
 		}
-		render_setting_tooltip("Central gravitating mass in geometrized units. Governs the Schwarzschild radius rs = 2M and the overall curvature strength.");
+		render_setting_tooltip(("Central gravitating mass, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ". Governs the Schwarzschild radius rs = 2M and the overall curvature strength.").c_str());
 
 		float spin = static_cast<float>(params.spin);
 		const float spin_bound = static_cast<float>(0.999 * params.mass);
@@ -599,13 +602,13 @@ private:
 		}
 		render_setting_tooltip("Specific angular momentum a = J / M, clamped to the subextremal range. Only meaningful for Kerr-family metrics.");
 
-		float charge = static_cast<float>(params.charge);
-		if (slider_float_with_input("Electric Charge (Q)", &charge, -10.0f, 10.0f, "%.4f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge))));
+		{
+			double charge_disp = static_cast<double>(params.charge);
+			if (unit_aware_slider_double("Electric Charge (Q)", &charge_disp, -10.0, 10.0, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.4f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, charge_disp)));
+			}
 		}
-		render_setting_tooltip("Net electrostatic charge. Only meaningful for Reissner-Nordstrom and Kerr-Newman metrics.");
-		const std::string central_charge_display = Units::format_charge(static_cast<double>(charge), orchestrator_.unit_preferences().charge);
-		ImGui::TextDisabled("%s", central_charge_display.c_str());
+		render_setting_tooltip(("Net electrostatic charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ". Only meaningful for Reissner-Nordstrom and Kerr-Newman metrics.").c_str());
 
 		ImGui::Spacing();
 		if (ImGui::Button("Look At Central Object", ImVec2(-1.0f, 26.0f))) {
@@ -730,12 +733,15 @@ private:
 		}
 		render_setting_tooltip("Fourth-degree zonal harmonic coefficient, a smaller correction to the oblateness perturbation.");
 
-		float r_ref = static_cast<float>(b.reference_radius);
-		if (slider_float_with_input("Multipole Reference Radius", &r_ref, 0.001f, 1.0e5f, "%.4f", &selected_r_ref_log_mode_, 1e-6f, 1e12f)) {
-			b.reference_radius = std::max(1e-6, static_cast<double>(r_ref));
-			changed = true;
+		{
+			const double body_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
+			double r_ref_m = b.reference_radius * body_r_ref_scale_m;
+			if (unit_aware_slider_double("Multipole Reference Radius", &r_ref_m, 0.001 * body_r_ref_scale_m, 1.0e5 * body_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &selected_r_ref_log_mode_, 1e-6 * body_r_ref_scale_m, 1e12 * body_r_ref_scale_m)) {
+				b.reference_radius = std::max(1e-6, r_ref_m / body_r_ref_scale_m);
+				changed = true;
+			}
 		}
-		render_setting_tooltip("Reference radius at which the zonal harmonic coefficients above are defined, typically the body's equatorial radius.");
+		render_setting_tooltip(("Reference radius, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ", at which the zonal harmonic coefficients above are defined, typically the body's equatorial radius.").c_str());
 
 		if (ImGui::CollapsingHeader("Material, Thermal & Electromagnetic Properties")) {
 			double charge_disp = static_cast<double>(b.charge);
@@ -826,18 +832,28 @@ private:
 		ImGui::Separator();
 		ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
 		render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
-		if (slider_float_with_input("Mass (kg / Geometrized)", &new_body_mass_, 0.001f, 1.0e6f, "%.4f", &new_body_mass_log_mode_, 1e-12f, 1e36f)) {
-			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-				const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-				new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+		{
+			const double creation_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+			double new_body_mass_kg = static_cast<double>(new_body_mass_) * creation_mass_scale_kg;
+			if (unit_aware_slider_double("Mass", &new_body_mass_kg, 0.001 * creation_mass_scale_kg, 1.0e6 * creation_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &new_body_mass_log_mode_, 1e-12 * creation_mass_scale_kg, 1e36 * creation_mass_scale_kg)) {
+				new_body_mass_ = static_cast<float>(new_body_mass_kg / creation_mass_scale_kg);
+				if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+					const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+					std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+					new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+				}
 			}
 		}
-		if (slider_float_with_input("Physical Radius", &new_body_radius_, 0.001f, 1.0e5f, "%.4f", &new_body_radius_log_mode_, 1e-6f, 1e12f)) {
-			if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-				const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-				std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-				new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+		{
+			const double creation_length_scale_m = orchestrator_.constants_engine().length_scale();
+			double new_body_radius_m = static_cast<double>(new_body_radius_) * creation_length_scale_m;
+			if (unit_aware_slider_double("Physical Radius", &new_body_radius_m, 0.001 * creation_length_scale_m, 1.0e5 * creation_length_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_radius_log_mode_, 1e-6 * creation_length_scale_m, 1e12 * creation_length_scale_m)) {
+				new_body_radius_ = static_cast<float>(new_body_radius_m / creation_length_scale_m);
+				if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+					const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+					std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+					new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+				}
 			}
 		}
 		ImGui::InputFloat3("Initial Position (x, y, z)", new_body_pos_);
@@ -862,7 +878,13 @@ private:
 		slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
 		slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
 		slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
-		slider_float_with_input("Reference Radius", &new_body_r_ref_, 0.001f, 1.0e5f, "%.4f", &new_body_r_ref_log_mode_, 1e-6f, 1e12f);
+		{
+			const double creation_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
+			double new_body_r_ref_m = static_cast<double>(new_body_r_ref_) * creation_r_ref_scale_m;
+			if (unit_aware_slider_double("Reference Radius", &new_body_r_ref_m, 0.001 * creation_r_ref_scale_m, 1.0e5 * creation_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_r_ref_log_mode_, 1e-6 * creation_r_ref_scale_m, 1e12 * creation_r_ref_scale_m)) {
+				new_body_r_ref_ = static_cast<float>(new_body_r_ref_m / creation_r_ref_scale_m);
+			}
+		}
 		render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
 
 		ImGui::Spacing();

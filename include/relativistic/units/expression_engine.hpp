@@ -75,7 +75,7 @@ struct UnitToken {
 
 class UnitRegistry {
 private:
-	static constexpr std::array<UnitToken, 47> kUnits{{
+	static constexpr std::array<UnitToken, 60> kUnits{{
 		{"m", 1.0, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
 		{"km", 1000.0, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
 		{"cm", 0.01, 0.0, DimensionVector{1, 0, 0, 0, 0, 0}},
@@ -122,7 +122,20 @@ private:
 		{"rev", 6.283185307179586, 0.0, DimensionVector{0, 0, 0, 0, 0, 1}},
 		{"mrad", 0.001, 0.0, DimensionVector{0, 0, 0, 0, 0, 1}},
 		{"j", 1.0, 0.0, DimensionVector{2, 1, -2, 0, 0, 0}},
-		{"n", 1.0, 0.0, DimensionVector{1, 1, -2, 0, 0, 0}}
+		{"n", 1.0, 0.0, DimensionVector{1, 1, -2, 0, 0, 0}},
+		{"w", 1.0, 0.0, DimensionVector{2, 1, -3, 0, 0, 0}},
+		{"kw", 1000.0, 0.0, DimensionVector{2, 1, -3, 0, 0, 0}},
+		{"mw", 1.0e-3, 0.0, DimensionVector{2, 1, -3, 0, 0, 0}},
+		{"hz", 1.0, 0.0, DimensionVector{0, 0, -1, 0, 0, 0}},
+		{"khz", 1000.0, 0.0, DimensionVector{0, 0, -1, 0, 0, 0}},
+		{"mhz", 1.0e6, 0.0, DimensionVector{0, 0, -1, 0, 0, 0}},
+		{"ghz", 1.0e9, 0.0, DimensionVector{0, 0, -1, 0, 0, 0}},
+		{"pa", 1.0, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
+		{"kpa", 1000.0, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
+		{"mpa", 1.0e6, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
+		{"bar", 1.0e5, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
+		{"atm", 101325.0, 0.0, DimensionVector{-1, 1, -2, 0, 0, 0}},
+		{"coul", 1.0, 0.0, DimensionVector{0, 0, 1, 1, 0, 0}}
 	}};
 
 public:
@@ -527,6 +540,14 @@ namespace Dimensions {
 	inline constexpr DimensionVector Charge{0, 0, 1, 1, 0, 0};
 	inline constexpr DimensionVector Energy{2, 1, -2, 0, 0, 0};
 	inline constexpr DimensionVector Force{1, 1, -2, 0, 0, 0};
+	inline constexpr DimensionVector Power{2, 1, -3, 0, 0, 0};
+	inline constexpr DimensionVector Frequency{0, 0, -1, 0, 0, 0};
+	inline constexpr DimensionVector Pressure{-1, 1, -2, 0, 0, 0};
+	inline constexpr DimensionVector Acceleration{1, 0, -2, 0, 0, 0};
+	inline constexpr DimensionVector GravitationalConstant{3, -1, -2, 0, 0, 0};
+	inline constexpr DimensionVector PlanckAction{2, 1, -1, 0, 0, 0};
+	inline constexpr DimensionVector BoltzmannConstant{2, 1, -2, 0, -1, 0};
+	inline constexpr DimensionVector CoulombConstant{3, 1, -4, -2, 0, 0};
 }
 
 }

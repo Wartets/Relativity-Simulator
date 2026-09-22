@@ -5,9 +5,11 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
 #include <imgui.h>
 #include <cmath>
 #include <algorithm>
+#include <string>
 
 namespace Relativistic::UI {
 
@@ -15,6 +17,16 @@ class ConstantsWindow {
 private:
 	bool is_open_{false};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
+	double c_quantity_{0.0};
+	double g_quantity_{0.0};
+	double h_quantity_{0.0};
+	double kb_quantity_{0.0};
+	double ke_quantity_{0.0};
+	std::string c_expr_error_{};
+	std::string g_expr_error_{};
+	std::string h_expr_error_{};
+	std::string kb_expr_error_{};
+	std::string ke_expr_error_{};
 
 	[[nodiscard]] static float value_to_slider(double value, double min_val, double max_val) noexcept {
 		if (value <= 0.0) return 0.0f;
@@ -44,6 +56,9 @@ private:
 		}
 		ImGui::SameLine();
 		ImGui::TextUnformatted(label);
+		ImGui::SameLine();
+		ImGui::TextDisabled("(?)");
+		render_setting_tooltip("Adjust this simulation constant using either the logarithmic slider or the numeric input. The value is constrained to the supported range of this control. Unit-aware editing is available in the quantity field directly below when the constant has a dimensional representation.");
 		ImGui::PopID();
 	}
 
@@ -85,26 +100,54 @@ public:
 		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Editable Base Constants (Simulation Units)");
-		ImGui::TextDisabled("Every derived constant and scaling factor below updates automatically when any of these change.");
+		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Editable Base Constants");
+		ImGui::TextDisabled("Set each constant numerically or use the unit-aware field below it. Derived values and scale factors update automatically.");
+		ImGui::Spacing();
 
 		render_log_constant_slider("Speed of Light (c)", engine.sim_speed_of_light(), 1e-6, 1e12, Orchestrator::ParameterType::ConstantSimC);
 		render_setting_tooltip("Fundamental speed limit of the simulated spacetime. Changing this rescales the time and length unit conversion factors (T0, L0) relative to real-world SI values.");
+		c_quantity_ = engine.sim_speed_of_light();
+		if (smart_quantity_input("c  [dim: L T^-1]", &c_quantity_, Units::Dimensions::Velocity, c_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimC, c_quantity_)));
+		}
+		render_setting_tooltip("Enter the speed of light as a plain value or as a unit-aware expression, for example \"299792458 m/s\". The value must have dimensions of velocity. Changing c updates the simulation time and length scaling factors.");
 
 		render_log_constant_slider("Gravitational Constant (G)", engine.sim_gravitational_constant(), 1e-20, 1e20, Orchestrator::ParameterType::ConstantSimG);
 		render_setting_tooltip("Strength of gravitational coupling. Directly scales the mass unit conversion factor (M0) and every Schwarzschild radius computed by the engine.");
+		g_quantity_ = engine.sim_gravitational_constant();
+		if (smart_quantity_input("G  [dim: L^3 M^-1 T^-2]", &g_quantity_, Units::Dimensions::GravitationalConstant, g_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimG, g_quantity_)));
+		}
+		render_setting_tooltip("Enter the gravitational constant as a plain value or as a unit-aware expression, for example \"6.674e-11 m^3/(kg*s^2)\". The value must have dimensions of gravitational constant.");
 
 		render_log_constant_slider("Planck Constant (h)", engine.sim_planck_constant(), 1e-40, 1e10, Orchestrator::ParameterType::ConstantSimH);
 		render_setting_tooltip("Quantum of action. Governs the reduced Planck constant (hbar), the time unit scale (T0), and the Stefan-Boltzmann constant derived below.");
+		h_quantity_ = engine.sim_planck_constant();
+		if (smart_quantity_input("h  [dim: L^2 M T^-1]", &h_quantity_, Units::Dimensions::PlanckAction, h_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimH, h_quantity_)));
+		}
+		render_setting_tooltip("Enter Planck's constant as a plain value or as a unit-aware expression, for example \"6.62607015e-34 J*s\". The value must have dimensions of action.");
 
 		render_log_constant_slider("Boltzmann Constant (kB)", engine.sim_boltzmann_constant(), 1e-30, 1e10, Orchestrator::ParameterType::ConstantSimKB);
 		render_setting_tooltip("Relates thermal energy to temperature. Scales the temperature unit conversion factor (K0) and the Stefan-Boltzmann radiation constant.");
+		kb_quantity_ = engine.sim_boltzmann_constant();
+		if (smart_quantity_input("kB  [dim: L^2 M T^-2 Theta^-1]", &kb_quantity_, Units::Dimensions::BoltzmannConstant, kb_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimKB, kb_quantity_)));
+		}
+		render_setting_tooltip("Enter the Boltzmann constant as a plain value or as a unit-aware expression, for example \"1.380649e-23 J/K\". The value must have dimensions of energy per temperature.");
 
 		render_log_constant_slider("Avogadro Constant (NA)", engine.sim_avogadro_constant(), 1e10, 1e30, Orchestrator::ParameterType::ConstantSimNA);
 		render_setting_tooltip("Number of elementary entities per mole. Sets the amount-of-substance unit conversion factor (N0). Rarely needs adjustment for relativistic simulations.");
 
+		ImGui::Spacing();
+
 		render_log_constant_slider("Coulomb Constant (Ke)", engine.sim_coulomb_constant(), 1e-6, 1e20, Orchestrator::ParameterType::ConstantSimKe);
 		render_setting_tooltip("Electrostatic coupling strength. Governs the charge unit conversion factor (Q0), vacuum permittivity, vacuum permeability, and the magnetic coupling constant.");
+		ke_quantity_ = engine.sim_coulomb_constant();
+		if (smart_quantity_input("Ke  [dim: L^3 M T^-4 I^-2]", &ke_quantity_, Units::Dimensions::CoulombConstant, ke_expr_error_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ConstantSimKe, ke_quantity_)));
+		}
+		render_setting_tooltip("Enter the Coulomb constant as a plain value or as a unit-aware expression, for example \"8.9875517923e9 N*m^2/C^2\". The value must have the dimensions of the Coulomb constant.");
 
 		render_log_constant_slider("Luminous Efficacy (Kcd)", engine.sim_luminous_efficacy(), 1e-6, 1e6, Orchestrator::ParameterType::ConstantSimKcd);
 		render_setting_tooltip("Luminous intensity scale. Sets the I0 dimensional coefficient used for photometric quantities.");

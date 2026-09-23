@@ -81,7 +81,7 @@ struct alignas(16) GpuCameraPushConstants {
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
 	double space_skip_radius_scale{40.0};
-	double pole_guard_precision_scale{2.5};
+	double pole_guard_precision_scale{0.7};
 	double far_field_step_scale{2.0};
 	double time{0.0};
 	double body_atmosphere_global_intensity{1.0};
@@ -165,6 +165,12 @@ struct alignas(16) GpuBodyData {
 	uint32_t surface_texture_mode{0};
 	uint32_t atmosphere_mode{0};
 	uint32_t preset_3d{0};
+
+	std::array<double, 4> color_tertiary{0.9, 0.85, 0.6, 1.0};
+	double texture_detail_scale{1.0};
+	double polar_cap_strength{0.0};
+	double ring_system_enabled{0.0};
+	double night_side_light_intensity{0.0};
 };
 
 struct alignas(16) GpuBodyGpuLayout {

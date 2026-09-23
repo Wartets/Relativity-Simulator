@@ -66,7 +66,7 @@ struct PhysicalParameters {
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
 	uint32_t rolling_average_frame_count{10};
-	double render_distance_scale{100.0};
+	double render_distance_scale{470.0};
 	bool lod_enabled{false};
 	double lod_distance_scale{400.0};
 	uint32_t lod_reduced_ray_steps{256};
@@ -76,7 +76,7 @@ struct PhysicalParameters {
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{40.0};
-	double pole_guard_precision_scale{2.5};
+	double pole_guard_precision_scale{0.7};
 	double far_field_step_scale{2.0};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{false};

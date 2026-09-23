@@ -27,7 +27,13 @@ enum class Body3DSurfaceTextureMode : uint32_t {
 	BandedGasGiant      = 3,
 	CrateredTerrestrial = 4,
 	StellarGranulation  = 5,
-	AccretionFlow       = 6
+	AccretionFlow       = 6,
+	MarbledStone        = 7,
+	RingedGasGiant      = 8,
+	IcyCracked          = 9,
+	VolcanicMagma       = 10,
+	CityLightsNightSide = 11,
+	NebulousGas         = 12
 };
 
 enum class Body3DAtmosphereMode : uint32_t {
@@ -103,6 +109,11 @@ struct alignas(64) PostNewtonianBody {
 	float specular_roughness{0.3f};
 	float rotation_speed_3d{0.1f};
 	std::array<double, 3> rotation_axis_3d{0.0, 0.0, 1.0};
+	std::array<float, 4> color_tertiary{0.9f, 0.85f, 0.6f, 1.0f};
+	float texture_detail_scale{1.0f};
+	float polar_cap_strength{0.0f};
+	bool ring_system_enabled{false};
+	float night_side_light_intensity{0.0f};
 
 	void set_name(std::string_view new_name) noexcept {
 		const size_t len = std::min(new_name.size(), name.size() - 1);
@@ -180,6 +191,11 @@ struct alignas(64) PostNewtonianBody {
 		gpu.emission_intensity = static_cast<double>(emission_intensity);
 		gpu.rotation_speed = static_cast<double>(rotation_speed_3d);
 		gpu.oblateness_ratio = (std::abs(j2) > 1e-9) ? (1.0 - j2) : 1.0;
+		gpu.color_tertiary = {color_tertiary[0], color_tertiary[1], color_tertiary[2], color_tertiary[3]};
+		gpu.texture_detail_scale = static_cast<double>(texture_detail_scale);
+		gpu.polar_cap_strength = static_cast<double>(polar_cap_strength);
+		gpu.ring_system_enabled = ring_system_enabled ? 1.0 : 0.0;
+		gpu.night_side_light_intensity = static_cast<double>(night_side_light_intensity);
 		gpu.body_id = id;
 		gpu.geometry_model = static_cast<uint32_t>(geometry_model);
 		gpu.surface_texture_mode = static_cast<uint32_t>(surface_texture_mode);

@@ -31,7 +31,7 @@ private:
 	int motion_quality_mode_{1};
 	float motion_quality_scale_{0.65f};
 	int step_controller_mode_{1};
-	float pole_guard_precision_{2.5f};
+	float pole_guard_precision_{0.7f};
 	float far_field_step_scale_{1.0f};
 	bool interlace_enabled_{false};
 
@@ -201,7 +201,7 @@ public:
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.9f, 0.55f, 0.85f, 1.0f), "Polar Region Integration Precision");
-			if (slider_float_with_input("Polar Step Damping Strength", &pole_guard_precision_, 0.5f, 8.0f, "%.2f")) {
+			if (slider_float_with_input("Polar Step Damping Strength", &pole_guard_precision_, 0.15f, 8.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, static_cast<double>(pole_guard_precision_))));
 			}
 			render_setting_tooltip("Strengthens the automatic step-size reduction applied near the coordinate poles (theta near 0 or pi) for both the CPU solver and the Vulkan GPU compute shader. Higher values suppress the thin bright artifact line sometimes visible through the poles of a black hole, at a small performance cost. The default is already set high enough to resolve this artifact under most conditions.");

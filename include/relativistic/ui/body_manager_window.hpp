@@ -74,11 +74,16 @@ private:
 	Dynamics::Body3DAtmosphereMode new_body_atmosphere_mode_{Dynamics::Body3DAtmosphereMode::Off};
 	float new_body_color_[4]{0.62f, 0.75f, 1.0f, 1.0f};
 	float new_body_color_secondary_[4]{0.18f, 0.30f, 0.75f, 1.0f};
+	float new_body_color_tertiary_[4]{0.9f, 0.85f, 0.6f, 1.0f};
 	float new_body_noise_scale_{4.0f};
 	float new_body_surface_roughness_{0.5f};
 	float new_body_atmosphere_thickness_{0.15f};
 	float new_body_emission_intensity_{0.0f};
 	float new_body_rotation_speed_3d_{0.1f};
+	float new_body_texture_detail_scale_{1.0f};
+	float new_body_polar_cap_strength_{0.0f};
+	float new_body_night_side_light_intensity_{0.0f};
+	bool new_body_ring_system_enabled_{false};
 	bool new_body_mass_log_mode_{true};
 	bool new_body_radius_log_mode_{true};
 	bool new_body_r_ref_log_mode_{true};
@@ -562,10 +567,175 @@ private:
 		std::strncpy(new_body_name_, unique.c_str(), sizeof(new_body_name_) - 1);
 		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
 
+		const float tertiary_hue = std::fmod(primary_hue + static_cast<float>(random_real(0.25, 0.55)) + 1.0f, 1.0f);
+		const auto tertiary_rgb = hsv_to_rgb(tertiary_hue, static_cast<float>(std::clamp(sat * 0.6, 0.0, 1.0)), static_cast<float>(std::clamp(val * 1.1, 0.0, 1.0)));
+		new_body_color_tertiary_[0] = tertiary_rgb[0];
+		new_body_color_tertiary_[1] = tertiary_rgb[1];
+		new_body_color_tertiary_[2] = tertiary_rgb[2];
+		new_body_color_tertiary_[3] = 1.0f;
+		new_body_texture_detail_scale_ = static_cast<float>(random_real(0.6, 2.2));
+		new_body_polar_cap_strength_ = (archetype == 2 || archetype == 3) ? static_cast<float>(random_real(0.1, 0.5)) : 0.0f;
+		new_body_night_side_light_intensity_ = (archetype == 2) ? static_cast<float>(random_real(0.0, 0.6)) : 0.0f;
+		new_body_ring_system_enabled_ = (archetype == 3) && (random_int(0, 1) == 0);
+
 		creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
 		new_body_mass_log_mode_ = true;
 		new_body_radius_log_mode_ = true;
 		new_body_r_ref_log_mode_ = true;
+	}
+
+	static void apply_body_preset_defaults(Dynamics::PostNewtonianBody& b, Dynamics::Body3DPreset preset) noexcept {
+		switch (preset) {
+			case Dynamics::Body3DPreset::Star:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::GlowingCorona;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::StellarGranulation;
+				b.color = {1.0f, 0.85f, 0.5f, 1.0f};
+				b.color_secondary = {1.0f, 0.0f, 0.0f, 1.0f};
+				b.color_tertiary = {1.0f, 0.95f, 0.7f, 1.0f};
+				b.surface_noise_scale = 20.0f;
+				b.surface_roughness = 0.82f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 2.11f;
+				b.rotation_speed_3d = 0.05f;
+				b.specular_roughness = 1.0f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::TerrestrialPlanet:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::ProceduralNoise;
+				b.color = {0.10f, 0.35f, 0.65f, 1.0f};
+				b.color_secondary = {0.20f, 0.50f, 0.22f, 1.0f};
+				b.color_tertiary = {0.95f, 0.95f, 0.98f, 1.0f};
+				b.surface_noise_scale = 10.9f;
+				b.surface_roughness = 0.05f;
+				b.atmosphere_thickness = 0.18f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.12f;
+				b.specular_roughness = 0.2f;
+				b.polar_cap_strength = 0.45f;
+				b.night_side_light_intensity = 0.4f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::GasGiant:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::ThickHaze;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::RingedGasGiant;
+				b.color = {0.82f, 0.65f, 0.45f, 1.0f};
+				b.color_secondary = {0.62f, 0.40f, 0.24f, 1.0f};
+				b.color_tertiary = {0.58f, 0.29f, 0.0f, 1.0f};
+				b.surface_noise_scale = 20.0f;
+				b.surface_roughness = 0.3f;
+				b.atmosphere_thickness = 0.32f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.35f;
+				b.specular_roughness = 0.5f;
+				b.polar_cap_strength = 0.2f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = true;
+				break;
+			case Dynamics::Body3DPreset::IceGiant:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::VolumetricMie;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::IcyCracked;
+				b.color = {0.55f, 0.75f, 0.90f, 1.0f};
+				b.color_secondary = {0.35f, 0.55f, 0.80f, 1.0f};
+				b.color_tertiary = {0.90f, 0.97f, 1.0f, 1.0f};
+				b.surface_noise_scale = 4.0f;
+				b.surface_roughness = 1.0f;
+				b.atmosphere_thickness = 0.22f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.28f;
+				b.specular_roughness = 0.15f;
+				b.polar_cap_strength = 0.1f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::Metallic:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::CrateredTerrestrial;
+				b.color = {0.55f, 0.55f, 0.58f, 1.0f};
+				b.color_secondary = {0.32f, 0.32f, 0.35f, 1.0f};
+				b.color_tertiary = {0.75f, 0.75f, 0.78f, 1.0f};
+				b.surface_noise_scale = 7.0f;
+				b.surface_roughness = 0.75f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.03f;
+				b.specular_roughness = 0.35f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::Asteroid:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::CrateredTerrestrial;
+				b.color = {0.45f, 0.42f, 0.38f, 1.0f};
+				b.color_secondary = {0.28f, 0.26f, 0.23f, 1.0f};
+				b.color_tertiary = {0.60f, 0.56f, 0.50f, 1.0f};
+				b.surface_noise_scale = 20.0f;
+				b.surface_roughness = 1.0f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.4f;
+				b.specular_roughness = 0.85f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::NeutronStar:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::StellarGranulation;
+				b.color = {0.85f, 0.90f, 1.0f, 1.0f};
+				b.color_secondary = {0.55f, 0.72f, 1.0f, 1.0f};
+				b.color_tertiary = {1.0f, 1.0f, 1.0f, 1.0f};
+				b.surface_noise_scale = 15.0f;
+				b.surface_roughness = 0.15f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 3.0f;
+				b.rotation_speed_3d = 1.8f;
+				b.specular_roughness = 1.0f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::Pulsar:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::StellarGranulation;
+				b.color = {0.65f, 0.80f, 1.0f, 1.0f};
+				b.color_secondary = {0.40f, 0.55f, 1.0f, 1.0f};
+				b.color_tertiary = {1.0f, 1.0f, 1.0f, 1.0f};
+				b.surface_noise_scale = 1.2f;
+				b.surface_roughness = 0.1f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 4.0f;
+				b.rotation_speed_3d = 6.0f;
+				b.specular_roughness = 1.0f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::BlackHole:
+				b.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+				b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::SolidColor;
+				b.color = {0.0f, 0.0f, 0.0f, 1.0f};
+				b.color_secondary = {0.03f, 0.03f, 0.04f, 1.0f};
+				b.color_tertiary = {0.04f, 0.04f, 0.03f, 1.0f};
+				b.surface_noise_scale = 15.0f;
+				b.surface_roughness = 0.79f;
+				b.atmosphere_thickness = 0.0f;
+				b.emission_intensity = 0.0f;
+				b.rotation_speed_3d = 0.0f;
+				b.specular_roughness = 0.0f;
+				b.polar_cap_strength = 0.0f;
+				b.night_side_light_intensity = 0.0f;
+				b.ring_system_enabled = false;
+				break;
+			case Dynamics::Body3DPreset::Custom:
+			default:
+				b.preset_3d = Dynamics::Body3DPreset::Custom;
+				return;
+		}
+		b.preset_3d = preset;
 	}
 
 	void render_body_list_tab() noexcept {
@@ -906,12 +1076,17 @@ private:
 			const char* preset_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
 			int preset_idx = static_cast<int>(b.preset_3d);
 			if (ImGui::Combo("3D Surface Shader Preset", &preset_idx, preset_names, IM_ARRAYSIZE(preset_names))) {
-				b.preset_3d = static_cast<Dynamics::Body3DPreset>(preset_idx);
+				apply_body_preset_defaults(b, static_cast<Dynamics::Body3DPreset>(preset_idx));
 				changed = true;
 			}
-			render_setting_tooltip("Selects the procedural 3D surface shader model applied during physical ray-tracing.");
+			render_setting_tooltip("Selects the procedural 3D surface shader model applied during physical ray-tracing, and instantly applies a matched color palette, roughness, emission, and atmosphere profile for that body type.");
 
-			const char* tex_modes[] = {"Procedural Noise Shader", "Color Palette", "Solid Color"};
+			const char* tex_modes[] = {
+				"Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
+				"Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
+				"Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
+				"City Lights (Night Side)", "Nebulous Gas Cloud"
+			};
 			int tex_idx = static_cast<int>(b.surface_texture_mode);
 			if (ImGui::Combo("Surface Texture Mode", &tex_idx, tex_modes, IM_ARRAYSIZE(tex_modes))) {
 				b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(tex_idx);
@@ -932,6 +1107,16 @@ private:
 			if (ImGui::SliderFloat("Specular Roughness", &b.specular_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
 			if (ImGui::SliderFloat("Emission Intensity", &b.emission_intensity, 0.0f, 5.0f, "%.2f")) changed = true;
 			if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, 0.0f, 2.0f, "%.3f rad/s")) changed = true;
+			if (ImGui::ColorEdit4("Tertiary Surface Color", b.color_tertiary.data())) changed = true;
+			render_setting_tooltip("Third accent color used by Marbled, Ringed, Icy, Volcanic, and Nebulous texture modes for veins, polar caps, glow cracks, or cloud wisps.");
+			if (ImGui::SliderFloat("Texture Detail Scale", &b.texture_detail_scale, 0.1f, 5.0f, "%.2fx")) changed = true;
+			render_setting_tooltip("Multiplies the frequency of secondary surface patterns such as marble veining or gas giant banding.");
+			if (ImGui::SliderFloat("Polar Cap Strength", &b.polar_cap_strength, 0.0f, 1.0f, "%.2f")) changed = true;
+			render_setting_tooltip("Blends the tertiary color over the poles, used by Terrestrial and Ringed Gas Giant texture modes to depict ice caps or polar storm bands.");
+			if (ImGui::SliderFloat("Night Side City Lights", &b.night_side_light_intensity, 0.0f, 2.0f, "%.2f")) changed = true;
+			render_setting_tooltip("Adds a speckled glow on the unlit hemisphere, only visible with the City Lights (Night Side) texture mode.");
+			if (ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &b.ring_system_enabled)) changed = true;
+			render_setting_tooltip("Darkens a thin equatorial band on the Ringed Gas Giant texture mode to suggest a shadow cast by an orbiting ring plane.");
 		}
 
 		ImGui::Spacing();
@@ -1047,6 +1232,11 @@ private:
 		ImGui::SliderFloat("Atmosphere Thickness", &new_body_atmosphere_thickness_, 0.0f, 0.5f, "%.3f");
 		ImGui::SliderFloat("Emission Intensity", &new_body_emission_intensity_, 0.0f, 5.0f, "%.2f");
 		ImGui::SliderFloat("3D Rotation Speed", &new_body_rotation_speed_3d_, 0.0f, 2.0f, "%.3f rad/s");
+		ImGui::ColorEdit4("Tertiary Surface Color", new_body_color_tertiary_);
+		ImGui::SliderFloat("Texture Detail Scale", &new_body_texture_detail_scale_, 0.1f, 5.0f, "%.2fx");
+		ImGui::SliderFloat("Polar Cap Strength", &new_body_polar_cap_strength_, 0.0f, 1.0f, "%.2f");
+		ImGui::SliderFloat("Night Side City Lights", &new_body_night_side_light_intensity_, 0.0f, 2.0f, "%.2f");
+		ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &new_body_ring_system_enabled_);
 		render_setting_tooltip("Controls the procedural surface shader appearance used by the 3D ray-tracing pipeline once this body is spawned. The Randomize button above regenerates these values in harmony with the sampled physical archetype instead of leaving every body with the same default look.");
 
 		ImGui::Separator();
@@ -1105,6 +1295,11 @@ private:
 			body.atmosphere_thickness = new_body_atmosphere_thickness_;
 			body.emission_intensity = new_body_emission_intensity_;
 			body.rotation_speed_3d = new_body_rotation_speed_3d_;
+			body.color_tertiary = {new_body_color_tertiary_[0], new_body_color_tertiary_[1], new_body_color_tertiary_[2], new_body_color_tertiary_[3]};
+			body.texture_detail_scale = new_body_texture_detail_scale_;
+			body.polar_cap_strength = new_body_polar_cap_strength_;
+			body.night_side_light_intensity = new_body_night_side_light_intensity_;
+			body.ring_system_enabled = new_body_ring_system_enabled_;
 
 			sys.add_body(body);
 			sys.update_accelerations();
@@ -1404,6 +1599,11 @@ private:
 	}
 
 	void apply_template_preset(BodyPresetTemplate preset) noexcept {
+		new_body_color_tertiary_[0] = 0.9f; new_body_color_tertiary_[1] = 0.85f; new_body_color_tertiary_[2] = 0.6f; new_body_color_tertiary_[3] = 1.0f;
+		new_body_texture_detail_scale_ = 1.0f;
+		new_body_polar_cap_strength_ = 0.0f;
+		new_body_night_side_light_intensity_ = 0.0f;
+		new_body_ring_system_enabled_ = false;
 		switch (preset) {
 			case BodyPresetTemplate::Sun:
 				std::strncpy(new_body_name_, "Sun", sizeof(new_body_name_) - 1);
@@ -1431,11 +1631,14 @@ private:
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
 				new_body_color_[0] = 0.10f; new_body_color_[1] = 0.35f; new_body_color_[2] = 0.65f; new_body_color_[3] = 1.0f;
 				new_body_color_secondary_[0] = 0.20f; new_body_color_secondary_[1] = 0.50f; new_body_color_secondary_[2] = 0.22f; new_body_color_secondary_[3] = 1.0f;
+				new_body_color_tertiary_[0] = 0.95f; new_body_color_tertiary_[1] = 0.95f; new_body_color_tertiary_[2] = 0.98f; new_body_color_tertiary_[3] = 1.0f;
 				new_body_noise_scale_ = 5.0f;
 				new_body_surface_roughness_ = 0.45f;
 				new_body_atmosphere_thickness_ = 0.18f;
 				new_body_emission_intensity_ = 0.0f;
 				new_body_rotation_speed_3d_ = 0.12f;
+				new_body_polar_cap_strength_ = 0.45f;
+				new_body_night_side_light_intensity_ = 0.4f;
 				break;
 			case BodyPresetTemplate::Moon:
 				std::strncpy(new_body_name_, "Moon", sizeof(new_body_name_) - 1);
@@ -1464,11 +1667,14 @@ private:
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
 				new_body_color_[0] = 0.82f; new_body_color_[1] = 0.65f; new_body_color_[2] = 0.45f; new_body_color_[3] = 1.0f;
 				new_body_color_secondary_[0] = 0.62f; new_body_color_secondary_[1] = 0.40f; new_body_color_secondary_[2] = 0.24f; new_body_color_secondary_[3] = 1.0f;
+				new_body_color_tertiary_[0] = 0.92f; new_body_color_tertiary_[1] = 0.85f; new_body_color_tertiary_[2] = 0.75f; new_body_color_tertiary_[3] = 1.0f;
 				new_body_noise_scale_ = 3.5f;
 				new_body_surface_roughness_ = 0.3f;
 				new_body_atmosphere_thickness_ = 0.32f;
 				new_body_emission_intensity_ = 0.0f;
 				new_body_rotation_speed_3d_ = 0.35f;
+				new_body_polar_cap_strength_ = 0.2f;
+				new_body_ring_system_enabled_ = true;
 				break;
 			case BodyPresetTemplate::Mars:
 				std::strncpy(new_body_name_, "Mars", sizeof(new_body_name_) - 1);

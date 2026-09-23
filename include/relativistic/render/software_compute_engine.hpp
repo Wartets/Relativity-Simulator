@@ -206,6 +206,8 @@ private:
 			float r_surf = static_cast<float>(body.color_primary[0]);
 			float g_surf = static_cast<float>(body.color_primary[1]);
 			float b_surf = static_cast<float>(body.color_primary[2]);
+			bool city_lights_mode = false;
+			float city_lights_speckle = 0.0f;
 
 			if (!lod_simple) {
 				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1));
@@ -227,8 +229,8 @@ private:
 				switch (preset) {
 					case 0U: mode = 5U; break;
 					case 1U: mode = 0U; break;
-					case 2U: mode = 3U; break;
-					case 3U: mode = 3U; break;
+					case 2U: mode = 8U; break;
+					case 3U: mode = 9U; break;
 					case 4U: mode = 4U; break;
 					case 5U: mode = 4U; break;
 					case 6U: mode = 5U; break;
@@ -301,6 +303,81 @@ private:
 					r_surf = (0.95f + 0.35f * heat) * (0.55f + 0.45f * streak) * emission;
 					g_surf = (0.55f + 0.25f * heat) * (0.55f + 0.45f * streak) * emission;
 					b_surf = (0.20f + 0.10f * heat) * (0.35f + 0.25f * streak) * emission;
+				} else if (mode == 7U) {
+					const float vein = std::sin((sample_x + sample_y + sample_z) * 3.0f + n_val * 8.0f * static_cast<float>(std::max(body.texture_detail_scale, 0.1)));
+					const float vein_sharp = std::pow(std::abs(vein), 0.15f);
+					const float base_t = std::clamp((n_val_secondary + 1.0f) * 0.5f, 0.0f, 1.0f);
+					const float mr = r_surf * (1.0f - base_t) + r2 * base_t;
+					const float mg = g_surf * (1.0f - base_t) + g2 * base_t;
+					const float mb = b_surf * (1.0f - base_t) + b2 * base_t;
+					const float r3 = static_cast<float>(body.color_tertiary[0]);
+					const float g3 = static_cast<float>(body.color_tertiary[1]);
+					const float b3 = static_cast<float>(body.color_tertiary[2]);
+					r_surf = mr * vein_sharp + r3 * (1.0f - vein_sharp);
+					g_surf = mg * vein_sharp + g3 * (1.0f - vein_sharp);
+					b_surf = mb * vein_sharp + b3 * (1.0f - vein_sharp);
+				} else if (mode == 8U) {
+					const float band_freq = 10.0f + static_cast<float>(body.texture_detail_scale) * 6.0f;
+					const float band = std::sin(static_cast<float>(theta) * band_freq + n_val * 2.5f);
+					const float band_t = std::clamp((band + 1.0f) * 0.5f, 0.0f, 1.0f);
+					r_surf = r_surf * (1.0f - band_t) + r2 * band_t;
+					g_surf = g_surf * (1.0f - band_t) + g2 * band_t;
+					b_surf = b_surf * (1.0f - band_t) + b2 * band_t;
+					const float polar = std::pow(std::abs(std::cos(static_cast<float>(theta))), 3.0f) * static_cast<float>(std::clamp(body.polar_cap_strength, 0.0, 1.0));
+					const float r3 = static_cast<float>(body.color_tertiary[0]);
+					const float g3 = static_cast<float>(body.color_tertiary[1]);
+					const float b3 = static_cast<float>(body.color_tertiary[2]);
+					r_surf = r_surf * (1.0f - polar) + r3 * polar;
+					g_surf = g_surf * (1.0f - polar) + g3 * polar;
+					b_surf = b_surf * (1.0f - polar) + b3 * polar;
+					if (body.ring_system_enabled > 0.5) {
+						const float equatorial_band = std::pow(std::clamp(1.0f - std::abs(static_cast<float>(theta) - 1.57079633f) * 3.5f, 0.0f, 1.0f), 2.0f) * 0.35f;
+						r_surf *= (1.0f - equatorial_band);
+						g_surf *= (1.0f - equatorial_band);
+						b_surf *= (1.0f - equatorial_band);
+					}
+				} else if (mode == 9U) {
+					const float crack = std::pow(std::clamp(1.0f - std::abs(n_val) * 2.2f, 0.0f, 1.0f), 6.0f);
+					r_surf = r_surf * (1.0f - crack) + r2 * crack;
+					g_surf = g_surf * (1.0f - crack) + g2 * crack;
+					b_surf = b_surf * (1.0f - crack) + b2 * crack;
+					const float shimmer = std::clamp((n_val_secondary + 1.0f) * 0.25f, 0.0f, 0.5f);
+					const float r3 = static_cast<float>(body.color_tertiary[0]);
+					const float g3 = static_cast<float>(body.color_tertiary[1]);
+					const float b3 = static_cast<float>(body.color_tertiary[2]);
+					r_surf = r_surf * (1.0f - shimmer) + r3 * shimmer;
+					g_surf = g_surf * (1.0f - shimmer) + g3 * shimmer;
+					b_surf = b_surf * (1.0f - shimmer) + b3 * shimmer;
+				} else if (mode == 10U) {
+					const float crack_glow = std::pow(std::clamp(1.0f - std::abs(n_val) * 1.8f, 0.0f, 1.0f), 4.0f);
+					const float r3 = static_cast<float>(body.color_tertiary[0]);
+					const float g3 = static_cast<float>(body.color_tertiary[1]);
+					const float b3 = static_cast<float>(body.color_tertiary[2]);
+					r_surf = r_surf * (1.0f - crack_glow) + r3 * crack_glow * 2.2f;
+					g_surf = g_surf * (1.0f - crack_glow) + g3 * crack_glow * 2.2f;
+					b_surf = b_surf * (1.0f - crack_glow) + b3 * crack_glow * 2.2f;
+					const float patchiness = std::clamp((n_val_secondary + 1.0f) * 0.5f, 0.0f, 1.0f);
+					r_surf = r_surf * (1.0f - patchiness * 0.3f) + r2 * patchiness * 0.3f;
+					g_surf = g_surf * (1.0f - patchiness * 0.3f) + g2 * patchiness * 0.3f;
+					b_surf = b_surf * (1.0f - patchiness * 0.3f) + b2 * patchiness * 0.3f;
+				} else if (mode == 11U) {
+					const float mix_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
+					r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
+					g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
+					b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
+					city_lights_mode = true;
+					city_lights_speckle = std::clamp((n_val_secondary + 1.0f) * 0.5f, 0.0f, 1.0f);
+				} else if (mode == 12U) {
+					const float wisp1 = FastNoise3D::fbm(sample_x * 0.5f, sample_y * 0.5f, sample_z * 0.5f, 3, 0.6f);
+					const float wisp2 = FastNoise3D::fbm(sample_x * 1.7f + 5.0f, sample_y * 1.7f, sample_z * 1.7f - 5.0f, 3, 0.6f);
+					const float t_1 = std::clamp((wisp1 + 1.0f) * 0.5f, 0.0f, 1.0f);
+					const float t_2 = std::clamp((wisp2 + 1.0f) * 0.5f, 0.0f, 1.0f);
+					const float r3 = static_cast<float>(body.color_tertiary[0]);
+					const float g3 = static_cast<float>(body.color_tertiary[1]);
+					const float b3 = static_cast<float>(body.color_tertiary[2]);
+					r_surf = r_surf * (1.0f - t_1) * (1.0f - t_2) + r2 * t_1 * (1.0f - t_2) + r3 * t_2;
+					g_surf = g_surf * (1.0f - t_1) * (1.0f - t_2) + g2 * t_1 * (1.0f - t_2) + g3 * t_2;
+					b_surf = b_surf * (1.0f - t_1) * (1.0f - t_2) + b2 * t_1 * (1.0f - t_2) + b3 * t_2;
 				} else {
 					const float mix_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
 					r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
@@ -309,25 +386,84 @@ private:
 				}
 			}
 
-			double lighting_term = view_dot_n;
-			if (!lod_point && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
-				const double to_origin_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
-				if (to_origin_len > 1e-9) {
-					const double lx_dir = -hit_x / to_origin_len;
-					const double ly_dir = -hit_y / to_origin_len;
-					const double lz_dir = -hit_z / to_origin_len;
-					lighting_term = std::max(0.0, nx * lx_dir + ny * ly_dir + nz * lz_dir);
+			const double to_light_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
+			double light_dir_x = 0.0, light_dir_y = 0.0, light_dir_z = 1.0;
+			const bool has_light_source = to_light_len > 1e-9;
+			if (has_light_source) {
+				light_dir_x = -hit_x / to_light_len;
+				light_dir_y = -hit_y / to_light_len;
+				light_dir_z = -hit_z / to_light_len;
+			}
+
+			double diffuse_term = has_light_source ? std::max(0.0, nx * light_dir_x + ny * light_dir_y + nz * light_dir_z) : view_dot_n;
+			double specular_term = 0.0;
+			bool occluded = false;
+
+			if (!lod_point && diffuse_term > 0.0 && has_light_source && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
+				for (size_t shadow_i = 0; shadow_i < bodies.size(); ++shadow_i) {
+					if (shadow_i == body_index) continue;
+					const auto& occluder = bodies[shadow_i];
+					const double ocx = occluder.position[0] - hit_x;
+					const double ocy = occluder.position[1] - hit_y;
+					const double ocz = occluder.position[2] - hit_z;
+					const double proj = ocx * light_dir_x + ocy * light_dir_y + ocz * light_dir_z;
+					if (proj <= 1e-6 || proj >= to_light_len) continue;
+					const double closest_x = hit_x + light_dir_x * proj - occluder.position[0];
+					const double closest_y = hit_y + light_dir_y * proj - occluder.position[1];
+					const double closest_z = hit_z + light_dir_z * proj - occluder.position[2];
+					const double dist_sq = closest_x * closest_x + closest_y * closest_y + closest_z * closest_z;
+					const double occluder_radius = std::max(occluder.radius, 1e-6) * std::max(occluder.oblateness_ratio, 1.0);
+					if (dist_sq < occluder_radius * occluder_radius) {
+						occluded = true;
+						break;
+					}
+				}
+				if (!occluded && params.horizon_radius > 0.0) {
+					const double proj_h = (-hit_x) * light_dir_x + (-hit_y) * light_dir_y + (-hit_z) * light_dir_z;
+					if (proj_h > 1e-6 && proj_h < to_light_len) {
+						const double closest_hx = hit_x + light_dir_x * proj_h;
+						const double closest_hy = hit_y + light_dir_y * proj_h;
+						const double closest_hz = hit_z + light_dir_z * proj_h;
+						const double dist_h_sq = closest_hx * closest_hx + closest_hy * closest_hy + closest_hz * closest_hz;
+						if (dist_h_sq < params.horizon_radius * params.horizon_radius) {
+							occluded = true;
+						}
+					}
 				}
 			}
 
-			float light_factor = lod_point ? 1.0f : static_cast<float>(0.25 + 0.75 * lighting_term);
+			if (occluded) {
+				diffuse_term = 0.0;
+			} else if (!lod_point && diffuse_term > 0.0 && has_light_source) {
+				const double half_x = light_dir_x - ray_dir[0];
+				const double half_y = light_dir_y - ray_dir[1];
+				const double half_z = light_dir_z - ray_dir[2];
+				const double half_len = std::sqrt(half_x * half_x + half_y * half_y + half_z * half_z);
+				if (half_len > 1e-9) {
+					const double spec_dot = std::max(0.0, (nx * half_x + ny * half_y + nz * half_z) / half_len);
+					const double roughness = std::clamp(body.specular_roughness, 0.0, 1.0);
+					const double shininess = 4.0 + (1.0 - roughness) * 80.0;
+					specular_term = std::pow(spec_dot, shininess) * (1.0 - roughness) * 0.6;
+				}
+			}
+
+			const double ambient_term = lod_point ? 1.0 : 0.04;
+			float light_factor = static_cast<float>(ambient_term + diffuse_term * (1.0 - ambient_term));
 			if (body.emission_intensity > 0.0) {
 				light_factor += static_cast<float>(body.emission_intensity);
 			}
 
-			r_surf *= light_factor;
-			g_surf *= light_factor;
-			b_surf *= light_factor;
+			r_surf = r_surf * light_factor + static_cast<float>(specular_term) * 0.9f;
+			g_surf = g_surf * light_factor + static_cast<float>(specular_term) * 0.95f;
+			b_surf = b_surf * light_factor + static_cast<float>(specular_term);
+
+			if (city_lights_mode && body.night_side_light_intensity > 0.0 && !lod_point) {
+				const float night_mask = static_cast<float>(std::clamp(1.0 - diffuse_term * 5.0, 0.0, 1.0));
+				const float city_glow = night_mask * static_cast<float>(body.night_side_light_intensity) * city_lights_speckle;
+				r_surf += city_glow * 1.1f;
+				g_surf += city_glow * 0.95f;
+				b_surf += city_glow * 0.6f;
+			}
 
 			if (enable_doppler) {
 				const double vx = body.velocity[0];

@@ -153,7 +153,7 @@ private:
 
 		auto consts = build_push_constants(width, height);
 		std::vector<Render::GpuBodyData> gpu_bodies;
-		const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+		const auto& nbody_sys = orchestrator_->nbody_system().bodies();
 		gpu_bodies.reserve(nbody_sys.size());
 		for (const auto& b : nbody_sys) {
 			if (b.enabled) gpu_bodies.push_back(b.to_gpu_body_data());

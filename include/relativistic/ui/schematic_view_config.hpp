@@ -171,7 +171,7 @@ struct SchematicViewConfig {
 	// The schematic camera has an independent optical mapping from the ray-traced viewport.
 	Observer::ProjectionMode projection_mode{Observer::ProjectionMode::Pinhole};
 	bool human_perspective_mode{true};
-	bool show_overlay_in_raytraced_view{true};
+	bool show_overlay_in_raytraced_view{false};
 	bool lens_body_overlays_in_raytraced_view{true};
 
 	bool show_central_object{true};

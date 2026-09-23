@@ -131,7 +131,7 @@ private:
 
 			bool rendered_on_gpu = false;
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
-			if (use_gpu_compute_.load(std::memory_order_relaxed)) {
+			if (use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.empty()) {
 				std::vector<GpuPixelOutput> gpu_output;
 				if (try_gpu_dispatch(current_job, gpu_output) && gpu_output.size() == req_pixels) {
 					back_buffer_ = std::move(gpu_output);
@@ -299,7 +299,7 @@ public:
 
 			bool rendered_on_gpu = false;
 			SoftwareComputeEngine::RenderStageStats headless_stage_stats{};
-			if (use_gpu_compute_.load(std::memory_order_relaxed)) {
+			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.empty()) {
 				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
 				if (front_buffer_.size() >= total_pixels) {
 					std::vector<GpuPixelOutput> gpu_output;

@@ -98,7 +98,7 @@ struct alignas(64) PostNewtonianBody {
 	float surface_noise_scale{4.0f};
 	float surface_roughness{0.5f};
 	float atmosphere_thickness{0.15f};
-	std::array<float, 4> atmosphere_color{0.3f, 0.6f, 1.0f, 0.4f};
+	std::array<float, 4> atmosphere_color{0.58f, 0.74f, 0.95f, 0.28f};
 	float emission_intensity{0.0f};
 	float specular_roughness{0.3f};
 	float rotation_speed_3d{0.1f};

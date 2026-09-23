@@ -903,7 +903,7 @@ private:
 			}
 			render_setting_tooltip("Defines 3D geometry shape: Oblate Spheroid deforms dynamically based on spin and J2 quadrupole moment.");
 
-			const char* preset_names[] = {"Star (Granulation + Limb Darkening)", "Terrestrial Planet (Continents + Ocean)", "Gas Giant (Bands + Vortex Swirl)", "Metallic Moon (Crater Relief)", "Neutron Star (Magnetic Polar Caps)", "Custom"};
+			const char* preset_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
 			int preset_idx = static_cast<int>(b.preset_3d);
 			if (ImGui::Combo("3D Surface Shader Preset", &preset_idx, preset_names, IM_ARRAYSIZE(preset_names))) {
 				b.preset_3d = static_cast<Dynamics::Body3DPreset>(preset_idx);

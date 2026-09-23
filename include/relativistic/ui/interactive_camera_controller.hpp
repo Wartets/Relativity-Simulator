@@ -226,8 +226,8 @@ private:
 		const double pitch_rad = cam.pitch * (std::numbers::pi / 180.0);
 		const double yaw_rad = cam.yaw * (std::numbers::pi / 180.0);
 
-		const double cos_p = std::cos(pitch_rad);
-		const double sin_p = std::sin(pitch_rad);
+		const double cos_p = prof.ignore_pitch_roll_for_movement ? 1.0 : std::cos(pitch_rad);
+		const double sin_p = prof.ignore_pitch_roll_for_movement ? 0.0 : std::sin(pitch_rad);
 		const double cos_y = std::cos(yaw_rad);
 		const double sin_y = std::sin(yaw_rad);
 

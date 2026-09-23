@@ -500,6 +500,13 @@ private:
 		}
 
 		ImGui::Separator();
+		bool ignore_pitch_roll = cfg.free_fly.ignore_pitch_roll_for_movement;
+		if (ImGui::Checkbox("Horizontal Movement (Ignore Look Pitch/Roll)", &ignore_pitch_roll)) {
+			cfg.free_fly.ignore_pitch_roll_for_movement = ignore_pitch_roll;
+		}
+		render_setting_tooltip("When enabled, forward/back and strafe keys always move along the horizontal plane regardless of where the camera is currently looking, matching the conventional first-person navigation used in most video games. Vertical keys still move straight up or down along the world axis.");
+
+		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Hold-to-Zoom (W / Z Key):");
 		bool zoom_on_cursor = cfg.zoom.zoom_center_on_cursor;
 		if (ImGui::Checkbox("Zoom Toward Cursor Position", &zoom_on_cursor)) {

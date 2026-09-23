@@ -15,21 +15,22 @@ struct AxisSpeedProfile {
 	double sprint_multiplier{4.0};
 	double crawl_multiplier{0.2};
 	double orbit_distance_speed{10.0};
-	bool invert_forward{false};
-	bool invert_lateral{false};
-	bool invert_vertical{false};
+	bool invert_forward{true};
+	bool invert_lateral{true};
+	bool invert_vertical{true};
 	bool invert_pitch{false};
 	bool invert_mouse_x{false};
 	bool invert_mouse_y{false};
 	double mouse_sensitivity{0.15};
+	bool ignore_pitch_roll_for_movement{true};
 };
 
 struct RocketControlProfile {
-	double main_thrust_accel{20.0};
-	double lateral_thrust_accel{10.0};
-	double vertical_thrust_accel{10.0};
-	double angular_rate_deg_s{60.0};
-	double max_proper_acceleration{100.0};
+	double main_thrust_accel{5.0};
+	double lateral_thrust_accel{2.0};
+	double vertical_thrust_accel{2.0};
+	double angular_rate_deg_s{15.0};
+	double max_proper_acceleration{20.0};
 	bool invert_lateral{false};
 	bool invert_vertical{false};
 	bool requires_time_running{true};

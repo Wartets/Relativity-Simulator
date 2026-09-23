@@ -52,7 +52,7 @@ struct PhysicalParameters {
 	uint32_t max_ray_steps{1024};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
-	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION};
+	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING};
 	double sky_star_density{1.0};
 	double sky_star_brightness{1.0};
 	double sky_nebula_intensity{1.0};
@@ -92,6 +92,10 @@ struct PhysicalParameters {
 	bool dynamic_resolution_enabled{false};
 	double dynamic_resolution_target_fps{60.0};
 	bool adaptive_tile_prepass_enabled{false};
+	uint32_t body_render_lod_pixel_threshold{10};
+	bool body_shadows_enabled{false};
+	double body_atmosphere_global_intensity{1.0};
+	bool body_render_low_power_mode{false};
 };
 
 struct CustomParameterEntry {
@@ -999,6 +1003,18 @@ public:
 				break;
 			case ParameterType::AdaptiveTilePrepassEnabled:
 				params_.adaptive_tile_prepass_enabled = (val > 0.5);
+				break;
+			case ParameterType::BodyRenderLodPixelThreshold:
+				params_.body_render_lod_pixel_threshold = static_cast<uint32_t>(std::clamp(val, 2.0, 64.0));
+				break;
+			case ParameterType::BodyShadowsEnabled:
+				params_.body_shadows_enabled = (val > 0.5);
+				break;
+			case ParameterType::BodyAtmosphereGlobalIntensity:
+				params_.body_atmosphere_global_intensity = std::clamp(val, 0.0, 3.0);
+				break;
+			case ParameterType::BodyRenderLowPowerMode:
+				params_.body_render_low_power_mode = (val > 0.5);
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));

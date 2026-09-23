@@ -511,6 +511,12 @@ public:
 			cam_consts.space_skip_radius_scale = params.space_skip_radius_scale;
 			cam_consts.pole_guard_precision_scale = params.pole_guard_precision_scale;
 			cam_consts.far_field_step_scale = params.far_field_step_scale;
+			cam_consts.body_atmosphere_global_intensity = params.body_atmosphere_global_intensity;
+			cam_consts.body_render_lod_pixel_threshold = params.body_render_lod_pixel_threshold;
+			cam_consts.body_render_low_power_mode = params.body_render_low_power_mode ? 1U : 0U;
+			if (params.body_shadows_enabled) {
+				cam_consts.render_flags |= Render::RenderFlags::ENABLE_BODY_SHADOWS;
+			}
 			cam_consts.interlace_mode = params.interlace_rendering_enabled ? 1U : 0U;
 			cam_consts.interlace_phase = interlace_phase_;
 			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);

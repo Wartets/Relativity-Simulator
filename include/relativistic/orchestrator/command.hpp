@@ -133,7 +133,11 @@ enum class ParameterType : uint32_t {
 	InterlaceRenderingEnabled = 90,
 	DynamicResolutionEnabled = 91,
 	DynamicResolutionTargetFps = 92,
-	AdaptiveTilePrepassEnabled = 93
+	AdaptiveTilePrepassEnabled = 93,
+	BodyRenderLodPixelThreshold = 94,
+	BodyShadowsEnabled = 95,
+	BodyAtmosphereGlobalIntensity = 96,
+	BodyRenderLowPowerMode = 97
 };
 
 struct Command {

@@ -1133,6 +1133,33 @@ private:
 			else params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING;
 		}
 		render_setting_tooltip("Enables analytical Rayleigh limb shell rim scattering around planetary atmospheres.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Performance & Level Of Detail:");
+
+		int lod_threshold = static_cast<int>(params.body_render_lod_pixel_threshold);
+		if (slider_int_with_input("LOD Pixel Threshold", &lod_threshold, 2, 64)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyRenderLodPixelThreshold, static_cast<double>(lod_threshold))));
+		}
+		render_setting_tooltip("Bodies whose apparent on-screen radius falls below this many pixels render with simplified flat shading and no procedural noise or atmosphere, keeping distant or small bodies cheap to draw.");
+
+		bool low_power = params.body_render_low_power_mode;
+		if (ImGui::Checkbox("Low-Power Mode (Force Simple Shading On All Bodies)", &low_power)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyRenderLowPowerMode, low_power ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Forces every celestial body to render with flat Lambert shading regardless of apparent size, for maximum performance on dense body catalogs or low-end hardware.");
+
+		bool shadows = params.body_shadows_enabled;
+		if (ImGui::Checkbox("Central-Source Directional Shading", &shadows)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyShadowsEnabled, shadows ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Lights each body's surface from the direction of the central spacetime source instead of the camera, producing a genuine day/night terminator that rotates with orbital position instead of always facing the viewer.");
+
+		float atmo_intensity = static_cast<float>(params.body_atmosphere_global_intensity);
+		if (slider_float_with_input("Global Atmosphere Intensity", &atmo_intensity, 0.0f, 3.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyAtmosphereGlobalIntensity, static_cast<double>(atmo_intensity))));
+		}
+		render_setting_tooltip("Global multiplier applied on top of every body's individual atmosphere thickness, letting the overall rim-scattering strength be tuned or disabled without editing each body.");
 	}
 
 	void render_schematic_tab() noexcept {

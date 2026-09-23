@@ -93,7 +93,7 @@ struct alignas(64) PostNewtonianBody {
 
 	Body3DGeometryModel      geometry_model{Body3DGeometryModel::OblateSpheroid};
 	Body3DSurfaceTextureMode surface_texture_mode{Body3DSurfaceTextureMode::ProceduralNoise};
-	Body3DAtmosphereMode     atmosphere_mode{Body3DAtmosphereMode::RayleighLimbShell};
+	Body3DAtmosphereMode     atmosphere_mode{Body3DAtmosphereMode::Off};
 	Body3DPreset             preset_3d{Body3DPreset::Star};
 	float surface_noise_scale{4.0f};
 	float surface_roughness{0.5f};

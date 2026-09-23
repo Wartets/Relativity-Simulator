@@ -272,6 +272,14 @@ public:
 				ImGui::TextColored(ImVec4(0.8f, 0.85f, 0.9f, 0.9f), "Active Render Path (Last Frame): %s", render_pipeline_->telemetry().used_gpu_path ? "GPU Vulkan Compute" : "CPU SIMD / Scalar");
 			}
 
+			if (render_pipeline_ != nullptr) {
+				const auto& body_tel = render_pipeline_->telemetry();
+				if (body_tel.body_tile_total_count > 0) {
+					const double coverage_pct = 100.0 * static_cast<double>(body_tel.body_tile_count) / static_cast<double>(body_tel.body_tile_total_count);
+					ImGui::TextColored(ImVec4(0.7f, 0.9f, 1.0f, 1.0f), "Body-Covered Screen Tiles: %llu / %llu (%.1f%%)", static_cast<unsigned long long>(body_tel.body_tile_count), static_cast<unsigned long long>(body_tel.body_tile_total_count), coverage_pct);
+				}
+			}
+
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Motion-Adaptive Render Quality");

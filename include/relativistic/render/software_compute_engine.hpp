@@ -19,6 +19,7 @@
 #include <numbers>
 #include <algorithm>
 #include <array>
+#include <utility>
 #include <chrono>
 
 namespace Relativistic::Render {
@@ -30,6 +31,8 @@ public:
 		std::atomic<int64_t> full_trace_ns{0};
 		std::atomic<uint64_t> tile_prepass_skip_count{0};
 		std::atomic<uint64_t> full_trace_tile_count{0};
+		std::atomic<uint64_t> body_tile_count{0};
+		std::atomic<uint64_t> total_tile_count{0};
 	};
 
 private:
@@ -117,9 +120,9 @@ private:
 		BodyHitResult best_result{};
 		if (bodies.empty()) return best_result;
 
-		const bool enable_doppler = (params.render_flags & RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U || true;
-		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U || true;
-		const bool enable_atmo = (params.render_flags & RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U || true;
+		const bool enable_doppler = (params.render_flags & RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U;
+		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
+		const bool enable_atmo = (params.render_flags & RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U;
 
 		for (const auto& body : bodies) {
 			const double bx = body.position[0];
@@ -180,76 +183,95 @@ private:
 				nx /= n_len; ny /= n_len; nz /= n_len;
 			}
 
+			const double dist_to_camera_for_lod = std::sqrt(ox * ox + oy * oy + oz * oz);
+			const double angular_pixel_size_lod = params.field_of_view_rad / std::max(static_cast<double>(params.screen_width), 1.0);
+			const double max_axis_scale_lod = std::max({scale_a, scale_b, scale_c});
+			const double apparent_angular_radius_lod = std::asin(std::clamp(max_axis_scale_lod / std::max(dist_to_camera_for_lod, 1e-9), 0.0, 1.0));
+			const bool lod_simple = (params.body_render_low_power_mode != 0U) || ((apparent_angular_radius_lod / std::max(angular_pixel_size_lod, 1e-12)) < static_cast<double>(params.body_render_lod_pixel_threshold));
+
 			const double norm_lz = std::clamp(lz / scale_c, -1.0, 1.0);
 			const double theta = std::acos(norm_lz);
 			const double rot_angle = body.rotation_speed * static_cast<double>(params.time);
 			const double phi = std::atan2(ly, lx) + rot_angle;
 
-			const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1));
-			const float roughness_f = static_cast<float>(std::clamp(body.noise_roughness, 0.05, 1.0));
-			const float sample_x = static_cast<float>(std::sin(theta) * std::cos(phi)) * noise_scale_f;
-			const float sample_y = static_cast<float>(std::sin(theta) * std::sin(phi)) * noise_scale_f;
-			const float sample_z = static_cast<float>(std::cos(theta)) * noise_scale_f;
-
-			const float n_val = FastNoise3D::fbm(sample_x, sample_y, sample_z, 4, roughness_f);
+			const double view_dot_n = std::max(0.0, -(ray_dir[0] * nx + ray_dir[1] * ny + ray_dir[2] * nz));
 
 			float r_surf = static_cast<float>(body.color_primary[0]);
 			float g_surf = static_cast<float>(body.color_primary[1]);
 			float b_surf = static_cast<float>(body.color_primary[2]);
 
-			const float r2 = static_cast<float>(body.color_secondary[0]);
-			const float g2 = static_cast<float>(body.color_secondary[1]);
-			const float b2 = static_cast<float>(body.color_secondary[2]);
+			if (!lod_simple) {
+				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1));
+				const float roughness_f = static_cast<float>(std::clamp(body.noise_roughness, 0.05, 1.0));
+				const float sample_x = static_cast<float>(std::sin(theta) * std::cos(phi)) * noise_scale_f;
+				const float sample_y = static_cast<float>(std::sin(theta) * std::sin(phi)) * noise_scale_f;
+				const float sample_z = static_cast<float>(std::cos(theta)) * noise_scale_f;
 
-			uint32_t mode = body.surface_texture_mode;
-			const uint32_t preset = body.preset_3d;
-			if (preset == 0U) { mode = 5U; }
-			else if (preset == 1U) { mode = 0U; }
-			else if (preset == 2U) { mode = 3U; }
-			else if (preset == 3U) { mode = 4U; }
-			else if (preset == 4U) { mode = 5U; }
+				const float n_val = FastNoise3D::fbm(sample_x, sample_y, sample_z, 4, roughness_f);
 
-			const double view_dot_n = std::max(0.0, -(ray_dir[0] * nx + ray_dir[1] * ny + ray_dir[2] * nz));
+				const float r2 = static_cast<float>(body.color_secondary[0]);
+				const float g2 = static_cast<float>(body.color_secondary[1]);
+				const float b2 = static_cast<float>(body.color_secondary[2]);
 
-			if (preset == 1U || (mode == 0U && preset == 5U)) {
-				if (n_val < 0.0f) {
-					const float ocean_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
-					r_surf = 0.02f + 0.05f * ocean_t;
-					g_surf = 0.15f + 0.25f * ocean_t;
-					b_surf = 0.5f + 0.4f * ocean_t;
-					const float spec = std::pow(static_cast<float>(view_dot_n), 32.0f);
-					r_surf += spec * 0.8f; g_surf += spec * 0.8f; b_surf += spec * 0.9f;
+				uint32_t mode = body.surface_texture_mode;
+				const uint32_t preset = body.preset_3d;
+				if (preset == 0U) { mode = 5U; }
+				else if (preset == 1U) { mode = 0U; }
+				else if (preset == 2U) { mode = 3U; }
+				else if (preset == 3U) { mode = 4U; }
+				else if (preset == 4U) { mode = 5U; }
+
+				if (preset == 1U || (mode == 0U && preset == 5U)) {
+					if (n_val < 0.0f) {
+						const float ocean_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
+						r_surf = 0.02f + 0.05f * ocean_t;
+						g_surf = 0.15f + 0.25f * ocean_t;
+						b_surf = 0.5f + 0.4f * ocean_t;
+						const float spec = std::pow(static_cast<float>(view_dot_n), 32.0f);
+						r_surf += spec * 0.8f; g_surf += spec * 0.8f; b_surf += spec * 0.9f;
+					} else {
+						const float mix_t = std::clamp(n_val * 2.0f, 0.0f, 1.0f);
+						r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
+						g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
+						b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
+					}
+				} else if (mode == 3U) {
+					const float band = std::sin(static_cast<float>(theta) * 16.0f + n_val * 4.0f);
+					const float mix_t = std::clamp((band + 1.0f) * 0.5f, 0.0f, 1.0f);
+					r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
+					g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
+					b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
+				} else if (mode == 5U) {
+					const float gran = std::pow(std::abs(n_val), 0.6f);
+					const float cos_v = static_cast<float>(view_dot_n);
+					const float limb = 0.4f + 0.6f * cos_v;
+					const float emission = static_cast<float>(std::max(body.emission_intensity, 1.5));
+					r_surf = (r_surf * gran + 0.25f) * limb * emission;
+					g_surf = (g_surf * gran + 0.18f) * limb * emission;
+					b_surf = (b_surf * gran + 0.08f) * limb * emission;
+				} else if (mode == 4U) {
+					const float crater = (n_val > 0.25f) ? 0.65f : 1.0f;
+					r_surf *= crater; g_surf *= crater; b_surf *= crater;
 				} else {
-					const float mix_t = std::clamp(n_val * 2.0f, 0.0f, 1.0f);
+					const float mix_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
 					r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
 					g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
 					b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
 				}
-			} else if (mode == 3U) {
-				const float band = std::sin(static_cast<float>(theta) * 16.0f + n_val * 4.0f);
-				const float mix_t = std::clamp((band + 1.0f) * 0.5f, 0.0f, 1.0f);
-				r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
-				g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
-				b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
-			} else if (mode == 5U) {
-				const float gran = std::pow(std::abs(n_val), 0.6f);
-				const float cos_v = static_cast<float>(view_dot_n);
-				const float limb = 0.4f + 0.6f * cos_v;
-				const float emission = static_cast<float>(std::max(body.emission_intensity, 1.5));
-				r_surf = (r_surf * gran + 0.25f) * limb * emission;
-				g_surf = (g_surf * gran + 0.18f) * limb * emission;
-				b_surf = (b_surf * gran + 0.08f) * limb * emission;
-			} else if (mode == 4U) {
-				const float crater = (n_val > 0.25f) ? 0.65f : 1.0f;
-				r_surf *= crater; g_surf *= crater; b_surf *= crater;
-			} else {
-				const float mix_t = std::clamp((n_val + 1.0f) * 0.5f, 0.0f, 1.0f);
-				r_surf = r_surf * (1.0f - mix_t) + r2 * mix_t;
-				g_surf = g_surf * (1.0f - mix_t) + g2 * mix_t;
-				b_surf = b_surf * (1.0f - mix_t) + b2 * mix_t;
 			}
 
-			float light_factor = static_cast<float>(0.25 + 0.75 * view_dot_n);
+			double lighting_term = view_dot_n;
+			if ((params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
+				const double to_origin_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
+				if (to_origin_len > 1e-9) {
+					const double lx_dir = -hit_x / to_origin_len;
+					const double ly_dir = -hit_y / to_origin_len;
+					const double lz_dir = -hit_z / to_origin_len;
+					lighting_term = std::max(0.0, nx * lx_dir + ny * ly_dir + nz * lz_dir);
+				}
+			}
+
+			float light_factor = static_cast<float>(0.25 + 0.75 * lighting_term);
 			if (body.emission_intensity > 0.0) {
 				light_factor += static_cast<float>(body.emission_intensity);
 			}
@@ -283,9 +305,9 @@ private:
 				b_surf *= (z_f * 0.7f);
 			}
 
-			if (enable_atmo && body.atmosphere_mode != 2U) {
+			if (enable_atmo && !lod_simple && body.atmosphere_mode != 2U) {
 				const float rim = std::pow(1.0f - static_cast<float>(view_dot_n), 3.0f);
-				const float atmo_thick = static_cast<float>(body.atmosphere_thickness);
+				const float atmo_thick = static_cast<float>(body.atmosphere_thickness) * static_cast<float>(std::max(params.body_atmosphere_global_intensity, 0.0));
 				const float ar = static_cast<float>(body.atmosphere_color[0]);
 				const float ag = static_cast<float>(body.atmosphere_color[1]);
 				const float ab = static_cast<float>(body.atmosphere_color[2]);
@@ -306,6 +328,123 @@ private:
 		}
 
 		return best_result;
+	}
+
+	[[nodiscard]] static bool ray_sphere_intersects(
+		const std::array<double, 3>& ray_origin,
+		const std::array<double, 3>& ray_dir,
+		const std::array<double, 3>& sphere_center,
+		double sphere_radius,
+		double max_distance
+	) noexcept {
+		const double ox = ray_origin[0] - sphere_center[0];
+		const double oy = ray_origin[1] - sphere_center[1];
+		const double oz = ray_origin[2] - sphere_center[2];
+		const double a = ray_dir[0] * ray_dir[0] + ray_dir[1] * ray_dir[1] + ray_dir[2] * ray_dir[2];
+		if (a <= 1e-18) return false;
+		const double b = 2.0 * (ox * ray_dir[0] + oy * ray_dir[1] + oz * ray_dir[2]);
+		const double c = ox * ox + oy * oy + oz * oz - sphere_radius * sphere_radius;
+		const double discr = b * b - 4.0 * a * c;
+		if (discr < 0.0) return false;
+		const double sqrt_discr = std::sqrt(discr);
+		const double t_near = (-b - sqrt_discr) / (2.0 * a);
+		const double t_far = (-b + sqrt_discr) / (2.0 * a);
+		if (t_far < 0.0) return false;
+		if (t_near > max_distance) return false;
+		return true;
+	}
+
+	struct BodyTileCullResult {
+		std::vector<uint8_t> tile_mask{};
+		size_t marked_tile_count{0};
+		size_t total_tile_count{0};
+	};
+
+	[[nodiscard]] static BodyTileCullResult compute_body_screen_tiles(
+		const GpuCameraPushConstants& params,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		BodyTileCullResult result;
+		const size_t width = params.screen_width;
+		const size_t height = params.screen_height;
+		constexpr size_t TILE = 32;
+		const size_t tiles_x = (width + TILE - 1) / TILE;
+		const size_t tiles_y = (height + TILE - 1) / TILE;
+		result.total_tile_count = tiles_x * tiles_y;
+		result.tile_mask.assign(result.total_tile_count, 0U);
+		if (bodies.empty() || result.total_tile_count == 0) {
+			return result;
+		}
+
+		const double aspect = static_cast<double>(width) / static_cast<double>(height);
+		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
+		const double fov_rad = params.field_of_view_rad;
+
+		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
+		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
+		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
+
+		const double r_obs = params.observer_position[1];
+		const double theta_obs = params.observer_position[2];
+		const double phi_obs = params.observer_position[3];
+		const std::array<double, 3> obs_pos{
+			r_obs * std::sin(theta_obs) * std::cos(phi_obs),
+			r_obs * std::sin(theta_obs) * std::sin(phi_obs),
+			r_obs * std::cos(theta_obs)
+		};
+
+		std::vector<double> body_bounding_radius(bodies.size());
+		for (size_t i = 0; i < bodies.size(); ++i) {
+			const auto& b = bodies[i];
+			const double radius = std::max(b.radius, 1e-6);
+			const double oblateness = std::clamp(b.oblateness_ratio, 0.1, 5.0);
+			body_bounding_radius[i] = radius * std::max(1.0, oblateness) * 1.2;
+		}
+
+		const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
+
+		for (size_t ty = 0; ty < tiles_y; ++ty) {
+			for (size_t tx = 0; tx < tiles_x; ++tx) {
+				const size_t x0 = tx * TILE;
+				const size_t x1 = std::min(x0 + TILE, width);
+				const size_t y0 = ty * TILE;
+				const size_t y1 = std::min(y0 + TILE, height);
+				const std::array<std::pair<size_t, size_t>, 5> samples{{
+					{x0, y0}, {x1 - 1, y0}, {x0, y1 - 1}, {x1 - 1, y1 - 1}, {(x0 + x1) / 2, (y0 + y1) / 2}
+				}};
+
+				bool tile_hit = false;
+				for (const auto& sample : samples) {
+					const size_t px = sample.first;
+					const size_t py = sample.second;
+					const double v_norm = 1.0 - (static_cast<double>(py) + 0.5) / static_cast<double>(height) * 2.0;
+					const double u_norm = is_allsky
+						? (((static_cast<double>(px) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
+						: (((static_cast<double>(px) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
+					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(proj_mode, u_norm, v_norm, fov_rad);
+					const std::array<double, 3> ray_dir{
+						n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x,
+						n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y,
+						n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z
+					};
+					for (size_t bi = 0; bi < bodies.size(); ++bi) {
+						const std::array<double, 3> center{bodies[bi].position[0], bodies[bi].position[1], bodies[bi].position[2]};
+						if (ray_sphere_intersects(obs_pos, ray_dir, center, body_bounding_radius[bi], params.escape_radius)) {
+							tile_hit = true;
+							break;
+						}
+					}
+					if (tile_hit) break;
+				}
+
+				if (tile_hit) {
+					result.tile_mask[ty * tiles_x + tx] = 1U;
+					++result.marked_tile_count;
+				}
+			}
+		}
+
+		return result;
 	}
 
 public:
@@ -946,7 +1085,8 @@ public:
 		std::span<GpuPixelOutput> output_framebuffer,
 		std::span<const GpuBodyData> bodies = {},
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		std::span<const uint8_t> body_tile_mask = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -1007,6 +1147,10 @@ public:
 				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
+					if (!body_tile_mask.empty()) {
+						const size_t mask_tiles_x = (width + 31) / 32;
+						if (body_tile_mask[(y / 32) * mask_tiles_x + (x / 32)] == 0U) continue;
+					}
 					const double u_norm = ((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect;
 
 					const bool is_allsky = (params.projection_mode == 3 || params.projection_mode == 7);
@@ -2483,10 +2627,23 @@ public:
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) || !bodies.empty()) {
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
-		} else {
+			return;
+		}
+		if (bodies.empty()) {
 			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
+			return;
+		}
+		dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
+		if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+		const auto cull = compute_body_screen_tiles(params, bodies);
+		if (stage_stats != nullptr) {
+			stage_stats->body_tile_count.store(cull.marked_tile_count, std::memory_order_relaxed);
+			stage_stats->total_tile_count.store(cull.total_tile_count, std::memory_order_relaxed);
+		}
+		if (cull.marked_tile_count > 0) {
+			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask);
 		}
 	}
 

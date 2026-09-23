@@ -70,6 +70,8 @@ private:
 	float new_body_j4_{0.0f};
 	float new_body_r_ref_{1.0f};
 	float new_body_quadrupole_{0.0f};
+	Dynamics::Body3DPreset new_body_preset_3d_{Dynamics::Body3DPreset::Terrestrial};
+	Dynamics::Body3DAtmosphereMode new_body_atmosphere_mode_{Dynamics::Body3DAtmosphereMode::Off};
 	bool new_body_mass_log_mode_{true};
 	bool new_body_radius_log_mode_{true};
 	bool new_body_r_ref_log_mode_{true};
@@ -378,6 +380,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Asteroid;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case 1: // Shard
 				new_body_mass_ = static_cast<float>(sample_log_uniform(1e-4, 1.0));
@@ -388,6 +392,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-4));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Metallic;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case 2: // World
 				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 50.0));
@@ -398,6 +404,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-6, 1e-3));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-5));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-9, 1e-5));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
 				break;
 			case 3: // Giant
 				new_body_mass_ = static_cast<float>(sample_log_uniform(10.0, 1e4));
@@ -408,6 +416,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-4, 2e-2));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::GasGiant;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
 				break;
 			case 4: // Compact
 				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 1e6));
@@ -418,6 +428,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::NeutronStar;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case 5:
 			default: // Astral
@@ -429,6 +441,8 @@ private:
 				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-5, 5e-2));
 				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
 				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Star;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::GlowingCorona;
 				break;
 		}
 
@@ -948,6 +962,21 @@ private:
 		}
 		render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
 
+		ImGui::Separator();
+		ImGui::TextDisabled("3D Ray-Traced Visual Style:");
+		const char* preset_3d_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
+		int preset_3d_idx = static_cast<int>(new_body_preset_3d_);
+		if (ImGui::Combo("Surface Preset", &preset_3d_idx, preset_3d_names, IM_ARRAYSIZE(preset_3d_names))) {
+			new_body_preset_3d_ = static_cast<Dynamics::Body3DPreset>(preset_3d_idx);
+		}
+		render_setting_tooltip("Determines the procedural surface shader family applied when this body is ray-traced: granulation and limb darkening for stars, continents and oceans for terrestrial worlds, latitude bands for gas giants, crater relief for metallic bodies, and polar emission caps for compact remnants.");
+		const char* atmosphere_mode_names[] = {"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"};
+		int atmosphere_mode_idx = static_cast<int>(new_body_atmosphere_mode_);
+		if (ImGui::Combo("Atmosphere Mode", &atmosphere_mode_idx, atmosphere_mode_names, IM_ARRAYSIZE(atmosphere_mode_names))) {
+			new_body_atmosphere_mode_ = static_cast<Dynamics::Body3DAtmosphereMode>(atmosphere_mode_idx);
+		}
+		render_setting_tooltip("Controls the rim-lit atmospheric glow drawn around this body's silhouette. Off disables the effect entirely; the other modes trade rendering cost for visual richness.");
+
 		ImGui::Spacing();
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
 			auto& sys = orchestrator_.nbody_system();
@@ -965,6 +994,8 @@ private:
 				static_cast<double>(new_body_r_ref_)
 			);
 			body.set_name(unique_name(std::string_view(new_body_name_)));
+			body.preset_3d = new_body_preset_3d_;
+			body.atmosphere_mode = new_body_atmosphere_mode_;
 
 			sys.add_body(body);
 			sys.update_accelerations();
@@ -1268,6 +1299,8 @@ private:
 				new_body_radius_ = 6.9634e8f;
 				new_body_j2_ = 2.2e-7f;
 				new_body_r_ref_ = 6.9634e8f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Star;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::GlowingCorona;
 				break;
 			case BodyPresetTemplate::Earth:
 				std::strncpy(new_body_name_, "Earth", sizeof(new_body_name_) - 1);
@@ -1275,6 +1308,8 @@ private:
 				new_body_radius_ = 6.378137e6f;
 				new_body_j2_ = 1.08263e-3f;
 				new_body_r_ref_ = 6.378137e6f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
 				break;
 			case BodyPresetTemplate::Moon:
 				std::strncpy(new_body_name_, "Moon", sizeof(new_body_name_) - 1);
@@ -1282,6 +1317,8 @@ private:
 				new_body_radius_ = 1.7374e6f;
 				new_body_j2_ = 2.0335e-4f;
 				new_body_r_ref_ = 1.7374e6f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Metallic;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case BodyPresetTemplate::Jupiter:
 				std::strncpy(new_body_name_, "Jupiter", sizeof(new_body_name_) - 1);
@@ -1290,6 +1327,8 @@ private:
 				new_body_j2_ = 1.469657e-2f;
 				new_body_j4_ = -5.86609e-4f;
 				new_body_r_ref_ = 7.1492e7f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::GasGiant;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
 				break;
 			case BodyPresetTemplate::Mars:
 				std::strncpy(new_body_name_, "Mars", sizeof(new_body_name_) - 1);
@@ -1297,6 +1336,8 @@ private:
 				new_body_radius_ = 3.3895e6f;
 				new_body_j2_ = 1.96045e-3f;
 				new_body_r_ref_ = 3.3895e6f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
 				break;
 			case BodyPresetTemplate::NeutronStar:
 				std::strncpy(new_body_name_, "Neutron Star", sizeof(new_body_name_) - 1);
@@ -1304,6 +1345,8 @@ private:
 				new_body_radius_ = 12000.0f;
 				new_body_j2_ = 0.0f;
 				new_body_r_ref_ = 12000.0f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::NeutronStar;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case BodyPresetTemplate::SupermassiveBlackHole:
 				std::strncpy(new_body_name_, "Supermassive BH", sizeof(new_body_name_) - 1);
@@ -1311,6 +1354,8 @@ private:
 				new_body_radius_ = 1.2e10f;
 				new_body_j2_ = 0.0f;
 				new_body_r_ref_ = 1.2e10f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case BodyPresetTemplate::StellarBlackHole:
 				std::strncpy(new_body_name_, "Stellar Black Hole", sizeof(new_body_name_) - 1);
@@ -1318,6 +1363,8 @@ private:
 				new_body_radius_ = 30000.0f;
 				new_body_j2_ = 0.0f;
 				new_body_r_ref_ = 30000.0f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case BodyPresetTemplate::TestParticle:
 				std::strncpy(new_body_name_, "Test Particle", sizeof(new_body_name_) - 1);
@@ -1325,6 +1372,8 @@ private:
 				new_body_radius_ = 1.0f;
 				new_body_j2_ = 0.0f;
 				new_body_r_ref_ = 1.0f;
+				new_body_preset_3d_ = Dynamics::Body3DPreset::Asteroid;
+				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
 				break;
 			case BodyPresetTemplate::Custom:
 			default:

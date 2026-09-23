@@ -49,6 +49,8 @@ struct PipelineExecutionTelemetry {
 	uint64_t tile_prepass_skip_tile_count{0};
 	uint64_t full_raytrace_tile_count{0};
 	double pixel_classification_ms{0.0};
+	uint64_t body_tile_count{0};
+	uint64_t body_tile_total_count{0};
 };
 
 class GeodesicComputePipeline {
@@ -197,6 +199,8 @@ private:
 				telemetry_.tile_prepass_skip_tile_count = stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);
 				telemetry_.full_raytrace_tile_count = stage_stats.full_trace_tile_count.load(std::memory_order_relaxed);
 				telemetry_.pixel_classification_ms = classification_ms;
+				telemetry_.body_tile_count = stage_stats.body_tile_count.load(std::memory_order_relaxed);
+				telemetry_.body_tile_total_count = stage_stats.total_tile_count.load(std::memory_order_relaxed);
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}
@@ -322,6 +326,8 @@ public:
 			telemetry_.full_raytrace_tiles_ms = static_cast<double>(headless_stage_stats.full_trace_ns.load(std::memory_order_relaxed)) / 1.0e6;
 			telemetry_.tile_prepass_skip_tile_count = headless_stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);
 			telemetry_.full_raytrace_tile_count = headless_stage_stats.full_trace_tile_count.load(std::memory_order_relaxed);
+			telemetry_.body_tile_count = headless_stage_stats.body_tile_count.load(std::memory_order_relaxed);
+			telemetry_.body_tile_total_count = headless_stage_stats.total_tile_count.load(std::memory_order_relaxed);
 			new_frame_ready_.store(true, std::memory_order_release);
 			return;
 		}

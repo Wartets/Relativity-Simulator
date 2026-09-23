@@ -2063,20 +2063,10 @@ public:
 
 					for (size_t l = 0; l < lanes; ++l) {
 						if (status[l] & PixelFlags::CELESTIAL_HIT || throughput[l] > 0.01) {
-							const double sin_t = std::sin(bundle.x2[l]);
-							const double cos_t = std::cos(bundle.x2[l]);
-							const double sin_p = std::sin(bundle.x3[l]);
-							const double cos_p = std::cos(bundle.x3[l]);
-
-							const double px = bundle.p1[l] * sin_t * cos_p + bundle.x1[l] * bundle.p2[l] * cos_t * cos_p - bundle.x1[l] * sin_t * bundle.p3[l] * sin_p;
-							const double py = bundle.p1[l] * sin_t * sin_p + bundle.x1[l] * bundle.p2[l] * cos_t * sin_p + bundle.x1[l] * sin_t * bundle.p3[l] * cos_p;
-							const double pz = bundle.p1[l] * cos_t - bundle.x1[l] * bundle.p2[l] * sin_t;
-
-							const double p_len = std::sqrt(px * px + py * py + pz * pz);
-							const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
-							const double dir_x = (p_len > 1e-12) ? (px * inv_plen) : 0.0;
-							const double dir_y = (p_len > 1e-12) ? (py * inv_plen) : 1.0;
-							const double dir_z = (p_len > 1e-12) ? (pz * inv_plen) : 0.0;
+							const auto exit_direction = schwarzschild_travel_direction(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], rs);
+							const double dir_x = exit_direction[0];
+							const double dir_y = exit_direction[1];
+							const double dir_z = exit_direction[2];
 
 							const auto sky_rgb = compute_sky_radiance(dir_x, dir_y, dir_z, params);
 							accum_r[l] += throughput[l] * static_cast<double>(sky_rgb[0]);
@@ -2321,31 +2311,38 @@ public:
 					const float ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const float ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
-					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty()) {
+					std::span<const uint32_t> body_candidates_f32{};
+					if (!tile_candidates.empty()) {
+						const size_t mask_tiles_x = (width + 31) / 32;
+						const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
+						if (tile_idx < tile_candidates.size()) body_candidates_f32 = tile_candidates[tile_idx];
+					}
+
+					const bool bodies_only_mode_active_f32 = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
+					const bool bodies_need_curved_path_f32 = has_event_horizon
+						&& !bodies_only_mode_active_f32
+						&& ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U)
+						&& !bodies.empty();
+
+					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty() && !bodies_need_curved_path_f32) {
 						const std::array<double, 3> ray_orig{
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::cos(params.observer_position[3]),
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::sin(params.observer_position[3]),
 							params.observer_position[1] * std::cos(params.observer_position[2])
 						};
 						const std::array<double, 3> ray_direction{static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z)};
-						std::span<const uint32_t> body_candidates{};
-						if (!tile_candidates.empty()) {
-							const size_t mask_tiles_x = (width + 31) / 32;
-							const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
-							if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
-						}
-						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates);
+						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates_f32);
 						if (body_hit.hit && (!has_event_horizon || !ray_occluded_by_horizon(ray_orig, ray_direction, static_cast<double>(rh), body_hit.t_hit))) {
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
 						}
-						if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+						if (bodies_only_mode_active_f32) {
 							const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
 							const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
 							output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
 							continue;
 						}
-					} else if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+					} else if (bodies_only_mode_active_f32) {
 						const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
 						const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
 						output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
@@ -2383,9 +2380,9 @@ public:
 					const float factor_obs = std::max(1.0f - rs / r_obs, 1e-4f);
 					const float sqrt_factor_obs = std::sqrt(factor_obs);
 
-					const float p_r_init = n_r / sqrt_factor_obs;
-					const float p_theta_init = n_th / r_obs;
-					const float p_phi_init = n_ph / (r_obs * sin_to);
+					const float p_r_init = -n_r;
+					const float p_theta_init = -n_th / (r_obs * sqrt_factor_obs);
+					const float p_phi_init = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
 
 					float ray_r = r_obs;
 					float ray_theta = theta_obs;
@@ -2422,9 +2419,31 @@ public:
 							break;
 						}
 
-						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
-							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, static_cast<float>(params.escape_radius), m)) {
-							continue;
+						if (space_skip_enabled && ray_r > effective_space_skip_radius) {
+							const std::array<double, 3> skip_origin_f32{
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::cos(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::sin(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::cos(static_cast<double>(ray_theta))
+							};
+							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, static_cast<float>(params.escape_radius), m)) {
+								if (bodies_need_curved_path_f32) {
+									const std::array<double, 3> skip_end_f32{
+										static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::cos(static_cast<double>(ray_phi)),
+										static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::sin(static_cast<double>(ray_phi)),
+										static_cast<double>(ray_r) * std::cos(static_cast<double>(ray_theta))
+									};
+									const auto skip_hit_f32 = evaluate_3d_body_segment(skip_origin_f32, skip_end_f32, bodies, params, body_candidates_f32);
+									if (skip_hit_f32.hit) {
+										accumulated_r += throughput * skip_hit_f32.color.r;
+										accumulated_g += throughput * skip_hit_f32.color.g;
+										accumulated_b += throughput * skip_hit_f32.color.b;
+										status |= PixelFlags::BODY_SURFACE_HIT;
+										throughput = 0.0f;
+										break;
+									}
+								}
+								continue;
+							}
 						}
 
 						const float r_scale = std::max(ray_r - rh, 0.02f * m);
@@ -2435,6 +2454,11 @@ public:
 						const float prev_r = ray_r;
 						const float prev_theta = ray_theta;
 						const float prev_phi = ray_phi;
+						const std::array<double, 3> segment_from_f32{
+							static_cast<double>(prev_r) * std::sin(static_cast<double>(prev_theta)) * std::cos(static_cast<double>(prev_phi)),
+							static_cast<double>(prev_r) * std::sin(static_cast<double>(prev_theta)) * std::sin(static_cast<double>(prev_phi)),
+							static_cast<double>(prev_r) * std::cos(static_cast<double>(prev_theta))
+						};
 
 						auto eval_acc = [&](float r_eval, float th_eval, float phi_eval,
 											float pr_eval, float pth_eval, float pphi_eval,
@@ -2508,6 +2532,21 @@ public:
 							ray_ptheta = -ray_ptheta;
 						}
 
+						bool body_segment_hit_f32 = false;
+						Render::GpuPixelOutput body_segment_color_f32{};
+						if (bodies_need_curved_path_f32) {
+							const std::array<double, 3> segment_to_f32{
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::cos(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::sin(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::cos(static_cast<double>(ray_theta))
+							};
+							const auto seg_hit_f32 = evaluate_3d_body_segment(segment_from_f32, segment_to_f32, bodies, params, body_candidates_f32);
+							if (seg_hit_f32.hit) {
+								body_segment_hit_f32 = true;
+								body_segment_color_f32 = seg_hit_f32.color;
+							}
+						}
+
 						const float mid_plane = pi_f * 0.5f;
 						if (has_accretion_disk && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0f) {
 							const float d_th_span = std::abs(ray_theta - prev_theta);
@@ -2545,28 +2584,49 @@ public:
 								throughput *= (1.0f - alpha_opacity);
 							}
 						}
+
+						if (body_segment_hit_f32 && throughput > 0.01f) {
+							accumulated_r += throughput * body_segment_color_f32.r;
+							accumulated_g += throughput * body_segment_color_f32.g;
+							accumulated_b += throughput * body_segment_color_f32.b;
+							status |= PixelFlags::BODY_SURFACE_HIT;
+							throughput = 0.0f;
+							break;
+						}
 					}
 
 					if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01f) {
-						const float sin_t = std::sin(ray_theta);
-						const float cos_t = std::cos(ray_theta);
-						const float sin_p = std::sin(ray_phi);
-						const float cos_p = std::cos(ray_phi);
+						const auto exit_direction_f32 = schwarzschild_travel_direction(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, rs);
 
-						const float px = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-						const float py = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-						const float pz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
+						bool exit_body_hit_f32 = false;
+						if (bodies_need_curved_path_f32) {
+							const std::array<double, 3> exit_origin_f32{
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::cos(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::sin(static_cast<double>(ray_phi)),
+								static_cast<double>(ray_r) * std::cos(static_cast<double>(ray_theta))
+							};
+							const std::array<double, 3> exit_dir_f32{
+								static_cast<double>(exit_direction_f32[0]), static_cast<double>(exit_direction_f32[1]), static_cast<double>(exit_direction_f32[2])
+							};
+							const auto exit_hit_f32 = evaluate_3d_bodies(exit_origin_f32, exit_dir_f32, bodies, params, body_candidates_f32);
+							if (exit_hit_f32.hit) {
+								accumulated_r += throughput * exit_hit_f32.color.r;
+								accumulated_g += throughput * exit_hit_f32.color.g;
+								accumulated_b += throughput * exit_hit_f32.color.b;
+								status |= PixelFlags::BODY_SURFACE_HIT;
+								exit_body_hit_f32 = true;
+							}
+						}
 
-						const float p_len = std::sqrt(px * px + py * py + pz * pz);
-						const float inv_plen = (p_len > 1e-6f) ? (1.0f / p_len) : 1.0f;
-
-						const auto sky_rgb = compute_sky_radiance(
-							static_cast<double>(px * inv_plen), static_cast<double>(py * inv_plen), static_cast<double>(pz * inv_plen),
-							params
-						);
-						accumulated_r += throughput * sky_rgb[0];
-						accumulated_g += throughput * sky_rgb[1];
-						accumulated_b += throughput * sky_rgb[2];
+						if (!exit_body_hit_f32) {
+							const auto sky_rgb = compute_sky_radiance(
+								static_cast<double>(exit_direction_f32[0]), static_cast<double>(exit_direction_f32[1]), static_cast<double>(exit_direction_f32[2]),
+								params
+							);
+							accumulated_r += throughput * sky_rgb[0];
+							accumulated_g += throughput * sky_rgb[1];
+							accumulated_b += throughput * sky_rgb[2];
+						}
 					}
 
 					const auto mapped_srgb = apply_tonemapping(
@@ -2760,9 +2820,9 @@ public:
 							bundle.x3[l] = phi_obs;
 
 							bundle.p0[l] = 1.0f / factor_obs;
-							bundle.p1[l] = n_r / sqrt_factor_obs;
-							bundle.p2[l] = n_th / r_obs;
-							bundle.p3[l] = n_ph / (r_obs * sin_to);
+							bundle.p1[l] = -n_r;
+							bundle.p2[l] = -n_th / (r_obs * sqrt_factor_obs);
+							bundle.p3[l] = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
 							bundle.active_mask[l] = true;
 						} else {
 							bundle.x0[l] = 0.0f;
@@ -2877,20 +2937,10 @@ public:
 
 					for (size_t l = 0; l < lanes; ++l) {
 						if (status[l] & PixelFlags::CELESTIAL_HIT || throughput[l] > 0.01f) {
-							const float sin_t = std::sin(bundle.x2[l]);
-							const float cos_t = std::cos(bundle.x2[l]);
-							const float sin_p = std::sin(bundle.x3[l]);
-							const float cos_p = std::cos(bundle.x3[l]);
-
-							const float px = bundle.p1[l] * sin_t * cos_p + bundle.x1[l] * bundle.p2[l] * cos_t * cos_p - bundle.x1[l] * sin_t * bundle.p3[l] * sin_p;
-							const float py = bundle.p1[l] * sin_t * sin_p + bundle.x1[l] * bundle.p2[l] * cos_t * sin_p + bundle.x1[l] * sin_t * bundle.p3[l] * cos_p;
-							const float pz = bundle.p1[l] * cos_t - bundle.x1[l] * bundle.p2[l] * sin_t;
-
-							const float p_len = std::sqrt(px * px + py * py + pz * pz);
-							const float inv_plen = (p_len > 1e-6f) ? (1.0f / p_len) : 1.0f;
-							const float dir_x = (p_len > 1e-6f) ? (px * inv_plen) : 0.0f;
-							const float dir_y = (p_len > 1e-6f) ? (py * inv_plen) : 1.0f;
-							const float dir_z = (p_len > 1e-6f) ? (pz * inv_plen) : 0.0f;
+							const auto exit_direction = schwarzschild_travel_direction(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], rs);
+							const float dir_x = exit_direction[0];
+							const float dir_y = exit_direction[1];
+							const float dir_z = exit_direction[2];
 
 							const auto sky_rgb = compute_sky_radiance(static_cast<double>(dir_x), static_cast<double>(dir_y), static_cast<double>(dir_z), params);
 							accum_r[l] += throughput[l] * sky_rgb[0];

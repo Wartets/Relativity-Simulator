@@ -97,6 +97,9 @@ private:
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
 		}
+		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params)) {
+			return false;
+		}
 		if (config_.precision != PrecisionMode::NativeFloat64) {
 			return false;
 		}

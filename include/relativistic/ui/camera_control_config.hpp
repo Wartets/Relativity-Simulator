@@ -15,9 +15,9 @@ struct AxisSpeedProfile {
 	double sprint_multiplier{4.0};
 	double crawl_multiplier{0.2};
 	double orbit_distance_speed{10.0};
-	bool invert_forward{true};
-	bool invert_lateral{true};
-	bool invert_vertical{true};
+	bool invert_forward{false};
+	bool invert_lateral{false};
+	bool invert_vertical{false};
 	bool invert_pitch{false};
 	bool invert_mouse_x{false};
 	bool invert_mouse_y{false};

@@ -57,7 +57,7 @@ public:
 
 		const Scalar tan_half_fov = std::tan(fov_rad * static_cast<Scalar>(0.5)) / comp_factor;
 		const Scalar n1 = static_cast<Scalar>(1.0);
-		const Scalar n2 = -v_screen * tan_half_fov;
+		const Scalar n2 = v_screen * tan_half_fov;
 		const Scalar n3 = u_screen * tan_half_fov;
 
 		const Scalar len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);
@@ -84,7 +84,7 @@ public:
 		const Scalar cos_t = std::cos(theta);
 
 		const Scalar n1 = cos_t;
-		const Scalar n2 = -v_screen * (sin_t / r);
+		const Scalar n2 = v_screen * (sin_t / r);
 		const Scalar n3 = u_screen * (sin_t / r);
 
 		const Scalar len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);
@@ -106,7 +106,7 @@ public:
 		const Scalar sin_t = std::sin(theta);
 		const Scalar cos_t = std::cos(theta);
 		const Scalar n1 = cos_t;
-		const Scalar n2 = -v_screen * (sin_t / r);
+		const Scalar n2 = v_screen * (sin_t / r);
 		const Scalar n3 = u_screen * (sin_t / r);
 		const Scalar len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 		const Scalar inv_len = (len > static_cast<Scalar>(0.0)) ? (static_cast<Scalar>(1.0) / len) : static_cast<Scalar>(1.0);
@@ -126,7 +126,7 @@ public:
 			return {static_cast<Scalar>(1.0), static_cast<Scalar>(0.0), static_cast<Scalar>(0.0)};
 		}
 		const Scalar n1 = cos_t;
-		const Scalar n2 = -v_screen * (sin_t / r);
+		const Scalar n2 = v_screen * (sin_t / r);
 		const Scalar n3 = u_screen * (sin_t / r);
 		const Scalar len = std::sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 		const Scalar inv_len = (len > static_cast<Scalar>(0.0)) ? (static_cast<Scalar>(1.0) / len) : static_cast<Scalar>(1.0);
@@ -141,7 +141,7 @@ public:
 		const Scalar d = static_cast<Scalar>(1.0);
 		const Scalar tan_h = std::tan(fov_rad * static_cast<Scalar>(0.5));
 		const Scalar px = u_screen * tan_h;
-		const Scalar py = -v_screen * tan_h;
+		const Scalar py = v_screen * tan_h;
 		const Scalar s = (d + static_cast<Scalar>(1.0)) / (d + std::sqrt(std::max(static_cast<Scalar>(1.0) + (static_cast<Scalar>(1.0) - d * d) * px * px / ((d + static_cast<Scalar>(1.0)) * (d + static_cast<Scalar>(1.0))), static_cast<Scalar>(1e-15))));
 		const Scalar sin_phi = (px * s) / (d + static_cast<Scalar>(1.0));
 		const Scalar cos_phi = std::sqrt(std::max(static_cast<Scalar>(1.0) - sin_phi * sin_phi, static_cast<Scalar>(0.0)));
@@ -160,7 +160,7 @@ public:
 	) noexcept {
 		const Scalar zoom = static_cast<Scalar>(60.0 * std::numbers::pi / 180.0) / std::max(fov_rad, static_cast<Scalar>(0.01));
 		const Scalar x = std::clamp(u_screen * zoom * static_cast<Scalar>(std::numbers::sqrt2), static_cast<Scalar>(-std::numbers::sqrt2), static_cast<Scalar>(std::numbers::sqrt2));
-		const Scalar y = std::clamp(-v_screen * zoom * static_cast<Scalar>(std::numbers::sqrt2 * 0.5), static_cast<Scalar>(-std::numbers::sqrt2 * 0.5), static_cast<Scalar>(std::numbers::sqrt2 * 0.5));
+		const Scalar y = std::clamp(v_screen * zoom * static_cast<Scalar>(std::numbers::sqrt2 * 0.5), static_cast<Scalar>(-std::numbers::sqrt2 * 0.5), static_cast<Scalar>(std::numbers::sqrt2 * 0.5));
 		const Scalar z = std::sqrt(std::max(static_cast<Scalar>(1.0) - (x * x * static_cast<Scalar>(0.25)) - (y * y), static_cast<Scalar>(1e-15)));
 		const Scalar phi = static_cast<Scalar>(2.0) * std::atan2(z * x, static_cast<Scalar>(2.0) * (static_cast<Scalar>(2.0) * z * z - static_cast<Scalar>(1.0)));
 		const Scalar theta = static_cast<Scalar>(std::numbers::pi * 0.5) - std::asin(std::clamp(z * y * static_cast<Scalar>(std::numbers::sqrt2), static_cast<Scalar>(-1.0), static_cast<Scalar>(1.0)));

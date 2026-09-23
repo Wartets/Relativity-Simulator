@@ -51,6 +51,7 @@ struct ScenarioObserverConfig {
 	uint32_t resolution_y{1080};
 	std::array<double, 3> orientation{0.0, 180.0, 0.0};
 	bool has_explicit_orientation{false};
+	uint32_t orientation_convention{1};
 };
 
 struct ScenarioIntegratorConfig {
@@ -223,6 +224,7 @@ public:
 			ss << "    resolution: [" << o.resolution_x << ", " << o.resolution_y << "]\n";
 			ss << "    position: [" << o.position[0] << ", " << o.position[1] << ", " << o.position[2] << ", " << o.position[3] << "]\n";
 			ss << "    orientation: [" << o.orientation[0] << ", " << o.orientation[1] << ", " << o.orientation[2] << "]\n";
+			ss << "    orientation_convention: " << o.orientation_convention << "\n";
 			ss << "    four_velocity: [" << o.four_velocity[0] << ", " << o.four_velocity[1] << ", " << o.four_velocity[2] << ", " << o.four_velocity[3] << "]\n";
 		}
 
@@ -397,6 +399,7 @@ public:
 			if (current_section == Section::Observers) {
 				if (sv.starts_with("-")) {
 					s.observers.emplace_back();
+					s.observers.back().orientation_convention = 0;
 					const size_t sub_colon = sv.find(':');
 					if (sub_colon != std::string_view::npos) {
 						const std::string_view skey = trim(sv.substr(1, sub_colon - 1));
@@ -420,6 +423,7 @@ public:
 						s.observers.back().has_explicit_orientation = true;
 					}
 					else if (key == "four_velocity") s.observers.back().four_velocity = parse_vec4(val);
+					else if (key == "orientation_convention") s.observers.back().orientation_convention = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10));
 				}
 				continue;
 			}

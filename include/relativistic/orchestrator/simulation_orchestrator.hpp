@@ -121,6 +121,46 @@ struct CameraState {
 	double theta{1.7561299};
 	double phi{1.7051178};
 	double orbit_distance{37.986839};
+
+	struct OrientationBasis {
+		std::array<double, 3> forward{1.0, 0.0, 0.0};
+		std::array<double, 3> right{0.0, -1.0, 0.0};
+		std::array<double, 3> up{0.0, 0.0, 1.0};
+	};
+
+	[[nodiscard]] OrientationBasis orientation_basis() const noexcept {
+		constexpr double degrees_to_radians = std::numbers::pi_v<double> / 180.0;
+		const double cp = std::cos(pitch * degrees_to_radians);
+		const double sp = std::sin(pitch * degrees_to_radians);
+		const double cy = std::cos(yaw * degrees_to_radians);
+		const double sy = std::sin(yaw * degrees_to_radians);
+		const double cr = std::cos(roll * degrees_to_radians);
+		const double sr = std::sin(roll * degrees_to_radians);
+
+		const std::array<double, 3> level_right{sy, -cy, 0.0};
+		const std::array<double, 3> level_up{-sp * cy, -sp * sy, cp};
+
+		OrientationBasis basis;
+		basis.forward = {cp * cy, cp * sy, sp};
+		for (size_t i = 0; i < 3; ++i) {
+			basis.right[i] = cr * level_right[i] - sr * level_up[i];
+			basis.up[i] = sr * level_right[i] + cr * level_up[i];
+		}
+		return basis;
+	}
+
+	[[nodiscard]] std::array<double, 3> spherical_coordinates() const noexcept {
+		const double distance = std::sqrt(position[0] * position[0] + position[1] * position[1] + position[2] * position[2]);
+		const double polar = (distance > 1e-12) ? std::acos(std::clamp(position[2] / distance, -1.0, 1.0)) : (std::numbers::pi_v<double> / 2.0);
+		return {std::max(distance, 1e-6), polar, std::atan2(position[1], position[0])};
+	}
+
+	void synchronize_spherical() noexcept {
+		const auto coordinates = spherical_coordinates();
+		radius = coordinates[0];
+		theta = coordinates[1];
+		phi = coordinates[2];
+	}
 };
 
 template <size_t QueueCapacity = 1024>
@@ -153,13 +193,7 @@ private:
 	std::atomic<uint64_t> state_version_{1};
 
 	void sync_camera_spherical_from_cartesian() noexcept {
-		const double x = camera_.position[0];
-		const double y = camera_.position[1];
-		const double z = camera_.position[2];
-		const double r = std::sqrt(x * x + y * y + z * z);
-		camera_.radius = std::max(r, 1e-6);
-		camera_.theta = (r > 0.0) ? std::acos(std::clamp(z / r, -1.0, 1.0)) : (std::numbers::pi_v<double> / 2.0);
-		camera_.phi = std::atan2(y, x);
+		camera_.synchronize_spherical();
 	}
 
 	void sync_central_body_with_system() noexcept {
@@ -693,7 +727,7 @@ public:
 			camera_.orbit_distance = camera_.radius;
 			camera_.target = {0.0, 0.0, 0.0};
 			camera_.velocity = {0.0, 0.0, 0.0};
-			if (s.observers[0].has_explicit_orientation) {
+			if (s.observers[0].has_explicit_orientation && s.observers[0].orientation_convention >= 1) {
 				camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
 				camera_.yaw = s.observers[0].orientation[1];
 				camera_.roll = s.observers[0].orientation[2];

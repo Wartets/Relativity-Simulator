@@ -140,6 +140,12 @@ dvec2 precise_sincos(double theta) {
 	return dvec2(sin_4h, cos_4h);
 }
 
+dvec3 spherical_to_cartesian(double r, double theta, double phi) {
+	dvec2 sincos_theta = precise_sincos(theta);
+	float phi_f = float(phi);
+	return dvec3(r * sincos_theta.x * double(cos(phi_f)), r * sincos_theta.x * double(sin(phi_f)), r * sincos_theta.y);
+}
+
 double cbrt_d(double x) {
 	float xf = float(x);
 	float sign_x = (xf < 0.0) ? -1.0 : 1.0;
@@ -254,7 +260,7 @@ dvec4 kerr_newman_geodesic_derivative(dvec4 u, double r, double theta, double ma
 dvec3 compute_pinhole_ray(double u, double v, double fov) {
 	double tan_half = double(tan(float(fov * 0.5)));
 	double n1 = 1.0;
-	double n2 = -v * tan_half;
+	double n2 = v * tan_half;
 	double n3 = u * tan_half;
 	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
@@ -272,7 +278,7 @@ dvec3 compute_fisheye_stereographic_ray(double u, double v, double fov) {
 	double sin_t = double(sin(theta_f));
 	double cos_t = double(cos(theta_f));
 	double n1 = cos_t;
-	double n2 = -v * (sin_t / r);
+	double n2 = v * (sin_t / r);
 	double n3 = u * (sin_t / r);
 	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
@@ -287,7 +293,7 @@ dvec3 compute_fisheye_equidistant_ray(double u, double v, double fov) {
 	double sin_t = double(sin(theta_f));
 	double cos_t = double(cos(theta_f));
 	double n1 = cos_t;
-	double n2 = -v * (sin_t / r);
+	double n2 = v * (sin_t / r);
 	double n3 = u * (sin_t / r);
 	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
@@ -301,7 +307,7 @@ dvec3 compute_fisheye_orthographic_ray(double u, double v, double fov) {
 	double cos_t = sqrt(max(1.0 - sin_t * sin_t, 0.0));
 	if (r < 1e-15) return dvec3(1.0, 0.0, 0.0);
 	double n1 = cos_t;
-	double n2 = -v * (sin_t / r);
+	double n2 = v * (sin_t / r);
 	double n3 = u * (sin_t / r);
 	double len = sqrt(n1 * n1 + n2 * n2 + n3 * n3);
 	double inv_len = (len > 0.0) ? (1.0 / len) : 1.0;
@@ -312,7 +318,7 @@ dvec3 compute_panini_cylindrical_ray(double u, double v, double fov) {
 	double d = 1.0;
 	double tan_h = double(tan(float(fov * 0.5)));
 	double px = u * tan_h;
-	double py = -v * tan_h;
+	double py = v * tan_h;
 	double s = (d + 1.0) / (d + sqrt(max(1.0 + (1.0 - d * d) * px * px / ((d + 1.0) * (d + 1.0)), 1e-15)));
 	double sin_phi = (px * s) / (d + 1.0);
 	double cos_phi = sqrt(max(1.0 - sin_phi * sin_phi, 0.0));
@@ -328,7 +334,7 @@ dvec3 compute_hammer_aitoff_ray(double u, double v, double fov) {
 	double zoom = (60.0 * 0.017453292519943295) / max(fov, 0.01);
 	double sqrt2 = 1.4142135623730951;
 	double x = clamp(u * zoom * sqrt2, -sqrt2, sqrt2);
-	double y = clamp(-v * zoom * sqrt2 * 0.5, -sqrt2 * 0.5, sqrt2 * 0.5);
+	double y = clamp(v * zoom * sqrt2 * 0.5, -sqrt2 * 0.5, sqrt2 * 0.5);
 	double z = sqrt(max(1.0 - (x * x * 0.25) - (y * y), 1e-15));
 	double phi = double(2.0 * atan(float(z * x), float(2.0 * (2.0 * z * z - 1.0))));
 	double theta = (PI_D * 0.5) - double(asin(float(clamp(z * y * sqrt2, -1.0, 1.0))));
@@ -630,9 +636,9 @@ double body_fbm(dvec3 p, uint octaves, double roughness) {
 	return total / max(max_val, 1e-5);
 }
 
-bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, out vec3 out_color, out uint out_status, out double out_hit_dist) {
+bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 out_color, out uint out_status, out double out_hit_dist) {
 	bool hit_any = false;
-	double best_t = 1e30;
+	double best_t = max_dist;
 	vec3 best_color = vec3(0.0);
 
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
@@ -654,6 +660,12 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, out vec3 out_color, out uint
 		}
 
 		dvec3 o = ray_pos - bpos;
+		double bound_radius = max(scale_a, max(scale_b, scale_c));
+		double bound_b = dot(o, ray_dir);
+		double bound_disc = bound_b * bound_b - (dot(o, o) - bound_radius * bound_radius);
+		if (bound_disc < 0.0) continue;
+		double bound_root = sqrt(bound_disc);
+		if (-bound_b + bound_root < 1e-5 || -bound_b - bound_root > best_t) continue;
 		double inv_a2 = 1.0 / (scale_a * scale_a);
 		double inv_b2 = 1.0 / (scale_b * scale_b);
 		double inv_c2 = 1.0 / (scale_c * scale_c);
@@ -767,9 +779,10 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 	double py = ray_r * sin_t * sin_p;
 	double pz = ray_r * cos_t;
 
-	double dx = ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-	double dy = ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-	double dz = ray_pr * cos_t - ray_r * ray_pth * sin_t;
+	double local_radial = ray_pr / sqrt(max(1.0 - 2.0 * mass / ray_r, 1e-6));
+	double dx = -(local_radial * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p);
+	double dy = -(local_radial * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p);
+	double dz = -(local_radial * cos_t - ray_r * ray_pth * sin_t);
 
 	double dir_norm_sq = dx * dx + dy * dy + dz * dz;
 	if (dir_norm_sq <= 1e-30) {
@@ -863,10 +876,17 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 	double new_sin_t = sincos_new_th.x;
 	double safe_sin_t = (abs(new_sin_t) > 1e-9) ? new_sin_t : ((new_sin_t >= 0.0) ? 1e-9 : -1e-9);
 
-	double new_pr = (new_px * dx + new_py * dy + new_pz * dz) / new_r;
-	double new_pth = (new_pr * (new_pz / new_r) - dz) / (new_r * safe_sin_t);
+	double new_local_f = max(1.0 - 2.0 * mass / new_r, 1e-6);
+	double inv_dir_len = 1.0 / sqrt(dir_norm_sq);
+	double travel_x = dx * inv_dir_len;
+	double travel_y = dy * inv_dir_len;
+	double travel_z = dz * inv_dir_len;
+	double travel_radial = (new_px * travel_x + new_py * travel_y + new_pz * travel_z) / new_r;
+	double inv_sqrt_new_f = 1.0 / sqrt(new_local_f);
+	double new_pr = -travel_radial;
+	double new_pth = -((travel_radial * (new_pz / new_r) - travel_z) / (new_r * safe_sin_t)) * inv_sqrt_new_f;
 	double r2_sin2 = new_r * new_r * new_sin_t * new_sin_t;
-	double new_pphi = (abs(r2_sin2) > 1e-12) ? ((new_px * dy - new_py * dx) / r2_sin2) : 0.0;
+	double new_pphi = (abs(r2_sin2) > 1e-12) ? (-((new_px * travel_y - new_py * travel_x) / r2_sin2) * inv_sqrt_new_f) : 0.0;
 
 	ray_r = new_r;
 	ray_th = new_theta;
@@ -903,13 +923,13 @@ void main() {
 		double obs_r0 = pc.observer_position.y;
 		double obs_th0 = pc.observer_position.z;
 		double obs_ph0 = pc.observer_position.w;
-		dvec3 obs_pos0 = dvec3(obs_r0 * double(sin(float(obs_th0)) * cos(float(obs_ph0))), obs_r0 * double(sin(float(obs_th0)) * sin(float(obs_ph0))), obs_r0 * double(cos(float(obs_th0))));
+		dvec3 obs_pos0 = spherical_to_cartesian(obs_r0, obs_th0, obs_ph0);
 
-		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u) {
+		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.metric_type == 0u || (pc.render_flags & (1u << 17)) != 0u)) {
 			vec3 body_color;
 			uint body_status;
 			double body_dist;
-			if (intersect_bodies(obs_pos0, ray_dir, body_color, body_status, body_dist)) {
+			if (intersect_bodies(obs_pos0, ray_dir, 1e30, body_color, body_status, body_dist)) {
 				vec3 mapped_body = apply_tonemapping(body_color, pc.tonemapping_mode, pc.camera_exposure);
 				pixels[pixel_index].rgba = vec4(mapped_body, 1.0);
 				pixels[pixel_index].redshift = 1.0;
@@ -992,21 +1012,23 @@ void main() {
 			double e0_t, e0_phi, e1_r, e2_th, e3_phi;
 			kerr_newman_zamo_frame(r_obs, theta_obs, m, a_spin, kn_charge_sq, g00, g03, g11, g22, g33, e0_t, e0_phi, e1_r, e2_th, e3_phi);
 			ray_p0 = e0_t;
-			ray_pr = n_r * e1_r;
-			ray_pth = n_th * e2_th;
-			ray_pphi = e0_phi + n_ph * e3_phi;
+			ray_pr = -n_r * e1_r;
+			ray_pth = -n_th * e2_th;
+			ray_pphi = e0_phi - n_ph * e3_phi;
 			E_cons = -(g00 * ray_p0 + g03 * ray_pphi);
 			Lz_cons = g03 * ray_p0 + g33 * ray_pphi;
 		} else {
 			double factor_obs = max(1.0 - rs / r_obs, 1e-6);
 			double sqrt_factor_obs = sqrt(factor_obs);
-			ray_pr = n_r / sqrt_factor_obs;
-			ray_pth = n_th / r_obs;
-			ray_pphi = n_ph / (r_obs * sin_to);
+			ray_pr = -n_r;
+			ray_pth = -n_th / (r_obs * sqrt_factor_obs);
+			ray_pphi = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
 			Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
 		}
 
 		double throughput = 1.0;
+
+		bool bodies_traced = (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u;
 
 		uint effective_max_steps = pc.max_integration_steps;
 		if ((pc.render_flags & (1u << 9)) != 0u && pc.lod_distance_threshold > 0.0 && r_obs > pc.lod_distance_threshold) {
@@ -1029,8 +1051,24 @@ void main() {
 
 			if (!use_kerr_newman_metric && (pc.render_flags & (1u << 10)) != 0u) {
 				double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
-				if (ray_r > effective_skip_r && attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
-					continue;
+				if (ray_r > effective_skip_r) {
+					dvec3 skip_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+					if (attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
+						if (bodies_traced) {
+							dvec3 skip_vector = spherical_to_cartesian(ray_r, ray_th, ray_phi) - skip_origin;
+							double skip_length = length(skip_vector);
+							vec3 skip_color;
+							uint skip_status;
+							double skip_dist;
+							if (skip_length > 1e-12 && intersect_bodies(skip_origin, skip_vector / skip_length, skip_length, skip_color, skip_status, skip_dist)) {
+								accum += throughput * dvec3(skip_color);
+								status |= 16u;
+								throughput = 0.0;
+								break;
+							}
+						}
+						continue;
+					}
 				}
 			}
 
@@ -1092,6 +1130,19 @@ void main() {
 				ray_pth = -ray_pth;
 			}
 
+			bool body_segment_hit = false;
+			vec3 body_segment_color = vec3(0.0);
+			if (bodies_traced) {
+				dvec3 segment_from = spherical_to_cartesian(prev_r, prev_th, prev_phi);
+				dvec3 segment_vector = spherical_to_cartesian(ray_r, ray_th, ray_phi) - segment_from;
+				double segment_length = length(segment_vector);
+				if (segment_length > 1e-12) {
+					uint segment_status;
+					double segment_dist;
+					body_segment_hit = intersect_bodies(segment_from, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
+				}
+			}
+
 			double mid_plane = PI_D * 0.5;
 			if (has_accretion_disk && (prev_th - mid_plane) * (ray_th - mid_plane) <= 0.0) {
 				double d_th_span = abs(ray_th - prev_th);
@@ -1136,6 +1187,12 @@ void main() {
 					throughput *= (1.0 - alpha_opacity);
 				}
 			}
+			if (body_segment_hit && throughput > 0.01) {
+				accum += throughput * dvec3(body_segment_color);
+				status |= 16u;
+				throughput = 0.0;
+				break;
+			}
 		}
 
 		if ((status & 2u) != 0u || throughput > 0.01) {
@@ -1146,16 +1203,31 @@ void main() {
 			double sin_p = double(sin(ray_phi_f2));
 			double cos_p = double(cos(ray_phi_f2));
 
-			double pxr = ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-			double pyr = ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-			double pzr = ray_pr * cos_t - ray_r * ray_pth * sin_t;
+			double exit_radial = ray_pr / sqrt(max(1.0 - rs / ray_r, 1e-6));
+			double pxr = -(exit_radial * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p);
+			double pyr = -(exit_radial * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p);
+			double pzr = -(exit_radial * cos_t - ray_r * ray_pth * sin_t);
 
 			double p_len = sqrt(pxr * pxr + pyr * pyr + pzr * pzr);
 			double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
 			dvec3 dir_out = dvec3(pxr * inv_plen, pyr * inv_plen, pzr * inv_plen);
 
-			vec3 sky = compute_sky_radiance(dir_out, pc.sky_rotation_rad);
-			accum += throughput * dvec3(sky);
+			bool exit_body_hit = false;
+			if (bodies_traced) {
+				vec3 exit_color;
+				uint exit_status;
+				double exit_dist;
+				dvec3 exit_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+				exit_body_hit = intersect_bodies(exit_origin, dir_out, 1e30, exit_color, exit_status, exit_dist);
+				if (exit_body_hit) {
+					accum += throughput * dvec3(exit_color);
+					status |= 16u;
+				}
+			}
+			if (!exit_body_hit) {
+				vec3 sky = compute_sky_radiance(dir_out, pc.sky_rotation_rad);
+				accum += throughput * dvec3(sky);
+			}
 		}
 	}
 

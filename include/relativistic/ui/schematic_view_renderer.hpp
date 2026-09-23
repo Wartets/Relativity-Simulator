@@ -1242,16 +1242,10 @@ public:
 		constexpr double max_fov = std::numbers::pi_v<double> - 1e-6;
 		fov_rad_ = std::clamp(fov_rad, min_fov, max_fov);
 
-		const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
-		const double yaw_r = cam.yaw * (std::numbers::pi / 180.0);
-		const double roll_r = cam.roll * (std::numbers::pi / 180.0);
-		const double cp = std::cos(pitch_r), sp = std::sin(pitch_r);
-		const double cy = std::cos(yaw_r), sy = std::sin(yaw_r);
-		const double cr = std::cos(roll_r), sr = std::sin(roll_r);
-
-		tetrad_forward_ = {cp * cy, cp * sy, sp};
-		tetrad_right_ = {cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
-		tetrad_up_ = {-sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
+		const auto orientation = cam.orientation_basis();
+		tetrad_forward_ = orientation.forward;
+		tetrad_right_ = orientation.right;
+		tetrad_up_ = orientation.up;
 	}
 
 	void render_overlay(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {

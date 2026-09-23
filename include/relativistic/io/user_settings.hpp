@@ -16,7 +16,7 @@
 
 namespace Relativistic::IO {
 
-inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 2;
+inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 3;
 
 struct SecondaryViewPersistedState {
 	bool active{false};
@@ -295,6 +295,13 @@ struct UserSettings {
 		result.camera_controls.free_fly.mouse_sensitivity = get_dbl("cam_ff_mouse_sensitivity", result.camera_controls.free_fly.mouse_sensitivity);
 		result.camera_controls.free_fly.sprint_multiplier = get_dbl("cam_ff_sprint_multiplier", result.camera_controls.free_fly.sprint_multiplier);
 		result.camera_controls.free_fly.crawl_multiplier = get_dbl("cam_ff_crawl_multiplier", result.camera_controls.free_fly.crawl_multiplier);
+		result.camera_controls.free_fly.invert_forward = get_u32("cam_ff_invert_forward", 0) != 0;
+		if (file_version < 3) {
+			result.camera_controls.free_fly.invert_forward = false;
+			result.camera_controls.free_fly.invert_lateral = false;
+			result.camera_controls.free_fly.invert_vertical = false;
+			result.format_version = USER_SETTINGS_FORMAT_VERSION;
+		}
 
 		result.camera_controls.orbit.orbit_distance_speed = get_dbl("cam_orbit_distance_speed", result.camera_controls.orbit.orbit_distance_speed);
 		result.camera_controls.orbit.pitch_speed_deg_s = get_dbl("cam_orbit_pitch_speed", result.camera_controls.orbit.pitch_speed_deg_s);
@@ -467,6 +474,7 @@ struct UserSettings {
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";
 		out << "cam_ff_invert_vertical=" << (camera_controls.free_fly.invert_vertical ? 1 : 0) << "\n";
+		out << "cam_ff_invert_forward=" << (camera_controls.free_fly.invert_forward ? 1 : 0) << "\n";
 		out << "cam_ff_invert_lateral=" << (camera_controls.free_fly.invert_lateral ? 1 : 0) << "\n";
 		out << "cam_ff_invert_mouse_y=" << (camera_controls.free_fly.invert_mouse_y ? 1 : 0) << "\n";
 		out << "cam_ff_invert_mouse_x=" << (camera_controls.free_fly.invert_mouse_x ? 1 : 0) << "\n";

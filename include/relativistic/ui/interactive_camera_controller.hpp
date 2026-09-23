@@ -232,7 +232,7 @@ private:
 		const double sin_y = std::sin(yaw_rad);
 
 		const std::array<double, 3> forward = {cos_p * cos_y, cos_p * sin_y, sin_p};
-		const std::array<double, 3> right = {-sin_y, cos_y, 0.0};
+		const std::array<double, 3> right = {sin_y, -cos_y, 0.0};
 		const std::array<double, 3> up = {0.0, 0.0, 1.0};
 
 		const double vert_sign = prof.invert_vertical ? -1.0 : 1.0;
@@ -292,7 +292,7 @@ private:
 		const double sin_y = std::sin(yaw_rad);
 
 		const std::array<double, 3> forward = {cos_p * cos_y, cos_p * sin_y, sin_p};
-		const std::array<double, 3> right = {-sin_y, cos_y, 0.0};
+		const std::array<double, 3> right = {sin_y, -cos_y, 0.0};
 		const std::array<double, 3> up = {0.0, 0.0, 1.0};
 
 		if (can_thrust) {
@@ -367,18 +367,18 @@ private:
 			cam.orbit_distance = std::min(5000.0, cam.orbit_distance + prof.orbit_distance_speed * dt);
 		}
 		if (config_.keybinds.is_pressed(InputAction::MoveLeft, window)) {
-			cam.yaw += prof.yaw_speed_deg_s * dt;
+			cam.yaw -= prof.yaw_speed_deg_s * dt;
 		}
 		if (config_.keybinds.is_pressed(InputAction::MoveRight, window)) {
-			cam.yaw -= prof.yaw_speed_deg_s * dt;
+			cam.yaw += prof.yaw_speed_deg_s * dt;
 		}
 
 		const double pitch_sign = prof.invert_pitch ? -1.0 : 1.0;
 		if (config_.keybinds.is_pressed(InputAction::MoveUp, window)) {
-			cam.pitch = std::clamp(cam.pitch + prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
+			cam.pitch = std::clamp(cam.pitch - prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
 		}
 		if (config_.keybinds.is_pressed(InputAction::MoveDown, window)) {
-			cam.pitch = std::clamp(cam.pitch - prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
+			cam.pitch = std::clamp(cam.pitch + prof.pitch_speed_deg_s * dt * pitch_sign, -89.0, 89.0);
 		}
 
 		handle_mouse_look(window, is_hovered);
@@ -387,7 +387,7 @@ private:
 		const double y_rad = cam.yaw * (std::numbers::pi / 180.0);
 		cam.position[0] = cam.target[0] - cam.orbit_distance * std::cos(p_rad) * std::cos(y_rad);
 		cam.position[1] = cam.target[1] - cam.orbit_distance * std::cos(p_rad) * std::sin(y_rad);
-		cam.position[2] = cam.target[2] + cam.orbit_distance * std::sin(p_rad);
+		cam.position[2] = cam.target[2] - cam.orbit_distance * std::sin(p_rad);
 
 		sync_spherical_from_cartesian();
 	}
@@ -455,7 +455,7 @@ private:
 					const auto& prof = config_.free_fly;
 					const double x_sign = prof.invert_mouse_x ? -1.0 : 1.0;
 					const double y_sign = prof.invert_mouse_y ? -1.0 : 1.0;
-					cam.yaw += dx * prof.mouse_sensitivity * x_sign;
+					cam.yaw -= dx * prof.mouse_sensitivity * x_sign;
 					cam.pitch = std::clamp(cam.pitch - dy * prof.mouse_sensitivity * y_sign, -89.0, 89.0);
 				}
 			}
@@ -466,14 +466,7 @@ private:
 	}
 
 	void sync_spherical_from_cartesian() noexcept {
-		auto& cam = orchestrator_.camera();
-		const double x = cam.position[0];
-		const double y = cam.position[1];
-		const double z = cam.position[2];
-		const double r = std::sqrt(x * x + y * y + z * z);
-		cam.radius = std::max(r, 1e-4);
-		cam.theta = (r > 0.0) ? std::acos(std::clamp(z / r, -1.0, 1.0)) : (std::numbers::pi / 2.0);
-		cam.phi = std::atan2(y, x);
+		orchestrator_.camera().synchronize_spherical();
 	}
 };
 

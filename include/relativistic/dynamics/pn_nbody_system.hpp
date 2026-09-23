@@ -241,10 +241,10 @@ public:
 						central_body_.velocity[2] - body.velocity[2]
 					};
 					const auto acc_cen = PostNewtonianSolver::compute_binary_relative_acceleration(
-						r_rel, v_rel, central_body_.mass, bodies_[i].mass,
+						r_rel, v_rel, central_body_.mass, body.mass,
 						central_body_.spin, body.spin, config_
 					);
-					const double m_tot = central_body_.mass + bodies_[i].mass;
+					const double m_tot = central_body_.mass + body.mass;
 					const double f_i = (m_tot > 0.0) ? (-central_body_.mass / m_tot) : -1.0;
 					for (size_t c = 0; c < 3; ++c) {
 						body.acceleration[c] += f_i * acc_cen.a_total[c];

@@ -555,6 +555,70 @@ private:
 		return r_isco_over_m * m;
 	}
 
+	[[nodiscard]] static std::array<double, 3> spherical_to_cartesian(double r, double theta, double phi) noexcept {
+		const double sin_t = std::sin(theta);
+		return {r * sin_t * std::cos(phi), r * sin_t * std::sin(phi), r * std::cos(theta)};
+	}
+
+	template <typename Scalar>
+	[[nodiscard]] static std::array<Scalar, 3> local_frame_to_travel_direction(
+		Scalar theta,
+		Scalar phi,
+		Scalar local_r,
+		Scalar local_theta,
+		Scalar local_phi
+	) noexcept {
+		const Scalar sin_t = std::sin(theta);
+		const Scalar cos_t = std::cos(theta);
+		const Scalar sin_p = std::sin(phi);
+		const Scalar cos_p = std::cos(phi);
+		const Scalar x = -(local_r * sin_t * cos_p + local_theta * cos_t * cos_p - local_phi * sin_p);
+		const Scalar y = -(local_r * sin_t * sin_p + local_theta * cos_t * sin_p + local_phi * cos_p);
+		const Scalar z = -(local_r * cos_t - local_theta * sin_t);
+		const Scalar length = std::sqrt(x * x + y * y + z * z);
+		if (length <= static_cast<Scalar>(1e-12)) {
+			return {static_cast<Scalar>(1), static_cast<Scalar>(0), static_cast<Scalar>(0)};
+		}
+		const Scalar inv_length = static_cast<Scalar>(1) / length;
+		return {x * inv_length, y * inv_length, z * inv_length};
+	}
+
+	template <typename Scalar>
+	[[nodiscard]] static std::array<Scalar, 3> schwarzschild_travel_direction(
+		Scalar r,
+		Scalar theta,
+		Scalar phi,
+		Scalar pr,
+		Scalar ptheta,
+		Scalar pphi,
+		Scalar rs
+	) noexcept {
+		const Scalar f = std::max(static_cast<Scalar>(1) - rs / r, static_cast<Scalar>(1e-6));
+		return local_frame_to_travel_direction(theta, phi, pr / std::sqrt(f), r * ptheta, r * std::sin(theta) * pphi);
+	}
+
+	[[nodiscard]] static BodyHitResult evaluate_3d_body_segment(
+		const std::array<double, 3>& from,
+		const std::array<double, 3>& to,
+		std::span<const GpuBodyData> bodies,
+		const GpuCameraPushConstants& params,
+		std::span<const uint32_t> candidates
+	) noexcept {
+		const double dx = to[0] - from[0];
+		const double dy = to[1] - from[1];
+		const double dz = to[2] - from[2];
+		const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
+		if (length <= 1e-12) {
+			return BodyHitResult{};
+		}
+		const std::array<double, 3> direction{dx / length, dy / length, dz / length};
+		const auto hit = evaluate_3d_bodies(from, direction, bodies, params, candidates);
+		if (hit.hit && hit.t_hit <= length + 1e-6) {
+			return hit;
+		}
+		return BodyHitResult{};
+	}
+
 	template <typename Scalar>
 	[[nodiscard]] static bool attempt_analytic_space_skip(
 		Scalar& ray_r, Scalar& ray_theta, Scalar& ray_phi,
@@ -574,9 +638,10 @@ private:
 		const Scalar py = ray_r * sin_t * sin_p;
 		const Scalar pz = ray_r * cos_t;
 
-		Scalar dx = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-		Scalar dy = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-		Scalar dz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
+		const Scalar local_radial = ray_pr / std::sqrt(std::max(static_cast<Scalar>(1) - static_cast<Scalar>(2) * mass / ray_r, static_cast<Scalar>(1e-6)));
+		Scalar dx = -(local_radial * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p);
+		Scalar dy = -(local_radial * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p);
+		Scalar dz = -(local_radial * cos_t - ray_r * ray_ptheta * sin_t);
 
 		const Scalar dir_norm_sq = dx * dx + dy * dy + dz * dz;
 		if (dir_norm_sq <= static_cast<Scalar>(1e-30)) {
@@ -661,10 +726,17 @@ private:
 		const Scalar new_sin_t = std::sin(new_theta);
 		const Scalar safe_sin_t = (std::abs(new_sin_t) > static_cast<Scalar>(1e-9)) ? new_sin_t : ((new_sin_t >= static_cast<Scalar>(0)) ? static_cast<Scalar>(1e-9) : static_cast<Scalar>(-1e-9));
 
-		const Scalar new_pr = (new_px * dx + new_py * dy + new_pz * dz) / new_r;
-		const Scalar new_ptheta = (new_pr * (new_pz / new_r) - dz) / (new_r * safe_sin_t);
+		const Scalar new_local_f = std::max(static_cast<Scalar>(1) - static_cast<Scalar>(2) * mass / new_r, static_cast<Scalar>(1e-6));
+		const Scalar inv_dir_len = static_cast<Scalar>(1) / std::sqrt(dir_norm_sq);
+		const Scalar travel_x = dx * inv_dir_len;
+		const Scalar travel_y = dy * inv_dir_len;
+		const Scalar travel_z = dz * inv_dir_len;
+		const Scalar travel_radial = (new_px * travel_x + new_py * travel_y + new_pz * travel_z) / new_r;
+		const Scalar inv_sqrt_new_f = static_cast<Scalar>(1) / std::sqrt(new_local_f);
+		const Scalar new_pr = -travel_radial;
+		const Scalar new_ptheta = -((travel_radial * (new_pz / new_r) - travel_z) / (new_r * safe_sin_t)) * inv_sqrt_new_f;
 		const Scalar r2_sin2 = new_r * new_r * new_sin_t * new_sin_t;
-		const Scalar new_pphi = (std::abs(r2_sin2) > static_cast<Scalar>(1e-12)) ? ((new_px * dy - new_py * dx) / r2_sin2) : static_cast<Scalar>(0);
+		const Scalar new_pphi = (std::abs(r2_sin2) > static_cast<Scalar>(1e-12)) ? (-((new_px * travel_y - new_py * travel_x) / r2_sin2) * inv_sqrt_new_f) : static_cast<Scalar>(0);
 
 		ray_r = new_r;
 		ray_theta = new_theta;
@@ -692,7 +764,7 @@ private:
 		const auto tetrad = Observer::ObserverTetrad<double>::make_zamo(metric, Core::FourVector<double>(0.0, r_obs, theta_obs, phi_obs));
 
 		Core::FourVector<double> x(0.0, r_obs, theta_obs, phi_obs);
-		Core::FourVector<double> u = tetrad.construct_light_ray(n1, n2, n3);
+		Core::FourVector<double> u = tetrad.construct_light_ray(-n1, -n2, -n3);
 
 		const double disk_outer = 24.0 * m;
 
@@ -741,8 +813,22 @@ private:
 				const double effective_skip_r = has_accretion_disk
 					? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
 					: std::max(params.space_skip_radius_scale * m, rh * 2.0);
-				if (x(1) > effective_skip_r && attempt_analytic_space_skip(x(1), x(2), x(3), u(1), u(2), u(3), effective_skip_r, escape_radius, m)) {
-					continue;
+				if (x(1) > effective_skip_r) {
+					const auto skip_origin = spherical_to_cartesian(x(1), x(2), x(3));
+					if (attempt_analytic_space_skip(x(1), x(2), x(3), u(1), u(2), u(3), effective_skip_r, escape_radius, m)) {
+						if (!bodies.empty()) {
+							const auto skip_hit = evaluate_3d_body_segment(skip_origin, spherical_to_cartesian(x(1), x(2), x(3)), bodies, params, body_candidates);
+							if (skip_hit.hit) {
+								accum_r += throughput * static_cast<double>(skip_hit.color.r);
+								accum_g += throughput * static_cast<double>(skip_hit.color.g);
+								accum_b += throughput * static_cast<double>(skip_hit.color.b);
+								status |= PixelFlags::BODY_SURFACE_HIT;
+								throughput = 0.0;
+								break;
+							}
+						}
+						continue;
+					}
 				}
 			}
 
@@ -874,19 +960,28 @@ private:
 		}
 
 		if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01) {
-			const double sin_t = std::sin(x(2));
-			const double cos_t = std::cos(x(2));
-			const double sin_p = std::sin(x(3));
-			const double cos_p = std::cos(x(3));
-
-			const double px = u(1) * sin_t * cos_p + x(1) * u(2) * cos_t * cos_p - x(1) * sin_t * u(3) * sin_p;
-			const double py = u(1) * sin_t * sin_p + x(1) * u(2) * cos_t * sin_p + x(1) * sin_t * u(3) * cos_p;
-			const double pz = u(1) * cos_t - x(1) * u(2) * sin_t;
-
-			const double p_len = std::sqrt(px * px + py * py + pz * pz);
-			const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
-
-			const auto sky_rgb = compute_sky_radiance(px * inv_plen, py * inv_plen, pz * inv_plen, params);
+			const auto g_exit = metric.metric_tensor(x);
+			const auto exit_direction = local_frame_to_travel_direction(
+				x(2), x(3),
+				std::sqrt(std::max(g_exit(1, 1), 0.0)) * u(1),
+				std::sqrt(std::max(g_exit(2, 2), 0.0)) * u(2),
+				std::sqrt(std::max(g_exit(3, 3), 0.0)) * u(3)
+			);
+			bool exit_body_hit = false;
+			if (!bodies.empty()) {
+				const auto exit_origin = spherical_to_cartesian(x(1), x(2), x(3));
+				const auto exit_hit = evaluate_3d_bodies(exit_origin, exit_direction, bodies, params, body_candidates);
+				if (exit_hit.hit) {
+					accum_r += throughput * static_cast<double>(exit_hit.color.r);
+					accum_g += throughput * static_cast<double>(exit_hit.color.g);
+					accum_b += throughput * static_cast<double>(exit_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					exit_body_hit = true;
+				}
+			}
+			const std::array<float, 3> sky_rgb = exit_body_hit
+				? std::array<float, 3>{0.0f, 0.0f, 0.0f}
+				: compute_sky_radiance(exit_direction[0], exit_direction[1], exit_direction[2], params);
 			accum_r += throughput * static_cast<double>(sky_rgb[0]);
 			accum_g += throughput * static_cast<double>(sky_rgb[1]);
 			accum_b += throughput * static_cast<double>(sky_rgb[2]);
@@ -1348,20 +1443,10 @@ public:
 					}
 
 					const bool bodies_only_mode_active = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
-					bool bodies_need_curved_path = false;
-					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty() && !bodies_only_mode_active) {
-						const double curvature_significant_radius = std::max(30.0 * rh, disk_outer * 1.5);
-						const size_t candidate_count = body_candidates.empty() ? bodies.size() : body_candidates.size();
-						for (size_t ci = 0; ci < candidate_count; ++ci) {
-							const size_t bidx = body_candidates.empty() ? ci : static_cast<size_t>(body_candidates[ci]);
-							const auto& cb = bodies[bidx];
-							const double cd2 = cb.position[0] * cb.position[0] + cb.position[1] * cb.position[1] + cb.position[2] * cb.position[2];
-							if (cd2 < curvature_significant_radius * curvature_significant_radius) {
-								bodies_need_curved_path = true;
-								break;
-							}
-						}
-					}
+					const bool bodies_need_curved_path = has_event_horizon
+						&& !bodies_only_mode_active
+						&& ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U)
+						&& !bodies.empty();
 
 					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty() && !bodies_need_curved_path) {
 						const std::array<double, 3> ray_orig{
@@ -1420,9 +1505,9 @@ public:
 					const double factor_obs = std::max(1.0 - rs / r_obs, 1e-6);
 					const double sqrt_factor_obs = std::sqrt(factor_obs);
 
-					const double p_r_init = n_r / sqrt_factor_obs;
-					const double p_theta_init = n_th / r_obs;
-					const double p_phi_init = n_ph / (r_obs * sin_to);
+					const double p_r_init = -n_r;
+					const double p_theta_init = -n_th / (r_obs * sqrt_factor_obs);
+					const double p_phi_init = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
 
 					double ray_r = r_obs;
 					double ray_theta = theta_obs;
@@ -1460,9 +1545,22 @@ public:
 							break;
 						}
 
-						if (space_skip_enabled && ray_r > effective_space_skip_radius &&
-							attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius, m)) {
-							continue;
+						if (space_skip_enabled && ray_r > effective_space_skip_radius) {
+							const auto skip_origin = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
+							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius, m)) {
+								if (bodies_need_curved_path) {
+									const auto skip_hit = evaluate_3d_body_segment(skip_origin, spherical_to_cartesian(ray_r, ray_theta, ray_phi), bodies, params, body_candidates);
+									if (skip_hit.hit) {
+										accumulated_r += throughput * static_cast<double>(skip_hit.color.r);
+										accumulated_g += throughput * static_cast<double>(skip_hit.color.g);
+										accumulated_b += throughput * static_cast<double>(skip_hit.color.b);
+										status |= PixelFlags::BODY_SURFACE_HIT;
+										throughput = 0.0;
+										break;
+									}
+								}
+								continue;
+							}
 						}
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
@@ -1629,19 +1727,22 @@ public:
 					}
 
 					if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01) {
-						const double sin_t = std::sin(ray_theta);
-						const double cos_t = std::cos(ray_theta);
-						const double sin_p = std::sin(ray_phi);
-						const double cos_p = std::cos(ray_phi);
-
-						const double px = ray_pr * sin_t * cos_p + ray_r * ray_ptheta * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p;
-						const double py = ray_pr * sin_t * sin_p + ray_r * ray_ptheta * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p;
-						const double pz = ray_pr * cos_t - ray_r * ray_ptheta * sin_t;
-
-						const double p_len = std::sqrt(px * px + py * py + pz * pz);
-						const double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
-
-						const auto sky_rgb = compute_sky_radiance(px * inv_plen, py * inv_plen, pz * inv_plen, params);
+						const auto exit_direction = schwarzschild_travel_direction(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, rs);
+						bool exit_body_hit = false;
+						if (bodies_need_curved_path) {
+							const auto exit_origin = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
+							const auto exit_hit = evaluate_3d_bodies(exit_origin, exit_direction, bodies, params, body_candidates);
+							if (exit_hit.hit) {
+								accumulated_r += throughput * static_cast<double>(exit_hit.color.r);
+								accumulated_g += throughput * static_cast<double>(exit_hit.color.g);
+								accumulated_b += throughput * static_cast<double>(exit_hit.color.b);
+								status |= PixelFlags::BODY_SURFACE_HIT;
+								exit_body_hit = true;
+							}
+						}
+						const std::array<float, 3> sky_rgb = exit_body_hit
+							? std::array<float, 3>{0.0f, 0.0f, 0.0f}
+							: compute_sky_radiance(exit_direction[0], exit_direction[1], exit_direction[2], params);
 						accumulated_r += throughput * static_cast<double>(sky_rgb[0]);
 						accumulated_g += throughput * static_cast<double>(sky_rgb[1]);
 						accumulated_b += throughput * static_cast<double>(sky_rgb[2]);
@@ -1845,9 +1946,9 @@ public:
 							bundle.x3[l] = phi_obs;
 
 							bundle.p0[l] = 1.0 / factor_obs;
-							bundle.p1[l] = n_r / sqrt_factor_obs;
-							bundle.p2[l] = n_th / r_obs;
-							bundle.p3[l] = n_ph / (r_obs * sin_to);
+							bundle.p1[l] = -n_r;
+							bundle.p2[l] = -n_th / (r_obs * sqrt_factor_obs);
+							bundle.p3[l] = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
 							bundle.active_mask[l] = true;
 						} else {
 							bundle.x0[l] = 0.0;

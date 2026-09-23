@@ -446,6 +446,7 @@ public:
 			}
 
 			const auto& cam = orchestrator_.camera();
+			const auto obs_sph = cam.spherical_coordinates();
 
 			if (params.schematic_mode_enabled) {
 				const ImVec2 schematic_pos = ImGui::GetCursorScreenPos();
@@ -492,7 +493,7 @@ public:
 			{
 				constexpr double kUnboundedRenderDistance = 1.0e7;
 				const double configured_distance = (params.render_distance_scale > 0.0) ? (params.render_distance_scale * params.mass) : kUnboundedRenderDistance;
-				cam_consts.escape_radius = std::max(configured_distance, cam.radius * 2.0);
+				cam_consts.escape_radius = std::max(configured_distance, obs_sph[0] * 2.0);
 			}
 			cam_consts.projection_mode = params.projection_mode;
 			cam_consts.max_integration_steps = params.max_ray_steps;
@@ -537,19 +538,14 @@ public:
 			cam_consts.sky_background_r = params.sky_background_r;
 			cam_consts.sky_background_g = params.sky_background_g;
 			cam_consts.sky_background_b = params.sky_background_b;
-			cam_consts.observer_position = {0.0, cam.radius, cam.theta, cam.phi};
+			cam_consts.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
 
-			const double pitch_r = cam.pitch * (std::numbers::pi / 180.0);
-			const double yaw_r = cam.yaw * (std::numbers::pi / 180.0);
-			const double roll_r = cam.roll * (std::numbers::pi / 180.0);
-			const double cp = std::cos(pitch_r), sp = std::sin(pitch_r);
-			const double cy = std::cos(yaw_r), sy = std::sin(yaw_r);
-			const double cr = std::cos(roll_r), sr = std::sin(roll_r);
+			const auto orientation = cam.orientation_basis();
 
 			cam_consts.tetrad_e0 = {1.0, 0.0, 0.0, 0.0};
-			cam_consts.tetrad_e1 = {0.0, cp * cy, cp * sy, sp};
-			cam_consts.tetrad_e2 = {0.0, cr * (-sy) + sr * (-sp * cy), cr * cy + sr * (-sp * sy), sr * cp};
-			cam_consts.tetrad_e3 = {0.0, -sr * (-sy) + cr * (-sp * cy), -sr * cy + cr * (-sp * sy), cr * cp};
+			cam_consts.tetrad_e1 = {0.0, orientation.forward[0], orientation.forward[1], orientation.forward[2]};
+			cam_consts.tetrad_e2 = {0.0, orientation.right[0], orientation.right[1], orientation.right[2]};
+			cam_consts.tetrad_e3 = {0.0, orientation.up[0], orientation.up[1], orientation.up[2]};
 			cam_consts.time = orchestrator_.scheduler().snapshot().logical_time;
 			}
 
@@ -558,8 +554,11 @@ public:
 			if ((params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
 				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
 				gpu_bodies.reserve(nbody_sys.size());
-				const bool is_allsky_view = (params.projection_mode == 3U || params.projection_mode == 7U);
-				const double half_fov_margin_rad = cam_consts.field_of_view_rad * 0.5 * 1.15;
+				const bool lensing_present = params.mass > 0.0 && cam_consts.metric_type != 0U;
+				const bool perspective_view = (params.projection_mode == 0U || params.projection_mode == 1U);
+				const bool cone_culling_enabled = perspective_view && !lensing_present;
+				const double frame_aspect = static_cast<double>(current_width_) / static_cast<double>(std::max(current_height_, 1U));
+				const double frustum_half_angle = std::atan(std::tan(cam_consts.field_of_view_rad * 0.5) * std::sqrt(1.0 + frame_aspect * frame_aspect));
 				for (const auto& b : nbody_sys) {
 					if (!b.enabled) continue;
 					++total_enabled_bodies_this_frame;
@@ -568,9 +567,10 @@ public:
 					const double dz = b.position[2] - cam.position[2];
 					const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
 					if (dist > cam_consts.escape_radius) continue;
-					if (!is_allsky_view && dist > 1e-9) {
+					if (cone_culling_enabled && dist > 1e-9) {
 						const double cos_angle = std::clamp((dx * cam_consts.tetrad_e1[1] + dy * cam_consts.tetrad_e1[2] + dz * cam_consts.tetrad_e1[3]) / dist, -1.0, 1.0);
-						if (std::acos(cos_angle) > half_fov_margin_rad) continue;
+						const double angular_radius = std::asin(std::clamp(b.radius / dist, 0.0, 1.0));
+						if (std::acos(cos_angle) > frustum_half_angle + angular_radius) continue;
 					}
 					gpu_bodies.push_back(b.to_gpu_body_data());
 				}
@@ -961,11 +961,11 @@ public:
 		if (tb.jump_to_target) {
 			if (ImGui::Button("Jump to Target", ImVec2(100.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
 				const auto& tgt = dynamic_targets[selected_target_idx];
-				camera_controller_.look_at_target(tgt.position);
 				auto& c = orchestrator_.camera();
 				c.position = {tgt.position[0], tgt.position[1] + tgt.recommended_distance, tgt.position[2]};
 				c.orbit_distance = tgt.recommended_distance;
-				c.radius = tgt.recommended_distance;
+				c.synchronize_spherical();
+				camera_controller_.look_at_target(tgt.position);
 			}
 			ImGui::SameLine();
 		}

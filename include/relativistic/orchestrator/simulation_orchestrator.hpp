@@ -272,8 +272,8 @@ private:
 
 		if (min_r == 1e30) return;
 		const double max_omega = std::sqrt(std::max(params_.mass, 1e-4) / std::max(min_r * min_r * min_r, 1e-6));
-		const double safe_sub_dt = (max_omega > 0.0) ? (0.2 / max_omega) : dt;
-		const size_t sub_steps = std::clamp(static_cast<size_t>(std::ceil(dt / std::max(safe_sub_dt, 1e-6))), size_t{1}, size_t{20});
+		const double safe_sub_dt = (max_omega > 0.0) ? (0.05 / max_omega) : dt;
+		const size_t sub_steps = std::clamp(static_cast<size_t>(std::ceil(dt / std::max(safe_sub_dt, 1e-6))), size_t{1}, size_t{500});
 		const double sub_dt = dt / static_cast<double>(sub_steps);
 
 		const bool use_symplectic = (active_integrator_name_.find("Symplectic") != std::string::npos) ||

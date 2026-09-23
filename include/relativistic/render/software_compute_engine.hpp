@@ -337,6 +337,27 @@ private:
 		return best_result;
 	}
 
+	[[nodiscard]] static bool ray_occluded_by_horizon(
+		const std::array<double, 3>& origin,
+		const std::array<double, 3>& direction,
+		double horizon_radius,
+		double max_distance
+	) noexcept {
+		if (horizon_radius <= 0.0) return false;
+		const double b = origin[0] * direction[0] + origin[1] * direction[1] + origin[2] * direction[2];
+		const double c = origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2] - horizon_radius * horizon_radius;
+		const double discriminant = b * b - c;
+		if (discriminant < 0.0) return false;
+		const double sqrt_disc = std::sqrt(discriminant);
+		const double t_near = -b - sqrt_disc;
+		const double t_far = -b + sqrt_disc;
+		double t_hit = -1.0;
+		if (t_near > 1e-6) t_hit = t_near;
+		else if (t_far > 1e-6) t_hit = t_far;
+		if (t_hit <= 1e-6) return false;
+		return t_hit < max_distance;
+	}
+
 	struct BodyTileCullResult {
 		std::vector<uint8_t> tile_mask{};
 		std::vector<std::vector<uint32_t>> tile_body_indices{};
@@ -1261,7 +1282,7 @@ public:
 							if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
 						}
 						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates);
-						if (body_hit.hit) {
+						if (body_hit.hit && (!has_event_horizon || !ray_occluded_by_horizon(ray_orig, ray_direction, rh, body_hit.t_hit))) {
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
 						}
@@ -2097,7 +2118,7 @@ public:
 							if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
 						}
 						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates);
-						if (body_hit.hit) {
+						if (body_hit.hit && (!has_event_horizon || !ray_occluded_by_horizon(ray_orig, ray_direction, static_cast<double>(rh), body_hit.t_hit))) {
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
 						}

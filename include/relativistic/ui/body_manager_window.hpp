@@ -72,6 +72,13 @@ private:
 	float new_body_quadrupole_{0.0f};
 	Dynamics::Body3DPreset new_body_preset_3d_{Dynamics::Body3DPreset::Terrestrial};
 	Dynamics::Body3DAtmosphereMode new_body_atmosphere_mode_{Dynamics::Body3DAtmosphereMode::Off};
+	float new_body_color_[4]{0.62f, 0.75f, 1.0f, 1.0f};
+	float new_body_color_secondary_[4]{0.18f, 0.30f, 0.75f, 1.0f};
+	float new_body_noise_scale_{4.0f};
+	float new_body_surface_roughness_{0.5f};
+	float new_body_atmosphere_thickness_{0.15f};
+	float new_body_emission_intensity_{0.0f};
+	float new_body_rotation_speed_3d_{0.1f};
 	bool new_body_mass_log_mode_{true};
 	bool new_body_radius_log_mode_{true};
 	bool new_body_r_ref_log_mode_{true};
@@ -323,6 +330,21 @@ private:
 		return (random_int(0, 1) == 0 ? -1.0 : 1.0) * random_real(min_abs, max_abs);
 	}
 
+	[[nodiscard]] static std::array<float, 3> hsv_to_rgb(float h, float s, float v) noexcept {
+		const float c = v * s;
+		const float hp = std::fmod(h * 6.0f, 6.0f);
+		const float x = c * (1.0f - std::abs(std::fmod(hp, 2.0f) - 1.0f));
+		float r = 0.0f, g = 0.0f, b = 0.0f;
+		if (hp < 1.0f) { r = c; g = x; }
+		else if (hp < 2.0f) { r = x; g = c; }
+		else if (hp < 3.0f) { g = c; b = x; }
+		else if (hp < 4.0f) { g = x; b = c; }
+		else if (hp < 5.0f) { r = x; b = c; }
+		else { r = c; b = x; }
+		const float m = v - c;
+		return {r + m, g + m, b + m};
+	}
+
 	[[nodiscard]] static std::string_view archetype_label(uint32_t archetype) noexcept {
 		switch (archetype) {
 			case 0: return "Probe";
@@ -467,6 +489,73 @@ private:
 		new_body_spin_[1] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
 		new_body_spin_[2] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
 		new_body_r_ref_ = static_cast<float>(std::max(static_cast<double>(new_body_radius_) * random_real(0.85, 1.25), 1e-6));
+
+		double hue_center = 0.13, hue_spread = 0.10, sat = 0.35, val = 1.0;
+		switch (archetype) {
+			case 0:
+				hue_center = 0.55; hue_spread = 0.08; sat = 0.10; val = 0.75;
+				new_body_noise_scale_ = static_cast<float>(random_real(6.0, 14.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.6, 0.95));
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.4));
+				break;
+			case 1:
+				hue_center = 0.08; hue_spread = 0.06; sat = 0.30; val = 0.55;
+				new_body_noise_scale_ = static_cast<float>(random_real(4.0, 10.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.5, 0.85));
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.35));
+				break;
+			case 2:
+				hue_center = 0.42; hue_spread = 0.14; sat = 0.55; val = 0.75;
+				new_body_noise_scale_ = static_cast<float>(random_real(3.0, 8.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.3, 0.6));
+				new_body_atmosphere_thickness_ = static_cast<float>(random_real(0.08, 0.3));
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.2));
+				break;
+			case 3:
+				hue_center = 0.10; hue_spread = 0.16; sat = 0.45; val = 0.85;
+				new_body_noise_scale_ = static_cast<float>(random_real(2.0, 6.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.2, 0.5));
+				new_body_atmosphere_thickness_ = static_cast<float>(random_real(0.2, 0.4));
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.1, 0.5));
+				break;
+			case 4:
+				hue_center = 0.58; hue_spread = 0.05; sat = 0.08; val = 0.9;
+				new_body_noise_scale_ = static_cast<float>(random_real(1.5, 5.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.15, 0.4));
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = static_cast<float>(random_real(0.5, 2.5));
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.5, 2.0));
+				break;
+			case 5:
+			default:
+				hue_center = 0.13; hue_spread = 0.10; sat = 0.35; val = 1.0;
+				new_body_noise_scale_ = static_cast<float>(random_real(3.0, 12.0));
+				new_body_surface_roughness_ = static_cast<float>(random_real(0.4, 0.85));
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = static_cast<float>(random_real(1.5, 3.5));
+				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.02, 0.2));
+				break;
+		}
+
+		const float primary_hue = static_cast<float>(std::fmod(hue_center + random_real(-hue_spread, hue_spread) + 1.0, 1.0));
+		const auto primary_rgb = hsv_to_rgb(primary_hue, static_cast<float>(sat), static_cast<float>(val));
+		new_body_color_[0] = primary_rgb[0];
+		new_body_color_[1] = primary_rgb[1];
+		new_body_color_[2] = primary_rgb[2];
+		new_body_color_[3] = 1.0f;
+
+		const float secondary_hue = std::fmod(primary_hue + static_cast<float>(random_real(0.03, 0.12)) + 1.0f, 1.0f);
+		const auto secondary_rgb = hsv_to_rgb(secondary_hue, static_cast<float>(std::clamp(sat * 1.2, 0.0, 1.0)), static_cast<float>(std::clamp(val * 0.7, 0.0, 1.0)));
+		new_body_color_secondary_[0] = secondary_rgb[0];
+		new_body_color_secondary_[1] = secondary_rgb[1];
+		new_body_color_secondary_[2] = secondary_rgb[2];
+		new_body_color_secondary_[3] = 1.0f;
 
 		std::string generated = synthesize_creation_name(archetype, new_body_mass_, new_body_radius_, orbit_radius);
 		const std::string unique = unique_name(generated);
@@ -950,6 +1039,17 @@ private:
 		ImGui::InputFloat3("Initial Spin Vector", new_body_spin_);
 
 		ImGui::Separator();
+		ImGui::TextDisabled("3D Ray-Traced Surface Appearance:");
+		ImGui::ColorEdit4("Primary Surface Color", new_body_color_);
+		ImGui::ColorEdit4("Secondary Surface Color", new_body_color_secondary_);
+		ImGui::SliderFloat("Surface Noise Scale", &new_body_noise_scale_, 0.5f, 20.0f, "%.2f");
+		ImGui::SliderFloat("Surface Roughness", &new_body_surface_roughness_, 0.05f, 1.0f, "%.2f");
+		ImGui::SliderFloat("Atmosphere Thickness", &new_body_atmosphere_thickness_, 0.0f, 0.5f, "%.3f");
+		ImGui::SliderFloat("Emission Intensity", &new_body_emission_intensity_, 0.0f, 5.0f, "%.2f");
+		ImGui::SliderFloat("3D Rotation Speed", &new_body_rotation_speed_3d_, 0.0f, 2.0f, "%.3f rad/s");
+		render_setting_tooltip("Controls the procedural surface shader appearance used by the 3D ray-tracing pipeline once this body is spawned. The Randomize button above regenerates these values in harmony with the sampled physical archetype instead of leaving every body with the same default look.");
+
+		ImGui::Separator();
 		ImGui::TextDisabled("Gravitational Multipolar Moments:");
 		slider_float_with_input("Quadrupole Moment (Q)", &new_body_quadrupole_, -1e-2f, 1e-2f, "%.6e");
 		slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
@@ -998,6 +1098,13 @@ private:
 			body.set_name(unique_name(std::string_view(new_body_name_)));
 			body.preset_3d = new_body_preset_3d_;
 			body.atmosphere_mode = new_body_atmosphere_mode_;
+			body.color = {new_body_color_[0], new_body_color_[1], new_body_color_[2], new_body_color_[3]};
+			body.color_secondary = {new_body_color_secondary_[0], new_body_color_secondary_[1], new_body_color_secondary_[2], new_body_color_secondary_[3]};
+			body.surface_noise_scale = new_body_noise_scale_;
+			body.surface_roughness = new_body_surface_roughness_;
+			body.atmosphere_thickness = new_body_atmosphere_thickness_;
+			body.emission_intensity = new_body_emission_intensity_;
+			body.rotation_speed_3d = new_body_rotation_speed_3d_;
 
 			sys.add_body(body);
 			sys.update_accelerations();
@@ -1306,6 +1413,13 @@ private:
 				new_body_r_ref_ = 6.9634e8f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::Star;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::GlowingCorona;
+				new_body_color_[0] = 1.0f; new_body_color_[1] = 0.85f; new_body_color_[2] = 0.5f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 1.0f; new_body_color_secondary_[1] = 0.55f; new_body_color_secondary_[2] = 0.15f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 8.0f;
+				new_body_surface_roughness_ = 0.6f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 2.5f;
+				new_body_rotation_speed_3d_ = 0.05f;
 				break;
 			case BodyPresetTemplate::Earth:
 				std::strncpy(new_body_name_, "Earth", sizeof(new_body_name_) - 1);
@@ -1315,6 +1429,13 @@ private:
 				new_body_r_ref_ = 6.378137e6f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
+				new_body_color_[0] = 0.10f; new_body_color_[1] = 0.35f; new_body_color_[2] = 0.65f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.20f; new_body_color_secondary_[1] = 0.50f; new_body_color_secondary_[2] = 0.22f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 5.0f;
+				new_body_surface_roughness_ = 0.45f;
+				new_body_atmosphere_thickness_ = 0.18f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.12f;
 				break;
 			case BodyPresetTemplate::Moon:
 				std::strncpy(new_body_name_, "Moon", sizeof(new_body_name_) - 1);
@@ -1324,6 +1445,13 @@ private:
 				new_body_r_ref_ = 1.7374e6f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::Metallic;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
+				new_body_color_[0] = 0.55f; new_body_color_[1] = 0.55f; new_body_color_[2] = 0.58f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.32f; new_body_color_secondary_[1] = 0.32f; new_body_color_secondary_[2] = 0.35f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 7.0f;
+				new_body_surface_roughness_ = 0.75f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.03f;
 				break;
 			case BodyPresetTemplate::Jupiter:
 				std::strncpy(new_body_name_, "Jupiter", sizeof(new_body_name_) - 1);
@@ -1334,6 +1462,13 @@ private:
 				new_body_r_ref_ = 7.1492e7f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::GasGiant;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
+				new_body_color_[0] = 0.82f; new_body_color_[1] = 0.65f; new_body_color_[2] = 0.45f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.62f; new_body_color_secondary_[1] = 0.40f; new_body_color_secondary_[2] = 0.24f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 3.5f;
+				new_body_surface_roughness_ = 0.3f;
+				new_body_atmosphere_thickness_ = 0.32f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.35f;
 				break;
 			case BodyPresetTemplate::Mars:
 				std::strncpy(new_body_name_, "Mars", sizeof(new_body_name_) - 1);
@@ -1343,6 +1478,13 @@ private:
 				new_body_r_ref_ = 3.3895e6f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
+				new_body_color_[0] = 0.72f; new_body_color_[1] = 0.35f; new_body_color_[2] = 0.20f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.48f; new_body_color_secondary_[1] = 0.24f; new_body_color_secondary_[2] = 0.15f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 6.0f;
+				new_body_surface_roughness_ = 0.65f;
+				new_body_atmosphere_thickness_ = 0.05f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.11f;
 				break;
 			case BodyPresetTemplate::NeutronStar:
 				std::strncpy(new_body_name_, "Neutron Star", sizeof(new_body_name_) - 1);
@@ -1352,6 +1494,13 @@ private:
 				new_body_r_ref_ = 12000.0f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::NeutronStar;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
+				new_body_color_[0] = 0.85f; new_body_color_[1] = 0.90f; new_body_color_[2] = 1.0f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.55f; new_body_color_secondary_[1] = 0.72f; new_body_color_secondary_[2] = 1.0f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 1.5f;
+				new_body_surface_roughness_ = 0.15f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 3.0f;
+				new_body_rotation_speed_3d_ = 1.8f;
 				break;
 			case BodyPresetTemplate::SupermassiveBlackHole:
 				std::strncpy(new_body_name_, "Supermassive BH", sizeof(new_body_name_) - 1);
@@ -1361,6 +1510,13 @@ private:
 				new_body_r_ref_ = 1.2e10f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
+				new_body_color_[0] = 0.02f; new_body_color_[1] = 0.02f; new_body_color_[2] = 0.03f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.06f; new_body_color_secondary_[1] = 0.05f; new_body_color_secondary_[2] = 0.08f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 1.0f;
+				new_body_surface_roughness_ = 0.1f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.0f;
 				break;
 			case BodyPresetTemplate::StellarBlackHole:
 				std::strncpy(new_body_name_, "Stellar Black Hole", sizeof(new_body_name_) - 1);
@@ -1370,6 +1526,13 @@ private:
 				new_body_r_ref_ = 30000.0f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
+				new_body_color_[0] = 0.02f; new_body_color_[1] = 0.02f; new_body_color_[2] = 0.03f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.06f; new_body_color_secondary_[1] = 0.05f; new_body_color_secondary_[2] = 0.08f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 1.0f;
+				new_body_surface_roughness_ = 0.1f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.0f;
 				break;
 			case BodyPresetTemplate::TestParticle:
 				std::strncpy(new_body_name_, "Test Particle", sizeof(new_body_name_) - 1);
@@ -1379,6 +1542,13 @@ private:
 				new_body_r_ref_ = 1.0f;
 				new_body_preset_3d_ = Dynamics::Body3DPreset::Asteroid;
 				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
+				new_body_color_[0] = 1.0f; new_body_color_[1] = 1.0f; new_body_color_[2] = 1.0f; new_body_color_[3] = 1.0f;
+				new_body_color_secondary_[0] = 0.7f; new_body_color_secondary_[1] = 0.7f; new_body_color_secondary_[2] = 0.7f; new_body_color_secondary_[3] = 1.0f;
+				new_body_noise_scale_ = 4.0f;
+				new_body_surface_roughness_ = 0.5f;
+				new_body_atmosphere_thickness_ = 0.0f;
+				new_body_emission_intensity_ = 0.0f;
+				new_body_rotation_speed_3d_ = 0.1f;
 				break;
 			case BodyPresetTemplate::Custom:
 			default:

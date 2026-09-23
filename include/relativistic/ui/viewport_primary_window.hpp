@@ -1163,12 +1163,12 @@ public:
 		if (tb.pole_precision_nudge) {
 			ImGui::SameLine();
 			if (ImGui::Button("Pole-", ImVec2(48.0f, 24.0f))) {
-				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.1, 8.0);
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.05, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Pole+", ImVec2(48.0f, 24.0f))) {
-				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.1, 8.0);
+				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.05, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
 		}

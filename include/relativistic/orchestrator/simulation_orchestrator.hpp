@@ -1044,7 +1044,7 @@ public:
 				params_.space_skip_radius_scale = std::clamp(val, 5.0, 500.0);
 				break;
 			case ParameterType::PoleGuardPrecisionScale:
-				params_.pole_guard_precision_scale = std::clamp(val, 0.1, 8.0);
+				params_.pole_guard_precision_scale = std::clamp(val, 0.05, 8.0);
 				break;
 			case ParameterType::FarFieldStepScale:
 				params_.far_field_step_scale = std::clamp(val, 1.0, 8.0);

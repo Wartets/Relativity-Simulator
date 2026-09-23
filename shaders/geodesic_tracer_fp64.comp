@@ -793,8 +793,10 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 	double cross_y = pz * dx - px * dz;
 	double cross_z = px * dy - py * dx;
 	double cross_norm = sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
-	if (cross_norm > 1e-12 && mass > 0.0) {
-		double impact_parameter = cross_norm / sqrt(dir_norm_sq);
+	double dir_norm_for_impact = sqrt(dir_norm_sq);
+	double impact_parameter_relative = (dir_norm_for_impact > 1e-30) ? (cross_norm / dir_norm_for_impact) : 0.0;
+	if (impact_parameter_relative > mass * 0.05 && mass > 0.0) {
+		double impact_parameter = impact_parameter_relative;
 		double deflection = min(4.0 * mass / max(impact_parameter, mass * 1e-6), 0.6);
 		double nx = cross_x / cross_norm;
 		double ny = cross_y / cross_norm;
@@ -1076,7 +1078,7 @@ void main() {
 			dvec2 sincos_ray_th = precise_sincos(ray_th);
 			double sin_t = sincos_ray_th.x;
 			double cos_t = sincos_ray_th.y;
-			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.15, 1.0);
+			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
 			double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 			double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard;
 

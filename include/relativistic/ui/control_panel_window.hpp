@@ -1102,13 +1102,15 @@ private:
 		auto& params = orchestrator_.parameters();
 		bool enable_3d = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U;
 		if (ImGui::Checkbox("Enable Realistic 3D Celestial Body Ray-Tracing Pipeline", &enable_3d)) {
-			if (enable_3d) {
-				params.visual_overlays_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
-			} else {
-				params.visual_overlays_flags &= ~Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
-			}
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING, enable_3d)));
 		}
-		render_setting_tooltip("Toggles the 3D ray-traced rendering pipeline for all active celestial bodies. When enabled, photons intersect 3D oblate spheroid surface geometry and procedural shaders in real-time.");
+		render_setting_tooltip("Toggles the 3D ray-traced rendering pipeline for all active celestial bodies. When enabled, photons intersect 3D oblate spheroid surface geometry and procedural shaders in real-time. Disabling this hides every 3D body regardless of the catalog contents.");
+
+		bool bodies_only = params.bodies_only_render_mode;
+		if (ImGui::Checkbox("Render Bodies Only (Skip Black Hole & Lensing)", &bodies_only)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodiesOnlyRenderMode, bodies_only ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Skips gravitational lensing, the event horizon, and the accretion disk for the current frame, keeping only the celestial bodies and the sky. Requires the pipeline checkbox above to be enabled to have any visible effect. Useful for a fast, low-latency preview while editing a body catalog.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Relativistic Surface Effects:");
@@ -1143,6 +1145,19 @@ private:
 		}
 		render_setting_tooltip("Bodies whose apparent on-screen radius falls below this many pixels render with simplified flat shading and no procedural noise or atmosphere, keeping distant or small bodies cheap to draw.");
 
+		int point_lod_threshold = static_cast<int>(params.body_render_point_pixel_threshold);
+		if (slider_int_with_input("Point LOD Threshold (px)", &point_lod_threshold, 1, 16)) {
+			point_lod_threshold = std::min(point_lod_threshold, lod_threshold);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyRenderPointPixelThreshold, static_cast<double>(point_lod_threshold))));
+		}
+		render_setting_tooltip("Bodies whose apparent on-screen radius falls below this even smaller pixel threshold skip lighting and shading entirely and render as a flat lit dot, the cheapest possible representation for distant or numerous small bodies such as asteroid fields. Always kept at or below the LOD Pixel Threshold above.");
+
+		int noise_octaves = static_cast<int>(params.body_noise_octaves);
+		if (slider_int_with_input("Surface Noise Octaves", &noise_octaves, 1, 6)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyNoiseOctaves, static_cast<double>(noise_octaves))));
+		}
+		render_setting_tooltip("Number of fractal noise layers combined to generate a body's procedural surface detail. Higher values add finer detail at a proportional rendering cost; lower values are considerably cheaper for busy scenes with many bodies.");
+
 		bool low_power = params.body_render_low_power_mode;
 		if (ImGui::Checkbox("Low-Power Mode (Force Simple Shading On All Bodies)", &low_power)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyRenderLowPowerMode, low_power ? 1.0 : 0.0)));
@@ -1150,16 +1165,33 @@ private:
 		render_setting_tooltip("Forces every celestial body to render with flat Lambert shading regardless of apparent size, for maximum performance on dense body catalogs or low-end hardware.");
 
 		bool shadows = params.body_shadows_enabled;
-		if (ImGui::Checkbox("Central-Source Directional Shading", &shadows)) {
+		if (ImGui::Checkbox("Central-Source Directional Shading (Day/Night Terminator)", &shadows)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyShadowsEnabled, shadows ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Lights each body's surface from the direction of the central spacetime source instead of the camera, producing a genuine day/night terminator that rotates with orbital position instead of always facing the viewer.");
+		render_setting_tooltip("Lights each body's surface from the direction of the central spacetime source instead of the camera, producing a genuine day/night terminator that rotates with orbital position instead of always facing the viewer. This does not make bodies occlude the accretion disk; see the option below for that.");
+
+		bool disk_occlusion = params.body_disk_occlusion_enabled;
+		if (ImGui::Checkbox("Bodies Occlude The Accretion Disk", &disk_occlusion)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyDiskOcclusionEnabled, disk_occlusion ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("When a celestial body sits between the observer and a point of the accretion disk along a given ray, its surface takes priority over the disk's radiative contribution at that point, instead of the disk always being visible through the body.");
 
 		float atmo_intensity = static_cast<float>(params.body_atmosphere_global_intensity);
 		if (slider_float_with_input("Global Atmosphere Intensity", &atmo_intensity, 0.0f, 3.0f, "%.2fx")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyAtmosphereGlobalIntensity, static_cast<double>(atmo_intensity))));
 		}
 		render_setting_tooltip("Global multiplier applied on top of every body's individual atmosphere thickness, letting the overall rim-scattering strength be tuned or disabled without editing each body.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Body Catalog Summary:");
+		size_t enabled_body_count = 0;
+		for (const auto& b : orchestrator_.nbody_system().bodies()) {
+			if (b.enabled) ++enabled_body_count;
+		}
+		ImGui::Text("Active Bodies In Catalog: %zu", enabled_body_count);
+		render_setting_tooltip("Total number of enabled bodies currently in the N-Body catalog. Bodies outside the camera's field of view or beyond the render distance are culled before being sent to the renderer each frame.");
+		ImGui::Text("3D Ray-Tracing Pipeline: %s", enable_3d ? "Enabled" : "Disabled");
+		ImGui::Text("Bodies-Only Mode: %s", bodies_only ? "Enabled" : "Disabled");
 	}
 
 	void render_schematic_tab() noexcept {

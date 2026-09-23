@@ -96,6 +96,10 @@ struct PhysicalParameters {
 	bool body_shadows_enabled{false};
 	double body_atmosphere_global_intensity{1.0};
 	bool body_render_low_power_mode{false};
+	bool bodies_only_render_mode{false};
+	bool body_disk_occlusion_enabled{false};
+	uint32_t body_render_point_pixel_threshold{2};
+	uint32_t body_noise_octaves{4};
 };
 
 struct CustomParameterEntry {
@@ -513,6 +517,13 @@ public:
 			case ParameterType::SpaceSkipRadiusScale:
 			case ParameterType::FarFieldStepScale:
 			case ParameterType::AdaptiveTilePrepassEnabled:
+			case ParameterType::BodyRenderLodPixelThreshold:
+			case ParameterType::BodyRenderPointPixelThreshold:
+			case ParameterType::BodyNoiseOctaves:
+			case ParameterType::BodyShadowsEnabled:
+			case ParameterType::BodyDiskOcclusionEnabled:
+			case ParameterType::BodyAtmosphereGlobalIntensity:
+			case ParameterType::BodyRenderLowPowerMode:
 			case ParameterType::Custom:
 				return true;
 			default:
@@ -528,36 +539,78 @@ public:
 				params_.max_ray_steps = 512;
 				params_.integration_rtol = 1e-6;
 				params_.integration_atol = 1e-10;
+				params_.body_render_lod_pixel_threshold = 24;
+				params_.body_render_point_pixel_threshold = 6;
+				params_.body_noise_octaves = 1;
+				params_.body_shadows_enabled = false;
+				params_.body_disk_occlusion_enabled = false;
+				params_.body_atmosphere_global_intensity = 0.0;
+				params_.body_render_low_power_mode = true;
 				break;
 			case 1:
 				params_.resolution_scale = 0.75;
 				params_.max_ray_steps = 1024;
 				params_.integration_rtol = 1e-8;
 				params_.integration_atol = 1e-12;
+				params_.body_render_lod_pixel_threshold = 16;
+				params_.body_render_point_pixel_threshold = 4;
+				params_.body_noise_octaves = 2;
+				params_.body_shadows_enabled = false;
+				params_.body_disk_occlusion_enabled = false;
+				params_.body_atmosphere_global_intensity = 0.5;
+				params_.body_render_low_power_mode = false;
 				break;
 			case 2:
 				params_.resolution_scale = 1.00;
 				params_.max_ray_steps = 2048;
 				params_.integration_rtol = 1e-9;
 				params_.integration_atol = 1e-13;
+				params_.body_render_lod_pixel_threshold = 10;
+				params_.body_render_point_pixel_threshold = 2;
+				params_.body_noise_octaves = 4;
+				params_.body_shadows_enabled = false;
+				params_.body_disk_occlusion_enabled = false;
+				params_.body_atmosphere_global_intensity = 1.0;
+				params_.body_render_low_power_mode = false;
 				break;
 			case 3:
 				params_.resolution_scale = 1.25;
 				params_.max_ray_steps = 4096;
 				params_.integration_rtol = 1e-10;
 				params_.integration_atol = 1e-14;
+				params_.body_render_lod_pixel_threshold = 6;
+				params_.body_render_point_pixel_threshold = 1;
+				params_.body_noise_octaves = 5;
+				params_.body_shadows_enabled = true;
+				params_.body_disk_occlusion_enabled = true;
+				params_.body_atmosphere_global_intensity = 1.0;
+				params_.body_render_low_power_mode = false;
 				break;
 			case 4:
 				params_.resolution_scale = 1.50;
 				params_.max_ray_steps = 8192;
 				params_.integration_rtol = 1e-12;
 				params_.integration_atol = 1e-15;
+				params_.body_render_lod_pixel_threshold = 4;
+				params_.body_render_point_pixel_threshold = 1;
+				params_.body_noise_octaves = 6;
+				params_.body_shadows_enabled = true;
+				params_.body_disk_occlusion_enabled = true;
+				params_.body_atmosphere_global_intensity = 1.25;
+				params_.body_render_low_power_mode = false;
 				break;
 			case 5:
 				params_.resolution_scale = 2.00;
 				params_.max_ray_steps = 16384;
 				params_.integration_rtol = 1e-14;
 				params_.integration_atol = 1e-17;
+				params_.body_render_lod_pixel_threshold = 4;
+				params_.body_render_point_pixel_threshold = 1;
+				params_.body_noise_octaves = 6;
+				params_.body_shadows_enabled = true;
+				params_.body_disk_occlusion_enabled = true;
+				params_.body_atmosphere_global_intensity = 1.5;
+				params_.body_render_low_power_mode = false;
 				break;
 			default:
 				break;
@@ -1015,6 +1068,18 @@ public:
 				break;
 			case ParameterType::BodyRenderLowPowerMode:
 				params_.body_render_low_power_mode = (val > 0.5);
+				break;
+			case ParameterType::BodiesOnlyRenderMode:
+				params_.bodies_only_render_mode = (val > 0.5);
+				break;
+			case ParameterType::BodyDiskOcclusionEnabled:
+				params_.body_disk_occlusion_enabled = (val > 0.5);
+				break;
+			case ParameterType::BodyRenderPointPixelThreshold:
+				params_.body_render_point_pixel_threshold = static_cast<uint32_t>(std::clamp(val, 1.0, 16.0));
+				break;
+			case ParameterType::BodyNoiseOctaves:
+				params_.body_noise_octaves = static_cast<uint32_t>(std::clamp(val, 1.0, 6.0));
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));

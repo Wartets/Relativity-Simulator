@@ -514,8 +514,16 @@ public:
 			cam_consts.body_atmosphere_global_intensity = params.body_atmosphere_global_intensity;
 			cam_consts.body_render_lod_pixel_threshold = params.body_render_lod_pixel_threshold;
 			cam_consts.body_render_low_power_mode = params.body_render_low_power_mode ? 1U : 0U;
+			cam_consts.body_noise_octaves = params.body_noise_octaves;
+			cam_consts.body_render_point_pixel_threshold = params.body_render_point_pixel_threshold;
 			if (params.body_shadows_enabled) {
 				cam_consts.render_flags |= Render::RenderFlags::ENABLE_BODY_SHADOWS;
+			}
+			if (params.bodies_only_render_mode) {
+				cam_consts.render_flags |= Render::RenderFlags::BODIES_ONLY_MODE;
+			}
+			if (params.body_disk_occlusion_enabled) {
+				cam_consts.render_flags |= Render::RenderFlags::ENABLE_BODY_DISK_OCCLUSION;
 			}
 			cam_consts.interlace_mode = params.interlace_rendering_enabled ? 1U : 0U;
 			cam_consts.interlace_phase = interlace_phase_;
@@ -546,16 +554,26 @@ public:
 			}
 
 			std::vector<Render::GpuBodyData> gpu_bodies;
-			const auto& nbody_sys = orchestrator_.nbody_system().bodies();
-			gpu_bodies.reserve(nbody_sys.size());
-			for (const auto& b : nbody_sys) {
-				if (b.enabled) {
+			if ((params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
+				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+				gpu_bodies.reserve(nbody_sys.size());
+				const bool is_allsky_view = (params.projection_mode == 3U || params.projection_mode == 7U);
+				const double half_fov_margin_rad = cam_consts.field_of_view_rad * 0.5 * 1.15;
+				for (const auto& b : nbody_sys) {
+					if (!b.enabled) continue;
+					const double dx = b.position[0] - cam.position[0];
+					const double dy = b.position[1] - cam.position[1];
+					const double dz = b.position[2] - cam.position[2];
+					const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+					if (dist > cam_consts.escape_radius) continue;
+					if (!is_allsky_view && dist > 1e-9) {
+						const double cos_angle = std::clamp((dx * cam_consts.tetrad_e1[1] + dy * cam_consts.tetrad_e1[2] + dz * cam_consts.tetrad_e1[3]) / dist, -1.0, 1.0);
+						if (std::acos(cos_angle) > half_fov_margin_rad) continue;
+					}
 					gpu_bodies.push_back(b.to_gpu_body_data());
 				}
 			}
-			if (!gpu_bodies.empty()) {
-				cam_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
-			}
+			cam_consts.body_count = static_cast<uint32_t>(gpu_bodies.size());
 
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
 			const bool precision_changed = (precision_selector != last_precision_selector_);

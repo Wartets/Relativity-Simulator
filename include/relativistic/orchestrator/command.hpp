@@ -137,7 +137,11 @@ enum class ParameterType : uint32_t {
 	BodyRenderLodPixelThreshold = 94,
 	BodyShadowsEnabled = 95,
 	BodyAtmosphereGlobalIntensity = 96,
-	BodyRenderLowPowerMode = 97
+	BodyRenderLowPowerMode = 97,
+	BodiesOnlyRenderMode = 98,
+	BodyDiskOcclusionEnabled = 99,
+	BodyRenderPointPixelThreshold = 100,
+	BodyNoiseOctaves = 101
 };
 
 struct Command {

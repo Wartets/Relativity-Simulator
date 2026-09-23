@@ -44,6 +44,7 @@ struct PipelineExecutionTelemetry {
 	uint32_t min_iterations_used{0};
 	uint32_t max_iterations_used{0};
 	bool used_gpu_path{false};
+	bool bodies_patched_over_gpu_background{false};
 	double tile_prepass_skip_ms{0.0};
 	double full_raytrace_tiles_ms{0.0};
 	uint64_t tile_prepass_skip_tile_count{0};
@@ -77,6 +78,7 @@ private:
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
 	std::jthread worker_thread_;
+	static constexpr size_t kMaxGpuBackgroundBodies = 512;
 
 	[[nodiscard]] static bool is_metric_gpu_accelerable(const GpuCameraPushConstants& params) noexcept {
 		switch (params.metric_type) {
@@ -132,8 +134,10 @@ private:
 			const auto t_start = std::chrono::high_resolution_clock::now();
 
 			bool rendered_on_gpu = false;
+			bool bodies_patched_on_top = false;
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
-			if (use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.empty()) {
+			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
+			if (gpu_background_eligible) {
 				std::vector<GpuPixelOutput> gpu_output;
 				if (try_gpu_dispatch(current_job, gpu_output) && gpu_output.size() == req_pixels) {
 					back_buffer_ = std::move(gpu_output);
@@ -147,6 +151,9 @@ private:
 				} else {
 					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
 				}
+			} else if (!current_bodies.empty()) {
+				SoftwareComputeEngine::patch_body_tiles(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+				bodies_patched_on_top = true;
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
 			if (!rendered_on_gpu && cancel_render_.load(std::memory_order_relaxed)) {
@@ -189,6 +196,7 @@ private:
 				telemetry_.horizon_pixels_absorbed = absorbed;
 				telemetry_.celestial_pixels_hit = celestial;
 				telemetry_.used_gpu_path = rendered_on_gpu;
+				telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;
 				telemetry_.accretion_disk_pixels_hit = disk_hits;
 				telemetry_.saturated_ray_pixels = saturated;
 				telemetry_.average_iterations_used = (req_pixels > 0) ? (iteration_sum / static_cast<double>(req_pixels)) : 0.0;
@@ -302,8 +310,10 @@ public:
 			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 
 			bool rendered_on_gpu = false;
+			bool bodies_patched_on_top = false;
 			SoftwareComputeEngine::RenderStageStats headless_stage_stats{};
-			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.empty()) {
+			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies;
+			if (gpu_background_eligible) {
 				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
 				if (front_buffer_.size() >= total_pixels) {
 					std::vector<GpuPixelOutput> gpu_output;
@@ -320,8 +330,12 @@ public:
 				} else {
 					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
 				}
+			} else if (!bodies.empty()) {
+				SoftwareComputeEngine::patch_body_tiles(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+				bodies_patched_on_top = true;
 			}
 			telemetry_.used_gpu_path = rendered_on_gpu;
+			telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;
 			telemetry_.tile_prepass_skip_ms = static_cast<double>(headless_stage_stats.tile_prepass_skip_ns.load(std::memory_order_relaxed)) / 1.0e6;
 			telemetry_.full_raytrace_tiles_ms = static_cast<double>(headless_stage_stats.full_trace_ns.load(std::memory_order_relaxed)) / 1.0e6;
 			telemetry_.tile_prepass_skip_tile_count = headless_stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);

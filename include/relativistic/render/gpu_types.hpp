@@ -87,6 +87,9 @@ struct alignas(16) GpuCameraPushConstants {
 	double body_atmosphere_global_intensity{1.0};
 	uint32_t body_render_lod_pixel_threshold{10};
 	uint32_t body_render_low_power_mode{0};
+	uint32_t body_count{0};
+	uint32_t body_noise_octaves{4};
+	uint32_t body_render_point_pixel_threshold{2};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
@@ -108,6 +111,7 @@ namespace PixelFlags {
 	static constexpr uint32_t CELESTIAL_HIT = 1U << 1;
 	static constexpr uint32_t ACCRETION_DISK_HIT = 1U << 2;
 	static constexpr uint32_t PHOTON_SPHERE_PROXIMITY = 1U << 3;
+	static constexpr uint32_t BODY_SURFACE_HIT = 1U << 4;
 }
 
 namespace RenderFlags {
@@ -131,6 +135,8 @@ namespace RenderFlags {
 	static constexpr uint32_t ENABLE_BODY_GRAV_REDSHIFT = 1U << 14;
 	static constexpr uint32_t ENABLE_ATMOSPHERE_SCATTERING = 1U << 15;
 	static constexpr uint32_t ENABLE_BODY_SHADOWS = 1U << 16;
+	static constexpr uint32_t BODIES_ONLY_MODE = 1U << 17;
+	static constexpr uint32_t ENABLE_BODY_DISK_OCCLUSION = 1U << 18;
 }
 
 struct alignas(16) GpuBodyData {

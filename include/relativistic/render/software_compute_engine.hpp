@@ -11,6 +11,7 @@
 #include "relativistic/core/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/geodesic_bundle.hpp"
+#include "relativistic/observer/direction_projection.hpp"
 #include <vector>
 #include <span>
 #include <thread>
@@ -115,7 +116,8 @@ private:
 		const std::array<double, 3>& ray_pos,
 		const std::array<double, 3>& ray_dir,
 		std::span<const GpuBodyData> bodies,
-		const GpuCameraPushConstants& params
+		const GpuCameraPushConstants& params,
+		std::span<const uint32_t> candidate_indices = {}
 	) noexcept {
 		BodyHitResult best_result{};
 		if (bodies.empty()) return best_result;
@@ -124,7 +126,10 @@ private:
 		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
 		const bool enable_atmo = (params.render_flags & RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U;
 
-		for (const auto& body : bodies) {
+		const size_t candidate_count = candidate_indices.empty() ? bodies.size() : candidate_indices.size();
+		for (size_t candidate_i = 0; candidate_i < candidate_count; ++candidate_i) {
+			const size_t body_index = candidate_indices.empty() ? candidate_i : static_cast<size_t>(candidate_indices[candidate_i]);
+			const auto& body = bodies[body_index];
 			const double bx = body.position[0];
 			const double by = body.position[1];
 			const double bz = body.position[2];
@@ -187,7 +192,9 @@ private:
 			const double angular_pixel_size_lod = params.field_of_view_rad / std::max(static_cast<double>(params.screen_width), 1.0);
 			const double max_axis_scale_lod = std::max({scale_a, scale_b, scale_c});
 			const double apparent_angular_radius_lod = std::asin(std::clamp(max_axis_scale_lod / std::max(dist_to_camera_for_lod, 1e-9), 0.0, 1.0));
-			const bool lod_simple = (params.body_render_low_power_mode != 0U) || ((apparent_angular_radius_lod / std::max(angular_pixel_size_lod, 1e-12)) < static_cast<double>(params.body_render_lod_pixel_threshold));
+			const double pixel_coverage_ratio_lod = apparent_angular_radius_lod / std::max(angular_pixel_size_lod, 1e-12);
+			const bool lod_point = (params.body_render_low_power_mode == 0U) && (pixel_coverage_ratio_lod < static_cast<double>(std::max(params.body_render_point_pixel_threshold, 1U)));
+			const bool lod_simple = (params.body_render_low_power_mode != 0U) || lod_point || (pixel_coverage_ratio_lod < static_cast<double>(params.body_render_lod_pixel_threshold));
 
 			const double norm_lz = std::clamp(lz / scale_c, -1.0, 1.0);
 			const double theta = std::acos(norm_lz);
@@ -207,7 +214,7 @@ private:
 				const float sample_y = static_cast<float>(std::sin(theta) * std::sin(phi)) * noise_scale_f;
 				const float sample_z = static_cast<float>(std::cos(theta)) * noise_scale_f;
 
-				const float n_val = FastNoise3D::fbm(sample_x, sample_y, sample_z, 4, roughness_f);
+				const float n_val = FastNoise3D::fbm(sample_x, sample_y, sample_z, static_cast<int>(std::clamp(params.body_noise_octaves, 1U, 6U)), roughness_f);
 
 				const float r2 = static_cast<float>(body.color_secondary[0]);
 				const float g2 = static_cast<float>(body.color_secondary[1]);
@@ -261,7 +268,7 @@ private:
 			}
 
 			double lighting_term = view_dot_n;
-			if ((params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
+			if (!lod_point && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
 				const double to_origin_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
 				if (to_origin_len > 1e-9) {
 					const double lx_dir = -hit_x / to_origin_len;
@@ -271,7 +278,7 @@ private:
 				}
 			}
 
-			float light_factor = static_cast<float>(0.25 + 0.75 * lighting_term);
+			float light_factor = lod_point ? 1.0f : static_cast<float>(0.25 + 0.75 * lighting_term);
 			if (body.emission_intensity > 0.0) {
 				light_factor += static_cast<float>(body.emission_intensity);
 			}
@@ -330,32 +337,9 @@ private:
 		return best_result;
 	}
 
-	[[nodiscard]] static bool ray_sphere_intersects(
-		const std::array<double, 3>& ray_origin,
-		const std::array<double, 3>& ray_dir,
-		const std::array<double, 3>& sphere_center,
-		double sphere_radius,
-		double max_distance
-	) noexcept {
-		const double ox = ray_origin[0] - sphere_center[0];
-		const double oy = ray_origin[1] - sphere_center[1];
-		const double oz = ray_origin[2] - sphere_center[2];
-		const double a = ray_dir[0] * ray_dir[0] + ray_dir[1] * ray_dir[1] + ray_dir[2] * ray_dir[2];
-		if (a <= 1e-18) return false;
-		const double b = 2.0 * (ox * ray_dir[0] + oy * ray_dir[1] + oz * ray_dir[2]);
-		const double c = ox * ox + oy * oy + oz * oz - sphere_radius * sphere_radius;
-		const double discr = b * b - 4.0 * a * c;
-		if (discr < 0.0) return false;
-		const double sqrt_discr = std::sqrt(discr);
-		const double t_near = (-b - sqrt_discr) / (2.0 * a);
-		const double t_far = (-b + sqrt_discr) / (2.0 * a);
-		if (t_far < 0.0) return false;
-		if (t_near > max_distance) return false;
-		return true;
-	}
-
 	struct BodyTileCullResult {
 		std::vector<uint8_t> tile_mask{};
+		std::vector<std::vector<uint32_t>> tile_body_indices{};
 		size_t marked_tile_count{0};
 		size_t total_tile_count{0};
 	};
@@ -372,6 +356,7 @@ private:
 		const size_t tiles_y = (height + TILE - 1) / TILE;
 		result.total_tile_count = tiles_x * tiles_y;
 		result.tile_mask.assign(result.total_tile_count, 0U);
+		result.tile_body_indices.resize(result.total_tile_count);
 		if (bodies.empty() || result.total_tile_count == 0) {
 			return result;
 		}
@@ -379,6 +364,7 @@ private:
 		const double aspect = static_cast<double>(width) / static_cast<double>(height);
 		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
 		const double fov_rad = params.field_of_view_rad;
+		const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
 
 		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
@@ -393,53 +379,89 @@ private:
 			r_obs * std::cos(theta_obs)
 		};
 
-		std::vector<double> body_bounding_radius(bodies.size());
-		for (size_t i = 0; i < bodies.size(); ++i) {
-			const auto& b = bodies[i];
+		for (size_t bi = 0; bi < bodies.size(); ++bi) {
+			const auto& b = bodies[bi];
 			const double radius = std::max(b.radius, 1e-6);
 			const double oblateness = std::clamp(b.oblateness_ratio, 0.1, 5.0);
-			body_bounding_radius[i] = radius * std::max(1.0, oblateness) * 1.2;
-		}
+			const double bounding_radius = radius * std::max(1.0, oblateness) * 1.2;
 
-		const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
+			const double cx = b.position[0] - obs_pos[0];
+			const double cy = b.position[1] - obs_pos[1];
+			const double cz = b.position[2] - obs_pos[2];
+			const double center_dist = std::sqrt(cx * cx + cy * cy + cz * cz);
 
-		for (size_t ty = 0; ty < tiles_y; ++ty) {
-			for (size_t tx = 0; tx < tiles_x; ++tx) {
-				const size_t x0 = tx * TILE;
-				const size_t x1 = std::min(x0 + TILE, width);
-				const size_t y0 = ty * TILE;
-				const size_t y1 = std::min(y0 + TILE, height);
-				const std::array<std::pair<size_t, size_t>, 5> samples{{
-					{x0, y0}, {x1 - 1, y0}, {x0, y1 - 1}, {x1 - 1, y1 - 1}, {(x0 + x1) / 2, (y0 + y1) / 2}
-				}};
-
-				bool tile_hit = false;
-				for (const auto& sample : samples) {
-					const size_t px = sample.first;
-					const size_t py = sample.second;
-					const double v_norm = 1.0 - (static_cast<double>(py) + 0.5) / static_cast<double>(height) * 2.0;
-					const double u_norm = is_allsky
-						? (((static_cast<double>(px) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
-						: (((static_cast<double>(px) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
-					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(proj_mode, u_norm, v_norm, fov_rad);
-					const std::array<double, 3> ray_dir{
-						n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x,
-						n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y,
-						n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z
-					};
-					for (size_t bi = 0; bi < bodies.size(); ++bi) {
-						const std::array<double, 3> center{bodies[bi].position[0], bodies[bi].position[1], bodies[bi].position[2]};
-						if (ray_sphere_intersects(obs_pos, ray_dir, center, body_bounding_radius[bi], params.escape_radius)) {
-							tile_hit = true;
-							break;
-						}
+			if (center_dist <= bounding_radius * 1.05) {
+				for (size_t t = 0; t < result.total_tile_count; ++t) {
+					if (result.tile_mask[t] == 0U) {
+						result.tile_mask[t] = 1U;
+						++result.marked_tile_count;
 					}
-					if (tile_hit) break;
+					result.tile_body_indices[t].push_back(static_cast<uint32_t>(bi));
 				}
+				continue;
+			}
 
-				if (tile_hit) {
-					result.tile_mask[ty * tiles_x + tx] = 1U;
-					++result.marked_tile_count;
+			const std::array<std::array<double, 3>, 7> offsets{{
+				{0.0, 0.0, 0.0},
+				{bounding_radius, 0.0, 0.0},
+				{-bounding_radius, 0.0, 0.0},
+				{0.0, bounding_radius, 0.0},
+				{0.0, -bounding_radius, 0.0},
+				{0.0, 0.0, bounding_radius},
+				{0.0, 0.0, -bounding_radius}
+			}};
+
+			bool any_visible = false;
+			double u_min = 1e18, u_max = -1e18, v_min = 1e18, v_max = -1e18;
+
+			for (const auto& off : offsets) {
+				const double px = cx + off[0];
+				const double py = cy + off[1];
+				const double pz = cz + off[2];
+
+				const double fwd = px * fwd_x + py * fwd_y + pz * fwd_z;
+				const double right = px * rgt_x + py * rgt_y + pz * rgt_z;
+				const double up = px * up_x + py * up_y + pz * up_z;
+
+				const auto uv = Observer::direction_to_screen_uv(proj_mode, fwd, right, up, fov_rad);
+				if (!uv.has_value()) continue;
+
+				const double u_screen = is_allsky ? uv->first : (uv->first / std::max(aspect, 1e-9));
+				const double v_screen = uv->second;
+				if (!std::isfinite(u_screen) || !std::isfinite(v_screen)) continue;
+
+				any_visible = true;
+				u_min = std::min(u_min, u_screen);
+				u_max = std::max(u_max, u_screen);
+				v_min = std::min(v_min, v_screen);
+				v_max = std::max(v_max, v_screen);
+			}
+
+			if (!any_visible) continue;
+
+			constexpr double margin = 0.03;
+			const double px0 = ((u_min - margin) * 0.5 + 0.5) * static_cast<double>(width);
+			const double px1 = ((u_max + margin) * 0.5 + 0.5) * static_cast<double>(width);
+			const double py0 = ((v_min - margin) * 0.5 + 0.5) * static_cast<double>(height);
+			const double py1 = ((v_max + margin) * 0.5 + 0.5) * static_cast<double>(height);
+
+			if (px1 < 0.0 || py1 < 0.0 || px0 > static_cast<double>(width) || py0 > static_cast<double>(height)) {
+				continue;
+			}
+
+			const size_t tx0 = static_cast<size_t>(std::clamp(std::floor(px0 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_x - 1)));
+			const size_t tx1 = static_cast<size_t>(std::clamp(std::floor(px1 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_x - 1)));
+			const size_t ty0 = static_cast<size_t>(std::clamp(std::floor(py0 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_y - 1)));
+			const size_t ty1 = static_cast<size_t>(std::clamp(std::floor(py1 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_y - 1)));
+
+			for (size_t ty = ty0; ty <= ty1; ++ty) {
+				for (size_t tx = tx0; tx <= tx1; ++tx) {
+					const size_t idx = ty * tiles_x + tx;
+					if (result.tile_mask[idx] == 0U) {
+						result.tile_mask[idx] = 1U;
+						++result.marked_tile_count;
+					}
+					result.tile_body_indices[idx].push_back(static_cast<uint32_t>(bi));
 				}
 			}
 		}
@@ -1086,7 +1108,8 @@ public:
 		std::span<const GpuBodyData> bodies = {},
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr,
-		std::span<const uint8_t> body_tile_mask = {}
+		std::span<const uint8_t> body_tile_mask = {},
+		std::span<const std::vector<uint32_t>> tile_candidates = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -1171,7 +1194,13 @@ public:
 							params.observer_position[1] * std::cos(params.observer_position[2])
 						};
 						const std::array<double, 3> ray_direction{ray_dir_x, ray_dir_y, ray_dir_z};
-						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params);
+						std::span<const uint32_t> body_candidates{};
+						if (!tile_candidates.empty()) {
+							const size_t mask_tiles_x = (width + 31) / 32;
+							const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
+							if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
+						}
+						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates);
 						if (body_hit.hit) {
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
@@ -2618,6 +2647,25 @@ public:
 		dispatch_fp64(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
 	}
 
+	static void patch_body_tiles(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr,
+		RenderStageStats* stage_stats = nullptr
+	) noexcept {
+		if (bodies.empty()) return;
+		const auto cull = compute_body_screen_tiles(params, bodies);
+		if (stage_stats != nullptr) {
+			stage_stats->body_tile_count.store(cull.marked_tile_count, std::memory_order_relaxed);
+			stage_stats->total_tile_count.store(cull.total_tile_count, std::memory_order_relaxed);
+		}
+		if (cull.marked_tile_count > 0) {
+			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_body_indices);
+		}
+	}
+
 	static void dispatch_fp64(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
@@ -2631,20 +2679,9 @@ public:
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}
-		if (bodies.empty()) {
-			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
-			return;
-		}
 		dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
 		if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
-		const auto cull = compute_body_screen_tiles(params, bodies);
-		if (stage_stats != nullptr) {
-			stage_stats->body_tile_count.store(cull.marked_tile_count, std::memory_order_relaxed);
-			stage_stats->total_tile_count.store(cull.total_tile_count, std::memory_order_relaxed);
-		}
-		if (cull.marked_tile_count > 0) {
-			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask);
-		}
+		patch_body_tiles(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 	}
 
 	static void dispatch_double_single(

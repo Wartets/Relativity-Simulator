@@ -7,6 +7,7 @@
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
@@ -77,11 +78,16 @@ private:
 	float sky_saturation_{1.0f};
 	float sky_background_[3]{0.0f, 0.0f, 0.0f};
 	uint64_t last_synced_version_{0};
+	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, bool& hud_manager_open, bool& keybind_settings_open)
 		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
 		sync_from_orchestrator();
+	}
+
+	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
+		render_pipeline_ = &pipeline;
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {
@@ -1183,13 +1189,23 @@ private:
 		render_setting_tooltip("Global multiplier applied on top of every body's individual atmosphere thickness, letting the overall rim-scattering strength be tuned or disabled without editing each body.");
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Body Catalog Summary:");
-		size_t enabled_body_count = 0;
-		for (const auto& b : orchestrator_.nbody_system().bodies()) {
-			if (b.enabled) ++enabled_body_count;
+		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Live Body Rendering Diagnostics:");
+		if (render_pipeline_ != nullptr) {
+			const auto& tel = render_pipeline_->telemetry();
+			ImGui::Text("Bodies Sent This Frame: %u / %u (after culling)", tel.bodies_sent_this_frame, tel.bodies_total_enabled_this_frame);
+			render_setting_tooltip("Number of bodies actually forwarded to the renderer this frame after field-of-view and render-distance culling, compared to the total number of enabled bodies in the catalog.");
+			ImGui::Text("Body Tiles This Frame: %llu / %llu (%.1f%%)", static_cast<unsigned long long>(tel.body_tile_count), static_cast<unsigned long long>(tel.body_tile_total_count), tel.body_tile_total_count > 0 ? (100.0 * static_cast<double>(tel.body_tile_count) / static_cast<double>(tel.body_tile_total_count)) : 0.0);
+			render_setting_tooltip("Fraction of 32x32 screen tiles that had to be tested or shaded for celestial bodies during the most recently completed frame.");
+			ImGui::Text("Bodies Rendered On GPU: %s", tel.bodies_rendered_on_gpu ? "Yes" : "No");
+			render_setting_tooltip("Whether the celestial bodies visible this frame were intersected and shaded directly by the Vulkan compute shader instead of the CPU fallback path.");
+		} else {
+			size_t enabled_body_count = 0;
+			for (const auto& b : orchestrator_.nbody_system().bodies()) {
+				if (b.enabled) ++enabled_body_count;
+			}
+			ImGui::Text("Active Bodies In Catalog: %zu", enabled_body_count);
+			render_setting_tooltip("Total number of enabled bodies currently in the N-Body catalog. Bodies outside the camera's field of view or beyond the render distance are culled before being sent to the renderer each frame.");
 		}
-		ImGui::Text("Active Bodies In Catalog: %zu", enabled_body_count);
-		render_setting_tooltip("Total number of enabled bodies currently in the N-Body catalog. Bodies outside the camera's field of view or beyond the render distance are culled before being sent to the renderer each frame.");
 		ImGui::Text("3D Ray-Tracing Pipeline: %s", enable_3d ? "Enabled" : "Disabled");
 		ImGui::Text("Bodies-Only Mode: %s", bodies_only ? "Enabled" : "Disabled");
 	}

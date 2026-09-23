@@ -45,6 +45,9 @@ struct PipelineExecutionTelemetry {
 	uint32_t max_iterations_used{0};
 	bool used_gpu_path{false};
 	bool bodies_patched_over_gpu_background{false};
+	bool bodies_rendered_on_gpu{false};
+	uint32_t bodies_sent_this_frame{0};
+	uint32_t bodies_total_enabled_this_frame{0};
 	double tile_prepass_skip_ms{0.0};
 	double full_raytrace_tiles_ms{0.0};
 	uint64_t tile_prepass_skip_tile_count{0};
@@ -77,6 +80,7 @@ private:
 	std::unique_ptr<Core::ThreadPool> thread_pool_{};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
+	std::atomic<uint32_t> pending_total_enabled_bodies_{0};
 	std::jthread worker_thread_;
 	static constexpr size_t kMaxGpuBackgroundBodies = 512;
 
@@ -89,7 +93,7 @@ private:
 		}
 	}
 
-	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output) noexcept {
+	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyData> bodies) noexcept {
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
 		}
@@ -102,7 +106,15 @@ private:
 		if (params.interlace_mode != 0U) {
 			return false;
 		}
-		return gpu_executor_->dispatch_and_readback(params, output);
+		if (bodies.size() > kMaxGpuBackgroundBodies) {
+			return false;
+		}
+		std::vector<GpuBodyGpuLayout> gpu_bodies_layout;
+		gpu_bodies_layout.reserve(bodies.size());
+		for (const auto& body : bodies) {
+			gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
+		}
+		return gpu_executor_->dispatch_and_readback(params, output, gpu_bodies_layout);
 	}
 
 	void worker_loop(std::stop_token st) noexcept {
@@ -139,7 +151,7 @@ private:
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
 			if (gpu_background_eligible) {
 				std::vector<GpuPixelOutput> gpu_output;
-				if (try_gpu_dispatch(current_job, gpu_output) && gpu_output.size() == req_pixels) {
+				if (try_gpu_dispatch(current_job, gpu_output, current_bodies) && gpu_output.size() == req_pixels) {
 					back_buffer_ = std::move(gpu_output);
 					rendered_on_gpu = true;
 				}
@@ -151,9 +163,6 @@ private:
 				} else {
 					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
 				}
-			} else if (!current_bodies.empty()) {
-				SoftwareComputeEngine::patch_body_tiles(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
-				bodies_patched_on_top = true;
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
 			if (!rendered_on_gpu && cancel_render_.load(std::memory_order_relaxed)) {
@@ -209,6 +218,9 @@ private:
 				telemetry_.pixel_classification_ms = classification_ms;
 				telemetry_.body_tile_count = stage_stats.body_tile_count.load(std::memory_order_relaxed);
 				telemetry_.body_tile_total_count = stage_stats.total_tile_count.load(std::memory_order_relaxed);
+				telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !current_bodies.empty();
+				telemetry_.bodies_sent_this_frame = static_cast<uint32_t>(current_bodies.size());
+				telemetry_.bodies_total_enabled_this_frame = pending_total_enabled_bodies_.load(std::memory_order_relaxed);
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}
@@ -304,7 +316,7 @@ public:
 		return gpu_executor_ != nullptr && gpu_executor_->is_ready();
 	}
 
-	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}) {
+	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
 			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
@@ -317,7 +329,7 @@ public:
 				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
 				if (front_buffer_.size() >= total_pixels) {
 					std::vector<GpuPixelOutput> gpu_output;
-					if (try_gpu_dispatch(actual_constants, gpu_output) && gpu_output.size() == total_pixels) {
+					if (try_gpu_dispatch(actual_constants, gpu_output, bodies) && gpu_output.size() == total_pixels) {
 						std::copy(gpu_output.begin(), gpu_output.end(), front_buffer_.begin());
 						rendered_on_gpu = true;
 					}
@@ -330,12 +342,12 @@ public:
 				} else {
 					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
 				}
-			} else if (!bodies.empty()) {
-				SoftwareComputeEngine::patch_body_tiles(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
-				bodies_patched_on_top = true;
 			}
 			telemetry_.used_gpu_path = rendered_on_gpu;
 			telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;
+			telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !bodies.empty();
+			telemetry_.bodies_sent_this_frame = static_cast<uint32_t>(bodies.size());
+			telemetry_.bodies_total_enabled_this_frame = total_enabled_bodies;
 			telemetry_.tile_prepass_skip_ms = static_cast<double>(headless_stage_stats.tile_prepass_skip_ns.load(std::memory_order_relaxed)) / 1.0e6;
 			telemetry_.full_raytrace_tiles_ms = static_cast<double>(headless_stage_stats.full_trace_ns.load(std::memory_order_relaxed)) / 1.0e6;
 			telemetry_.tile_prepass_skip_tile_count = headless_stage_stats.tile_prepass_skip_count.load(std::memory_order_relaxed);
@@ -354,6 +366,7 @@ public:
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			pending_bodies_.assign(bodies.begin(), bodies.end());
+			pending_total_enabled_bodies_.store(total_enabled_bodies, std::memory_order_relaxed);
 			request_pending_.store(true, std::memory_order_release);
 		}
 		cv_.notify_one();

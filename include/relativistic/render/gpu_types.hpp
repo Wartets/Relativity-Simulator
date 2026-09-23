@@ -167,4 +167,68 @@ struct alignas(16) GpuBodyData {
 	uint32_t preset_3d{0};
 };
 
+struct alignas(16) GpuBodyGpuLayout {
+	double position_xy[2]{0.0, 0.0};
+	double position_zw[2]{0.0, 0.0};
+	double velocity_xy[2]{0.0, 0.0};
+	double velocity_zw[2]{0.0, 0.0};
+	double color_primary_xy[2]{0.0, 0.0};
+	double color_primary_zw[2]{0.0, 0.0};
+	double color_secondary_xy[2]{0.0, 0.0};
+	double color_secondary_zw[2]{0.0, 0.0};
+	double atmosphere_color_xy[2]{0.0, 0.0};
+	double atmosphere_color_zw[2]{0.0, 0.0};
+	double radius{1.0};
+	double mass{1.0};
+	double charge{0.0};
+	double temperature{5778.0};
+	double noise_scale{4.0};
+	double noise_roughness{0.5};
+	double atmosphere_thickness{0.15};
+	double specular_roughness{0.3};
+	double emission_intensity{0.0};
+	double rotation_speed{0.1};
+	double oblateness_ratio{1.0};
+	uint32_t body_id{0};
+	uint32_t geometry_model{0};
+	uint32_t surface_texture_mode{0};
+	uint32_t atmosphere_mode{0};
+	uint32_t preset_3d{0};
+	uint32_t pad0{0};
+
+	[[nodiscard]] static GpuBodyGpuLayout from(const GpuBodyData& b) noexcept {
+		GpuBodyGpuLayout g{};
+		g.position_xy[0] = b.position[0]; g.position_xy[1] = b.position[1];
+		g.position_zw[0] = b.position[2]; g.position_zw[1] = b.position[3];
+		g.velocity_xy[0] = b.velocity[0]; g.velocity_xy[1] = b.velocity[1];
+		g.velocity_zw[0] = b.velocity[2]; g.velocity_zw[1] = b.velocity[3];
+		g.color_primary_xy[0] = b.color_primary[0]; g.color_primary_xy[1] = b.color_primary[1];
+		g.color_primary_zw[0] = b.color_primary[2]; g.color_primary_zw[1] = b.color_primary[3];
+		g.color_secondary_xy[0] = b.color_secondary[0]; g.color_secondary_xy[1] = b.color_secondary[1];
+		g.color_secondary_zw[0] = b.color_secondary[2]; g.color_secondary_zw[1] = b.color_secondary[3];
+		g.atmosphere_color_xy[0] = b.atmosphere_color[0]; g.atmosphere_color_xy[1] = b.atmosphere_color[1];
+		g.atmosphere_color_zw[0] = b.atmosphere_color[2]; g.atmosphere_color_zw[1] = b.atmosphere_color[3];
+		g.radius = b.radius;
+		g.mass = b.mass;
+		g.charge = b.charge;
+		g.temperature = b.temperature;
+		g.noise_scale = b.noise_scale;
+		g.noise_roughness = b.noise_roughness;
+		g.atmosphere_thickness = b.atmosphere_thickness;
+		g.specular_roughness = b.specular_roughness;
+		g.emission_intensity = b.emission_intensity;
+		g.rotation_speed = b.rotation_speed;
+		g.oblateness_ratio = b.oblateness_ratio;
+		g.body_id = b.body_id;
+		g.geometry_model = b.geometry_model;
+		g.surface_texture_mode = b.surface_texture_mode;
+		g.atmosphere_mode = b.atmosphere_mode;
+		g.preset_3d = b.preset_3d;
+		g.pad0 = 0U;
+		return g;
+	}
+};
+
+static_assert(sizeof(GpuBodyGpuLayout) == 272);
+
 }

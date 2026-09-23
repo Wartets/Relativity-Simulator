@@ -553,6 +553,7 @@ public:
 			cam_consts.time = orchestrator_.scheduler().snapshot().logical_time;
 			}
 
+			uint32_t total_enabled_bodies_this_frame = 0;
 			std::vector<Render::GpuBodyData> gpu_bodies;
 			if ((params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
 				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
@@ -561,6 +562,7 @@ public:
 				const double half_fov_margin_rad = cam_consts.field_of_view_rad * 0.5 * 1.15;
 				for (const auto& b : nbody_sys) {
 					if (!b.enabled) continue;
+					++total_enabled_bodies_this_frame;
 					const double dx = b.position[0] - cam.position[0];
 					const double dy = b.position[1] - cam.position[1];
 					const double dz = b.position[2] - cam.position[2];
@@ -592,7 +594,7 @@ public:
 			if (is_dirty) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);
 				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
-				pipeline_.dispatch(cam_consts, gpu_bodies);
+				pipeline_.dispatch(cam_consts, gpu_bodies, total_enabled_bodies_this_frame);
 				last_camera_constants_ = cam_consts;
 				last_logical_time_ = snap.logical_time;
 				last_precision_selector_ = precision_selector;

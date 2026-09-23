@@ -180,6 +180,7 @@ public:
 		});
 		performance_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
+		control_panel_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		last_frame_time_ = std::chrono::steady_clock::now();
 

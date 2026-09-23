@@ -331,7 +331,7 @@ private:
 			best_result.color.g = std::clamp(g_surf, 0.0f, 10.0f);
 			best_result.color.b = std::clamp(b_surf, 0.0f, 10.0f);
 			best_result.color.a = 1.0f;
-			best_result.color.status_flags |= PixelFlags::CELESTIAL_HIT;
+			best_result.color.status_flags |= PixelFlags::BODY_SURFACE_HIT;
 		}
 
 		return best_result;
@@ -1101,6 +1101,61 @@ private:
 		return {to_srgb(r), to_srgb(g), to_srgb(b)};
 	}
 
+private:
+	static void fill_bodies_only_sky(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		Core::ThreadPool* pool,
+		const std::atomic<bool>* cancel_flag
+	) noexcept {
+		const size_t width = params.screen_width;
+		const size_t height = params.screen_height;
+		if (width == 0 || height == 0) return;
+		const double aspect = static_cast<double>(width) / static_cast<double>(height);
+		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
+		const double fov_rad = params.field_of_view_rad;
+		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
+		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
+		const double up_x  = params.tetrad_e3[1], up_y  = params.tetrad_e3[2], up_z  = params.tetrad_e3[3];
+
+		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
+			for (size_t y = y_start; y < y_end; ++y) {
+				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
+				const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
+				for (size_t x = 0; x < width; ++x) {
+					const double u_norm = is_allsky
+						? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
+						: (((static_cast<double>(x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
+					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(proj_mode, u_norm, v_norm, fov_rad);
+					const double dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
+					const double dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
+					const double dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
+					const auto sky_rgb = compute_sky_radiance(dir_x, dir_y, dir_z, params);
+					const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+					const size_t idx = y * width + x;
+					if (idx < output_framebuffer.size()) {
+						output_framebuffer[idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
+					}
+				}
+			}
+		};
+
+		if (pool != nullptr) {
+			pool->parallel_for(height, [&](size_t y_start, size_t y_end) noexcept { render_slice(y_start, y_end); });
+		} else {
+			const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
+			std::vector<std::jthread> workers;
+			workers.reserve(num_threads);
+			const size_t rows_per_thread = (height + num_threads - 1) / num_threads;
+			for (size_t t = 0; t < num_threads; ++t) {
+				const size_t y_start = t * rows_per_thread;
+				const size_t y_end = std::min(y_start + rows_per_thread, height);
+				if (y_start < y_end) workers.emplace_back(render_slice, y_start, y_end);
+			}
+		}
+	}
+
 public:
 	static void dispatch_fp64_scalar(
 		const GpuCameraPushConstants& params,
@@ -1187,13 +1242,18 @@ public:
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
-					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U || !bodies.empty()) && !bodies.empty()) {
+					bool has_deferred_body = false;
+					GpuPixelOutput deferred_body_color{};
+					double deferred_body_distance = 1e30;
+					std::array<double, 3> deferred_ray_orig{0.0, 0.0, 0.0};
+
+					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty()) {
 						const std::array<double, 3> ray_orig{
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::cos(params.observer_position[3]),
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::sin(params.observer_position[3]),
 							params.observer_position[1] * std::cos(params.observer_position[2])
 						};
-						const std::array<double, 3> ray_direction{ray_dir_x, ray_dir_y, ray_dir_z};
+						const std::array<double, 3> ray_direction{static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z)};
 						std::span<const uint32_t> body_candidates{};
 						if (!tile_candidates.empty()) {
 							const size_t mask_tiles_x = (width + 31) / 32;
@@ -1205,9 +1265,20 @@ public:
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
 						}
+						if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+							const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
+							const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+							output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
+							continue;
+						}
+					} else if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+						const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
+						const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+						output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
+						continue;
 					}
 
-					const double r_obs = std::max(params.observer_position[1], rh * 1.02);
+					const double r_obs = std::max(static_cast<double>(params.observer_position[1]), rh * 1.02);
 					const double theta_obs = std::clamp(params.observer_position[2], 0.001, std::numbers::pi_v<double> - 0.001);
 					const double phi_obs = params.observer_position[3];
 
@@ -1258,6 +1329,7 @@ public:
 					double accumulated_b = 0.0;
 					double throughput = 1.0;
 					double redshift_rec = 1.0;
+					double body_visible_throughput = 1.0;
 
 					uint32_t status = 0;
 					uint32_t iters = 0;
@@ -1395,10 +1467,26 @@ public:
 								const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
 								const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
 
-								accumulated_r += throughput * static_cast<double>(disk_rgb[0]);
-								accumulated_g += throughput * static_cast<double>(disk_rgb[1]);
-								accumulated_b += throughput * static_cast<double>(disk_rgb[2]);
-								throughput *= (1.0 - alpha_opacity);
+								bool skip_this_crossing = false;
+								if (has_deferred_body) {
+									const double cross_x = r_cross * std::cos(phi_cross);
+									const double cross_y = r_cross * std::sin(phi_cross);
+									const double dx_c = cross_x - deferred_ray_orig[0];
+									const double dy_c = cross_y - deferred_ray_orig[1];
+									const double cross_dist = std::sqrt(dx_c * dx_c + dy_c * dy_c);
+									if (deferred_body_distance <= cross_dist) {
+										skip_this_crossing = true;
+									} else {
+										body_visible_throughput *= (1.0 - alpha_opacity);
+									}
+								}
+
+								if (!skip_this_crossing) {
+									accumulated_r += throughput * static_cast<double>(disk_rgb[0]);
+									accumulated_g += throughput * static_cast<double>(disk_rgb[1]);
+									accumulated_b += throughput * static_cast<double>(disk_rgb[2]);
+									throughput *= (1.0 - alpha_opacity);
+								}
 							}
 						}
 					}
@@ -1420,6 +1508,14 @@ public:
 						accumulated_r += throughput * static_cast<double>(sky_rgb[0]);
 						accumulated_g += throughput * static_cast<double>(sky_rgb[1]);
 						accumulated_b += throughput * static_cast<double>(sky_rgb[2]);
+					}
+
+					if (has_deferred_body && body_visible_throughput > 0.01) {
+						const double blend = std::clamp(body_visible_throughput, 0.0, 1.0);
+						accumulated_r = accumulated_r * (1.0 - blend) + static_cast<double>(deferred_body_color.r) * blend;
+						accumulated_g = accumulated_g * (1.0 - blend) + static_cast<double>(deferred_body_color.g) * blend;
+						accumulated_b = accumulated_b * (1.0 - blend) + static_cast<double>(deferred_body_color.b) * blend;
+						status |= PixelFlags::BODY_SURFACE_HIT;
 					}
 
 					const auto mapped_srgb = apply_tonemapping(
@@ -1506,6 +1602,11 @@ public:
 		const size_t total_pixels = width * height;
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
+			return;
+		}
+
+		if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+			fill_bodies_only_sky(params, output_framebuffer, pool, cancel_flag);
 			return;
 		}
 
@@ -1903,7 +2004,9 @@ public:
 		std::span<GpuPixelOutput> output_framebuffer,
 		std::span<const GpuBodyData> bodies = {},
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		std::span<const uint8_t> body_tile_mask = {},
+		std::span<const std::vector<uint32_t>> tile_candidates = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -1963,6 +2066,10 @@ public:
 				for (size_t x = x_start; x < x_end; ++x) {
 					const size_t pixel_idx = y * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
+					if (!body_tile_mask.empty()) {
+						const size_t mask_tiles_x = (width + 31) / 32;
+						if (body_tile_mask[(y / 32) * mask_tiles_x + (x / 32)] == 0U) continue;
+					}
 					const float u_norm = ((static_cast<float>(x) + 0.5f) / static_cast<float>(width) * 2.0f - 1.0f) * aspect;
 
 					const bool is_allsky = (params.projection_mode == 3 || params.projection_mode == 7);
@@ -1976,18 +2083,35 @@ public:
 					const float ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const float ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
-					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U || !bodies.empty()) && !bodies.empty()) {
+					if (((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty()) {
 						const std::array<double, 3> ray_orig{
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::cos(params.observer_position[3]),
 							params.observer_position[1] * std::sin(params.observer_position[2]) * std::sin(params.observer_position[3]),
 							params.observer_position[1] * std::cos(params.observer_position[2])
 						};
 						const std::array<double, 3> ray_direction{static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z)};
-						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params);
+						std::span<const uint32_t> body_candidates{};
+						if (!tile_candidates.empty()) {
+							const size_t mask_tiles_x = (width + 31) / 32;
+							const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
+							if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
+						}
+						const auto body_hit = evaluate_3d_bodies(ray_orig, ray_direction, bodies, params, body_candidates);
 						if (body_hit.hit) {
 							output_framebuffer[pixel_idx] = body_hit.color;
 							continue;
 						}
+						if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+							const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
+							const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+							output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
+							continue;
+						}
+					} else if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+						const auto sky_rgb = compute_sky_radiance(static_cast<double>(ray_dir_x), static_cast<double>(ray_dir_y), static_cast<double>(ray_dir_z), params);
+						const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
+						output_framebuffer[pixel_idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
+						continue;
 					}
 
 					const float r_obs = std::max(static_cast<float>(params.observer_position[1]), rh * 1.02f);
@@ -2290,6 +2414,11 @@ public:
 		const size_t total_pixels = width * height;
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
+			return;
+		}
+
+		if ((params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U) {
+			fill_bodies_only_sky(params, output_framebuffer, pool, cancel_flag);
 			return;
 		}
 
@@ -2620,6 +2749,20 @@ public:
 		dispatch_fp32(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
 	}
 
+	static void patch_body_tiles_fp32(
+		const GpuCameraPushConstants& params,
+		std::span<GpuPixelOutput> output_framebuffer,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool = nullptr,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		if (bodies.empty()) return;
+		const auto cull = compute_body_screen_tiles(params, bodies);
+		if (cull.marked_tile_count > 0) {
+			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_body_indices);
+		}
+	}
+
 	static void dispatch_fp32(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
@@ -2630,11 +2773,13 @@ public:
 	) noexcept {
 		static_cast<void>(stage_stats);
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) || !bodies.empty()) {
+		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
-		} else {
-			dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
+			return;
 		}
+		dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
+		if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+		patch_body_tiles_fp32(params, output_framebuffer, bodies, pool, cancel_flag);
 	}
 
 	static void dispatch_fp64(

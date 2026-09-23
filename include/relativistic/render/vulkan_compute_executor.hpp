@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdint>
 #include <algorithm>
+#include <span>
 
 namespace Relativistic::Render {
 
@@ -36,6 +37,11 @@ private:
 	VkBuffer storage_buffer_{VK_NULL_HANDLE};
 	VkDeviceMemory storage_memory_{VK_NULL_HANDLE};
 	VkDeviceSize storage_capacity_bytes_{0};
+
+	VkBuffer body_buffer_{VK_NULL_HANDLE};
+	VkDeviceMemory body_memory_{VK_NULL_HANDLE};
+	void* body_mapped_{nullptr};
+	VkDeviceSize body_capacity_bytes_{0};
 
 	VkBuffer staging_buffer_{VK_NULL_HANDLE};
 	VkDeviceMemory staging_memory_{VK_NULL_HANDLE};
@@ -241,7 +247,7 @@ public:
 			return false;
 		}
 
-		std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+		std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		bindings[0].descriptorCount = 1;
@@ -251,6 +257,11 @@ public:
 		bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		bindings[1].descriptorCount = 1;
 		bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[2].binding = 2;
+		bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		bindings[2].descriptorCount = 1;
+		bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -287,7 +298,7 @@ public:
 
 		std::array<VkDescriptorPoolSize, 2> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
-		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
 
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -342,6 +353,10 @@ public:
 			return false;
 		}
 
+		if (!ensure_body_capacity(1)) {
+			return false;
+		}
+
 		VkCommandBufferAllocateInfo cmd_alloc_info{};
 		cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		cmd_alloc_info.commandPool = command_pool_;
@@ -382,7 +397,9 @@ public:
 		destroy_buffer(uniform_buffer_, uniform_memory_, &uniform_mapped_);
 		destroy_buffer(storage_buffer_, storage_memory_);
 		destroy_buffer(staging_buffer_, staging_memory_, &staging_mapped_);
+		destroy_buffer(body_buffer_, body_memory_, &body_mapped_);
 		storage_capacity_bytes_ = 0;
+		body_capacity_bytes_ = 0;
 
 		if (descriptor_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); descriptor_pool_ = VK_NULL_HANDLE; }
 		if (compute_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, compute_pipeline_, nullptr); compute_pipeline_ = VK_NULL_HANDLE; }
@@ -397,7 +414,50 @@ public:
 		ready_ = false;
 	}
 
-	[[nodiscard]] bool dispatch_and_readback(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output) {
+	[[nodiscard]] bool ensure_body_capacity(size_t body_count) {
+		const VkDeviceSize required_bytes = static_cast<VkDeviceSize>(std::max<size_t>(body_count, 1)) * sizeof(GpuBodyGpuLayout);
+		if (required_bytes <= body_capacity_bytes_ && body_buffer_ != VK_NULL_HANDLE) {
+			return true;
+		}
+
+		destroy_buffer(body_buffer_, body_memory_, &body_mapped_);
+		body_capacity_bytes_ = 0;
+
+		if (!create_buffer(
+			required_bytes,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			body_buffer_,
+			body_memory_
+		)) {
+			return false;
+		}
+
+		if (vkMapMemory(device_, body_memory_, 0, required_bytes, 0, &body_mapped_) != VK_SUCCESS) {
+			destroy_buffer(body_buffer_, body_memory_);
+			return false;
+		}
+
+		body_capacity_bytes_ = required_bytes;
+
+		VkDescriptorBufferInfo body_info{};
+		body_info.buffer = body_buffer_;
+		body_info.offset = 0;
+		body_info.range = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = descriptor_set_;
+		write.dstBinding = 2;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		write.pBufferInfo = &body_info;
+
+		vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	[[nodiscard]] bool dispatch_and_readback(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies = {}) {
 		if (!ready_) {
 			return false;
 		}
@@ -411,7 +471,16 @@ public:
 			return false;
 		}
 
-		std::memcpy(uniform_mapped_, &params, sizeof(GpuCameraPushConstants));
+		if (!ensure_body_capacity(bodies.size())) {
+			return false;
+		}
+
+		GpuCameraPushConstants actual_params = params;
+		actual_params.body_count = static_cast<uint32_t>(bodies.size());
+		std::memcpy(uniform_mapped_, &actual_params, sizeof(GpuCameraPushConstants));
+		if (!bodies.empty() && body_mapped_ != nullptr) {
+			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));
+		}
 
 		if (vkResetCommandBuffer(command_buffer_, 0) != VK_SUCCESS) {
 			return false;

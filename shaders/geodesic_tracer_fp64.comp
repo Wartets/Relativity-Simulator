@@ -58,6 +58,13 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double space_skip_radius_scale;
 	double pole_guard_precision_scale;
 	double far_field_step_scale;
+	double time;
+	double body_atmosphere_global_intensity;
+	uint body_render_lod_pixel_threshold;
+	uint body_render_low_power_mode;
+	uint body_count;
+	uint body_noise_octaves;
+	uint body_render_point_pixel_threshold;
 } pc;
 
 struct PixelOutput {
@@ -70,6 +77,40 @@ struct PixelOutput {
 
 layout(std430, binding = 1) buffer OutputBuffer {
 	PixelOutput pixels[];
+};
+
+struct GpuBody {
+	dvec2 position_xy;
+	dvec2 position_zw;
+	dvec2 velocity_xy;
+	dvec2 velocity_zw;
+	dvec2 color_primary_xy;
+	dvec2 color_primary_zw;
+	dvec2 color_secondary_xy;
+	dvec2 color_secondary_zw;
+	dvec2 atmosphere_color_xy;
+	dvec2 atmosphere_color_zw;
+	double radius;
+	double mass;
+	double charge;
+	double temperature;
+	double noise_scale;
+	double noise_roughness;
+	double atmosphere_thickness;
+	double specular_roughness;
+	double emission_intensity;
+	double rotation_speed;
+	double oblateness_ratio;
+	uint body_id;
+	uint geometry_model;
+	uint surface_texture_mode;
+	uint atmosphere_mode;
+	uint preset_3d;
+	uint pad0;
+};
+
+layout(std430, binding = 2) readonly buffer BodyBuffer {
+	GpuBody bodies[];
 };
 
 const double PI_D = 3.14159265358979323846;
@@ -545,6 +586,171 @@ vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	return out_col;
 }
 
+double body_hash3(ivec3 p) {
+	uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + uint(p.z) * 2147483647u;
+	return double(hash_to_float(hash_u32(h))) * 2.0 - 1.0;
+}
+
+double body_value_noise(dvec3 p) {
+	ivec3 i0 = ivec3(floor(p));
+	dvec3 f = p - dvec3(i0);
+	dvec3 u = f * f * (3.0 - 2.0 * f);
+
+	double c000 = body_hash3(i0 + ivec3(0, 0, 0));
+	double c100 = body_hash3(i0 + ivec3(1, 0, 0));
+	double c010 = body_hash3(i0 + ivec3(0, 1, 0));
+	double c110 = body_hash3(i0 + ivec3(1, 1, 0));
+	double c001 = body_hash3(i0 + ivec3(0, 0, 1));
+	double c101 = body_hash3(i0 + ivec3(1, 0, 1));
+	double c011 = body_hash3(i0 + ivec3(0, 1, 1));
+	double c111 = body_hash3(i0 + ivec3(1, 1, 1));
+
+	double c00 = mix(c000, c100, u.x);
+	double c10 = mix(c010, c110, u.x);
+	double c01 = mix(c001, c101, u.x);
+	double c11 = mix(c011, c111, u.x);
+
+	double c0 = mix(c00, c10, u.y);
+	double c1 = mix(c01, c11, u.y);
+
+	return mix(c0, c1, u.z);
+}
+
+double body_fbm(dvec3 p, uint octaves, double roughness) {
+	double total = 0.0;
+	double amplitude = 1.0;
+	double frequency = 1.0;
+	double max_val = 0.0;
+	for (uint i = 0u; i < octaves; ++i) {
+		total += body_value_noise(p * frequency) * amplitude;
+		max_val += amplitude;
+		amplitude *= roughness;
+		frequency *= 2.0;
+	}
+	return total / max(max_val, 1e-5);
+}
+
+bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, out vec3 out_color, out uint out_status, out double out_hit_dist) {
+	bool hit_any = false;
+	double best_t = 1e30;
+	vec3 best_color = vec3(0.0);
+
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		GpuBody body = bodies[bi];
+		dvec3 bpos = dvec3(body.position_xy.x, body.position_xy.y, body.position_zw.x);
+		double radius = max(body.radius, 1e-6);
+		double oblateness = clamp(body.oblateness_ratio, 0.1, 5.0);
+
+		double scale_a = radius;
+		double scale_b = radius;
+		double scale_c = radius;
+		if (body.geometry_model == 0u) {
+			scale_c = radius * oblateness;
+		} else if (body.geometry_model == 2u) {
+			scale_c = radius / max(oblateness, 0.1);
+		} else if (body.geometry_model == 3u) {
+			scale_b = radius * 0.85;
+			scale_c = radius * oblateness;
+		}
+
+		dvec3 o = ray_pos - bpos;
+		double inv_a2 = 1.0 / (scale_a * scale_a);
+		double inv_b2 = 1.0 / (scale_b * scale_b);
+		double inv_c2 = 1.0 / (scale_c * scale_c);
+
+		double A = ray_dir.x * ray_dir.x * inv_a2 + ray_dir.y * ray_dir.y * inv_b2 + ray_dir.z * ray_dir.z * inv_c2;
+		double B = 2.0 * (o.x * ray_dir.x * inv_a2 + o.y * ray_dir.y * inv_b2 + o.z * ray_dir.z * inv_c2);
+		double C = o.x * o.x * inv_a2 + o.y * o.y * inv_b2 + o.z * o.z * inv_c2 - 1.0;
+
+		double discr = B * B - 4.0 * A * C;
+		if (discr < 0.0) continue;
+		double sqrt_discr = sqrt(discr);
+		double t1 = (-B - sqrt_discr) / (2.0 * A);
+		double t2 = (-B + sqrt_discr) / (2.0 * A);
+		double t = -1.0;
+		if (t1 > 1e-5) t = t1;
+		else if (t2 > 1e-5) t = t2;
+		if (t <= 1e-5 || t >= best_t) continue;
+
+		dvec3 hit_pos = ray_pos + ray_dir * t;
+		dvec3 l = hit_pos - bpos;
+		dvec3 nrm = dvec3(l.x * inv_a2, l.y * inv_b2, l.z * inv_c2);
+		double n_len = length(nrm);
+		if (n_len > 1e-12) nrm = nrm / n_len;
+
+		double dist_to_cam = length(o);
+		double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
+		double max_axis = max(scale_a, max(scale_b, scale_c));
+		double apparent_radius = double(asin(float(clamp(max_axis / max(dist_to_cam, 1e-9), 0.0, 1.0))));
+		double coverage = apparent_radius / max(angular_pixel_size, 1e-12);
+
+		bool is_point_lod = (pc.body_render_low_power_mode == 0u) && (coverage < double(max(pc.body_render_point_pixel_threshold, 1u)));
+		bool is_simple_lod = (pc.body_render_low_power_mode != 0u) || is_point_lod || (coverage < double(pc.body_render_lod_pixel_threshold));
+
+		vec3 surf = vec3(body.color_primary_xy.x, body.color_primary_xy.y, body.color_primary_zw.x);
+
+		if (!is_simple_lod) {
+			double noise_scale = max(body.noise_scale, 0.1);
+			double roughness = clamp(body.noise_roughness, 0.05, 1.0);
+			double n_val = body_fbm(nrm * noise_scale, clamp(pc.body_noise_octaves, 1u, 6u), roughness);
+			vec3 secondary = vec3(body.color_secondary_xy.x, body.color_secondary_xy.y, body.color_secondary_zw.x);
+			double mix_t = clamp((n_val + 1.0) * 0.5, 0.0, 1.0);
+			surf = mix(surf, secondary, float(mix_t));
+		}
+
+		double view_dot_n = max(0.0, dot(-ray_dir, nrm));
+		double lighting = view_dot_n;
+		if (!is_point_lod && (pc.render_flags & (1u << 16)) != 0u) {
+			double to_origin_len = length(hit_pos);
+			if (to_origin_len > 1e-9) {
+				dvec3 light_dir = -hit_pos / to_origin_len;
+				lighting = max(0.0, dot(nrm, light_dir));
+			}
+		}
+
+		float light_factor = is_point_lod ? 1.0 : float(0.25 + 0.75 * lighting);
+		if (body.emission_intensity > 0.0) {
+			light_factor += float(body.emission_intensity);
+		}
+		surf *= light_factor;
+
+		if ((pc.render_flags & (1u << 13)) != 0u) {
+			dvec3 vel = dvec3(body.velocity_xy.x, body.velocity_xy.y, body.velocity_zw.x);
+			double v_sq = dot(vel, vel);
+			if (v_sq > 1e-12) {
+				double beta = min(sqrt(v_sq), 0.9999);
+				double beta_dot_n = dot(vel, ray_dir) / beta;
+				double gamma = 1.0 / sqrt(1.0 - beta * beta);
+				double doppler = 1.0 / (gamma * (1.0 - beta * beta_dot_n));
+				float d_factor = float(clamp(doppler * doppler * doppler, 0.1, 10.0));
+				surf *= d_factor;
+			}
+		}
+
+		if ((pc.render_flags & (1u << 14)) != 0u && body.mass > 0.0) {
+			double z_factor = sqrt(max(1.0 - 2.0 * body.mass / radius, 0.05));
+			surf *= vec3(float(z_factor), float(z_factor * 0.9), float(z_factor * 0.7));
+		}
+
+		if ((pc.render_flags & (1u << 15)) != 0u && !is_simple_lod && body.atmosphere_mode != 2u) {
+			float rim = pow(1.0 - float(view_dot_n), 3.0);
+			float atmo_thick = float(body.atmosphere_thickness * pc.body_atmosphere_global_intensity);
+			vec3 acol = vec3(body.atmosphere_color_xy.x, body.atmosphere_color_xy.y, body.atmosphere_color_zw.x);
+			float aa = float(body.atmosphere_color_zw.y);
+			surf = surf * (1.0 - rim * aa) + acol * rim * atmo_thick * 2.5;
+		}
+
+		best_t = t;
+		best_color = clamp(surf, 0.0, 10.0);
+		hit_any = true;
+	}
+
+	out_color = best_color;
+	out_status = hit_any ? 16u : 0u;
+	out_hit_dist = best_t;
+	return hit_any;
+}
+
 bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double space_skip_radius, double escape_radius, double mass) {
 	if (ray_r <= space_skip_radius) {
 		return false;
@@ -692,6 +898,39 @@ void main() {
 	dvec3 up  = pc.tetrad_e3.yzw;
 
 	dvec3 ray_dir = n_local.x * fwd + n_local.z * rgt + n_local.y * up;
+
+	{
+		double obs_r0 = pc.observer_position.y;
+		double obs_th0 = pc.observer_position.z;
+		double obs_ph0 = pc.observer_position.w;
+		dvec3 obs_pos0 = dvec3(obs_r0 * double(sin(float(obs_th0)) * cos(float(obs_ph0))), obs_r0 * double(sin(float(obs_th0)) * sin(float(obs_ph0))), obs_r0 * double(cos(float(obs_th0))));
+
+		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u) {
+			vec3 body_color;
+			uint body_status;
+			double body_dist;
+			if (intersect_bodies(obs_pos0, ray_dir, body_color, body_status, body_dist)) {
+				vec3 mapped_body = apply_tonemapping(body_color, pc.tonemapping_mode, pc.camera_exposure);
+				pixels[pixel_index].rgba = vec4(mapped_body, 1.0);
+				pixels[pixel_index].redshift = 1.0;
+				pixels[pixel_index].affine_parameter = 0.0;
+				pixels[pixel_index].status_flags = body_status;
+				pixels[pixel_index].iterations_used = 0u;
+				return;
+			}
+		}
+
+		if ((pc.render_flags & (1u << 17)) != 0u) {
+			vec3 sky_only = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
+			vec3 mapped_sky = apply_tonemapping(sky_only, pc.tonemapping_mode, pc.camera_exposure);
+			pixels[pixel_index].rgba = vec4(mapped_sky, 1.0);
+			pixels[pixel_index].redshift = 1.0;
+			pixels[pixel_index].affine_parameter = 0.0;
+			pixels[pixel_index].status_flags = 2u;
+			pixels[pixel_index].iterations_used = 0u;
+			return;
+		}
+	}
 
 	double m = max(pc.metric_mass, 1e-4);
 	double raw_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);

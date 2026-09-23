@@ -165,6 +165,7 @@ public:
 		if (ImGui::Button("Clear All Bodies")) {
 			sys.clear_bodies();
 			selected_body_index_ = -1;
+			orchestrator_.notify_state_changed();
 		}
 		render_setting_tooltip("Removes every orbiting body from the system. The central spacetime source and its mass/spin/charge are unaffected.");
 
@@ -882,6 +883,7 @@ private:
 
 		if (changed) {
 			sys.update_accelerations();
+			orchestrator_.notify_state_changed();
 		}
 	}
 
@@ -1000,6 +1002,8 @@ private:
 			sys.add_body(body);
 			sys.update_accelerations();
 			selected_body_index_ = static_cast<int>(sys.body_count() - 1);
+			orchestrator_.notify_state_changed();
+			randomize_creation_defaults();
 		}
 		render_setting_tooltip("Adds the configured body to the running N-body system and selects it in the catalog.");
 	}
@@ -1015,6 +1019,7 @@ private:
 
 		if (ImGui::Button("Recompute System State", ImVec2(-1.0f, 26.0f))) {
 			sys.update_accelerations();
+			orchestrator_.notify_state_changed();
 		}
 		render_setting_tooltip("Forces an immediate recomputation of accelerations and gravitational-wave emission from the current body states.");
 		if (ImGui::CollapsingHeader("Global Body Actions", ImGuiTreeNodeFlags_DefaultOpen)) {

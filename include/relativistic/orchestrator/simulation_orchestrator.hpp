@@ -52,7 +52,7 @@ struct PhysicalParameters {
 	uint32_t max_ray_steps{1024};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
-	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING};
+	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING | Relativistic::Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING};
 	double sky_star_density{1.0};
 	double sky_star_brightness{1.0};
 	double sky_nebula_intensity{1.0};

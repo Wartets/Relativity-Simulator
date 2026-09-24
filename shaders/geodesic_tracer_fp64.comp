@@ -143,9 +143,7 @@ layout(std430, binding = 2) readonly buffer BodyBuffer {
 	GpuBody bodies[];
 };
 
-layout(std430, binding = 3) readonly buffer PanoramaBuffer {
-	uint panorama_texels[];
-};
+layout(binding = 3) uniform sampler2D panorama_sampler;
 
 const double PI_D = 3.14159265358979323846;
 
@@ -621,16 +619,6 @@ vec3 apply_hue_saturation(vec3 rgb, double hue_shift_rad, double saturation) {
 	return vec3(r2 + m_val, g2 + m_val, b2 + m_val);
 }
 
-float srgb_to_linear_component(float value) {
-	return (value <= 0.04045) ? (value / 12.92) : pow((value + 0.055) / 1.055, 2.4);
-}
-
-vec3 fetch_panorama_texel(int x, int y) {
-	uint texel = panorama_texels[uint(y) * pc.sky_panorama_width + uint(x)];
-	vec3 encoded = vec3(float(texel & 0xFFu), float((texel >> 8) & 0xFFu), float((texel >> 16) & 0xFFu)) * (1.0 / 255.0);
-	return vec3(srgb_to_linear_component(encoded.r), srgb_to_linear_component(encoded.g), srgb_to_linear_component(encoded.b));
-}
-
 vec3 sample_panorama(vec3 dir) {
 	float len = length(dir);
 	if (len < 1e-12) return vec3(0.0);
@@ -638,24 +626,7 @@ vec3 sample_panorama(vec3 dir) {
 	float phi = atan(dir.y, dir.x);
 	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
 	float v = theta * (1.0 / 3.14159265);
-
-	int width = int(pc.sky_panorama_width);
-	int height = int(pc.sky_panorama_height);
-	float fx = u * float(width) - 0.5;
-	float fy = clamp(v, 0.0, 1.0) * float(height) - 0.5;
-	int x0 = int(floor(fx));
-	int y0 = int(floor(fy));
-	float tx = fx - float(x0);
-	float ty = fy - float(y0);
-
-	int x1 = (x0 + 1 + width) % width;
-	x0 = (x0 + width) % width;
-	int y1 = min(y0 + 1, height - 1);
-	y0 = clamp(y0, 0, height - 1);
-
-	vec3 top = mix(fetch_panorama_texel(x0, y0), fetch_panorama_texel(x1, y0), tx);
-	vec3 bottom = mix(fetch_panorama_texel(x0, y1), fetch_panorama_texel(x1, y1), tx);
-	return mix(top, bottom, ty);
+	return textureLod(panorama_sampler, vec2(u, clamp(v, 0.0, 1.0)), 0.0).rgb;
 }
 
 vec3 compute_sky_radiance(dvec3 dir_d, double sky_rotation_rad) {

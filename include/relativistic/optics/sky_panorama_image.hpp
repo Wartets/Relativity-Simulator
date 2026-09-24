@@ -798,6 +798,43 @@ namespace PanoramaDecodeDetail {
 		return buffer;
 	}
 
+	[[nodiscard]] inline DecodedPanorama downscale_panorama_to_budget(DecodedPanorama source, uint32_t max_width) noexcept {
+		if (source.width <= max_width || max_width == 0U) {
+			return source;
+		}
+		const uint32_t new_width = max_width;
+		const uint32_t new_height = std::max<uint32_t>(1U, static_cast<uint32_t>((static_cast<uint64_t>(source.height) * new_width) / source.width));
+		DecodedPanorama result;
+		result.width = new_width;
+		result.height = new_height;
+		result.texels.assign(static_cast<size_t>(new_width) * new_height, 0U);
+		for (uint32_t y = 0; y < new_height; ++y) {
+			const uint32_t sy0 = (y * source.height) / new_height;
+			const uint32_t sy1 = std::min(source.height - 1, ((y + 1) * source.height) / new_height);
+			for (uint32_t x = 0; x < new_width; ++x) {
+				const uint32_t sx0 = (x * source.width) / new_width;
+				const uint32_t sx1 = std::min(source.width - 1, ((x + 1) * source.width) / new_width);
+				uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sample_count = 0;
+				for (uint32_t sy = sy0; sy <= sy1; ++sy) {
+					for (uint32_t sx = sx0; sx <= sx1; ++sx) {
+						const uint32_t texel = source.texels[static_cast<size_t>(sy) * source.width + sx];
+						sum_r += texel & 0xFFU;
+						sum_g += (texel >> 8) & 0xFFU;
+						sum_b += (texel >> 16) & 0xFFU;
+						++sample_count;
+					}
+				}
+				sample_count = std::max<uint32_t>(sample_count, 1U);
+				result.texels[static_cast<size_t>(y) * new_width + x] = DecodedPanorama::pack_texel(
+					static_cast<uint8_t>(sum_r / sample_count),
+					static_cast<uint8_t>(sum_g / sample_count),
+					static_cast<uint8_t>(sum_b / sample_count)
+				);
+			}
+		}
+		return result;
+	}
+
 	[[nodiscard]] inline std::optional<DecodedPanorama> decode_panorama_file(std::string_view relative_path) {
 		const auto bytes = read_asset_file(relative_path);
 		if (!bytes.has_value()) return std::nullopt;
@@ -807,11 +844,15 @@ namespace PanoramaDecodeDetail {
 		std::string ext(relative_path.substr(dot + 1));
 		for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
+		constexpr uint32_t kMaxPanoramaBudgetWidth = 2048U;
+		std::optional<DecodedPanorama> decoded;
 		if (ext == "jpg" || ext == "jpeg") {
-			return decode_jpeg(std::span<const uint8_t>(*bytes));
+			decoded = decode_jpeg(std::span<const uint8_t>(*bytes));
+		} else if (ext == "tif" || ext == "tiff") {
+			decoded = decode_tiff(std::span<const uint8_t>(*bytes));
 		}
-		if (ext == "tif" || ext == "tiff") {
-			return decode_tiff(std::span<const uint8_t>(*bytes));
+		if (decoded.has_value() && decoded->is_valid()) {
+			return downscale_panorama_to_budget(std::move(*decoded), kMaxPanoramaBudgetWidth);
 		}
 		return std::nullopt;
 	}

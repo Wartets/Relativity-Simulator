@@ -55,6 +55,7 @@ private:
 	Optics::SkyPanoramaLoader::ImageHandle panorama_image_{};
 	uint32_t panorama_width_{0};
 	uint32_t panorama_height_{0};
+	uint32_t last_panorama_key_{0xFFFFFFFFU};
 
 	VkCommandBuffer command_buffer_{VK_NULL_HANDLE};
 	VkFence fence_{VK_NULL_HANDLE};
@@ -243,6 +244,7 @@ private:
 		panorama_image_.reset();
 		panorama_width_ = 0;
 		panorama_height_ = 0;
+		last_panorama_key_ = 0xFFFFFFFFU;
 
 		VkDescriptorBufferInfo panorama_info{};
 		panorama_info.buffer = panorama_buffer_;
@@ -309,7 +311,8 @@ private:
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
 			return false;
 		}
-		return vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+		constexpr uint64_t kPanoramaUploadTimeoutNs = 4000000000ULL;
+		return vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs) == VK_SUCCESS;
 	}
 
 	[[nodiscard]] bool upload_panorama(const Optics::SkyPanoramaLoader::ImageHandle& image) {
@@ -563,6 +566,7 @@ public:
 		panorama_capacity_bytes_ = 0;
 		panorama_width_ = 0;
 		panorama_height_ = 0;
+		last_panorama_key_ = 0xFFFFFFFFU;
 		storage_capacity_bytes_ = 0;
 		body_capacity_bytes_ = 0;
 
@@ -645,17 +649,26 @@ public:
 		actual_params.sky_panorama_width = 0U;
 		actual_params.sky_panorama_height = 0U;
 		if (params.sky_background_source != 0U) {
-			const auto panorama = Optics::SkyPanoramaLoader::instance().try_acquire(
-				static_cast<Optics::SkyPanoramaId>(params.sky_panorama_id),
-				static_cast<Optics::SkyPanoramaQuality>(params.sky_panorama_quality)
-			);
-			if (panorama != nullptr) {
-				if (!upload_panorama(panorama)) {
-					return false;
-				}
+			const uint32_t requested_panorama_key = (static_cast<uint32_t>(params.sky_panorama_id) << 4) | static_cast<uint32_t>(params.sky_panorama_quality);
+			if (requested_panorama_key == last_panorama_key_ && panorama_width_ > 0U && panorama_height_ > 0U) {
 				actual_params.sky_panorama_width = panorama_width_;
 				actual_params.sky_panorama_height = panorama_height_;
+			} else {
+				const auto panorama = Optics::SkyPanoramaLoader::instance().try_acquire(
+					static_cast<Optics::SkyPanoramaId>(params.sky_panorama_id),
+					static_cast<Optics::SkyPanoramaQuality>(params.sky_panorama_quality)
+				);
+				if (panorama != nullptr) {
+					if (!upload_panorama(panorama)) {
+						return false;
+					}
+					last_panorama_key_ = requested_panorama_key;
+					actual_params.sky_panorama_width = panorama_width_;
+					actual_params.sky_panorama_height = panorama_height_;
+				}
 			}
+		} else {
+			last_panorama_key_ = 0xFFFFFFFFU;
 		}
 		std::memcpy(uniform_mapped_, &actual_params, sizeof(GpuCameraPushConstants));
 		if (!bodies.empty() && body_mapped_ != nullptr) {
@@ -721,7 +734,8 @@ public:
 			return false;
 		}
 
-		if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+		constexpr uint64_t kComputeDispatchTimeoutNs = 4000000000ULL;
+		if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs) != VK_SUCCESS) {
 			return false;
 		}
 

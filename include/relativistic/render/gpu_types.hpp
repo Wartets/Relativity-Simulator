@@ -36,11 +36,6 @@ struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> tetrad_e2{};
 	std::array<double, 4> tetrad_e3{};
 
-	uint32_t screen_width{3840};
-	uint32_t screen_height{2160};
-	uint32_t metric_type{1};
-	uint32_t precision_mode{0};
-
 	double field_of_view_rad{1.0471975511965976};
 	double metric_mass{1.0};
 	double metric_spin{0.0};
@@ -57,48 +52,64 @@ struct alignas(16) GpuCameraPushConstants {
 	double cosmological_lambda{0.0};
 
 	double wormhole_throat{1.0};
-	double warp_velocity{0.0};
+	double warp_velocity{1.0};
 	double camera_exposure{0.0};
-	uint32_t tonemapping_mode{1};
-
-	uint32_t max_integration_steps{2048};
-	uint32_t render_flags{0};
-	uint32_t projection_mode{0};
-	uint32_t interlace_mode{0};
 
 	double lod_distance_threshold{0.0};
-	uint32_t lod_reduced_steps{256};
-	uint32_t interlace_phase{0};
 
-	double sky_rotation_rad{0.0};
-	double sky_hue_shift_rad{0.0};
-	double sky_saturation{1.0};
-	double sky_star_density{1.0};
+	double sky_rotation_rad{56.0};
+	double sky_hue_shift_rad{-15.7};
+	double sky_saturation{0.84};
+	double sky_star_density{0.78};
 	double sky_star_brightness{1.0};
-	double sky_nebula_intensity{1.0};
+	double sky_nebula_intensity{0.87};
 	double sky_grid_opacity{1.0};
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
-	double sky_star_brightness_variation{0.5};
-	double sky_star_size_variation{0.5};
-	double sky_star_color_variation{1.0};
-	double sky_star_temperature_bias{0.0};
-	uint32_t sky_procedural_seed{12345};
-	double sky_galaxy_density{0.0};
-	double sky_galaxy_brightness{1.0};
-	double sky_galaxy_size_scale{1.0};
-	double sky_dust_density{0.0};
-	double sky_dust_intensity{1.0};
-	double sky_dust_scale{1.0};
-	double sky_cluster_density{0.0};
+	double sky_star_brightness_variation{0.67};
+	double sky_star_size_variation{0.54};
+	double sky_star_color_variation{1.11};
+	double sky_star_temperature_bias{0.39};
+
+	double sky_galaxy_density{0.09};
+	double sky_galaxy_brightness{0.42};
+	double sky_galaxy_size_scale{0.2};
+	double sky_dust_density{3.05};
+	double sky_dust_intensity{2.13};
+	double sky_dust_scale{1.55};
+	double sky_cluster_density{1.06};
 	double sky_cluster_brightness{1.0};
-	double sky_cluster_size_scale{1.0};
+	double sky_cluster_size_scale{0.74};
+
 	double space_skip_radius_scale{40.0};
-	double pole_guard_precision_scale{0.7};
+	double pole_guard_precision_scale{0.15};
 	double far_field_step_scale{2.0};
 	double time{0.0};
 	double body_atmosphere_global_intensity{1.0};
+
+	double disk_temperature_scale_k{23796.0};
+	double disk_temperature_floor_k{1200.0};
+	double disk_doppler_beaming_exponent{5.32};
+	double disk_color_saturation{1.0};
+
+	uint32_t screen_width{3840};
+	uint32_t screen_height{2160};
+	uint32_t metric_type{1};
+	uint32_t precision_mode{0};
+
+	uint32_t tonemapping_mode{0};
+
+	uint32_t max_integration_steps{2048};
+	uint32_t render_flags{0};
+	uint32_t projection_mode{3};
+	uint32_t interlace_mode{0};
+
+	uint32_t lod_reduced_steps{256};
+	uint32_t interlace_phase{0};
+
+	uint32_t sky_procedural_seed{12345};
+
 	uint32_t body_render_lod_pixel_threshold{10};
 	uint32_t body_render_low_power_mode{0};
 	uint32_t body_count{0};

@@ -552,6 +552,10 @@ public:
 			cam_consts.sky_cluster_density = params.sky_cluster_density;
 			cam_consts.sky_cluster_brightness = params.sky_cluster_brightness;
 			cam_consts.sky_cluster_size_scale = params.sky_cluster_size_scale;
+			cam_consts.disk_temperature_scale_k = params.disk_temperature_scale_k;
+			cam_consts.disk_temperature_floor_k = params.disk_temperature_floor_k;
+			cam_consts.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
+			cam_consts.disk_color_saturation = params.disk_color_saturation;
 			cam_consts.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
 
 			const auto orientation = cam.orientation_basis();

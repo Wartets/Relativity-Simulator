@@ -46,37 +46,39 @@ struct PhysicalParameters {
 	uint32_t tonemapping_mode{0};
 	double integration_rtol{1e-10};
 	double integration_atol{1e-14};
+	double initial_step_size{-0.05};
 	double integration_min_step{1e-8};
 	double integration_max_step{10.0};
+	double escape_radius{100.0};
 	double resolution_scale{0.75};
-	uint32_t max_ray_steps{1024};
+	uint32_t max_ray_steps{2048};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
 	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING | Relativistic::Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING};
-	double sky_star_density{1.0};
+	double sky_star_density{0.78};
 	double sky_star_brightness{1.0};
-	double sky_nebula_intensity{1.0};
+	double sky_nebula_intensity{0.87};
 	double sky_grid_opacity{1.0};
-	double sky_rotation_deg{0.0};
-	double sky_hue_shift_deg{0.0};
-	double sky_saturation{1.0};
+	double sky_rotation_deg{56.0};
+	double sky_hue_shift_deg{-15.7};
+	double sky_saturation{0.84};
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
-	double sky_star_brightness_variation{0.5};
-	double sky_star_size_variation{0.5};
-	double sky_star_color_variation{1.0};
-	double sky_star_temperature_bias{0.0};
+	double sky_star_brightness_variation{0.67};
+	double sky_star_size_variation{0.54};
+	double sky_star_color_variation{1.11};
+	double sky_star_temperature_bias{0.39};
 	uint32_t sky_procedural_seed{12345};
-	double sky_galaxy_density{0.0};
-	double sky_galaxy_brightness{1.0};
-	double sky_galaxy_size_scale{1.0};
-	double sky_dust_density{0.0};
-	double sky_dust_intensity{1.0};
-	double sky_dust_scale{1.0};
-	double sky_cluster_density{0.0};
+	double sky_galaxy_density{0.09};
+	double sky_galaxy_brightness{0.42};
+	double sky_galaxy_size_scale{0.2};
+	double sky_dust_density{3.05};
+	double sky_dust_intensity{2.13};
+	double sky_dust_scale{1.55};
+	double sky_cluster_density{1.06};
 	double sky_cluster_brightness{1.0};
-	double sky_cluster_size_scale{1.0};
+	double sky_cluster_size_scale{0.74};
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
 	uint32_t rolling_average_frame_count{10};
@@ -90,7 +92,7 @@ struct PhysicalParameters {
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{40.0};
-	double pole_guard_precision_scale{0.7};
+	double pole_guard_precision_scale{0.15};
 	double far_field_step_scale{2.0};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{false};
@@ -114,6 +116,10 @@ struct PhysicalParameters {
 	bool body_disk_occlusion_enabled{false};
 	uint32_t body_render_point_pixel_threshold{2};
 	uint32_t body_noise_octaves{4};
+	double disk_temperature_scale_k{23796.0};
+	double disk_temperature_floor_k{1200.0};
+	double disk_doppler_beaming_exponent{5.32};
+	double disk_color_saturation{1.0};
 };
 
 struct CustomParameterEntry {
@@ -1000,13 +1006,13 @@ public:
 				params_.sky_saturation = std::max(val, 0.0);
 				break;
 			case ParameterType::SkyBackgroundR:
-				params_.sky_background_r = std::clamp(val, 0.0, 1.0);
+				params_.sky_background_r = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
 				break;
 			case ParameterType::SkyBackgroundG:
-				params_.sky_background_g = std::clamp(val, 0.0, 1.0);
+				params_.sky_background_g = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
 				break;
 			case ParameterType::SkyBackgroundB:
-				params_.sky_background_b = std::clamp(val, 0.0, 1.0);
+				params_.sky_background_b = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
 				break;
 			case ParameterType::SkyStarBrightnessVariation:
 				params_.sky_star_brightness_variation = std::clamp(val, 0.0, 1.0);
@@ -1170,6 +1176,18 @@ public:
 				break;
 			case ParameterType::BodyNoiseOctaves:
 				params_.body_noise_octaves = static_cast<uint32_t>(std::clamp(val, 1.0, 6.0));
+				break;
+			case ParameterType::DiskTemperatureScale:
+				params_.disk_temperature_scale_k = std::clamp(val, 1000.0, 60000.0);
+				break;
+			case ParameterType::DiskTemperatureFloor:
+				params_.disk_temperature_floor_k = std::clamp(val, 0.0, 20000.0);
+				break;
+			case ParameterType::DiskDopplerBeamingExponent:
+				params_.disk_doppler_beaming_exponent = std::clamp(val, 0.0, 8.0);
+				break;
+			case ParameterType::DiskColorSaturation:
+				params_.disk_color_saturation = std::clamp(val, 0.0, 3.0);
 				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));
@@ -1424,6 +1442,225 @@ public:
 
 	void notify_state_changed() noexcept {
 		state_version_.fetch_add(1, std::memory_order_release);
+	}
+
+	[[nodiscard]] static constexpr uint32_t metric_name_to_id(std::string_view name) noexcept {
+		if (name == "FlatMinkowski" || name == "Minkowski") return static_cast<uint32_t>(Relativistic::Render::MetricId::FlatMinkowski);
+		if (name == "Schwarzschild") return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
+		if (name == "Kerr") return static_cast<uint32_t>(Relativistic::Render::MetricId::Kerr);
+		if (name == "KerrSchild") return static_cast<uint32_t>(Relativistic::Render::MetricId::KerrSchild);
+		if (name == "ReissnerNordstrom") return static_cast<uint32_t>(Relativistic::Render::MetricId::ReissnerNordstrom);
+		if (name == "KerrNewman") return static_cast<uint32_t>(Relativistic::Render::MetricId::KerrNewman);
+		if (name == "SchwarzschildDeSitter") return static_cast<uint32_t>(Relativistic::Render::MetricId::SchwarzschildDeSitter);
+		if (name == "FLRW") return static_cast<uint32_t>(Relativistic::Render::MetricId::FLRW);
+		if (name == "MorrisThorne") return static_cast<uint32_t>(Relativistic::Render::MetricId::MorrisThorne);
+		if (name == "Alcubierre") return static_cast<uint32_t>(Relativistic::Render::MetricId::Alcubierre);
+		return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
+	}
+
+	[[nodiscard]] Relativistic::Render::GpuCameraPushConstants build_gpu_push_constants(
+		uint32_t screen_width = 3840,
+		uint32_t screen_height = 2160,
+		double sim_time = 0.0
+	) const noexcept {
+		Relativistic::Render::GpuCameraPushConstants push{};
+		const auto basis = camera_.orientation_basis();
+
+		push.observer_position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
+		push.tetrad_e0 = {1.0, 0.0, 0.0, 0.0};
+		push.tetrad_e1 = {0.0, basis.right[0], basis.right[1], basis.right[2]};
+		push.tetrad_e2 = {0.0, basis.up[0], basis.up[1], basis.up[2]};
+		push.tetrad_e3 = {0.0, basis.forward[0], basis.forward[1], basis.forward[2]};
+
+		push.field_of_view_rad = camera_.fov_deg * (std::numbers::pi_v<double> / 180.0);
+		push.metric_mass = params_.mass;
+		push.metric_spin = params_.spin;
+		push.metric_charge = params_.charge;
+
+		push.speed_of_light = constants_engine_.sim_speed_of_light();
+		push.gravitational_constant = constants_engine_.sim_gravitational_constant();
+		push.initial_step_size = params_.initial_step_size;
+		push.min_step_size = params_.integration_min_step;
+
+		push.max_step_size = params_.integration_max_step;
+		const double r_g = params_.mass;
+		const double a = std::clamp(params_.spin, -0.9999 * params_.mass, 0.9999 * params_.mass);
+		push.horizon_radius = (params_.mass > 0.0) ? (r_g + std::sqrt(std::max(r_g * r_g - a * a, 0.0))) : 0.0;
+		push.escape_radius = params_.escape_radius;
+		push.cosmological_lambda = params_.cosmological_lambda;
+
+		push.wormhole_throat = params_.wormhole_throat;
+		push.warp_velocity = params_.warp_velocity;
+		push.camera_exposure = params_.camera_exposure;
+
+		push.lod_distance_threshold = params_.lod_distance_scale;
+
+		push.sky_rotation_rad = params_.sky_rotation_deg;
+		push.sky_hue_shift_rad = params_.sky_hue_shift_deg;
+		push.sky_saturation = params_.sky_saturation;
+		push.sky_star_density = params_.sky_star_density;
+		push.sky_star_brightness = params_.sky_star_brightness;
+		push.sky_nebula_intensity = params_.sky_nebula_intensity;
+		push.sky_grid_opacity = params_.sky_grid_opacity;
+		push.sky_background_r = params_.sky_background_r;
+		push.sky_background_g = params_.sky_background_g;
+		push.sky_background_b = params_.sky_background_b;
+		push.sky_star_brightness_variation = params_.sky_star_brightness_variation;
+		push.sky_star_size_variation = params_.sky_star_size_variation;
+		push.sky_star_color_variation = params_.sky_star_color_variation;
+		push.sky_star_temperature_bias = params_.sky_star_temperature_bias;
+
+		push.sky_galaxy_density = params_.sky_galaxy_density;
+		push.sky_galaxy_brightness = params_.sky_galaxy_brightness;
+		push.sky_galaxy_size_scale = params_.sky_galaxy_size_scale;
+		push.sky_dust_density = params_.sky_dust_density;
+		push.sky_dust_intensity = params_.sky_dust_intensity;
+		push.sky_dust_scale = params_.sky_dust_scale;
+		push.sky_cluster_density = params_.sky_cluster_density;
+		push.sky_cluster_brightness = params_.sky_cluster_brightness;
+		push.sky_cluster_size_scale = params_.sky_cluster_size_scale;
+
+		push.space_skip_radius_scale = params_.space_skip_radius_scale;
+		push.pole_guard_precision_scale = params_.pole_guard_precision_scale;
+		push.far_field_step_scale = params_.far_field_step_scale;
+		push.time = sim_time;
+		push.body_atmosphere_global_intensity = params_.body_atmosphere_global_intensity;
+
+		push.disk_temperature_scale_k = params_.disk_temperature_scale_k;
+		push.disk_temperature_floor_k = params_.disk_temperature_floor_k;
+		push.disk_doppler_beaming_exponent = params_.disk_doppler_beaming_exponent;
+		push.disk_color_saturation = params_.disk_color_saturation;
+
+		push.screen_width = screen_width;
+		push.screen_height = screen_height;
+		push.metric_type = metric_name_to_id(active_metric_name_);
+		push.precision_mode = static_cast<uint32_t>(Relativistic::Render::PrecisionMode::NativeFloat64);
+
+		push.tonemapping_mode = params_.tonemapping_mode;
+
+		push.max_integration_steps = params_.max_ray_steps;
+
+		uint32_t flags = params_.visual_overlays_flags;
+		if (params_.lod_enabled) flags |= Relativistic::Render::RenderFlags::USE_LOD_SYSTEM;
+		if (params_.space_skipping_enabled) flags |= Relativistic::Render::RenderFlags::SPACE_SKIP_ENABLED;
+		if (params_.adaptive_tile_prepass_enabled) flags |= Relativistic::Render::RenderFlags::ADAPTIVE_TILE_PREPASS;
+		if (params_.body_shadows_enabled) flags |= Relativistic::Render::RenderFlags::ENABLE_BODY_SHADOWS;
+		if (params_.bodies_only_render_mode) flags |= Relativistic::Render::RenderFlags::BODIES_ONLY_MODE;
+		if (params_.body_disk_occlusion_enabled) flags |= Relativistic::Render::RenderFlags::ENABLE_BODY_DISK_OCCLUSION;
+		push.render_flags = flags;
+
+		push.projection_mode = params_.projection_mode;
+		push.interlace_mode = params_.interlace_rendering_enabled ? 1U : 0U;
+
+		push.lod_reduced_steps = params_.lod_reduced_ray_steps;
+		push.interlace_phase = 0;
+
+		push.sky_procedural_seed = params_.sky_procedural_seed;
+
+		push.body_render_lod_pixel_threshold = params_.body_render_lod_pixel_threshold;
+		push.body_render_low_power_mode = params_.body_render_low_power_mode ? 1U : 0U;
+		push.body_count = static_cast<uint32_t>(nbody_system_.bodies().size());
+		push.body_noise_octaves = params_.body_noise_octaves;
+		push.body_render_point_pixel_threshold = params_.body_render_point_pixel_threshold;
+
+		return push;
+	}
+
+	void sync_from_gpu_push_constants(const Relativistic::Render::GpuCameraPushConstants& push) noexcept {
+		params_.mass = push.metric_mass;
+		params_.spin = push.metric_spin;
+		params_.charge = push.metric_charge;
+		params_.cosmological_lambda = push.cosmological_lambda;
+		params_.wormhole_throat = push.wormhole_throat;
+		params_.warp_velocity = push.warp_velocity;
+		params_.camera_exposure = push.camera_exposure;
+		params_.tonemapping_mode = push.tonemapping_mode;
+		params_.initial_step_size = push.initial_step_size;
+		params_.integration_min_step = push.min_step_size;
+		params_.integration_max_step = push.max_step_size;
+		params_.escape_radius = push.escape_radius;
+		params_.max_ray_steps = push.max_integration_steps;
+		params_.projection_mode = push.projection_mode;
+		params_.lod_distance_scale = push.lod_distance_threshold;
+		params_.lod_reduced_ray_steps = push.lod_reduced_steps;
+		params_.sky_rotation_deg = push.sky_rotation_rad;
+		params_.sky_hue_shift_deg = push.sky_hue_shift_rad;
+		params_.sky_saturation = push.sky_saturation;
+		params_.sky_star_density = push.sky_star_density;
+		params_.sky_star_brightness = push.sky_star_brightness;
+		params_.sky_nebula_intensity = push.sky_nebula_intensity;
+		params_.sky_grid_opacity = push.sky_grid_opacity;
+		params_.sky_background_r = push.sky_background_r;
+		params_.sky_background_g = push.sky_background_g;
+		params_.sky_background_b = push.sky_background_b;
+		params_.sky_star_brightness_variation = push.sky_star_brightness_variation;
+		params_.sky_star_size_variation = push.sky_star_size_variation;
+		params_.sky_star_color_variation = push.sky_star_color_variation;
+		params_.sky_star_temperature_bias = push.sky_star_temperature_bias;
+		params_.sky_procedural_seed = push.sky_procedural_seed;
+		params_.sky_galaxy_density = push.sky_galaxy_density;
+		params_.sky_galaxy_brightness = push.sky_galaxy_brightness;
+		params_.sky_galaxy_size_scale = push.sky_galaxy_size_scale;
+		params_.sky_dust_density = push.sky_dust_density;
+		params_.sky_dust_intensity = push.sky_dust_intensity;
+		params_.sky_dust_scale = push.sky_dust_scale;
+		params_.sky_cluster_density = push.sky_cluster_density;
+		params_.sky_cluster_brightness = push.sky_cluster_brightness;
+		params_.sky_cluster_size_scale = push.sky_cluster_size_scale;
+		params_.space_skip_radius_scale = push.space_skip_radius_scale;
+		params_.pole_guard_precision_scale = push.pole_guard_precision_scale;
+		params_.far_field_step_scale = push.far_field_step_scale;
+		params_.body_atmosphere_global_intensity = push.body_atmosphere_global_intensity;
+		params_.disk_temperature_scale_k = push.disk_temperature_scale_k;
+		params_.disk_temperature_floor_k = push.disk_temperature_floor_k;
+		params_.disk_doppler_beaming_exponent = push.disk_doppler_beaming_exponent;
+		params_.disk_color_saturation = push.disk_color_saturation;
+		params_.body_render_lod_pixel_threshold = push.body_render_lod_pixel_threshold;
+		params_.body_render_low_power_mode = (push.body_render_low_power_mode != 0U);
+		params_.body_noise_octaves = push.body_noise_octaves;
+		params_.body_render_point_pixel_threshold = push.body_render_point_pixel_threshold;
+
+		const double pos_sq = push.observer_position[1] * push.observer_position[1] +
+		                      push.observer_position[2] * push.observer_position[2] +
+		                      push.observer_position[3] * push.observer_position[3];
+		if (pos_sq > 1e-6) {
+			camera_.position = {push.observer_position[1], push.observer_position[2], push.observer_position[3]};
+			sync_camera_spherical_from_cartesian();
+		}
+		if (push.field_of_view_rad > 0.05) {
+			camera_.fov_deg = push.field_of_view_rad * (180.0 / std::numbers::pi_v<double>);
+			params_.camera_fov_deg = camera_.fov_deg;
+		}
+
+		state_version_.fetch_add(1, std::memory_order_release);
+	}
+
+	[[nodiscard]] std::vector<Relativistic::Render::GpuBodyGpuLayout> build_gpu_body_layouts() const {
+		const auto& bodies = nbody_system_.bodies();
+		std::vector<Relativistic::Render::GpuBodyGpuLayout> layouts;
+		layouts.reserve(bodies.size());
+
+		for (const auto& b : bodies) {
+			Relativistic::Render::GpuBodyData data{};
+			data.position = {0.0, b.position[0], b.position[1], b.position[2]};
+			data.velocity = {0.0, b.velocity[0], b.velocity[1], b.velocity[2]};
+			data.color_primary = {static_cast<double>(b.color[0]), static_cast<double>(b.color[1]), static_cast<double>(b.color[2]), static_cast<double>(b.color[3])};
+			data.color_secondary = {static_cast<double>(b.color_secondary[0]), static_cast<double>(b.color_secondary[1]), static_cast<double>(b.color_secondary[2]), static_cast<double>(b.color_secondary[3])};
+			data.atmosphere_color = {0.3, 0.6, 1.0, 0.4};
+			data.radius = b.radius;
+			data.mass = b.mass;
+			data.charge = b.charge;
+			data.temperature = b.temperature;
+			data.rotation_speed = b.rotation_speed;
+			data.body_id = static_cast<uint32_t>(b.id);
+			data.noise_scale = 4.0;
+			data.noise_roughness = 0.5;
+			data.atmosphere_thickness = 0.15;
+			data.specular_roughness = 0.3;
+			data.oblateness_ratio = 1.0;
+			layouts.push_back(Relativistic::Render::GpuBodyGpuLayout::from(data));
+		}
+		return layouts;
 	}
 };
 

@@ -155,7 +155,11 @@ enum class ParameterType : uint32_t {
 	SkyDustScale = 112,
 	SkyClusterDensity = 113,
 	SkyClusterBrightness = 114,
-	SkyClusterSizeScale = 115
+	SkyClusterSizeScale = 115,
+	DiskTemperatureScale = 116,
+	DiskTemperatureFloor = 117,
+	DiskDopplerBeamingExponent = 118,
+	DiskColorSaturation = 119
 };
 
 struct Command {

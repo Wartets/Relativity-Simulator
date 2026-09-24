@@ -3,6 +3,8 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
+#include "relativistic/optics/spectrum.hpp"
+#include "relativistic/optics/cie_observer.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
@@ -1078,15 +1080,15 @@ private:
 					redshift_rec = g_doppler;
 
 					const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-					const double t_eff_k = 18000.0 * t_norm + 1200.0;
+					const double t_eff_k = params.disk_temperature_scale_k * t_norm + params.disk_temperature_floor_k;
 					const double t_obs = t_eff_k * g_doppler;
 
-					const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
+					const double g4 = std::pow(g_doppler, params.disk_doppler_beaming_exponent);
 					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
 					const double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
 					const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
-					const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
+					const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, params.disk_color_saturation);
 					const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
 
 					accum_r += throughput * static_cast<double>(disk_rgb[0]);
@@ -1483,42 +1485,26 @@ private:
 		return sky_rgb;
 	}
 
-	[[nodiscard]] static std::array<float, 3> temperature_to_linear_rgb(double t_kelvin, double intensity) noexcept {
+	[[nodiscard]] static std::array<float, 3> temperature_to_linear_rgb(double t_kelvin, double intensity, double saturation = 1.0) noexcept {
 		const double t = std::clamp(t_kelvin, 800.0, 60000.0);
-		constexpr double h = 6.62607015e-34;
-		constexpr double c = 299792458.0;
-		constexpr double kb = 1.380649e-23;
+		const auto spectrum = Optics::ContinuousSpectrum<double>::make_blackbody(t);
+		const auto xyz = Optics::CIE1931Observer::integrate_spectrum(spectrum, 380.0, 780.0, 24);
+		const auto linear = Optics::CIE1931Observer::xyz_to_linear_srgb(xyz);
 
-		auto planck = [&](double lambda_m) noexcept -> double {
-			const double exponent = (h * c) / (lambda_m * kb * t);
-			if (exponent > 80.0) return 0.0;
-			const double denom = std::expm1(exponent);
-			if (denom <= 0.0) return 0.0;
-			return (2.0 * h * c * c) / (std::pow(lambda_m, 5.0) * denom);
-		};
-
-		const double i_red = planck(680e-9);
-		const double i_green = planck(540e-9);
-		const double i_blue = planck(440e-9);
-
-		constexpr double ref_t = 6500.0;
-		auto planck_ref = [&](double lambda_m) noexcept -> double {
-			const double exponent = (h * c) / (lambda_m * kb * ref_t);
-			return (2.0 * h * c * c) / (std::pow(lambda_m, 5.0) * std::expm1(exponent));
-		};
-
-		const double norm_r = planck_ref(680e-9);
-		const double norm_g = planck_ref(540e-9);
-		const double norm_b = planck_ref(440e-9);
-
-		double r = i_red / (norm_r > 0.0 ? norm_r : 1.0);
-		double g = i_green / (norm_g > 0.0 ? norm_g : 1.0);
-		double b = i_blue / (norm_b > 0.0 ? norm_b : 1.0);
+		double r = linear.r;
+		double g = linear.g;
+		double b = linear.b;
 
 		const double max_c = std::max({r, g, b, 1e-12});
 		r /= max_c;
 		g /= max_c;
 		b /= max_c;
+
+		const double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		const double sat = std::clamp(saturation, 0.0, 3.0);
+		r = std::max(0.0, luma + (r - luma) * sat);
+		g = std::max(0.0, luma + (g - luma) * sat);
+		b = std::max(0.0, luma + (b - luma) * sat);
 
 		const float scale = static_cast<float>(std::max(0.0, intensity));
 		return {static_cast<float>(r) * scale, static_cast<float>(g) * scale, static_cast<float>(b) * scale};
@@ -2335,15 +2321,15 @@ public:
 									redshift_rec[l] = g_doppler;
 
 									const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-									const double t_eff_k = 18000.0 * t_norm + 1200.0;
+									const double t_eff_k = params.disk_temperature_scale_k * t_norm + params.disk_temperature_floor_k;
 									const double t_obs = t_eff_k * g_doppler;
 
-									const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
+									const double g4 = std::pow(g_doppler, params.disk_doppler_beaming_exponent);
 									const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
 									const double turbulence = 1.0 - (0.12 * turbulence_aa_factor_simd) + (0.12 * turbulence_aa_factor_simd) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
 									const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
 
-									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
+									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, params.disk_color_saturation);
 									const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
 
 									accum_r[l] += throughput[l] * static_cast<double>(disk_rgb[0]);

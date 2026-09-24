@@ -62,6 +62,8 @@ private:
 
 	VkCommandBuffer command_buffer_{VK_NULL_HANDLE};
 	VkFence fence_{VK_NULL_HANDLE};
+	VkPhysicalDeviceMemoryProperties memory_properties_{};
+	bool staging_is_coherent_{false};
 
 	bool ready_{false};
 
@@ -100,10 +102,8 @@ private:
 	}
 
 	[[nodiscard]] std::optional<uint32_t> find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) const noexcept {
-		VkPhysicalDeviceMemoryProperties mem_props{};
-		vkGetPhysicalDeviceMemoryProperties(physical_device_, &mem_props);
-		for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-			if ((type_filter & (1U << i)) && (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
+		for (uint32_t i = 0; i < memory_properties_.memoryTypeCount; ++i) {
+			if ((type_filter & (1U << i)) && (memory_properties_.memoryTypes[i].propertyFlags & properties) == properties) {
 				return i;
 			}
 		}
@@ -187,16 +187,55 @@ private:
 			return false;
 		}
 
-		if (!create_buffer(
-			required_bytes,
-			VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			staging_buffer_,
-			staging_memory_
-		)) {
+		VkBufferCreateInfo staging_buffer_info{};
+		staging_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		staging_buffer_info.size = required_bytes;
+		staging_buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		staging_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		if (vkCreateBuffer(device_, &staging_buffer_info, nullptr, &staging_buffer_) != VK_SUCCESS) {
 			destroy_buffer(storage_buffer_, storage_memory_);
 			return false;
 		}
+
+		VkMemoryRequirements staging_mem_reqs{};
+		vkGetBufferMemoryRequirements(device_, staging_buffer_, &staging_mem_reqs);
+
+		auto staging_type_index = find_memory_type(
+			staging_mem_reqs.memoryTypeBits,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT
+		);
+		staging_is_coherent_ = false;
+		if (!staging_type_index.has_value()) {
+			staging_type_index = find_memory_type(
+				staging_mem_reqs.memoryTypeBits,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+			);
+			staging_is_coherent_ = true;
+		} else {
+			const auto flags = memory_properties_.memoryTypes[*staging_type_index].propertyFlags;
+			staging_is_coherent_ = (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+		}
+
+		if (!staging_type_index.has_value()) {
+			destroy_buffer(storage_buffer_, storage_memory_);
+			vkDestroyBuffer(device_, staging_buffer_, nullptr);
+			staging_buffer_ = VK_NULL_HANDLE;
+			return false;
+		}
+
+		VkMemoryAllocateInfo staging_alloc_info{};
+		staging_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		staging_alloc_info.allocationSize = staging_mem_reqs.size;
+		staging_alloc_info.memoryTypeIndex = *staging_type_index;
+
+		if (vkAllocateMemory(device_, &staging_alloc_info, nullptr, &staging_memory_) != VK_SUCCESS) {
+			destroy_buffer(storage_buffer_, storage_memory_);
+			vkDestroyBuffer(device_, staging_buffer_, nullptr);
+			staging_buffer_ = VK_NULL_HANDLE;
+			return false;
+		}
+
+		vkBindBufferMemory(device_, staging_buffer_, staging_memory_, 0);
 
 		if (vkMapMemory(device_, staging_memory_, 0, required_bytes, 0, &staging_mapped_) != VK_SUCCESS) {
 			destroy_buffer(storage_buffer_, storage_memory_);
@@ -489,6 +528,7 @@ public:
 		physical_device_ = context.physical_device();
 		compute_queue_ = context.compute_queue();
 		command_pool_ = context.command_pool();
+		vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory_properties_);
 
 		const auto spirv_path = find_spirv_path();
 		if (!spirv_path.has_value()) {
@@ -856,7 +896,18 @@ public:
 			return false;
 		}
 
-		output.resize(pixel_count);
+		if (!staging_is_coherent_) {
+			VkMappedMemoryRange range{};
+			range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+			range.memory = staging_memory_;
+			range.offset = 0;
+			range.size = copy_region.size;
+			vkInvalidateMappedMemoryRanges(device_, 1, &range);
+		}
+
+		if (output.size() != pixel_count) {
+			output.resize(pixel_count);
+		}
 		std::memcpy(output.data(), staging_mapped_, static_cast<size_t>(copy_region.size));
 		return true;
 	}

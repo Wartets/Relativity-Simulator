@@ -175,7 +175,8 @@ dvec2 precise_sincos(double theta) {
 dvec3 spherical_to_cartesian(double r, double theta, double phi) {
 	dvec2 sincos_theta = precise_sincos(theta);
 	float phi_f = float(phi);
-	return dvec3(r * sincos_theta.x * double(cos(phi_f)), r * sincos_theta.x * double(sin(phi_f)), r * sincos_theta.y);
+	double r_sin_theta = r * sincos_theta.x;
+	return dvec3(r_sin_theta * double(cos(phi_f)), r_sin_theta * double(sin(phi_f)), r * sincos_theta.y);
 }
 
 double cbrt_d(double x) {
@@ -242,37 +243,41 @@ dvec4 kerr_newman_geodesic_derivative(dvec4 u, double r, double theta, double ma
 	double a2 = a * a;
 	double r2 = r * r;
 	double rho2 = r2 + a2 * cos2_t;
-	double rho4 = rho2 * rho2;
+	double inv_rho2 = 1.0 / rho2;
+	double inv_rho4 = inv_rho2 * inv_rho2;
 	double delta = kerr_newman_delta(r, mass, a, rq2);
+	double inv_delta = 1.0 / delta;
+	double inv_delta2 = inv_delta * inv_delta;
+	double inv_rho2_delta = inv_rho2 * inv_delta;
 	double two_mr_minus_q2 = 2.0 * mass * r - rq2;
 
-	double d1_ratio = (2.0 * mass * rho2 - two_mr_minus_q2 * 2.0 * r) / rho4;
+	double d1_ratio = (2.0 * mass * rho2 - two_mr_minus_q2 * 2.0 * r) * inv_rho4;
 	double d1_g00 = d1_ratio;
 	double d1_g03 = -a * sin2_t * d1_ratio;
 	double d1_delta = 2.0 * (r - mass);
-	double d1_g11 = (2.0 * r * delta - rho2 * d1_delta) / (delta * delta);
+	double d1_g11 = (2.0 * r * delta - rho2 * d1_delta) * inv_delta2;
 	double d1_g22 = 2.0 * r;
 	double sigma = (r2 + a2) * (r2 + a2) - a2 * delta * sin2_t;
 	double d1_sigma = 4.0 * r * (r2 + a2) - a2 * d1_delta * sin2_t;
-	double d1_g33 = sin2_t * (d1_sigma * rho2 - sigma * 2.0 * r) / rho4;
+	double d1_g33 = sin2_t * (d1_sigma * rho2 - sigma * 2.0 * r) * inv_rho4;
 
 	double sin_cos = sin_t * cos_t;
 	double d2_rho2 = -2.0 * a2 * sin_cos;
-	double d2_ratio = -two_mr_minus_q2 * d2_rho2 / rho4;
+	double d2_ratio = -two_mr_minus_q2 * d2_rho2 * inv_rho4;
 	double d2_g00 = d2_ratio;
-	double d2_g03 = -a * (2.0 * sin_cos * two_mr_minus_q2 * rho2 - two_mr_minus_q2 * sin2_t * d2_rho2) / rho4;
-	double d2_g11 = d2_rho2 / delta;
+	double d2_g03 = -a * (2.0 * sin_cos * two_mr_minus_q2 * rho2 - two_mr_minus_q2 * sin2_t * d2_rho2) * inv_rho4;
+	double d2_g11 = d2_rho2 * inv_delta;
 	double d2_g22 = d2_rho2;
 	double d2_sigma = -2.0 * a2 * delta * sin_cos;
 	double d2_term = 2.0 * sin_cos * sigma * rho2 + sin2_t * d2_sigma * rho2 - sigma * sin2_t * d2_rho2;
-	double d2_g33 = d2_term / rho4;
+	double d2_g33 = d2_term * inv_rho4;
 
-	double inv_g00 = -sigma / (rho2 * delta);
-	double inv_g03 = -(two_mr_minus_q2 * a) / (rho2 * delta);
-	double inv_g11 = delta / rho2;
-	double inv_g22 = 1.0 / rho2;
+	double inv_g00 = -sigma * inv_rho2_delta;
+	double inv_g03 = -(two_mr_minus_q2 * a) * inv_rho2_delta;
+	double inv_g11 = delta * inv_rho2;
+	double inv_g22 = inv_rho2;
 	double safe_sin2_t = max(sin2_t, 1e-12);
-	double inv_g33 = (delta - a2 * sin2_t) / (rho2 * delta * safe_sin2_t);
+	double inv_g33 = (delta - a2 * sin2_t) * (inv_rho2_delta / safe_sin2_t);
 
 	double p0 = u.x, p1 = u.y, p2 = u.z, p3 = u.w;
 
@@ -688,164 +693,145 @@ vec3 compute_sky_radiance(dvec3 dir_d, double sky_rotation_rad) {
 	return sky_rgb;
 }
 
-double cie_gaussian_component(double x, double alpha, double mu, double sigma1, double sigma2) {
-	double sigma = (x < mu) ? sigma1 : sigma2;
-	double t = (x - mu) / sigma;
-	return alpha * double(exp(float(-0.5 * t * t)));
+float cie_gaussian_component(float x, float alpha, float mu, float sigma1, float sigma2) {
+	float sigma = (x < mu) ? sigma1 : sigma2;
+	float t = (x - mu) / sigma;
+	return alpha * exp(-0.5 * t * t);
 }
 
-double cie_x_bar(double lambda_nm) {
+float cie_x_bar(float lambda_nm) {
 	return cie_gaussian_component(lambda_nm, 1.056, 599.8, 37.9, 31.0)
 		+ cie_gaussian_component(lambda_nm, 0.362, 442.0, 16.0, 26.7)
 		- cie_gaussian_component(lambda_nm, 0.065, 501.1, 20.4, 26.2);
 }
 
-double cie_y_bar(double lambda_nm) {
+float cie_y_bar(float lambda_nm) {
 	return cie_gaussian_component(lambda_nm, 0.821, 568.8, 46.9, 40.5)
 		+ cie_gaussian_component(lambda_nm, 0.286, 530.9, 16.3, 31.1);
 }
 
-double cie_z_bar(double lambda_nm) {
+float cie_z_bar(float lambda_nm) {
 	return cie_gaussian_component(lambda_nm, 1.217, 437.0, 11.8, 36.0)
 		+ cie_gaussian_component(lambda_nm, 0.681, 459.0, 26.0, 13.8);
 }
 
-double planck_spectral_radiance(double lambda_m, double temp_k) {
-	const double h = 6.62607015e-34;
-	const double c = 299792458.0;
-	const double kb = 1.380649e-23;
-	double lambda5 = lambda_m * lambda_m * lambda_m * lambda_m * lambda_m;
-	double x = (h * c) / (lambda_m * kb * temp_k);
-	if (x > 700.0) return 0.0;
-	return (2.0 * h * c * c) / (lambda5 * (double(exp(float(x))) - 1.0));
+float planck_spectral_radiance(float lambda_m, float temp_k) {
+	const float c2 = 0.0143877688;
+	float x = c2 / (lambda_m * temp_k);
+	if (x > 80.0) return 0.0;
+	float lambda_um = lambda_m * 1e6;
+	float lambda5 = lambda_um * lambda_um * lambda_um * lambda_um * lambda_um;
+	return 1.0 / (lambda5 * (exp(x) - 1.0));
 }
 
 dvec3 temperature_to_linear_rgb(double t_kelvin, double intensity, double saturation) {
-	double t = clamp(t_kelvin, 800.0, 60000.0);
-	double int_x = 0.0;
-	double int_y = 0.0;
-	double int_z = 0.0;
+	float t = float(clamp(t_kelvin, 800.0, 60000.0));
+	vec3 int_xyz = vec3(0.0);
 	const int samples = 16;
-	double lambda_start = 380.0;
-	double lambda_end = 780.0;
-	double d_lambda = (lambda_end - lambda_start) / double(samples);
+	const float lambda_start = 380.0;
+	const float d_lambda = (780.0 - 380.0) / float(samples);
 	for (int i = 0; i <= samples; ++i) {
-		double lambda_nm = lambda_start + double(i) * d_lambda;
-		double radiance = planck_spectral_radiance(lambda_nm * 1e-9, t);
-		double weight = (i == 0 || i == samples) ? 0.5 : 1.0;
-		int_x += weight * radiance * cie_x_bar(lambda_nm);
-		int_y += weight * radiance * cie_y_bar(lambda_nm);
-		int_z += weight * radiance * cie_z_bar(lambda_nm);
+		float lambda_nm = lambda_start + float(i) * d_lambda;
+		float radiance = planck_spectral_radiance(lambda_nm * 1e-9, t);
+		float weight = (i == 0 || i == samples) ? 0.5 : 1.0;
+		int_xyz.x += weight * radiance * cie_x_bar(lambda_nm);
+		int_xyz.y += weight * radiance * cie_y_bar(lambda_nm);
+		int_xyz.z += weight * radiance * cie_z_bar(lambda_nm);
 	}
-	int_x *= d_lambda;
-	int_y *= d_lambda;
-	int_z *= d_lambda;
 
-	double r =  3.2404542 * int_x - 1.5371385 * int_y - 0.4985314 * int_z;
-	double g = -0.9692660 * int_x + 1.8760108 * int_y + 0.0415560 * int_z;
-	double b =  0.0556434 * int_x - 0.2040259 * int_y + 1.0572252 * int_z;
+	float r =  3.2404542 * int_xyz.x - 1.5371385 * int_xyz.y - 0.4985314 * int_xyz.z;
+	float g = -0.9692660 * int_xyz.x + 1.8760108 * int_xyz.y + 0.0415560 * int_xyz.z;
+	float b =  0.0556434 * int_xyz.x - 0.2040259 * int_xyz.y + 1.0572252 * int_xyz.z;
 	r = max(r, 0.0);
 	g = max(g, 0.0);
 	b = max(b, 0.0);
 
-	double max_c = max(max(r, g), max(b, 1e-12));
+	float max_c = max(max(r, g), max(b, 1e-6));
 	r /= max_c;
 	g /= max_c;
 	b /= max_c;
 
-	double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-	double sat = clamp(saturation, 0.0, 3.0);
+	float luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+	float sat = float(clamp(saturation, 0.0, 3.0));
 	r = max(0.0, luma + (r - luma) * sat);
 	g = max(0.0, luma + (g - luma) * sat);
 	b = max(0.0, luma + (b - luma) * sat);
 
-	double scale = max(intensity, 0.0);
-	return dvec3(r * scale, g * scale, b * scale);
-}
-
-float aces_curve(float x) {
-	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+	float scale = float(max(intensity, 0.0));
+	return dvec3(double(r * scale), double(g * scale), double(b * scale));
 }
 
 vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	float exp_scale = exp2(float(exposure_ev));
-	float r = max(0.0, linear_color.r * exp_scale);
-	float g = max(0.0, linear_color.g * exp_scale);
-	float b = max(0.0, linear_color.b * exp_scale);
+	vec3 col = max(linear_color * exp_scale, vec3(0.0));
 
 	if (mode == 1u) {
-		r = aces_curve(r); g = aces_curve(g); b = aces_curve(b);
+		const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+		col = clamp((col * (a * col + b)) / (col * (c * col + d) + e), 0.0, 1.0);
 	} else if (mode == 2u) {
-		float lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
 		if (lum > 0.0) {
-			float mapped_lum = log(1.0 + lum * 100.0) / log(1.0 + 10000.0);
-			float scale = clamp(mapped_lum / lum, 0.0, 1.0);
-			r = clamp(r * scale, 0.0, 1.0);
-			g = clamp(g * scale, 0.0, 1.0);
-			b = clamp(b * scale, 0.0, 1.0);
+			const float inv_log_base = 0.108572457;
+			float mapped_lum = log(1.0 + lum * 100.0) * inv_log_base;
+			col = clamp(col * clamp(mapped_lum / lum, 0.0, 1.0), 0.0, 1.0);
 		} else {
-			r = 0.0; g = 0.0; b = 0.0;
+			col = vec3(0.0);
 		}
 	} else if (mode == 3u) {
-		r = (r * (1.0 + r / 25.0)) / (1.0 + r);
-		g = (g * (1.0 + g / 25.0)) / (1.0 + g);
-		b = (b * (1.0 + b / 25.0)) / (1.0 + b);
+		col = (col * (1.0 + col * 0.04)) / (1.0 + col);
 	} else {
-		r = clamp(r, 0.0, 1.0);
-		g = clamp(g, 0.0, 1.0);
-		b = clamp(b, 0.0, 1.0);
+		col = clamp(col, 0.0, 1.0);
 	}
 
-	vec3 out_col;
-	out_col.r = (r <= 0.0031308) ? (12.92 * r) : (1.055 * pow(r, 1.0 / 2.4) - 0.055);
-	out_col.g = (g <= 0.0031308) ? (12.92 * g) : (1.055 * pow(g, 1.0 / 2.4) - 0.055);
-	out_col.b = (b <= 0.0031308) ? (12.92 * b) : (1.055 * pow(b, 1.0 / 2.4) - 0.055);
-	return out_col;
+	vec3 lo = 12.92 * col;
+	vec3 hi = 1.055 * pow(col, vec3(1.0 / 2.4)) - 0.055;
+	return mix(hi, lo, lessThanEqual(col, vec3(0.0031308)));
 }
 
 double body_hash3(ivec3 p) {
 	uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + uint(p.z) * 2147483647u;
-	return double(hash_to_float(hash_u32(h))) * 2.0 - 1.0;
+	return double(hash_to_float(h)) * 2.0 - 1.0;
 }
 
-double body_value_noise(dvec3 p) {
+float body_value_noise(vec3 p) {
 	ivec3 i0 = ivec3(floor(p));
-	dvec3 f = p - dvec3(i0);
-	dvec3 u = f * f * (3.0 - 2.0 * f);
+	vec3 f = p - vec3(i0);
+	vec3 u = f * f * (3.0 - 2.0 * f);
 
-	double c000 = body_hash3(i0 + ivec3(0, 0, 0));
-	double c100 = body_hash3(i0 + ivec3(1, 0, 0));
-	double c010 = body_hash3(i0 + ivec3(0, 1, 0));
-	double c110 = body_hash3(i0 + ivec3(1, 1, 0));
-	double c001 = body_hash3(i0 + ivec3(0, 0, 1));
-	double c101 = body_hash3(i0 + ivec3(1, 0, 1));
-	double c011 = body_hash3(i0 + ivec3(0, 1, 1));
-	double c111 = body_hash3(i0 + ivec3(1, 1, 1));
+	float c000 = float(body_hash3(i0 + ivec3(0, 0, 0)));
+	float c100 = float(body_hash3(i0 + ivec3(1, 0, 0)));
+	float c010 = float(body_hash3(i0 + ivec3(0, 1, 0)));
+	float c110 = float(body_hash3(i0 + ivec3(1, 1, 0)));
+	float c001 = float(body_hash3(i0 + ivec3(0, 0, 1)));
+	float c101 = float(body_hash3(i0 + ivec3(1, 0, 1)));
+	float c011 = float(body_hash3(i0 + ivec3(0, 1, 1)));
+	float c111 = float(body_hash3(i0 + ivec3(1, 1, 1)));
 
-	double c00 = mix(c000, c100, u.x);
-	double c10 = mix(c010, c110, u.x);
-	double c01 = mix(c001, c101, u.x);
-	double c11 = mix(c011, c111, u.x);
+	float c00 = mix(c000, c100, u.x);
+	float c10 = mix(c010, c110, u.x);
+	float c01 = mix(c001, c101, u.x);
+	float c11 = mix(c011, c111, u.x);
 
-	double c0 = mix(c00, c10, u.y);
-	double c1 = mix(c01, c11, u.y);
+	float c0 = mix(c00, c10, u.y);
+	float c1 = mix(c01, c11, u.y);
 
 	return mix(c0, c1, u.z);
 }
 
-double body_fbm(dvec3 p, uint octaves, double roughness) {
-	double total = 0.0;
-	double amplitude = 1.0;
-	double frequency = 1.0;
-	double max_val = 0.0;
+double body_fbm(dvec3 p_d, uint octaves, double roughness) {
+	vec3 p = vec3(p_d);
+	float r_f = float(roughness);
+	float total = 0.0;
+	float amplitude = 1.0;
+	float frequency = 1.0;
+	float max_val = 0.0;
 	for (uint i = 0u; i < octaves; ++i) {
 		total += body_value_noise(p * frequency) * amplitude;
 		max_val += amplitude;
-		amplitude *= roughness;
+		amplitude *= r_f;
 		frequency *= 2.0;
 	}
-	return total / max(max_val, 1e-5);
+	return double(total / max(max_val, 1e-5));
 }
 
 bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 out_color, out uint out_status, out double out_hit_dist) {
@@ -1243,6 +1229,7 @@ void main() {
 		double throughput = 1.0;
 
 		bool bodies_traced = (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u;
+		dvec3 curr_body_cart_pos = bodies_traced ? spherical_to_cartesian(ray_r, ray_th, ray_phi) : dvec3(0.0);
 
 		uint effective_max_steps = pc.max_integration_steps;
 		if ((pc.render_flags & (1u << 9)) != 0u && pc.lod_distance_threshold > 0.0 && r_obs > pc.lod_distance_threshold) {
@@ -1280,6 +1267,7 @@ void main() {
 								throughput = 0.0;
 								break;
 							}
+							curr_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
 						}
 						continue;
 					}
@@ -1311,20 +1299,24 @@ void main() {
 				ray_pth += dt * du_state.z;
 				ray_pphi += dt * du_state.w;
 			} else {
-				double f = max(1.0 - rs / ray_r, 1e-6);
-				double p_t = E_cons / f;
+				double inv_r = 1.0 / ray_r;
+				double inv_r2 = inv_r * inv_r;
+				double f = max(1.0 - rs * inv_r, 1e-6);
+				double inv_f = 1.0 / f;
+				double p_t = E_cons * inv_f;
 				double sin2_t = max(sin_t * sin_t, 1e-10);
 				double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-				double r2 = ray_r * ray_r;
 
-				double g100 = (rs * f) / (2.0 * r2);
-				double g111 = -rs / (2.0 * r2 * f);
-				double g122 = -ray_r * f;
-				double g133 = -ray_r * f * sin2_t;
+				double half_rs_inv_r2 = 0.5 * rs * inv_r2;
+				double g100 = half_rs_inv_r2 * f;
+				double g111 = -half_rs_inv_r2 * inv_f;
+				double rf = ray_r * f;
+				double g122 = -rf;
+				double g133 = -rf * sin2_t;
 
 				double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
-				double d_pth = -(2.0 * (1.0 / ray_r) * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-				double d_pphi = -2.0 * ((1.0 / ray_r) * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
+				double d_pth = -(2.0 * inv_r * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+				double d_pphi = -2.0 * (inv_r * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
 
 				ray_r += dt * ray_pr;
 				ray_th += dt * ray_pth;
@@ -1347,14 +1339,15 @@ void main() {
 			bool body_segment_hit = false;
 			vec3 body_segment_color = vec3(0.0);
 			if (bodies_traced) {
-				dvec3 segment_from = spherical_to_cartesian(prev_r, prev_th, prev_phi);
-				dvec3 segment_vector = spherical_to_cartesian(ray_r, ray_th, ray_phi) - segment_from;
+				dvec3 next_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+				dvec3 segment_vector = next_body_cart_pos - curr_body_cart_pos;
 				double segment_length = length(segment_vector);
 				if (segment_length > 1e-12) {
 					uint segment_status;
 					double segment_dist;
-					body_segment_hit = intersect_bodies(segment_from, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
+					body_segment_hit = intersect_bodies(curr_body_cart_pos, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
 				}
+				curr_body_cart_pos = next_body_cart_pos;
 			}
 
 			double mid_plane = PI_D * 0.5;

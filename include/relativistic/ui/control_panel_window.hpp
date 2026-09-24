@@ -77,6 +77,20 @@ private:
 	float sky_hue_shift_{0.0f};
 	float sky_saturation_{1.0f};
 	float sky_background_[3]{0.0f, 0.0f, 0.0f};
+	float sky_star_brightness_variation_{0.5f};
+	float sky_star_size_variation_{0.5f};
+	float sky_star_color_variation_{1.0f};
+	float sky_star_temperature_bias_{0.0f};
+	int sky_procedural_seed_{12345};
+	float sky_galaxy_density_{0.0f};
+	float sky_galaxy_brightness_{1.0f};
+	float sky_galaxy_size_scale_{1.0f};
+	float sky_dust_density_{0.0f};
+	float sky_dust_intensity_{1.0f};
+	float sky_dust_scale_{1.0f};
+	float sky_cluster_density_{0.0f};
+	float sky_cluster_brightness_{1.0f};
+	float sky_cluster_size_scale_{1.0f};
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 
@@ -151,6 +165,20 @@ public:
 		sky_background_[0] = static_cast<float>(p.sky_background_r);
 		sky_background_[1] = static_cast<float>(p.sky_background_g);
 		sky_background_[2] = static_cast<float>(p.sky_background_b);
+		sky_star_brightness_variation_ = static_cast<float>(p.sky_star_brightness_variation);
+		sky_star_size_variation_ = static_cast<float>(p.sky_star_size_variation);
+		sky_star_color_variation_ = static_cast<float>(p.sky_star_color_variation);
+		sky_star_temperature_bias_ = static_cast<float>(p.sky_star_temperature_bias);
+		sky_procedural_seed_ = static_cast<int>(p.sky_procedural_seed);
+		sky_galaxy_density_ = static_cast<float>(p.sky_galaxy_density);
+		sky_galaxy_brightness_ = static_cast<float>(p.sky_galaxy_brightness);
+		sky_galaxy_size_scale_ = static_cast<float>(p.sky_galaxy_size_scale);
+		sky_dust_density_ = static_cast<float>(p.sky_dust_density);
+		sky_dust_intensity_ = static_cast<float>(p.sky_dust_intensity);
+		sky_dust_scale_ = static_cast<float>(p.sky_dust_scale);
+		sky_cluster_density_ = static_cast<float>(p.sky_cluster_density);
+		sky_cluster_brightness_ = static_cast<float>(p.sky_cluster_brightness);
+		sky_cluster_size_scale_ = static_cast<float>(p.sky_cluster_size_scale);
 	}
 
 	void render() {
@@ -754,6 +782,19 @@ private:
 			sky_background_[0] = 0.0f;
 			sky_background_[1] = 0.0f;
 			sky_background_[2] = 0.0f;
+			sky_star_brightness_variation_ = 0.5f;
+			sky_star_size_variation_ = 0.5f;
+			sky_star_color_variation_ = 1.0f;
+			sky_star_temperature_bias_ = 0.0f;
+			sky_galaxy_density_ = 0.0f;
+			sky_galaxy_brightness_ = 1.0f;
+			sky_galaxy_size_scale_ = 1.0f;
+			sky_dust_density_ = 0.0f;
+			sky_dust_intensity_ = 1.0f;
+			sky_dust_scale_ = 1.0f;
+			sky_cluster_density_ = 0.0f;
+			sky_cluster_brightness_ = 1.0f;
+			sky_cluster_size_scale_ = 1.0f;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, 1.0)));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, 1.0)));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, 1.0)));
@@ -764,6 +805,88 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, 0.0)));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, 0.0)));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightnessVariation, 0.5)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarSizeVariation, 0.5)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarColorVariation, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarTemperatureBias, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyDensity, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyBrightness, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxySizeScale, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustDensity, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustIntensity, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustScale, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterDensity, 0.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterBrightness, 1.0)));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, 1.0)));
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.75f, 1.0f, 1.0f), "Star Field Randomization:");
+		if (has_stars) {
+			if (ImGui::SliderFloat("Brightness Variation", &sky_star_brightness_variation_, 0.0f, 1.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightnessVariation, static_cast<double>(sky_star_brightness_variation_))));
+			}
+			render_setting_tooltip("Controls how strongly individual star brightness deviates from the average. Higher values produce a sparser population of very bright stars against many faint ones.");
+			if (ImGui::SliderFloat("Size Variation", &sky_star_size_variation_, 0.0f, 1.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarSizeVariation, static_cast<double>(sky_star_size_variation_))));
+			}
+			render_setting_tooltip("Controls the spread of apparent star disc sizes across the field.");
+			if (ImGui::SliderFloat("Color Variation", &sky_star_color_variation_, 0.0f, 2.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarColorVariation, static_cast<double>(sky_star_color_variation_))));
+			}
+			render_setting_tooltip("Scales how far individual star tints drift from neutral white, from monochrome (0) to strongly saturated red/blue extremes (2).");
+			if (ImGui::SliderFloat("Temperature Bias", &sky_star_temperature_bias_, -1.0f, 1.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarTemperatureBias, static_cast<double>(sky_star_temperature_bias_))));
+			}
+			render_setting_tooltip("Shifts the overall star population toward cooler red stars (negative) or hotter blue stars (positive).");
+		}
+		if (ImGui::InputInt("Procedural Seed", &sky_procedural_seed_)) {
+			sky_procedural_seed_ = std::max(sky_procedural_seed_, 0);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyProceduralSeed, static_cast<double>(sky_procedural_seed_))));
+		}
+		render_setting_tooltip("Seed controlling the procedural placement of every background element below, letting the entire deep-field layout be reshuffled deterministically.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.85f, 0.6f, 1.0f, 1.0f), "Deep Field Background Elements:");
+		ImGui::TextDisabled("Procedurally scattered background objects layered on top of the skybox above, independent of the selected style.");
+
+		if (ImGui::SliderFloat("Distant Galaxy Density", &sky_galaxy_density_, 0.0f, 4.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyDensity, static_cast<double>(sky_galaxy_density_))));
+		}
+		render_setting_tooltip("Number of procedurally generated background micro-galaxies scattered across the sky. Zero disables them entirely.");
+		if (sky_galaxy_density_ > 0.0f) {
+			if (ImGui::SliderFloat("Galaxy Brightness", &sky_galaxy_brightness_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyBrightness, static_cast<double>(sky_galaxy_brightness_))));
+			}
+			if (ImGui::SliderFloat("Galaxy Size Scale", &sky_galaxy_size_scale_, 0.1f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxySizeScale, static_cast<double>(sky_galaxy_size_scale_))));
+			}
+		}
+
+		if (ImGui::SliderFloat("Dust Cloud Density", &sky_dust_density_, 0.0f, 4.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustDensity, static_cast<double>(sky_dust_density_))));
+		}
+		render_setting_tooltip("Coverage of procedurally generated interstellar dust and gas cloud wisps across the sky. Zero disables them entirely.");
+		if (sky_dust_density_ > 0.0f) {
+			if (ImGui::SliderFloat("Dust Cloud Intensity", &sky_dust_intensity_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustIntensity, static_cast<double>(sky_dust_intensity_))));
+			}
+			if (ImGui::SliderFloat("Dust Cloud Scale", &sky_dust_scale_, 0.1f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustScale, static_cast<double>(sky_dust_scale_))));
+			}
+		}
+
+		if (ImGui::SliderFloat("Star Cluster Density", &sky_cluster_density_, 0.0f, 4.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterDensity, static_cast<double>(sky_cluster_density_))));
+		}
+		render_setting_tooltip("Number of tight procedurally generated star clusters scattered across the sky, each composed of several close-set stars. Zero disables them entirely.");
+		if (sky_cluster_density_ > 0.0f) {
+			if (ImGui::SliderFloat("Cluster Brightness", &sky_cluster_brightness_, 0.0f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterBrightness, static_cast<double>(sky_cluster_brightness_))));
+			}
+			if (ImGui::SliderFloat("Cluster Size Scale", &sky_cluster_size_scale_, 0.1f, 4.0f, "%.2fx")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, static_cast<double>(sky_cluster_size_scale_))));
+			}
 		}
 	}
 

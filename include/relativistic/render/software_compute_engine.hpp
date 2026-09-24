@@ -1223,7 +1223,9 @@ private:
 
 	[[nodiscard]] static std::array<float, 3> sample_celestial_starfield(
 		double dir_x, double dir_y, double dir_z,
-		double star_density = 1.0, double star_brightness = 1.0, double nebula_intensity = 1.0
+		double star_density = 1.0, double star_brightness = 1.0, double nebula_intensity = 1.0,
+		double brightness_variation = 0.5, double size_variation = 0.5, double color_variation = 1.0,
+		double temperature_bias = 0.0, uint32_t seed = 0
 	) noexcept {
 		const double theta = std::acos(std::clamp(dir_z, -1.0, 1.0));
 		const double phi = std::atan2(dir_y, dir_x);
@@ -1245,7 +1247,7 @@ private:
 		const int iu = static_cast<int>(std::floor(u_grid));
 		const int iv = static_cast<int>(std::floor(v_grid));
 
-		const uint32_t cell_seed = static_cast<uint32_t>(iu * 73856093 ^ iv * 19349663);
+		const uint32_t cell_seed = static_cast<uint32_t>(iu * 73856093 ^ iv * 19349663) ^ (seed * 2654435761U);
 		const float star_prob = hash_to_float(cell_seed);
 		const float star_threshold = static_cast<float>(std::clamp(1.0 - 0.12 * std::max(star_density, 0.0), 0.0, 0.999));
 
@@ -1256,10 +1258,16 @@ private:
 			const double dv = (v_grid - static_cast<double>(iv)) - static_cast<double>(star_offset_v);
 			const double dist_sq = du * du + dv * dv;
 
-			if (dist_sq < 0.35) {
-				const float star_brightness_base = std::pow(hash_to_float(cell_seed + 303U), 6.0f) * 4.5f;
-				const float star_falloff = static_cast<float>(std::exp(-dist_sq * 10.0));
-				const float color_temp = hash_to_float(cell_seed + 404U);
+			const float size_rand = hash_to_float(cell_seed + 707U);
+			const double radius_sq_limit = std::clamp(0.12 + std::max(size_variation, 0.0) * (0.05 + 0.55 * static_cast<double>(size_rand)), 0.05, 1.1);
+
+			if (dist_sq < radius_sq_limit) {
+				const float brightness_exponent = 1.0f + static_cast<float>(std::clamp(brightness_variation, 0.0, 1.0)) * 8.0f;
+				const float star_brightness_base = std::pow(hash_to_float(cell_seed + 303U), brightness_exponent) * 4.5f;
+				const float star_falloff = static_cast<float>(std::exp(-dist_sq * (3.2 / radius_sq_limit)));
+
+				float color_temp = hash_to_float(cell_seed + 404U) - static_cast<float>(std::clamp(temperature_bias, -1.0, 1.0)) * 0.3f;
+				color_temp = std::clamp(color_temp, 0.0f, 1.0f);
 
 				float sr = 1.0f, sg = 1.0f, sb = 1.0f;
 				if (color_temp < 0.3f) {
@@ -1267,6 +1275,10 @@ private:
 				} else if (color_temp > 0.7f) {
 					sr = 1.3f; sg = 0.85f; sb = 0.6f;
 				}
+				const float color_mix = static_cast<float>(std::clamp(color_variation, 0.0, 2.0));
+				sr = 1.0f + (sr - 1.0f) * color_mix;
+				sg = 1.0f + (sg - 1.0f) * color_mix;
+				sb = 1.0f + (sb - 1.0f) * color_mix;
 
 				const float lum = star_brightness_base * star_falloff * static_cast<float>(std::max(star_brightness, 0.0));
 				r_bg += sr * lum;
@@ -1276,6 +1288,131 @@ private:
 		}
 
 		return {r_bg, g_bg, b_bg};
+	}
+
+	[[nodiscard]] static std::array<float, 3> sample_deep_field_galaxies(
+		double dir_x, double dir_y, double dir_z,
+		uint32_t seed, double density, double brightness, double size_scale
+	) noexcept {
+		if (density <= 0.0) return {0.0f, 0.0f, 0.0f};
+		const double theta = std::acos(std::clamp(dir_z, -1.0, 1.0));
+		const double phi = std::atan2(dir_y, dir_x);
+		const double u = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
+		const double v = theta * (1.0 / std::numbers::pi_v<double>);
+
+		constexpr double grid_u = 48.0;
+		constexpr double grid_v = 24.0;
+		const double u_grid = u * grid_u;
+		const double v_grid = v * grid_v;
+		const int iu = static_cast<int>(std::floor(u_grid));
+		const int iv = static_cast<int>(std::floor(v_grid));
+		const uint32_t cell_seed = static_cast<uint32_t>(iu * 668265263 ^ iv * 2246822519U) ^ (seed * 40503U);
+
+		const float presence = hash_to_float(cell_seed);
+		const float threshold = static_cast<float>(std::clamp(1.0 - 0.4 * std::clamp(density, 0.0, 4.0), 0.0, 0.999));
+		if (presence <= threshold) return {0.0f, 0.0f, 0.0f};
+
+		const float off_u = hash_to_float(cell_seed + 11U);
+		const float off_v = hash_to_float(cell_seed + 22U);
+		const double du = (u_grid - static_cast<double>(iu)) - static_cast<double>(off_u);
+		const double dv = (v_grid - static_cast<double>(iv)) - static_cast<double>(off_v);
+		const double footprint = std::max(size_scale, 0.05) * std::max(size_scale, 0.05) * 1.4;
+		const double dist_sq = du * du + dv * dv;
+		if (dist_sq > footprint) return {0.0f, 0.0f, 0.0f};
+
+		const double r = std::sqrt(dist_sq);
+		const double angle = std::atan2(dv, du);
+		const double spiral = 0.5 + 0.5 * std::sin(angle * 3.0 + std::log(r + 0.08) * 6.0);
+		const double core = std::exp(-dist_sq * (5.0 / std::max(footprint, 1e-6)));
+		const double arms = spiral * std::exp(-dist_sq * (1.4 / std::max(footprint, 1e-6))) * 0.5;
+
+		const float base_brightness = std::pow(hash_to_float(cell_seed + 33U), 3.5f) * 1.6f;
+		const float lum = base_brightness * static_cast<float>(core + arms) * static_cast<float>(std::max(brightness, 0.0));
+
+		const bool warm_tint = hash_to_float(cell_seed + 44U) > 0.5f;
+		const float tr = warm_tint ? 0.95f : 0.55f;
+		const float tg = warm_tint ? 0.80f : 0.70f;
+		const float tb = warm_tint ? 0.55f : 1.05f;
+
+		return {tr * lum, tg * lum, tb * lum};
+	}
+
+	[[nodiscard]] static std::array<float, 3> sample_dust_clouds(
+		double dir_x, double dir_y, double dir_z,
+		uint32_t seed, double density, double intensity, double scale
+	) noexcept {
+		if (density <= 0.0) return {0.0f, 0.0f, 0.0f};
+		const float freq = static_cast<float>(std::clamp(scale, 0.1, 10.0)) * 2.2f;
+		const float seed_offset = static_cast<float>(seed % 4096U) * 0.37f;
+		const float n = FastNoise3D::fbm(
+			static_cast<float>(dir_x) * freq + seed_offset,
+			static_cast<float>(dir_y) * freq - seed_offset,
+			static_cast<float>(dir_z) * freq + seed_offset * 0.5f,
+			4, 0.55f
+		);
+		const float threshold = static_cast<float>(std::clamp(1.0 - 0.22 * std::clamp(density, 0.0, 4.0), -0.2, 0.98));
+		if (n <= threshold) return {0.0f, 0.0f, 0.0f};
+
+		const float strength = std::clamp((n - threshold) / std::max(1.0f - threshold, 0.05f), 0.0f, 1.0f);
+		const float shaped = strength * strength;
+
+		const float tint_noise = FastNoise3D::fbm(
+			static_cast<float>(dir_x) * freq * 0.5f + 91.0f,
+			static_cast<float>(dir_y) * freq * 0.5f - 37.0f,
+			static_cast<float>(dir_z) * freq * 0.5f + 13.0f,
+			3, 0.5f
+		);
+		const float tint_t = std::clamp((tint_noise + 1.0f) * 0.5f, 0.0f, 1.0f);
+		const float rr = 0.55f * (1.0f - tint_t) + 0.28f * tint_t;
+		const float gg = 0.22f * (1.0f - tint_t) + 0.16f * tint_t;
+		const float bb = 0.12f * (1.0f - tint_t) + 0.52f * tint_t;
+
+		const float lum = shaped * static_cast<float>(std::max(intensity, 0.0)) * 0.6f;
+		return {rr * lum, gg * lum, bb * lum};
+	}
+
+	[[nodiscard]] static std::array<float, 3> sample_star_clusters(
+		double dir_x, double dir_y, double dir_z,
+		uint32_t seed, double density, double brightness, double size_scale
+	) noexcept {
+		if (density <= 0.0) return {0.0f, 0.0f, 0.0f};
+		const double theta = std::acos(std::clamp(dir_z, -1.0, 1.0));
+		const double phi = std::atan2(dir_y, dir_x);
+		const double u = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
+		const double v = theta * (1.0 / std::numbers::pi_v<double>);
+
+		constexpr double grid_u = 90.0;
+		constexpr double grid_v = 45.0;
+		const double u_grid = u * grid_u;
+		const double v_grid = v * grid_v;
+		const int iu = static_cast<int>(std::floor(u_grid));
+		const int iv = static_cast<int>(std::floor(v_grid));
+		const uint32_t cell_seed = static_cast<uint32_t>(iu * 1274126177 ^ iv * 374761393U) ^ (seed * 2246822519U);
+
+		const float presence = hash_to_float(cell_seed);
+		const float threshold = static_cast<float>(std::clamp(1.0 - 0.06 * std::clamp(density, 0.0, 4.0), 0.0, 0.999));
+		if (presence <= threshold) return {0.0f, 0.0f, 0.0f};
+
+		float total_r = 0.0f, total_g = 0.0f, total_b = 0.0f;
+		const double member_footprint = std::max(size_scale, 0.05) * 0.03;
+		for (uint32_t member = 0; member < 7U; ++member) {
+			const uint32_t member_seed = cell_seed + member * 97U;
+			const float off_u = hash_to_float(member_seed + 1U);
+			const float off_v = hash_to_float(member_seed + 2U);
+			const double du = (u_grid - static_cast<double>(iu)) - static_cast<double>(off_u);
+			const double dv = (v_grid - static_cast<double>(iv)) - static_cast<double>(off_v);
+			const double dist_sq = du * du + dv * dv;
+			if (dist_sq > member_footprint) continue;
+
+			const float member_brightness = std::pow(hash_to_float(member_seed + 3U), 3.0f) * 2.2f;
+			const float falloff = static_cast<float>(std::exp(-dist_sq * (6.0 / std::max(member_footprint, 1e-6))));
+			const float lum = member_brightness * falloff * static_cast<float>(std::max(brightness, 0.0));
+			total_r += lum;
+			total_g += lum * 0.95f;
+			total_b += lum * 0.85f;
+		}
+
+		return {total_r, total_g, total_b};
 	}
 
 	[[nodiscard]] static std::array<float, 3> sample_celestial_grid_sphere(double dir_x, double dir_y, double dir_z, double grid_opacity = 1.0) noexcept {
@@ -1307,17 +1444,36 @@ private:
 		if (sky_mode == RenderFlags::SKYBOX_GRID || (params.render_flags & RenderFlags::USE_GRID_SKYBOX)) {
 			sky_rgb = sample_celestial_grid_sphere(rotated[0], rotated[1], rotated[2], params.sky_grid_opacity);
 		} else if (sky_mode == RenderFlags::SKYBOX_COMPOSITE) {
-			const auto stars = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, params.sky_nebula_intensity);
+			const auto stars = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, params.sky_nebula_intensity, params.sky_star_brightness_variation, params.sky_star_size_variation, params.sky_star_color_variation, params.sky_star_temperature_bias, params.sky_procedural_seed);
 			const auto grid = sample_celestial_grid_sphere(rotated[0], rotated[1], rotated[2], params.sky_grid_opacity);
 			sky_rgb = {stars[0] + grid[0] * 0.7f, stars[1] + grid[1] * 0.7f, stars[2] + grid[2] * 0.7f};
 		} else if (sky_mode == RenderFlags::SKYBOX_STARS) {
-			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, params.sky_nebula_intensity);
+			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, params.sky_nebula_intensity, params.sky_star_brightness_variation, params.sky_star_size_variation, params.sky_star_color_variation, params.sky_star_temperature_bias, params.sky_procedural_seed);
 		} else if (sky_mode == RenderFlags::SKYBOX_STARS_NO_NEBULA) {
-			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0);
+			sky_rgb = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0, params.sky_star_brightness_variation, params.sky_star_size_variation, params.sky_star_color_variation, params.sky_star_temperature_bias, params.sky_procedural_seed);
 		} else if (sky_mode == RenderFlags::SKYBOX_GRID_STARS) {
-			const auto stars = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0);
+			const auto stars = sample_celestial_starfield(rotated[0], rotated[1], rotated[2], params.sky_star_density, params.sky_star_brightness, 0.0, params.sky_star_brightness_variation, params.sky_star_size_variation, params.sky_star_color_variation, params.sky_star_temperature_bias, params.sky_procedural_seed);
 			const auto grid = sample_celestial_grid_sphere(rotated[0], rotated[1], rotated[2], params.sky_grid_opacity);
 			sky_rgb = {stars[0] + grid[0], stars[1] + grid[1], stars[2] + grid[2]};
+		}
+
+		if (params.sky_galaxy_density > 0.0) {
+			const auto gal = sample_deep_field_galaxies(rotated[0], rotated[1], rotated[2], params.sky_procedural_seed, params.sky_galaxy_density, params.sky_galaxy_brightness, params.sky_galaxy_size_scale);
+			sky_rgb[0] += gal[0];
+			sky_rgb[1] += gal[1];
+			sky_rgb[2] += gal[2];
+		}
+		if (params.sky_dust_density > 0.0) {
+			const auto dust = sample_dust_clouds(rotated[0], rotated[1], rotated[2], params.sky_procedural_seed, params.sky_dust_density, params.sky_dust_intensity, params.sky_dust_scale);
+			sky_rgb[0] += dust[0];
+			sky_rgb[1] += dust[1];
+			sky_rgb[2] += dust[2];
+		}
+		if (params.sky_cluster_density > 0.0) {
+			const auto cluster = sample_star_clusters(rotated[0], rotated[1], rotated[2], params.sky_procedural_seed, params.sky_cluster_density, params.sky_cluster_brightness, params.sky_cluster_size_scale);
+			sky_rgb[0] += cluster[0];
+			sky_rgb[1] += cluster[1];
+			sky_rgb[2] += cluster[2];
 		}
 
 		sky_rgb = apply_hue_saturation(sky_rgb, params.sky_hue_shift_rad, params.sky_saturation);

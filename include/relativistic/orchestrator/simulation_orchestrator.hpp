@@ -63,6 +63,20 @@ struct PhysicalParameters {
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
+	double sky_star_brightness_variation{0.5};
+	double sky_star_size_variation{0.5};
+	double sky_star_color_variation{1.0};
+	double sky_star_temperature_bias{0.0};
+	uint32_t sky_procedural_seed{12345};
+	double sky_galaxy_density{0.0};
+	double sky_galaxy_brightness{1.0};
+	double sky_galaxy_size_scale{1.0};
+	double sky_dust_density{0.0};
+	double sky_dust_intensity{1.0};
+	double sky_dust_scale{1.0};
+	double sky_cluster_density{0.0};
+	double sky_cluster_brightness{1.0};
+	double sky_cluster_size_scale{1.0};
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
 	uint32_t rolling_average_frame_count{10};
@@ -993,6 +1007,48 @@ public:
 				break;
 			case ParameterType::SkyBackgroundB:
 				params_.sky_background_b = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::SkyStarBrightnessVariation:
+				params_.sky_star_brightness_variation = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::SkyStarSizeVariation:
+				params_.sky_star_size_variation = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::SkyStarColorVariation:
+				params_.sky_star_color_variation = std::clamp(val, 0.0, 2.0);
+				break;
+			case ParameterType::SkyStarTemperatureBias:
+				params_.sky_star_temperature_bias = std::clamp(val, -1.0, 1.0);
+				break;
+			case ParameterType::SkyProceduralSeed:
+				params_.sky_procedural_seed = static_cast<uint32_t>(std::max(val, 0.0));
+				break;
+			case ParameterType::SkyGalaxyDensity:
+				params_.sky_galaxy_density = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyGalaxyBrightness:
+				params_.sky_galaxy_brightness = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyGalaxySizeScale:
+				params_.sky_galaxy_size_scale = std::clamp(val, 0.05, 8.0);
+				break;
+			case ParameterType::SkyDustDensity:
+				params_.sky_dust_density = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyDustIntensity:
+				params_.sky_dust_intensity = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyDustScale:
+				params_.sky_dust_scale = std::clamp(val, 0.05, 8.0);
+				break;
+			case ParameterType::SkyClusterDensity:
+				params_.sky_cluster_density = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyClusterBrightness:
+				params_.sky_cluster_brightness = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::SkyClusterSizeScale:
+				params_.sky_cluster_size_scale = std::clamp(val, 0.05, 8.0);
 				break;
 			case ParameterType::WorkDistributionMode:
 				params_.work_distribution_mode = static_cast<uint32_t>(val);

@@ -538,6 +538,20 @@ public:
 			cam_consts.sky_background_r = params.sky_background_r;
 			cam_consts.sky_background_g = params.sky_background_g;
 			cam_consts.sky_background_b = params.sky_background_b;
+			cam_consts.sky_star_brightness_variation = params.sky_star_brightness_variation;
+			cam_consts.sky_star_size_variation = params.sky_star_size_variation;
+			cam_consts.sky_star_color_variation = params.sky_star_color_variation;
+			cam_consts.sky_star_temperature_bias = params.sky_star_temperature_bias;
+			cam_consts.sky_procedural_seed = params.sky_procedural_seed;
+			cam_consts.sky_galaxy_density = params.sky_galaxy_density;
+			cam_consts.sky_galaxy_brightness = params.sky_galaxy_brightness;
+			cam_consts.sky_galaxy_size_scale = params.sky_galaxy_size_scale;
+			cam_consts.sky_dust_density = params.sky_dust_density;
+			cam_consts.sky_dust_intensity = params.sky_dust_intensity;
+			cam_consts.sky_dust_scale = params.sky_dust_scale;
+			cam_consts.sky_cluster_density = params.sky_cluster_density;
+			cam_consts.sky_cluster_brightness = params.sky_cluster_brightness;
+			cam_consts.sky_cluster_size_scale = params.sky_cluster_size_scale;
 			cam_consts.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
 
 			const auto orientation = cam.orientation_basis();

@@ -141,7 +141,21 @@ enum class ParameterType : uint32_t {
 	BodiesOnlyRenderMode = 98,
 	BodyDiskOcclusionEnabled = 99,
 	BodyRenderPointPixelThreshold = 100,
-	BodyNoiseOctaves = 101
+	BodyNoiseOctaves = 101,
+	SkyStarBrightnessVariation = 102,
+	SkyStarSizeVariation = 103,
+	SkyStarColorVariation = 104,
+	SkyStarTemperatureBias = 105,
+	SkyProceduralSeed = 106,
+	SkyGalaxyDensity = 107,
+	SkyGalaxyBrightness = 108,
+	SkyGalaxySizeScale = 109,
+	SkyDustDensity = 110,
+	SkyDustIntensity = 111,
+	SkyDustScale = 112,
+	SkyClusterDensity = 113,
+	SkyClusterBrightness = 114,
+	SkyClusterSizeScale = 115
 };
 
 struct Command {

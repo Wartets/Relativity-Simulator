@@ -543,6 +543,9 @@ public:
 			cam_consts.sky_star_color_variation = params.sky_star_color_variation;
 			cam_consts.sky_star_temperature_bias = params.sky_star_temperature_bias;
 			cam_consts.sky_procedural_seed = params.sky_procedural_seed;
+			cam_consts.sky_background_source = params.sky_background_source;
+			cam_consts.sky_panorama_id = params.sky_panorama_id;
+			cam_consts.sky_panorama_quality = params.sky_panorama_quality;
 			cam_consts.sky_galaxy_density = params.sky_galaxy_density;
 			cam_consts.sky_galaxy_brightness = params.sky_galaxy_brightness;
 			cam_consts.sky_galaxy_size_scale = params.sky_galaxy_size_scale;

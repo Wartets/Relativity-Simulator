@@ -5,6 +5,7 @@
 #include "relativistic/observer/observer_tetrad.hpp"
 #include "relativistic/optics/spectrum.hpp"
 #include "relativistic/optics/cie_observer.hpp"
+#include "relativistic/optics/sky_panorama_image.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
@@ -1439,6 +1440,19 @@ private:
 	}
 
 	[[nodiscard]] static std::array<float, 3> compute_sky_radiance(double dir_x, double dir_y, double dir_z, const GpuCameraPushConstants& params) noexcept {
+		if (params.sky_background_source != 0U) {
+			auto panorama_rgb = Optics::SkyPanoramaLoader::instance().sample_direction(
+				static_cast<Optics::SkyPanoramaId>(params.sky_panorama_id),
+				static_cast<Optics::SkyPanoramaQuality>(params.sky_panorama_quality),
+				dir_x, dir_y, dir_z, params.sky_rotation_rad
+			);
+			panorama_rgb = apply_hue_saturation(panorama_rgb, params.sky_hue_shift_rad, params.sky_saturation);
+			panorama_rgb[0] = std::max(0.0f, panorama_rgb[0] + static_cast<float>(params.sky_background_r));
+			panorama_rgb[1] = std::max(0.0f, panorama_rgb[1] + static_cast<float>(params.sky_background_g));
+			panorama_rgb[2] = std::max(0.0f, panorama_rgb[2] + static_cast<float>(params.sky_background_b));
+			return panorama_rgb;
+		}
+
 		const auto rotated = rotate_direction_around_z(dir_x, dir_y, dir_z, params.sky_rotation_rad);
 		std::array<float, 3> sky_rgb{0.0f, 0.0f, 0.0f};
 		const uint32_t sky_mode = params.render_flags & RenderFlags::SKYBOX_MODE_MASK;

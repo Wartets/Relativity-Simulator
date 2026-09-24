@@ -159,7 +159,10 @@ enum class ParameterType : uint32_t {
 	DiskTemperatureScale = 116,
 	DiskTemperatureFloor = 117,
 	DiskDopplerBeamingExponent = 118,
-	DiskColorSaturation = 119
+	DiskColorSaturation = 119,
+	SkyBackgroundSource = 120,
+	SkyPanoramaId = 121,
+	SkyPanoramaQuality = 122
 };
 
 struct Command {

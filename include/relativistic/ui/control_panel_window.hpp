@@ -13,6 +13,7 @@
 #include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
+#include "relativistic/optics/sky_panorama_catalog.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -91,6 +92,9 @@ private:
 	float sky_cluster_density_{0.0f};
 	float sky_cluster_brightness_{1.0f};
 	float sky_cluster_size_scale_{1.0f};
+	int sky_background_source_{0};
+	int sky_panorama_id_{0};
+	int sky_panorama_quality_{1};
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 
@@ -179,6 +183,9 @@ public:
 		sky_cluster_density_ = static_cast<float>(p.sky_cluster_density);
 		sky_cluster_brightness_ = static_cast<float>(p.sky_cluster_brightness);
 		sky_cluster_size_scale_ = static_cast<float>(p.sky_cluster_size_scale);
+		sky_background_source_ = static_cast<int>(p.sky_background_source);
+		sky_panorama_id_ = static_cast<int>(p.sky_panorama_id);
+		sky_panorama_quality_ = static_cast<int>(p.sky_panorama_quality);
 	}
 
 	void render() {
@@ -679,6 +686,19 @@ private:
 	}
 
 	void render_skybox_tab() noexcept {
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Sky Background Source");
+		const char* sky_sources[] = {"Procedural Generation", "Imported Real Sky Panorama"};
+		if (ImGui::Combo("Background Source", &sky_background_source_, sky_sources, IM_ARRAYSIZE(sky_sources))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundSource, static_cast<double>(sky_background_source_))));
+		}
+		render_setting_tooltip("Switches the background between the fully procedural starfield engine and a real equirectangular sky panorama loaded from disk.");
+		ImGui::Separator();
+
+		if (sky_background_source_ == 1) {
+			render_sky_panorama_controls();
+			return;
+		}
+
 		const char* sky_modes[] = {
 			"Full Starfield",
 			"Grid Sphere",
@@ -912,6 +932,48 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, static_cast<double>(sky_cluster_size_scale_))));
 			}
 		}
+	}
+
+	void render_sky_panorama_controls() noexcept {
+		static constexpr std::array<const char*, 3> kPanoramaNames{"Night Sky HDRI 001 (ambientCG)", "Night Sky HDRI 008 (ambientCG)", "ESO 0932a (ESO Observatory Photograph)"};
+		if (ImGui::Combo("Sky Panorama", &sky_panorama_id_, kPanoramaNames.data(), static_cast<int>(kPanoramaNames.size()))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyPanoramaId, static_cast<double>(sky_panorama_id_))));
+		}
+		render_setting_tooltip("Selects which real captured sky panorama is projected as the equirectangular background instead of the procedural starfield.");
+
+		const auto panorama_id = static_cast<Optics::SkyPanoramaId>(sky_panorama_id_);
+		const auto& entry = Optics::sky_panorama_catalog_entry(panorama_id);
+
+		if (entry.has_quality_variants) {
+			const char* quality_names[] = {"1K (1024x512, fastest load)", "2K (2048x1024, balanced)", "4K (4096x2048, highest detail)"};
+			if (ImGui::Combo("Panorama Quality", &sky_panorama_quality_, quality_names, IM_ARRAYSIZE(quality_names))) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyPanoramaQuality, static_cast<double>(sky_panorama_quality_))));
+			}
+			render_setting_tooltip("Chooses which resolution variant of the selected panorama is decoded and sampled. Higher resolutions cost more memory and a longer one-time decode when switching.");
+		} else {
+			ImGui::TextDisabled("This panorama is only available in its native captured resolution (6000x3000).");
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.5f, 0.75f, 1.0f, 1.0f), "Panorama Color Adjustments:");
+		if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
+		}
+		if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
+		}
+		if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
+		}
+		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Rendering Path:");
+		ImGui::TextDisabled("Imported sky panoramas are sampled on the CPU integration path. GPU Vulkan compute offload is automatically bypassed while this source is active, matching the existing fallback used for wormhole, warp, and high-spin exact metrics.");
 	}
 
 	void render_integrators_tab() noexcept {

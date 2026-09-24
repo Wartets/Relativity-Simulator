@@ -109,6 +109,9 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t interlace_phase{0};
 
 	uint32_t sky_procedural_seed{12345};
+	uint32_t sky_background_source{0};
+	uint32_t sky_panorama_id{0};
+	uint32_t sky_panorama_quality{1};
 
 	uint32_t body_render_lod_pixel_threshold{10};
 	uint32_t body_render_low_power_mode{0};

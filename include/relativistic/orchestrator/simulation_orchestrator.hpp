@@ -70,6 +70,9 @@ struct PhysicalParameters {
 	double sky_star_color_variation{1.11};
 	double sky_star_temperature_bias{0.39};
 	uint32_t sky_procedural_seed{12345};
+	uint32_t sky_background_source{0};
+	uint32_t sky_panorama_id{0};
+	uint32_t sky_panorama_quality{1};
 	double sky_galaxy_density{0.09};
 	double sky_galaxy_brightness{0.42};
 	double sky_galaxy_size_scale{0.2};
@@ -1029,6 +1032,15 @@ public:
 			case ParameterType::SkyProceduralSeed:
 				params_.sky_procedural_seed = static_cast<uint32_t>(std::max(val, 0.0));
 				break;
+			case ParameterType::SkyBackgroundSource:
+				params_.sky_background_source = static_cast<uint32_t>(std::clamp(val, 0.0, 1.0));
+				break;
+			case ParameterType::SkyPanoramaId:
+				params_.sky_panorama_id = static_cast<uint32_t>(std::clamp(val, 0.0, 2.0));
+				break;
+			case ParameterType::SkyPanoramaQuality:
+				params_.sky_panorama_quality = static_cast<uint32_t>(std::clamp(val, 0.0, 2.0));
+				break;
 			case ParameterType::SkyGalaxyDensity:
 				params_.sky_galaxy_density = std::clamp(val, 0.0, 4.0);
 				break;
@@ -1556,6 +1568,9 @@ public:
 		push.interlace_phase = 0;
 
 		push.sky_procedural_seed = params_.sky_procedural_seed;
+		push.sky_background_source = params_.sky_background_source;
+		push.sky_panorama_id = params_.sky_panorama_id;
+		push.sky_panorama_quality = params_.sky_panorama_quality;
 
 		push.body_render_lod_pixel_threshold = params_.body_render_lod_pixel_threshold;
 		push.body_render_low_power_mode = params_.body_render_low_power_mode ? 1U : 0U;
@@ -1598,6 +1613,9 @@ public:
 		params_.sky_star_color_variation = push.sky_star_color_variation;
 		params_.sky_star_temperature_bias = push.sky_star_temperature_bias;
 		params_.sky_procedural_seed = push.sky_procedural_seed;
+		params_.sky_background_source = push.sky_background_source;
+		params_.sky_panorama_id = push.sky_panorama_id;
+		params_.sky_panorama_quality = push.sky_panorama_quality;
 		params_.sky_galaxy_density = push.sky_galaxy_density;
 		params_.sky_galaxy_brightness = push.sky_galaxy_brightness;
 		params_.sky_galaxy_size_scale = push.sky_galaxy_size_scale;

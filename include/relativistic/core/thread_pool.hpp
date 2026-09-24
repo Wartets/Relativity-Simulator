@@ -118,23 +118,36 @@ public:
 	void parallel_for(size_t total_items, Func&& func, size_t min_chunk = 1) {
 		if (total_items == 0) return;
 		const size_t count = workers_.size();
-		const size_t num_chunks = std::clamp(count * 2, size_t{1}, total_items);
-		const size_t chunk_size = std::max(min_chunk, (total_items + num_chunks - 1) / num_chunks);
+		const size_t chunk_size = std::max(min_chunk, std::max(size_t{1}, total_items / (std::max(count, size_t{1}) * 4)));
+		std::atomic<size_t> current_index{0};
 
-		{
-			std::lock_guard<std::mutex> lock(queue_mutex_);
-			if (stop_.load(std::memory_order_relaxed)) return;
-			const size_t planned_tasks = (total_items + chunk_size - 1) / chunk_size;
-			active_tasks_.fetch_add(planned_tasks, std::memory_order_relaxed);
-			for (size_t start = 0; start < total_items; start += chunk_size) {
+		auto worker_task = [&]() {
+			while (true) {
+				const size_t start = current_index.fetch_add(chunk_size, std::memory_order_relaxed);
+				if (start >= total_items) break;
 				const size_t end = std::min(start + chunk_size, total_items);
-				tasks_.push([&func, start, end]() {
-					func(start, end);
-				});
+				func(start, end);
 			}
+		};
+
+		const size_t tasks_needed = std::min(count, (total_items + chunk_size - 1) / chunk_size);
+		if (tasks_needed > 1) {
+			{
+				std::lock_guard<std::mutex> lock(queue_mutex_);
+				if (!stop_.load(std::memory_order_relaxed)) {
+					active_tasks_.fetch_add(tasks_needed - 1, std::memory_order_relaxed);
+					for (size_t i = 1; i < tasks_needed; ++i) {
+						tasks_.push(worker_task);
+					}
+				}
+			}
+			cv_task_.notify_all();
 		}
-		cv_task_.notify_all();
-		wait_idle();
+
+		worker_task();
+		if (tasks_needed > 1) {
+			wait_idle();
+		}
 	}
 
 	void shutdown() noexcept {

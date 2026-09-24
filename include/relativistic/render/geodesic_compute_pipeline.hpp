@@ -153,9 +153,7 @@ private:
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
 			if (gpu_background_eligible) {
-				std::vector<GpuPixelOutput> gpu_output;
-				if (try_gpu_dispatch(current_job, gpu_output, current_bodies) && gpu_output.size() == req_pixels) {
-					back_buffer_ = std::move(gpu_output);
+				if (try_gpu_dispatch(current_job, back_buffer_, current_bodies) && back_buffer_.size() == req_pixels) {
 					rendered_on_gpu = true;
 				}
 			}
@@ -175,6 +173,16 @@ private:
 			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
 			const auto classify_t0 = std::chrono::high_resolution_clock::now();
+			struct TelemetryAccumulator {
+				uint64_t absorbed{0};
+				uint64_t celestial{0};
+				uint64_t disk_hits{0};
+				uint64_t saturated{0};
+				double iteration_sum{0.0};
+				uint32_t iter_min{std::numeric_limits<uint32_t>::max()};
+				uint32_t iter_max{0};
+			};
+
 			uint64_t absorbed = 0;
 			uint64_t celestial = 0;
 			uint64_t disk_hits = 0;
@@ -182,14 +190,48 @@ private:
 			double iteration_sum = 0.0;
 			uint32_t iter_min = std::numeric_limits<uint32_t>::max();
 			uint32_t iter_max = 0;
-			for (const auto& px : back_buffer_) {
-				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
-				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
-				if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
-				if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
-				iteration_sum += static_cast<double>(px.iterations_used);
-				iter_min = std::min(iter_min, px.iterations_used);
-				iter_max = std::max(iter_max, px.iterations_used);
+
+			const size_t total_px = back_buffer_.size();
+			if (thread_pool_ && total_px >= 32768) {
+				const size_t num_workers = thread_pool_->thread_count();
+				std::vector<TelemetryAccumulator> partials(num_workers);
+				thread_pool_->parallel_for(num_workers, [&](size_t w_start, size_t w_end) noexcept {
+					for (size_t w = w_start; w < w_end; ++w) {
+						const size_t chunk_size = (total_px + num_workers - 1) / num_workers;
+						const size_t start = w * chunk_size;
+						const size_t end = std::min(start + chunk_size, total_px);
+						auto& local = partials[w];
+						for (size_t i = start; i < end; ++i) {
+							const auto& px = back_buffer_[i];
+							if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++local.absorbed;
+							else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++local.celestial;
+							if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++local.disk_hits;
+							if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++local.saturated;
+							local.iteration_sum += static_cast<double>(px.iterations_used);
+							local.iter_min = std::min(local.iter_min, px.iterations_used);
+							local.iter_max = std::max(local.iter_max, px.iterations_used);
+						}
+					}
+				}, 1);
+				for (const auto& part : partials) {
+					absorbed += part.absorbed;
+					celestial += part.celestial;
+					disk_hits += part.disk_hits;
+					saturated += part.saturated;
+					iteration_sum += part.iteration_sum;
+					iter_min = std::min(iter_min, part.iter_min);
+					iter_max = std::max(iter_max, part.iter_max);
+				}
+			} else {
+				for (const auto& px : back_buffer_) {
+					if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
+					else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+					if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
+					if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
+					iteration_sum += static_cast<double>(px.iterations_used);
+					iter_min = std::min(iter_min, px.iterations_used);
+					iter_max = std::max(iter_max, px.iterations_used);
+				}
 			}
 			if (back_buffer_.empty()) {
 				iter_min = 0;
@@ -199,7 +241,7 @@ private:
 
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
-				front_buffer_ = back_buffer_;
+				std::swap(front_buffer_, back_buffer_);
 				rendered_width_ = current_job.screen_width;
 				rendered_height_ = current_job.screen_height;
 				telemetry_.execution_time_ms = duration_ms;
@@ -291,6 +333,18 @@ public:
 		out_h = rendered_height_;
 	}
 
+	bool swap_display_framebuffer(std::vector<GpuPixelOutput>& consumer, uint32_t& out_w, uint32_t& out_h) noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (!new_frame_ready_.load(std::memory_order_relaxed)) {
+			return false;
+		}
+		std::swap(consumer, front_buffer_);
+		out_w = rendered_width_;
+		out_h = rendered_height_;
+		new_frame_ready_.store(false, std::memory_order_release);
+		return true;
+	}
+
 	[[nodiscard]] std::span<const GpuPixelOutput> framebuffer() const noexcept {
 		return front_buffer_;
 	}
@@ -331,9 +385,7 @@ public:
 			if (gpu_background_eligible) {
 				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
 				if (front_buffer_.size() >= total_pixels) {
-					std::vector<GpuPixelOutput> gpu_output;
-					if (try_gpu_dispatch(actual_constants, gpu_output, bodies) && gpu_output.size() == total_pixels) {
-						std::copy(gpu_output.begin(), gpu_output.end(), front_buffer_.begin());
+					if (try_gpu_dispatch(actual_constants, front_buffer_, bodies) && front_buffer_.size() == total_pixels) {
 						rendered_on_gpu = true;
 					}
 				}

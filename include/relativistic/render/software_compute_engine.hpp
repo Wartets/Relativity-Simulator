@@ -154,6 +154,13 @@ private:
 				scale_c = radius * oblateness;
 			}
 
+			const double max_axis = std::max({scale_a, scale_b, scale_c});
+			const double dist_center_sq = ox * ox + oy * oy + oz * oz;
+			const double b_proj = ox * ray_dir[0] + oy * ray_dir[1] + oz * ray_dir[2];
+			const double c_sph = dist_center_sq - max_axis * max_axis;
+			if (c_sph > 0.0 && b_proj > 0.0) continue;
+			if (b_proj * b_proj - c_sph < 0.0) continue;
+
 			const double inv_a2 = 1.0 / (scale_a * scale_a);
 			const double inv_b2 = 1.0 / (scale_b * scale_b);
 			const double inv_c2 = 1.0 / (scale_c * scale_c);
@@ -541,7 +548,9 @@ private:
 
 	struct BodyTileCullResult {
 		std::vector<uint8_t> tile_mask{};
-		std::vector<std::vector<uint32_t>> tile_body_indices{};
+		std::vector<uint32_t> tile_offsets{};
+		std::vector<uint32_t> tile_counts{};
+		std::vector<uint32_t> candidate_pool{};
 		size_t marked_tile_count{0};
 		size_t total_tile_count{0};
 	};
@@ -558,7 +567,8 @@ private:
 		const size_t tiles_y = (height + TILE - 1) / TILE;
 		result.total_tile_count = tiles_x * tiles_y;
 		result.tile_mask.assign(result.total_tile_count, 0U);
-		result.tile_body_indices.resize(result.total_tile_count);
+		result.tile_offsets.assign(result.total_tile_count, 0U);
+		result.tile_counts.assign(result.total_tile_count, 0U);
 		if (bodies.empty() || result.total_tile_count == 0) {
 			return result;
 		}
@@ -598,7 +608,7 @@ private:
 						result.tile_mask[t] = 1U;
 						++result.marked_tile_count;
 					}
-					result.tile_body_indices[t].push_back(static_cast<uint32_t>(bi));
+					++result.tile_counts[t];
 				}
 				continue;
 			}
@@ -663,7 +673,94 @@ private:
 						result.tile_mask[idx] = 1U;
 						++result.marked_tile_count;
 					}
-					result.tile_body_indices[idx].push_back(static_cast<uint32_t>(bi));
+					++result.tile_counts[idx];
+				}
+			}
+		}
+
+		size_t total_candidates = 0;
+		for (size_t t = 0; t < result.total_tile_count; ++t) {
+			result.tile_offsets[t] = static_cast<uint32_t>(total_candidates);
+			total_candidates += result.tile_counts[t];
+		}
+		result.candidate_pool.resize(total_candidates);
+
+		std::vector<uint32_t> written(result.total_tile_count, 0U);
+		for (size_t bi = 0; bi < bodies.size(); ++bi) {
+			const auto& b = bodies[bi];
+			const double radius = std::max(b.radius, 1e-6);
+			const double oblateness = std::clamp(b.oblateness_ratio, 0.1, 5.0);
+			const double bounding_radius = radius * std::max(1.0, oblateness) * 1.2;
+
+			const double cx = b.position[0] - obs_pos[0];
+			const double cy = b.position[1] - obs_pos[1];
+			const double cz = b.position[2] - obs_pos[2];
+			const double center_dist = std::sqrt(cx * cx + cy * cy + cz * cz);
+
+			if (center_dist <= bounding_radius * 1.05) {
+				for (size_t t = 0; t < result.total_tile_count; ++t) {
+					result.candidate_pool[result.tile_offsets[t] + written[t]++] = static_cast<uint32_t>(bi);
+				}
+				continue;
+			}
+
+			const std::array<std::array<double, 3>, 7> offsets{{
+				{0.0, 0.0, 0.0},
+				{bounding_radius, 0.0, 0.0},
+				{-bounding_radius, 0.0, 0.0},
+				{0.0, bounding_radius, 0.0},
+				{0.0, -bounding_radius, 0.0},
+				{0.0, 0.0, bounding_radius},
+				{0.0, 0.0, -bounding_radius}
+			}};
+
+			bool any_visible = false;
+			double u_min = 1e18, u_max = -1e18, v_min = 1e18, v_max = -1e18;
+
+			for (const auto& off : offsets) {
+				const double px = cx + off[0];
+				const double py = cy + off[1];
+				const double pz = cz + off[2];
+
+				const double fwd = px * fwd_x + py * fwd_y + pz * fwd_z;
+				const double right = px * rgt_x + py * rgt_y + pz * rgt_z;
+				const double up = px * up_x + py * up_y + pz * up_z;
+
+				const auto uv = Observer::direction_to_screen_uv(proj_mode, fwd, right, up, fov_rad);
+				if (!uv.has_value()) continue;
+
+				const double u_screen = is_allsky ? uv->first : (uv->first / std::max(aspect, 1e-9));
+				const double v_screen = uv->second;
+				if (!std::isfinite(u_screen) || !std::isfinite(v_screen)) continue;
+
+				any_visible = true;
+				u_min = std::min(u_min, u_screen);
+				u_max = std::max(u_max, u_screen);
+				v_min = std::min(v_min, v_screen);
+				v_max = std::max(v_max, v_screen);
+			}
+
+			if (!any_visible) continue;
+
+			constexpr double margin = 0.03;
+			const double px0 = ((u_min - margin) * 0.5 + 0.5) * static_cast<double>(width);
+			const double px1 = ((u_max + margin) * 0.5 + 0.5) * static_cast<double>(width);
+			const double py0 = ((v_min - margin) * 0.5 + 0.5) * static_cast<double>(height);
+			const double py1 = ((v_max + margin) * 0.5 + 0.5) * static_cast<double>(height);
+
+			if (px1 < 0.0 || py1 < 0.0 || px0 > static_cast<double>(width) || py0 > static_cast<double>(height)) {
+				continue;
+			}
+
+			const size_t tx0 = static_cast<size_t>(std::clamp(std::floor(px0 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_x - 1)));
+			const size_t tx1 = static_cast<size_t>(std::clamp(std::floor(px1 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_x - 1)));
+			const size_t ty0 = static_cast<size_t>(std::clamp(std::floor(py0 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_y - 1)));
+			const size_t ty1 = static_cast<size_t>(std::clamp(std::floor(py1 / static_cast<double>(TILE)), 0.0, static_cast<double>(tiles_y - 1)));
+
+			for (size_t ty = ty0; ty <= ty1; ++ty) {
+				for (size_t tx = tx0; tx <= tx1; ++tx) {
+					const size_t idx = ty * tiles_x + tx;
+					result.candidate_pool[result.tile_offsets[idx] + written[idx]++] = static_cast<uint32_t>(bi);
 				}
 			}
 		}
@@ -1648,11 +1745,24 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr,
 		std::span<const uint8_t> body_tile_mask = {},
-		std::span<const std::vector<uint32_t>> tile_candidates = {}
+		std::span<const uint32_t> tile_offsets = {},
+		std::span<const uint32_t> tile_counts = {},
+		std::span<const uint32_t> candidate_pool = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
 		const size_t total_pixels = width * height;
+
+		double min_body_r = 1e30;
+		double max_body_r = -1e30;
+		for (const auto& b : bodies) {
+			const double radius = std::max(b.radius, 1e-6);
+			const double oblateness = std::clamp(b.oblateness_ratio, 0.1, 5.0);
+			const double bound_r = radius * std::max(1.0, oblateness) * 1.2;
+			const double d = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
+			min_body_r = std::min(min_body_r, std::max(0.0, d - bound_r));
+			max_body_r = std::max(max_body_r, d + bound_r);
+		}
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
 			return;
@@ -1732,10 +1842,12 @@ public:
 					std::array<double, 3> deferred_ray_orig{0.0, 0.0, 0.0};
 
 					std::span<const uint32_t> body_candidates{};
-					if (!tile_candidates.empty()) {
+					if (!tile_offsets.empty() && !tile_counts.empty() && !candidate_pool.empty()) {
 						const size_t mask_tiles_x = (width + 31) / 32;
 						const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
-						if (tile_idx < tile_candidates.size()) body_candidates = tile_candidates[tile_idx];
+						if (tile_idx < tile_counts.size() && tile_counts[tile_idx] > 0) {
+							body_candidates = std::span<const uint32_t>(candidate_pool.data() + tile_offsets[tile_idx], tile_counts[tile_idx]);
+						}
 					}
 
 					const bool bodies_only_mode_active = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
@@ -1941,7 +2053,8 @@ public:
 							ray_ptheta = -ray_ptheta;
 						}
 
-						if (bodies_need_curved_path) {
+						const bool inside_body_shell = (ray_r >= min_body_r && ray_r <= max_body_r);
+						if (bodies_need_curved_path && inside_body_shell) {
 							const double seg_x0 = prev_r * std::sin(prev_theta) * std::cos(prev_phi);
 							const double seg_y0 = prev_r * std::sin(prev_theta) * std::sin(prev_phi);
 							const double seg_z0 = prev_r * std::cos(prev_theta);
@@ -2129,7 +2242,8 @@ public:
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr,
-		RenderStageStats* stage_stats = nullptr
+		RenderStageStats* stage_stats = nullptr,
+		std::span<const uint8_t> skip_tile_mask = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -2459,6 +2573,9 @@ public:
 			const size_t tiles_x = (width + TILE - 1) / TILE;
 			for (size_t t = t_start; t < t_end; ++t) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (!skip_tile_mask.empty() && t < skip_tile_mask.size() && skip_tile_mask[t] != 0U) {
+					continue;
+				}
 				const size_t tx = (t % tiles_x) * TILE;
 				const size_t ty = (t / tiles_x) * TILE;
 				const size_t tile_x_end = std::min(tx + TILE, width);
@@ -2530,11 +2647,24 @@ public:
 		Core::ThreadPool* pool = nullptr,
 		const std::atomic<bool>* cancel_flag = nullptr,
 		std::span<const uint8_t> body_tile_mask = {},
-		std::span<const std::vector<uint32_t>> tile_candidates = {}
+		std::span<const uint32_t> tile_offsets = {},
+		std::span<const uint32_t> tile_counts = {},
+		std::span<const uint32_t> candidate_pool = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
 		const size_t total_pixels = width * height;
+
+		float min_body_r = 1e30f;
+		float max_body_r = -1e30f;
+		for (const auto& b : bodies) {
+			const float radius = static_cast<float>(std::max(b.radius, 1e-6));
+			const float oblateness = static_cast<float>(std::clamp(b.oblateness_ratio, 0.1, 5.0));
+			const float bound_r = radius * std::max(1.0f, oblateness) * 1.2f;
+			const float d = static_cast<float>(std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]));
+			min_body_r = std::min(min_body_r, std::max(0.0f, d - bound_r));
+			max_body_r = std::max(max_body_r, d + bound_r);
+		}
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
 			return;
@@ -2608,10 +2738,12 @@ public:
 					const float ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
 					std::span<const uint32_t> body_candidates_f32{};
-					if (!tile_candidates.empty()) {
+					if (!tile_offsets.empty() && !tile_counts.empty() && !candidate_pool.empty()) {
 						const size_t mask_tiles_x = (width + 31) / 32;
 						const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
-						if (tile_idx < tile_candidates.size()) body_candidates_f32 = tile_candidates[tile_idx];
+						if (tile_idx < tile_counts.size() && tile_counts[tile_idx] > 0) {
+							body_candidates_f32 = std::span<const uint32_t>(candidate_pool.data() + tile_offsets[tile_idx], tile_counts[tile_idx]);
+						}
 					}
 
 					const bool bodies_only_mode_active_f32 = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
@@ -2830,7 +2962,8 @@ public:
 
 						bool body_segment_hit_f32 = false;
 						Render::GpuPixelOutput body_segment_color_f32{};
-						if (bodies_need_curved_path_f32) {
+						const bool inside_body_shell_f32 = (ray_r >= min_body_r && ray_r <= max_body_r);
+						if (bodies_need_curved_path_f32 && inside_body_shell_f32) {
 							const std::array<double, 3> segment_to_f32{
 								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::cos(static_cast<double>(ray_phi)),
 								static_cast<double>(ray_r) * std::sin(static_cast<double>(ray_theta)) * std::sin(static_cast<double>(ray_phi)),
@@ -3001,7 +3134,8 @@ public:
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
 		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
+		const std::atomic<bool>* cancel_flag = nullptr,
+		std::span<const uint8_t> skip_tile_mask = {}
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -3277,6 +3411,9 @@ public:
 			const size_t tiles_x = (width + TILE - 1) / TILE;
 			for (size_t t = t_start; t < t_end; ++t) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (!skip_tile_mask.empty() && t < skip_tile_mask.size() && skip_tile_mask[t] != 0U) {
+					continue;
+				}
 				const size_t tx = (t % tiles_x) * TILE;
 				const size_t ty = (t / tiles_x) * TILE;
 				render_simd_rect(tx, std::min(tx + TILE, width), ty, std::min(ty + TILE, height));
@@ -3333,20 +3470,6 @@ public:
 		dispatch_fp32(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
 	}
 
-	static void patch_body_tiles_fp32(
-		const GpuCameraPushConstants& params,
-		std::span<GpuPixelOutput> output_framebuffer,
-		std::span<const GpuBodyData> bodies,
-		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr
-	) noexcept {
-		if (bodies.empty()) return;
-		const auto cull = compute_body_screen_tiles(params, bodies);
-		if (cull.marked_tile_count > 0) {
-			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_body_indices);
-		}
-	}
-
 	static void dispatch_fp32(
 		const GpuCameraPushConstants& params,
 		std::span<GpuPixelOutput> output_framebuffer,
@@ -3361,9 +3484,18 @@ public:
 			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}
-		dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
+		if (bodies.empty()) {
+			dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
+			return;
+		}
+		const auto cull = compute_body_screen_tiles(params, bodies);
+		if (cull.marked_tile_count == 0) {
+			dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag);
+			return;
+		}
+		dispatch_fp32_simd(params, output_framebuffer, pool, cancel_flag, cull.tile_mask);
 		if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
-		patch_body_tiles_fp32(params, output_framebuffer, bodies, pool, cancel_flag);
+		dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_offsets, cull.tile_counts, cull.candidate_pool);
 	}
 
 	static void dispatch_fp64(
@@ -3374,25 +3506,6 @@ public:
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		dispatch_fp64(params, output_framebuffer, std::span<const GpuBodyData>{}, pool, cancel_flag, stage_stats);
-	}
-
-	static void patch_body_tiles(
-		const GpuCameraPushConstants& params,
-		std::span<GpuPixelOutput> output_framebuffer,
-		std::span<const GpuBodyData> bodies,
-		Core::ThreadPool* pool = nullptr,
-		const std::atomic<bool>* cancel_flag = nullptr,
-		RenderStageStats* stage_stats = nullptr
-	) noexcept {
-		if (bodies.empty()) return;
-		const auto cull = compute_body_screen_tiles(params, bodies);
-		if (stage_stats != nullptr) {
-			stage_stats->body_tile_count.store(cull.marked_tile_count, std::memory_order_relaxed);
-			stage_stats->total_tile_count.store(cull.total_tile_count, std::memory_order_relaxed);
-		}
-		if (cull.marked_tile_count > 0) {
-			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_body_indices);
-		}
 	}
 
 	static void dispatch_fp64(
@@ -3408,9 +3521,22 @@ public:
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}
-		dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
+		if (bodies.empty()) {
+			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
+			return;
+		}
+		const auto cull = compute_body_screen_tiles(params, bodies);
+		if (stage_stats != nullptr) {
+			stage_stats->body_tile_count.store(cull.marked_tile_count, std::memory_order_relaxed);
+			stage_stats->total_tile_count.store(cull.total_tile_count, std::memory_order_relaxed);
+		}
+		if (cull.marked_tile_count == 0) {
+			dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats);
+			return;
+		}
+		dispatch_fp64_simd(params, output_framebuffer, pool, cancel_flag, stage_stats, cull.tile_mask);
 		if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
-		patch_body_tiles(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
+		dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag, cull.tile_mask, cull.tile_offsets, cull.tile_counts, cull.candidate_pool);
 	}
 
 	static void dispatch_double_single(

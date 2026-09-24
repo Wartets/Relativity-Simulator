@@ -61,6 +61,7 @@ private:
 	uint32_t current_height_{720};
 	float resolution_scale_{1.0f};
 	std::vector<float> color_upload_buffer_{};
+	std::vector<Render::GpuPixelOutput> display_framebuffer_{};
 	bool is_hovered_{false};
 	bool is_focused_{false};
 	double zoom_level_{1.0};
@@ -625,15 +626,16 @@ public:
 				}
 			}
 
-			if (pipeline_.check_and_clear_new_frame()) {
-				std::vector<Render::GpuPixelOutput> fb;
-				uint32_t fb_w = 0, fb_h = 0;
-				{
-					const auto framebuffer_readback_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::FramebufferReadback);
-					pipeline_.copy_framebuffer(fb, fb_w, fb_h);
-				}
+			uint32_t fb_w = 0, fb_h = 0;
+			bool got_new_frame = false;
+			{
+				const auto framebuffer_readback_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::FramebufferReadback);
+				got_new_frame = pipeline_.swap_display_framebuffer(display_framebuffer_, fb_w, fb_h);
+			}
+			if (got_new_frame) {
+				const auto& fb = display_framebuffer_;
 				const size_t pixel_count = static_cast<size_t>(fb_w) * static_cast<size_t>(fb_h);
-				if (pixel_count > 0 && fb.size() == pixel_count) {
+				if (pixel_count > 0 && fb.size() >= pixel_count) {
 					const auto post_processing_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::PostProcessing);
 					if (color_upload_buffer_.size() < pixel_count * 4) {
 						color_upload_buffer_.assign(pixel_count * 4, 0.0f);
@@ -648,11 +650,18 @@ public:
 					const float grade_shadows = static_cast<float>(grading.post_shadows);
 					const float grade_vignette = static_cast<float>(grading.post_vignette_strength);
 					const bool needs_grading = (grade_contrast != 1.0f) || (grade_saturation != 1.0f) || (grade_lift != 0.0f) || (grade_inv_gamma != 1.0f) || (grade_gain != 1.0f) || (grade_highlights != 0.0f) || (grade_shadows != 0.0f) || (grade_vignette > 0.0f);
-					const float grade_inv_w = (fb_w > 0) ? (1.0f / static_cast<float>(fb_w)) : 0.0f;
-					const float grade_inv_h = (fb_h > 0) ? (1.0f / static_cast<float>(fb_h)) : 0.0f;
-					for (size_t i = 0; i < pixel_count; ++i) {
-						float gr = fb[i].r, gg = fb[i].g, gb = fb[i].b;
-						if (needs_grading) {
+					if (!needs_grading) {
+						for (size_t i = 0; i < pixel_count; ++i) {
+							color_upload_buffer_[i * 4 + 0] = fb[i].r;
+							color_upload_buffer_[i * 4 + 1] = fb[i].g;
+							color_upload_buffer_[i * 4 + 2] = fb[i].b;
+							color_upload_buffer_[i * 4 + 3] = fb[i].a;
+						}
+					} else {
+						const float grade_inv_w = (fb_w > 0) ? (1.0f / static_cast<float>(fb_w)) : 0.0f;
+						const float grade_inv_h = (fb_h > 0) ? (1.0f / static_cast<float>(fb_h)) : 0.0f;
+						for (size_t i = 0; i < pixel_count; ++i) {
+							float gr = fb[i].r, gg = fb[i].g, gb = fb[i].b;
 							auto grade_channel = [&](float c) noexcept -> float {
 								c = std::clamp(c + grade_lift * (1.0f - c), 0.0f, 4.0f);
 								c = (c - 0.5f) * grade_contrast + 0.5f;
@@ -684,11 +693,11 @@ public:
 								gg *= falloff;
 								gb *= falloff;
 							}
+							color_upload_buffer_[i * 4 + 0] = gr;
+							color_upload_buffer_[i * 4 + 1] = gg;
+							color_upload_buffer_[i * 4 + 2] = gb;
+							color_upload_buffer_[i * 4 + 3] = fb[i].a;
 						}
-						color_upload_buffer_[i * 4 + 0] = gr;
-						color_upload_buffer_[i * 4 + 1] = gg;
-						color_upload_buffer_[i * 4 + 2] = gb;
-						color_upload_buffer_[i * 4 + 3] = fb[i].a;
 					}
 					has_received_frame_ = true;
 					const auto texture_upload_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::TextureUpload);

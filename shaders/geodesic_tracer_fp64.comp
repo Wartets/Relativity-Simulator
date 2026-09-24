@@ -859,8 +859,11 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 
 		dvec3 o = ray_pos - bpos;
 		double bound_radius = max(scale_a, max(scale_b, scale_c));
+		double max_reach = bound_radius + max_dist;
+		double dist_sq = dot(o, o);
+		if (dist_sq > max_reach * max_reach) continue;
 		double bound_b = dot(o, ray_dir);
-		double bound_disc = bound_b * bound_b - (dot(o, o) - bound_radius * bound_radius);
+		double bound_disc = bound_b * bound_b - (dist_sq - bound_radius * bound_radius);
 		if (bound_disc < 0.0) continue;
 		double bound_root = sqrt(bound_disc);
 		if (-bound_b + bound_root < 1e-5 || -bound_b - bound_root > best_t) continue;

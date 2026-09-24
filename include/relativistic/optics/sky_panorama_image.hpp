@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace Relativistic::Optics {
@@ -828,6 +829,8 @@ private:
 	struct Slot {
 		uint32_t key{kInvalidKey};
 		uint64_t stamp{0};
+		bool decoding{false};
+		bool ready{false};
 		ImageHandle image{};
 	};
 
@@ -872,24 +875,53 @@ public:
 		return loader;
 	}
 
-	[[nodiscard]] ImageHandle acquire(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
+	[[nodiscard]] ImageHandle try_acquire(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
 		const uint32_t key = make_key(id, quality);
-		std::lock_guard<std::mutex> lock(mutex_);
-		++stamp_counter_;
-		Slot* victim = &slots_[0];
-		for (Slot& slot : slots_) {
-			if (slot.key == key) {
-				slot.stamp = stamp_counter_;
-				return slot.image;
+		Slot* target = nullptr;
+		bool need_decode = false;
+
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			++stamp_counter_;
+			for (Slot& slot : slots_) {
+				if (slot.key == key) {
+					slot.stamp = stamp_counter_;
+					target = &slot;
+					break;
+				}
 			}
-			if (slot.stamp < victim->stamp) {
-				victim = &slot;
+			if (target == nullptr) {
+				Slot* victim = nullptr;
+				for (Slot& slot : slots_) {
+					if (slot.decoding) continue;
+					if (victim == nullptr || slot.stamp < victim->stamp) victim = &slot;
+				}
+				if (victim == nullptr) {
+					return nullptr;
+				}
+				victim->key = key;
+				victim->stamp = stamp_counter_;
+				victim->ready = false;
+				victim->decoding = true;
+				victim->image.reset();
+				target = victim;
+				need_decode = true;
 			}
 		}
-		victim->key = key;
-		victim->stamp = stamp_counter_;
-		victim->image = decode_key(key);
-		return victim->image;
+
+		if (need_decode) {
+			std::thread([this, target, key]() {
+				auto decoded = decode_key(key);
+				std::lock_guard<std::mutex> lock(mutex_);
+				target->image = decoded;
+				target->ready = true;
+				target->decoding = false;
+			}).detach();
+			return nullptr;
+		}
+
+		std::lock_guard<std::mutex> lock(mutex_);
+		return target->ready ? target->image : nullptr;
 	}
 
 	[[nodiscard]] std::optional<std::array<float, 3>> sample_direction(
@@ -907,8 +939,11 @@ public:
 		thread_local ThreadCache cache;
 
 		const uint32_t key = make_key(id, quality);
-		if (cache.key != key) {
-			cache.image = acquire(id, quality);
+		if (cache.key != key || !cache.image) {
+			auto acquired = try_acquire(id, quality);
+			if (acquired) {
+				cache.image = std::move(acquired);
+			}
 			cache.key = key;
 		}
 		if (!cache.image) {

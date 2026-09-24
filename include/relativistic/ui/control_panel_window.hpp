@@ -976,7 +976,7 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Rendering Path:");
-		ImGui::TextDisabled("Imported sky panoramas are decoded once, cached, and sampled directly by the Vulkan compute shader when GPU offload is enabled. The CPU path remains the fallback for unsupported metrics or precision modes. If a panorama file cannot be decoded, the procedural sky is used and the error is written to the engine log.");
+		render_wrapped_colored_text(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "Imported sky panoramas are decoded once on a background thread and cached, then sampled directly by the Vulkan compute shader when GPU offload is enabled. The render keeps showing the procedural sky with no stall while a new panorama decodes. The CPU path remains the fallback for unsupported metrics or precision modes. If a panorama file cannot be decoded, the procedural sky is used and the error is written to the engine log.");
 	}
 
 	void render_integrators_tab() noexcept {

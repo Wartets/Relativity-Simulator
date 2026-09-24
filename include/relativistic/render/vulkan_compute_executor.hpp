@@ -645,7 +645,7 @@ public:
 		actual_params.sky_panorama_width = 0U;
 		actual_params.sky_panorama_height = 0U;
 		if (params.sky_background_source != 0U) {
-			const auto panorama = Optics::SkyPanoramaLoader::instance().acquire(
+			const auto panorama = Optics::SkyPanoramaLoader::instance().try_acquire(
 				static_cast<Optics::SkyPanoramaId>(params.sky_panorama_id),
 				static_cast<Optics::SkyPanoramaQuality>(params.sky_panorama_quality)
 			);

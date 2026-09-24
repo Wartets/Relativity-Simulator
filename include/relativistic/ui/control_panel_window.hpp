@@ -690,6 +690,9 @@ private:
 		const char* sky_sources[] = {"Procedural Generation", "Imported Real Sky Panorama"};
 		if (ImGui::Combo("Background Source", &sky_background_source_, sky_sources, IM_ARRAYSIZE(sky_sources))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundSource, static_cast<double>(sky_background_source_))));
+			if (sky_background_source_ == 1 && !orchestrator_.parameters().use_gpu_compute && render_pipeline_ != nullptr && render_pipeline_->gpu_compute_available()) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, 1.0)));
+			}
 		}
 		render_setting_tooltip("Switches the background between the fully procedural starfield engine and a real equirectangular sky panorama loaded from disk.");
 		ImGui::Separator();
@@ -973,7 +976,7 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Rendering Path:");
-		ImGui::TextDisabled("Imported sky panoramas are sampled on the CPU integration path. GPU Vulkan compute offload is automatically bypassed while this source is active, matching the existing fallback used for wormhole, warp, and high-spin exact metrics.");
+		ImGui::TextDisabled("Imported sky panoramas are decoded once, cached, and sampled directly by the Vulkan compute shader when GPU offload is enabled. The CPU path remains the fallback for unsupported metrics or precision modes. If a panorama file cannot be decoded, the procedural sky is used and the error is written to the engine log.");
 	}
 
 	void render_integrators_tab() noexcept {

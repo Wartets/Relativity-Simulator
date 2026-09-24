@@ -2,7 +2,9 @@
 
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/optics/sky_panorama_image.hpp"
 #include <vulkan/vulkan.h>
+#include <memory>
 #include <vector>
 #include <array>
 #include <string>
@@ -46,6 +48,13 @@ private:
 	VkBuffer staging_buffer_{VK_NULL_HANDLE};
 	VkDeviceMemory staging_memory_{VK_NULL_HANDLE};
 	void* staging_mapped_{nullptr};
+
+	VkBuffer panorama_buffer_{VK_NULL_HANDLE};
+	VkDeviceMemory panorama_memory_{VK_NULL_HANDLE};
+	VkDeviceSize panorama_capacity_bytes_{0};
+	Optics::SkyPanoramaLoader::ImageHandle panorama_image_{};
+	uint32_t panorama_width_{0};
+	uint32_t panorama_height_{0};
 
 	VkCommandBuffer command_buffer_{VK_NULL_HANDLE};
 	VkFence fence_{VK_NULL_HANDLE};
@@ -210,6 +219,148 @@ private:
 		return true;
 	}
 
+	[[nodiscard]] bool ensure_panorama_capacity(VkDeviceSize required_bytes) {
+		if (panorama_buffer_ != VK_NULL_HANDLE && required_bytes <= panorama_capacity_bytes_) {
+			return true;
+		}
+
+		VkBuffer new_buffer{VK_NULL_HANDLE};
+		VkDeviceMemory new_memory{VK_NULL_HANDLE};
+		if (!create_buffer(
+			required_bytes,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			new_buffer,
+			new_memory
+		)) {
+			return false;
+		}
+
+		destroy_buffer(panorama_buffer_, panorama_memory_);
+		panorama_buffer_ = new_buffer;
+		panorama_memory_ = new_memory;
+		panorama_capacity_bytes_ = required_bytes;
+		panorama_image_.reset();
+		panorama_width_ = 0;
+		panorama_height_ = 0;
+
+		VkDescriptorBufferInfo panorama_info{};
+		panorama_info.buffer = panorama_buffer_;
+		panorama_info.offset = 0;
+		panorama_info.range = VK_WHOLE_SIZE;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = descriptor_set_;
+		write.dstBinding = 3;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		write.pBufferInfo = &panorama_info;
+
+		vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	[[nodiscard]] bool submit_buffer_copy(VkBuffer source, VkBuffer destination, VkDeviceSize size) noexcept {
+		if (vkResetCommandBuffer(command_buffer_, 0) != VK_SUCCESS) {
+			return false;
+		}
+
+		VkCommandBufferBeginInfo begin_info{};
+		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		if (vkBeginCommandBuffer(command_buffer_, &begin_info) != VK_SUCCESS) {
+			return false;
+		}
+
+		VkBufferCopy region{};
+		region.srcOffset = 0;
+		region.dstOffset = 0;
+		region.size = size;
+		vkCmdCopyBuffer(command_buffer_, source, destination, 1, &region);
+
+		VkBufferMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.buffer = destination;
+		barrier.offset = 0;
+		barrier.size = VK_WHOLE_SIZE;
+		vkCmdPipelineBarrier(
+			command_buffer_,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0, 0, nullptr, 1, &barrier, 0, nullptr
+		);
+
+		if (vkEndCommandBuffer(command_buffer_) != VK_SUCCESS) {
+			return false;
+		}
+		if (vkResetFences(device_, 1, &fence_) != VK_SUCCESS) {
+			return false;
+		}
+
+		VkSubmitInfo submit_info{};
+		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submit_info.commandBufferCount = 1;
+		submit_info.pCommandBuffers = &command_buffer_;
+		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
+			return false;
+		}
+		return vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+	}
+
+	[[nodiscard]] bool upload_panorama(const Optics::SkyPanoramaLoader::ImageHandle& image) {
+		if (image == panorama_image_) {
+			return true;
+		}
+
+		const VkDeviceSize required_bytes = static_cast<VkDeviceSize>(image->texels.size()) * sizeof(uint32_t);
+		VkPhysicalDeviceProperties device_properties{};
+		vkGetPhysicalDeviceProperties(physical_device_, &device_properties);
+		if (required_bytes > static_cast<VkDeviceSize>(device_properties.limits.maxStorageBufferRange)) {
+			return false;
+		}
+		if (!ensure_panorama_capacity(required_bytes)) {
+			return false;
+		}
+
+		panorama_image_.reset();
+		panorama_width_ = 0;
+		panorama_height_ = 0;
+
+		VkBuffer upload_buffer{VK_NULL_HANDLE};
+		VkDeviceMemory upload_memory{VK_NULL_HANDLE};
+		if (!create_buffer(
+			required_bytes,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			upload_buffer,
+			upload_memory
+		)) {
+			return false;
+		}
+
+		bool copied = false;
+		void* upload_mapped = nullptr;
+		if (vkMapMemory(device_, upload_memory, 0, required_bytes, 0, &upload_mapped) == VK_SUCCESS) {
+			std::memcpy(upload_mapped, image->texels.data(), static_cast<size_t>(required_bytes));
+			vkUnmapMemory(device_, upload_memory);
+			copied = submit_buffer_copy(upload_buffer, panorama_buffer_, required_bytes);
+		}
+		destroy_buffer(upload_buffer, upload_memory);
+
+		if (!copied) {
+			return false;
+		}
+		panorama_image_ = image;
+		panorama_width_ = image->width;
+		panorama_height_ = image->height;
+		return true;
+	}
+
 public:
 	VulkanComputeExecutor() = default;
 
@@ -247,7 +398,7 @@ public:
 			return false;
 		}
 
-		std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+		std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		bindings[0].descriptorCount = 1;
@@ -262,6 +413,11 @@ public:
 		bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		bindings[2].descriptorCount = 1;
 		bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[3].binding = 3;
+		bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		bindings[3].descriptorCount = 1;
+		bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -298,7 +454,7 @@ public:
 
 		std::array<VkDescriptorPoolSize, 2> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
-		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
+		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
 
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -357,6 +513,10 @@ public:
 			return false;
 		}
 
+		if (!ensure_panorama_capacity(16)) {
+			return false;
+		}
+
 		VkCommandBufferAllocateInfo cmd_alloc_info{};
 		cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		cmd_alloc_info.commandPool = command_pool_;
@@ -398,6 +558,11 @@ public:
 		destroy_buffer(storage_buffer_, storage_memory_);
 		destroy_buffer(staging_buffer_, staging_memory_, &staging_mapped_);
 		destroy_buffer(body_buffer_, body_memory_, &body_mapped_);
+		destroy_buffer(panorama_buffer_, panorama_memory_);
+		panorama_image_.reset();
+		panorama_capacity_bytes_ = 0;
+		panorama_width_ = 0;
+		panorama_height_ = 0;
 		storage_capacity_bytes_ = 0;
 		body_capacity_bytes_ = 0;
 
@@ -477,6 +642,21 @@ public:
 
 		GpuCameraPushConstants actual_params = params;
 		actual_params.body_count = static_cast<uint32_t>(bodies.size());
+		actual_params.sky_panorama_width = 0U;
+		actual_params.sky_panorama_height = 0U;
+		if (params.sky_background_source != 0U) {
+			const auto panorama = Optics::SkyPanoramaLoader::instance().acquire(
+				static_cast<Optics::SkyPanoramaId>(params.sky_panorama_id),
+				static_cast<Optics::SkyPanoramaQuality>(params.sky_panorama_quality)
+			);
+			if (panorama != nullptr) {
+				if (!upload_panorama(panorama)) {
+					return false;
+				}
+				actual_params.sky_panorama_width = panorama_width_;
+				actual_params.sky_panorama_height = panorama_height_;
+			}
+		}
 		std::memcpy(uniform_mapped_, &actual_params, sizeof(GpuCameraPushConstants));
 		if (!bodies.empty() && body_mapped_ != nullptr) {
 			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));

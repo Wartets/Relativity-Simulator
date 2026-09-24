@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/optics/sky_panorama_catalog.hpp"
+#include "relativistic/optics/sky_panorama_codecs.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -18,13 +19,36 @@
 
 namespace Relativistic::Optics {
 
+inline constexpr uint64_t kMaxPanoramaPixels = 268435456ULL;
+
+namespace PanoramaColor {
+
+inline const std::array<float, 256> kSrgbToLinear = [] {
+	std::array<float, 256> table{};
+	for (size_t i = 0; i < table.size(); ++i) {
+		const double encoded = static_cast<double>(i) / 255.0;
+		table[i] = static_cast<float>((encoded <= 0.04045) ? (encoded / 12.92) : std::pow((encoded + 0.055) / 1.055, 2.4));
+	}
+	return table;
+}();
+
+}
+
 struct DecodedPanorama {
 	uint32_t width{0};
 	uint32_t height{0};
-	std::vector<float> pixels{};
+	std::vector<uint32_t> texels{};
+
+	[[nodiscard]] static constexpr uint32_t pack_texel(uint8_t r, uint8_t g, uint8_t b) noexcept {
+		return static_cast<uint32_t>(r) | (static_cast<uint32_t>(g) << 8) | (static_cast<uint32_t>(b) << 16) | 0xFF000000U;
+	}
+
+	[[nodiscard]] bool is_valid() const noexcept {
+		return width > 0 && height > 0 && texels.size() == static_cast<size_t>(width) * static_cast<size_t>(height);
+	}
 
 	[[nodiscard]] std::array<float, 3> sample_bilinear(double u, double v) const noexcept {
-		if (width == 0 || height == 0 || pixels.empty()) {
+		if (!is_valid()) {
 			return {0.0f, 0.0f, 0.0f};
 		}
 
@@ -54,9 +78,10 @@ struct DecodedPanorama {
 		const int64_t y1 = clamp_y(y0 + 1);
 		y0 = clamp_y(y0);
 
+		const auto& linear_table = PanoramaColor::kSrgbToLinear;
 		auto fetch = [&](int64_t x, int64_t y) noexcept -> std::array<float, 3> {
-			const size_t idx = (static_cast<size_t>(y) * width + static_cast<size_t>(x)) * 3;
-			return {pixels[idx], pixels[idx + 1], pixels[idx + 2]};
+			const uint32_t texel = texels[static_cast<size_t>(y) * width + static_cast<size_t>(x)];
+			return {linear_table[texel & 0xFFU], linear_table[(texel >> 8) & 0xFFU], linear_table[(texel >> 16) & 0xFFU]};
 		};
 
 		const auto c00 = fetch(x0, y0);
@@ -248,7 +273,7 @@ namespace PanoramaDecodeDetail {
 		int32_t dc_pred{0};
 	};
 
-	[[nodiscard]] inline std::optional<DecodedPanorama> decode_jpeg(std::span<const uint8_t> data) noexcept {
+	[[nodiscard]] inline std::optional<DecodedPanorama> decode_jpeg(std::span<const uint8_t> data) {
 		if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return std::nullopt;
 
 		std::array<std::array<uint16_t, 64>, 4> quant_tables{};
@@ -295,6 +320,7 @@ namespace PanoramaDecodeDetail {
 					}
 				}
 			} else if (marker == 0xC0 || marker == 0xC1) {
+				if (seg_len < 8 || data[seg_start] != 8) return std::nullopt;
 				size_t p = seg_start;
 				++p;
 				image_height = (static_cast<uint32_t>(data[p]) << 8) | data[p + 1];
@@ -303,12 +329,16 @@ namespace PanoramaDecodeDetail {
 				p += 2;
 				component_count = data[p++];
 				if (component_count == 0 || component_count > 4) return std::nullopt;
+				if (seg_len < 8 + 3 * component_count) return std::nullopt;
 				for (uint32_t c = 0; c < component_count; ++c) {
 					components[c].id = data[p++];
 					const uint8_t hv = data[p++];
 					components[c].h = static_cast<uint8_t>(hv >> 4);
 					components[c].v = static_cast<uint8_t>(hv & 0x0FU);
 					components[c].quant_table_id = data[p++];
+					if (components[c].h == 0 || components[c].h > 4 || components[c].v == 0 || components[c].v > 4 || components[c].quant_table_id >= 4) {
+						return std::nullopt;
+					}
 				}
 				sof_seen = true;
 			} else if (marker == 0xC2 || marker == 0xC3 || (marker >= 0xC5 && marker <= 0xC7) || (marker >= 0xC9 && marker <= 0xCB) || (marker >= 0xCD && marker <= 0xCF)) {
@@ -338,6 +368,7 @@ namespace PanoramaDecodeDetail {
 				restart_interval = (static_cast<uint32_t>(data[seg_start]) << 8) | data[seg_start + 1];
 			} else if (marker == 0xDA) {
 				if (!sof_seen || component_count == 0 || image_width == 0 || image_height == 0) return std::nullopt;
+				if (static_cast<uint64_t>(image_width) * image_height > kMaxPanoramaPixels) return std::nullopt;
 				size_t p = seg_start;
 				const uint8_t scan_components = data[p++];
 				for (uint8_t s = 0; s < scan_components; ++s) {
@@ -345,8 +376,11 @@ namespace PanoramaDecodeDetail {
 					const uint8_t td_ta = data[p++];
 					for (uint32_t c = 0; c < component_count; ++c) {
 						if (components[c].id == comp_id) {
-							components[c].dc_table_id = static_cast<uint8_t>(td_ta >> 4);
-							components[c].ac_table_id = static_cast<uint8_t>(td_ta & 0x0FU);
+							const uint8_t dc_id = static_cast<uint8_t>(td_ta >> 4);
+							const uint8_t ac_id = static_cast<uint8_t>(td_ta & 0x0FU);
+							if (dc_id >= 4 || ac_id >= 4) return std::nullopt;
+							components[c].dc_table_id = dc_id;
+							components[c].ac_table_id = ac_id;
 						}
 					}
 				}
@@ -444,7 +478,7 @@ namespace PanoramaDecodeDetail {
 				DecodedPanorama result;
 				result.width = image_width;
 				result.height = image_height;
-				result.pixels.assign(static_cast<size_t>(image_width) * image_height * 3, 0.0f);
+				result.texels.assign(static_cast<size_t>(image_width) * image_height, 0U);
 
 				for (uint32_t y = 0; y < image_height; ++y) {
 					for (uint32_t x = 0; x < image_width; ++x) {
@@ -472,10 +506,11 @@ namespace PanoramaDecodeDetail {
 							r = g = b = yv;
 						}
 
-						const size_t idx = (static_cast<size_t>(y) * image_width + x) * 3;
-						result.pixels[idx + 0] = std::clamp(r, 0.0f, 255.0f) / 255.0f;
-						result.pixels[idx + 1] = std::clamp(g, 0.0f, 255.0f) / 255.0f;
-						result.pixels[idx + 2] = std::clamp(b, 0.0f, 255.0f) / 255.0f;
+						result.texels[static_cast<size_t>(y) * image_width + x] = DecodedPanorama::pack_texel(
+							static_cast<uint8_t>(std::clamp(r, 0.0f, 255.0f) + 0.5f),
+							static_cast<uint8_t>(std::clamp(g, 0.0f, 255.0f) + 0.5f),
+							static_cast<uint8_t>(std::clamp(b, 0.0f, 255.0f) + 0.5f)
+						);
 					}
 				}
 
@@ -488,18 +523,51 @@ namespace PanoramaDecodeDetail {
 		return std::nullopt;
 	}
 
-	[[nodiscard]] inline std::optional<DecodedPanorama> decode_tiff(std::span<const uint8_t> data) noexcept {
+	inline void undo_horizontal_predictor(uint8_t* row, size_t pixel_count, size_t samples, size_t bytes_per_sample, bool little_endian) noexcept {
+		const size_t total = pixel_count * samples;
+		if (bytes_per_sample == 1) {
+			for (size_t i = samples; i < total; ++i) {
+				row[i] = static_cast<uint8_t>(row[i] + row[i - samples]);
+			}
+			return;
+		}
+		auto load = [&](size_t index) noexcept -> uint16_t {
+			const uint8_t* p = row + index * 2;
+			return little_endian
+				? static_cast<uint16_t>(p[0] | (p[1] << 8))
+				: static_cast<uint16_t>((p[0] << 8) | p[1]);
+		};
+		auto store = [&](size_t index, uint16_t value) noexcept {
+			uint8_t* p = row + index * 2;
+			if (little_endian) {
+				p[0] = static_cast<uint8_t>(value & 0xFFU);
+				p[1] = static_cast<uint8_t>(value >> 8);
+			} else {
+				p[0] = static_cast<uint8_t>(value >> 8);
+				p[1] = static_cast<uint8_t>(value & 0xFFU);
+			}
+		};
+		for (size_t i = samples; i < total; ++i) {
+			store(i, static_cast<uint16_t>(load(i) + load(i - samples)));
+		}
+	}
+
+	[[nodiscard]] inline std::optional<DecodedPanorama> decode_tiff(std::span<const uint8_t> data) {
 		if (data.size() < 8) return std::nullopt;
 		bool little_endian = false;
-		if (data[0] == 'I' && data[1] == 'I') little_endian = true;
-		else if (data[0] == 'M' && data[1] == 'M') little_endian = false;
-		else return std::nullopt;
+		if (data[0] == 'I' && data[1] == 'I') {
+			little_endian = true;
+		} else if (!(data[0] == 'M' && data[1] == 'M')) {
+			return std::nullopt;
+		}
 
 		auto read_u16 = [&](size_t off) noexcept -> uint16_t {
+			if (off + 2 > data.size()) return 0;
 			if (little_endian) return static_cast<uint16_t>(data[off] | (static_cast<uint16_t>(data[off + 1]) << 8));
 			return static_cast<uint16_t>((static_cast<uint16_t>(data[off]) << 8) | data[off + 1]);
 		};
 		auto read_u32 = [&](size_t off) noexcept -> uint32_t {
+			if (off + 4 > data.size()) return 0;
 			if (little_endian) {
 				return static_cast<uint32_t>(data[off]) | (static_cast<uint32_t>(data[off + 1]) << 8) | (static_cast<uint32_t>(data[off + 2]) << 16) | (static_cast<uint32_t>(data[off + 3]) << 24);
 			}
@@ -507,112 +575,194 @@ namespace PanoramaDecodeDetail {
 		};
 
 		if (read_u16(2) != 42) return std::nullopt;
-		const uint32_t ifd_offset = read_u32(4);
-		if (static_cast<size_t>(ifd_offset) + 2 > data.size()) return std::nullopt;
+		const size_t ifd_offset = read_u32(4);
+		if (ifd_offset + 2 > data.size()) return std::nullopt;
 
-		uint32_t image_width = 0, image_height = 0;
-		uint32_t bits_per_sample = 8;
-		uint32_t samples_per_pixel = 1;
-		uint32_t compression = 1;
-		uint32_t photometric = 1;
-		uint32_t planar_config = 1;
-		uint32_t rows_per_strip = 0;
-		std::vector<uint32_t> strip_offsets;
-		std::vector<uint32_t> strip_byte_counts;
-
-		auto read_tag_value_u32 = [&](uint16_t type, uint32_t count, uint32_t value_or_offset) noexcept -> uint32_t {
-			if (type == 3 && count == 1) {
-				return little_endian ? (value_or_offset & 0xFFFFU) : (value_or_offset >> 16);
+		auto read_values = [&](uint16_t type, uint32_t count, size_t field_position) -> std::vector<uint32_t> {
+			std::vector<uint32_t> values;
+			const size_t element_size = (type == 1) ? 1 : (type == 3) ? 2 : (type == 4) ? 4 : 0;
+			if (element_size == 0 || count == 0) return values;
+			const size_t total_bytes = element_size * static_cast<size_t>(count);
+			const size_t base = (total_bytes <= 4) ? field_position : static_cast<size_t>(read_u32(field_position));
+			if (base > data.size() || total_bytes > data.size() - base) return values;
+			values.reserve(count);
+			for (size_t i = 0; i < count; ++i) {
+				const size_t off = base + i * element_size;
+				if (type == 1) values.push_back(data[off]);
+				else if (type == 3) values.push_back(read_u16(off));
+				else values.push_back(read_u32(off));
 			}
-			return value_or_offset;
+			return values;
 		};
 
-		const uint16_t entry_count = read_u16(ifd_offset);
-		size_t entry_pos = static_cast<size_t>(ifd_offset) + 2;
+		uint32_t image_width = 0;
+		uint32_t image_height = 0;
+		uint32_t compression = 1;
+		uint32_t photometric = 2;
+		uint32_t samples_per_pixel = 1;
+		uint32_t planar_config = 1;
+		uint32_t predictor = 1;
+		uint32_t rows_per_strip = 0;
+		uint32_t tile_width = 0;
+		uint32_t tile_length = 0;
+		uint32_t sample_format = 1;
+		std::vector<uint32_t> bits_per_sample{8U};
+		std::vector<uint32_t> strip_offsets;
+		std::vector<uint32_t> strip_byte_counts;
+		std::vector<uint32_t> tile_offsets;
+		std::vector<uint32_t> tile_byte_counts;
 
-		for (uint16_t i = 0; i < entry_count; ++i) {
+		const uint16_t entry_count = read_u16(ifd_offset);
+		for (size_t i = 0; i < entry_count; ++i) {
+			const size_t entry_pos = ifd_offset + 2 + i * 12;
 			if (entry_pos + 12 > data.size()) break;
 			const uint16_t tag = read_u16(entry_pos);
 			const uint16_t type = read_u16(entry_pos + 2);
 			const uint32_t count = read_u32(entry_pos + 4);
-			const uint32_t value_offset = read_u32(entry_pos + 8);
+			auto values = read_values(type, count, entry_pos + 8);
+			if (values.empty()) continue;
 
 			switch (tag) {
-				case 256: image_width = read_tag_value_u32(type, count, value_offset); break;
-				case 257: image_height = read_tag_value_u32(type, count, value_offset); break;
-				case 258: bits_per_sample = read_tag_value_u32(type, count, value_offset); break;
-				case 259: compression = read_tag_value_u32(type, count, value_offset); break;
-				case 262: photometric = read_tag_value_u32(type, count, value_offset); break;
-				case 277: samples_per_pixel = read_tag_value_u32(type, count, value_offset); break;
-				case 278: rows_per_strip = read_tag_value_u32(type, count, value_offset); break;
-				case 284: planar_config = read_tag_value_u32(type, count, value_offset); break;
-				case 273: {
-					strip_offsets.resize(count);
-					if (count == 1) {
-						strip_offsets[0] = value_offset;
-					} else if (static_cast<size_t>(value_offset) + static_cast<size_t>(count) * 4 <= data.size()) {
-						for (uint32_t s = 0; s < count; ++s) strip_offsets[s] = read_u32(value_offset + s * 4);
-					}
-					break;
-				}
-				case 279: {
-					strip_byte_counts.resize(count);
-					if (count == 1) {
-						strip_byte_counts[0] = value_offset;
-					} else if (type == 3 && static_cast<size_t>(value_offset) + static_cast<size_t>(count) * 2 <= data.size()) {
-						for (uint32_t s = 0; s < count; ++s) strip_byte_counts[s] = read_u16(value_offset + s * 2);
-					} else if (static_cast<size_t>(value_offset) + static_cast<size_t>(count) * 4 <= data.size()) {
-						for (uint32_t s = 0; s < count; ++s) strip_byte_counts[s] = read_u32(value_offset + s * 4);
-					}
-					break;
-				}
+				case 256: image_width = values.front(); break;
+				case 257: image_height = values.front(); break;
+				case 258: bits_per_sample = std::move(values); break;
+				case 259: compression = values.front(); break;
+				case 262: photometric = values.front(); break;
+				case 273: strip_offsets = std::move(values); break;
+				case 277: samples_per_pixel = values.front(); break;
+				case 278: rows_per_strip = values.front(); break;
+				case 279: strip_byte_counts = std::move(values); break;
+				case 284: planar_config = values.front(); break;
+				case 317: predictor = values.front(); break;
+				case 322: tile_width = values.front(); break;
+				case 323: tile_length = values.front(); break;
+				case 324: tile_offsets = std::move(values); break;
+				case 325: tile_byte_counts = std::move(values); break;
+				case 339: sample_format = values.front(); break;
 				default: break;
 			}
-			entry_pos += 12;
 		}
 
-		if (image_width == 0 || image_height == 0 || strip_offsets.empty() || compression != 1 || planar_config != 1) {
+		if (image_width == 0 || image_height == 0) return std::nullopt;
+		if (static_cast<uint64_t>(image_width) * image_height > kMaxPanoramaPixels) return std::nullopt;
+		if (planar_config != 1 || sample_format != 1 || (predictor != 1 && predictor != 2)) return std::nullopt;
+		if (samples_per_pixel == 0 || samples_per_pixel > 8) return std::nullopt;
+		if (compression != 1 && compression != 5 && compression != 8 && compression != 32946 && compression != 32773) return std::nullopt;
+
+		const uint32_t sample_bits = bits_per_sample.front();
+		for (const uint32_t bits : bits_per_sample) {
+			if (bits != sample_bits) return std::nullopt;
+		}
+		if (sample_bits != 8 && sample_bits != 16) return std::nullopt;
+		if (photometric == 2) {
+			if (samples_per_pixel < 3) return std::nullopt;
+		} else if (photometric != 0 && photometric != 1) {
 			return std::nullopt;
 		}
-		if (bits_per_sample != 8 || (samples_per_pixel != 3 && samples_per_pixel != 4)) {
-			return std::nullopt;
+
+		const size_t bytes_per_sample = sample_bits / 8U;
+		const size_t pixel_bytes = static_cast<size_t>(samples_per_pixel) * bytes_per_sample;
+		const size_t row_bytes = static_cast<size_t>(image_width) * pixel_bytes;
+		std::vector<uint8_t> raw(row_bytes * image_height, 0);
+		std::vector<uint8_t> scratch;
+
+		auto decode_block = [&](size_t offset, size_t byte_count, uint32_t block_x, uint32_t block_y, uint32_t block_width, uint32_t block_height) -> bool {
+			const size_t block_row_bytes = static_cast<size_t>(block_width) * pixel_bytes;
+			const size_t expected = block_row_bytes * block_height;
+			if (compression == 1 && byte_count == 0) byte_count = expected;
+			if (byte_count == 0 || offset > data.size() || byte_count > data.size() - offset) return false;
+
+			scratch.assign(expected, 0);
+			const std::span<const uint8_t> source = data.subspan(offset, byte_count);
+			size_t produced = 0;
+			switch (compression) {
+				case 1:
+					produced = std::min(expected, byte_count);
+					std::memcpy(scratch.data(), source.data(), produced);
+					break;
+				case 5:
+					produced = decompress_lzw(source, scratch.data(), expected);
+					break;
+				case 8:
+				case 32946:
+					produced = inflate_zlib(source, scratch.data(), expected);
+					break;
+				case 32773:
+					produced = decompress_packbits(source, scratch.data(), expected);
+					break;
+				default:
+					return false;
+			}
+			if (produced == 0) return false;
+
+			if (predictor == 2) {
+				for (uint32_t r = 0; r < block_height; ++r) {
+					undo_horizontal_predictor(scratch.data() + static_cast<size_t>(r) * block_row_bytes, block_width, samples_per_pixel, bytes_per_sample, little_endian);
+				}
+			}
+
+			const size_t copy_rows = std::min<size_t>(block_height, image_height - block_y);
+			const size_t copy_bytes = std::min<size_t>(block_width, image_width - block_x) * pixel_bytes;
+			for (size_t r = 0; r < copy_rows; ++r) {
+				std::memcpy(
+					raw.data() + ((static_cast<size_t>(block_y) + r) * image_width + block_x) * pixel_bytes,
+					scratch.data() + r * block_row_bytes,
+					copy_bytes
+				);
+			}
+			return true;
+		};
+
+		if (tile_width > 0 && tile_length > 0 && !tile_offsets.empty()) {
+			const uint32_t tiles_across = (image_width + tile_width - 1) / tile_width;
+			const uint32_t tiles_down = (image_height + tile_length - 1) / tile_length;
+			if (tile_offsets.size() < static_cast<size_t>(tiles_across) * tiles_down) return std::nullopt;
+			for (uint32_t ty = 0; ty < tiles_down; ++ty) {
+				for (uint32_t tx = 0; tx < tiles_across; ++tx) {
+					const size_t index = static_cast<size_t>(ty) * tiles_across + tx;
+					const size_t byte_count = (index < tile_byte_counts.size()) ? tile_byte_counts[index] : 0;
+					if (!decode_block(tile_offsets[index], byte_count, tx * tile_width, ty * tile_length, tile_width, tile_length)) {
+						return std::nullopt;
+					}
+				}
+			}
+		} else {
+			if (strip_offsets.empty()) return std::nullopt;
+			if (rows_per_strip == 0 || rows_per_strip > image_height) rows_per_strip = image_height;
+			const size_t strip_count = (static_cast<size_t>(image_height) + rows_per_strip - 1) / rows_per_strip;
+			if (strip_offsets.size() < strip_count) return std::nullopt;
+			for (size_t s = 0; s < strip_count; ++s) {
+				const uint32_t y0 = static_cast<uint32_t>(s * rows_per_strip);
+				const uint32_t rows = std::min(rows_per_strip, image_height - y0);
+				const size_t byte_count = (s < strip_byte_counts.size()) ? strip_byte_counts[s] : 0;
+				if (!decode_block(strip_offsets[s], byte_count, 0, y0, image_width, rows)) {
+					return std::nullopt;
+				}
+			}
 		}
-		if (photometric != 2 && photometric != 0 && photometric != 1) {
-			return std::nullopt;
-		}
-		if (rows_per_strip == 0) rows_per_strip = image_height;
 
 		DecodedPanorama result;
 		result.width = image_width;
 		result.height = image_height;
-		result.pixels.assign(static_cast<size_t>(image_width) * image_height * 3, 0.0f);
+		result.texels.assign(static_cast<size_t>(image_width) * image_height, 0U);
 
-		uint32_t row_cursor = 0;
-		for (size_t strip = 0; strip < strip_offsets.size() && row_cursor < image_height; ++strip) {
-			const uint32_t offset = strip_offsets[strip];
-			const uint32_t rows_in_strip = std::min(rows_per_strip, image_height - row_cursor);
-			const size_t bytes_needed = static_cast<size_t>(rows_in_strip) * image_width * samples_per_pixel;
-			if (static_cast<size_t>(offset) + bytes_needed > data.size()) break;
-
-			for (uint32_t r = 0; r < rows_in_strip; ++r) {
-				const uint32_t y = row_cursor + r;
-				for (uint32_t x = 0; x < image_width; ++x) {
-					const size_t src = static_cast<size_t>(offset) + (static_cast<size_t>(r) * image_width + x) * samples_per_pixel;
-					const size_t dst = (static_cast<size_t>(y) * image_width + x) * 3;
-					if (photometric == 0 || photometric == 1) {
-						const float gray = static_cast<float>(data[src]) / 255.0f;
-						const float g_final = (photometric == 0) ? (1.0f - gray) : gray;
-						result.pixels[dst + 0] = g_final;
-						result.pixels[dst + 1] = g_final;
-						result.pixels[dst + 2] = g_final;
-					} else {
-						result.pixels[dst + 0] = static_cast<float>(data[src + 0]) / 255.0f;
-						result.pixels[dst + 1] = static_cast<float>(data[src + 1]) / 255.0f;
-						result.pixels[dst + 2] = static_cast<float>(data[src + 2]) / 255.0f;
-					}
+		const size_t high_byte_offset = (bytes_per_sample == 2 && little_endian) ? 1 : 0;
+		for (size_t y = 0; y < image_height; ++y) {
+			for (size_t x = 0; x < image_width; ++x) {
+				const size_t base = (y * image_width + x) * pixel_bytes + high_byte_offset;
+				uint8_t r = raw[base];
+				uint8_t g = r;
+				uint8_t b = r;
+				if (photometric == 2) {
+					g = raw[base + bytes_per_sample];
+					b = raw[base + 2 * bytes_per_sample];
+				} else if (photometric == 0) {
+					r = static_cast<uint8_t>(255U - r);
+					g = r;
+					b = r;
 				}
+				result.texels[y * image_width + x] = DecodedPanorama::pack_texel(r, g, b);
 			}
-			row_cursor += rows_in_strip;
 		}
 
 		return result;
@@ -668,29 +818,52 @@ namespace PanoramaDecodeDetail {
 }
 
 class SkyPanoramaLoader {
+public:
+	using ImageHandle = std::shared_ptr<const DecodedPanorama>;
+
 private:
-	SkyPanoramaId loaded_id_{SkyPanoramaId::NightSkyHDRI001};
-	SkyPanoramaQuality loaded_quality_{SkyPanoramaQuality::Q2K};
-	bool has_loaded_{false};
-	DecodedPanorama image_{};
+	static constexpr size_t kSlotCount = 2;
+	static constexpr uint32_t kInvalidKey = 0xFFFFFFFFU;
+
+	struct Slot {
+		uint32_t key{kInvalidKey};
+		uint64_t stamp{0};
+		ImageHandle image{};
+	};
+
 	std::mutex mutex_{};
+	std::array<Slot, kSlotCount> slots_{};
+	uint64_t stamp_counter_{0};
 
 	SkyPanoramaLoader() = default;
 
-	void ensure_loaded(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
-		if (has_loaded_ && id == loaded_id_ && quality == loaded_quality_) {
-			return;
+	[[nodiscard]] static uint32_t make_key(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
+		const uint32_t id_value = std::min(static_cast<uint32_t>(id), static_cast<uint32_t>(SkyPanoramaId::Eso0932a));
+		const uint32_t quality_value = std::min(static_cast<uint32_t>(quality), static_cast<uint32_t>(SkyPanoramaQuality::Q4K));
+		const bool has_variants = sky_panorama_catalog_entry(static_cast<SkyPanoramaId>(id_value)).has_quality_variants;
+		return (id_value << 4) | (has_variants ? quality_value : 0U);
+	}
+
+	[[nodiscard]] static ImageHandle decode_key(uint32_t key) noexcept {
+		const auto id = static_cast<SkyPanoramaId>(key >> 4);
+		const auto quality = static_cast<SkyPanoramaQuality>(key & 0x0FU);
+		const std::string_view path = sky_panorama_relative_path(id, quality);
+		ImageHandle image;
+		try {
+			auto decoded = PanoramaDecodeDetail::decode_panorama_file(path);
+			if (decoded.has_value() && decoded->is_valid()) {
+				image = std::make_shared<const DecodedPanorama>(std::move(*decoded));
+			}
+		} catch (...) {
+			image.reset();
 		}
-		const auto path = sky_panorama_relative_path(id, quality);
-		auto decoded = PanoramaDecodeDetail::decode_panorama_file(path);
-		if (decoded.has_value()) {
-			image_ = std::move(*decoded);
-			has_loaded_ = true;
-		} else {
-			has_loaded_ = false;
+		if (!image) {
+			try {
+				Core::log_error("Sky panorama could not be decoded, the procedural sky is used instead: " + std::string(path));
+			} catch (...) {
+			}
 		}
-		loaded_id_ = id;
-		loaded_quality_ = quality;
+		return image;
 	}
 
 public:
@@ -699,7 +872,27 @@ public:
 		return loader;
 	}
 
-	[[nodiscard]] std::array<float, 3> sample_direction(
+	[[nodiscard]] ImageHandle acquire(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
+		const uint32_t key = make_key(id, quality);
+		std::lock_guard<std::mutex> lock(mutex_);
+		++stamp_counter_;
+		Slot* victim = &slots_[0];
+		for (Slot& slot : slots_) {
+			if (slot.key == key) {
+				slot.stamp = stamp_counter_;
+				return slot.image;
+			}
+			if (slot.stamp < victim->stamp) {
+				victim = &slot;
+			}
+		}
+		victim->key = key;
+		victim->stamp = stamp_counter_;
+		victim->image = decode_key(key);
+		return victim->image;
+	}
+
+	[[nodiscard]] std::optional<std::array<float, 3>> sample_direction(
 		SkyPanoramaId id,
 		SkyPanoramaQuality quality,
 		double dir_x,
@@ -707,10 +900,19 @@ public:
 		double dir_z,
 		double rotation_rad
 	) noexcept {
-		std::lock_guard<std::mutex> lock(mutex_);
-		ensure_loaded(id, quality);
-		if (!has_loaded_) {
-			return {0.0f, 0.0f, 0.0f};
+		struct ThreadCache {
+			uint32_t key{kInvalidKey};
+			ImageHandle image{};
+		};
+		thread_local ThreadCache cache;
+
+		const uint32_t key = make_key(id, quality);
+		if (cache.key != key) {
+			cache.image = acquire(id, quality);
+			cache.key = key;
+		}
+		if (!cache.image) {
+			return std::nullopt;
 		}
 
 		const double cos_r = std::cos(rotation_rad);
@@ -720,7 +922,7 @@ public:
 		const double rz = dir_z;
 
 		const double len = std::sqrt(rx * rx + ry * ry + rz * rz);
-		if (len < 1e-12) return {0.0f, 0.0f, 0.0f};
+		if (len < 1e-12) return std::array<float, 3>{0.0f, 0.0f, 0.0f};
 		const double nz = std::clamp(rz / len, -1.0, 1.0);
 		const double theta = std::acos(nz);
 		const double phi = std::atan2(ry, rx);
@@ -728,7 +930,7 @@ public:
 		const double u = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
 		const double v = theta / std::numbers::pi_v<double>;
 
-		return image_.sample_bilinear(u, v);
+		return cache.image->sample_bilinear(u, v);
 	}
 };
 

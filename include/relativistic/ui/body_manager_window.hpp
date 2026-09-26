@@ -86,6 +86,13 @@ private:
 	float new_body_night_side_light_intensity_{0.0f};
 	bool new_body_ring_system_enabled_{false};
 	bool new_body_is_spacetime_source_{false};
+	char new_bh_name_[32]{"New Black Hole"};
+	float new_bh_mass_{50.0f};
+	float new_bh_spin_[3]{0.0f, 0.0f, 0.0f};
+	float new_bh_charge_{0.0f};
+	float new_bh_pos_[3]{40.0f, 0.0f, 0.0f};
+	float new_bh_vel_[3]{0.0f, 0.0f, 0.0f};
+	bool new_bh_mass_log_mode_{true};
 	bool new_body_mass_log_mode_{true};
 	bool new_body_radius_log_mode_{true};
 	bool new_body_r_ref_log_mode_{true};
@@ -198,6 +205,10 @@ public:
 			}
 			if (ImGui::BeginTabItem("Create Body", nullptr, creation_flags)) {
 				render_creation_tab();
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Spacetime Sources")) {
+				render_spacetime_sources_tab();
 				ImGui::EndTabItem();
 			}
 			if (ImGui::BeginTabItem("System Dynamics")) {
@@ -834,11 +845,11 @@ private:
 			ImGui::TextDisabled("No bodies match the current filter.");
 		} else {
 			for (const size_t i : visible_indices) {
-				const bool is_selected = (selected_body_index_ == static_cast<int>(i));
+				const bool is_selected = (selected_body_index_ == static_cast<int>(bodies[i].id));
 				const double dist = distance_from_center(bodies[i]);
 				const std::string label = display_name(bodies[i]) + "  (M=" + std::to_string(bodies[i].mass).substr(0, 4) + ", r=" + std::to_string(dist).substr(0, 5) + ")";
 				if (ImGui::Selectable(label.c_str(), is_selected)) {
-					selected_body_index_ = static_cast<int>(i);
+					selected_body_index_ = static_cast<int>(bodies[i].id);
 					rename_target_id_ = -1;
 				}
 				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
@@ -866,10 +877,19 @@ private:
 		ImGui::BeginChild("BodyCatalogDetailPane", ImVec2(0.0f, ImGui::GetContentRegionAvail().y), true);
 		if (selected_body_index_ == kCentralObjectIndex) {
 			render_central_object_panel();
-		} else if (selected_body_index_ >= 0 && selected_body_index_ < static_cast<int>(n)) {
-			render_selected_nbody_panel(sys, bodies, n);
 		} else {
-			ImGui::TextDisabled("Select a body from the catalog to inspect or edit its parameters.");
+			size_t resolved_index = n;
+			for (size_t k = 0; k < n; ++k) {
+				if (static_cast<int>(bodies[k].id) == selected_body_index_) {
+					resolved_index = k;
+					break;
+				}
+			}
+			if (resolved_index < n) {
+				render_selected_nbody_panel(sys, bodies, n, resolved_index);
+			} else {
+				ImGui::TextDisabled("Select a body from the catalog to inspect or edit its parameters.");
+			}
 		}
 		ImGui::EndChild();
 	}
@@ -917,8 +937,8 @@ private:
 		}
 	}
 
-	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, auto bodies, size_t n) noexcept {
-		auto& b = bodies[static_cast<size_t>(selected_body_index_)];
+	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, auto bodies, size_t n, size_t index) noexcept {
+		auto& b = bodies[index];
 		bool changed = false;
 
 		const double body_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
@@ -1159,7 +1179,7 @@ private:
 		if (ImGui::Button("Delete Body")) {
 			std::vector<Dynamics::PostNewtonianBody> updated;
 			for (size_t k = 0; k < n; ++k) {
-				if (k != static_cast<size_t>(selected_body_index_)) {
+				if (k != index) {
 					updated.push_back(bodies[k]);
 				}
 			}
@@ -1334,6 +1354,136 @@ private:
 		render_setting_tooltip("Adds the configured body to the running N-body system and selects it in the catalog.");
 	}
 
+	void render_spacetime_sources_tab() noexcept {
+		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> spacetime_sources_lock(sys.bodies_mutex());
+
+		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Primary Metric Source (Fixed At Origin)");
+		ImGui::TextWrapped("The primary spacetime source that curves the rendered background metric and lensing is always fixed at the coordinate origin. Independent black holes below are fully N-body integrated and can move, orbit, drift, and merge.");
+		auto& params = orchestrator_.parameters();
+		float primary_mass = static_cast<float>(params.mass);
+		if (slider_float_with_input("Primary Mass (M)", &primary_mass, 0.01f, 1.0e6f, "%.4e")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(primary_mass))));
+		}
+		float primary_spin = static_cast<float>(params.spin);
+		const float primary_spin_bound = static_cast<float>(0.999 * params.mass);
+		if (slider_float_with_input("Primary Spin (a)", &primary_spin, -primary_spin_bound, primary_spin_bound, "%.4f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, std::clamp(static_cast<double>(primary_spin), -0.999 * params.mass, 0.999 * params.mass))));
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Independent Black Holes (N-Body Integrated)");
+		ImGui::TextWrapped("Each entry below is a fully gravitating Kerr spacetime source participating in N-body dynamics: it attracts and is attracted by every other body, can orbit or drift freely, merges with other black holes on contact, and absorbs ordinary bodies crossing its horizon.");
+
+		bool any_source = false;
+		int source_to_delete = -1;
+		for (auto& body : sys.bodies()) {
+			if (!body.is_spacetime_source) continue;
+			any_source = true;
+			ImGui::PushID(static_cast<int>(body.id) + 500000);
+			const std::string header = display_name(body) + " (#" + std::to_string(body.id) + ")";
+			if (ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+				bool changed = false;
+				float mass = static_cast<float>(body.mass);
+				if (slider_float_with_input("Mass", &mass, 1e-6f, 1.0e8f, "%.4e")) { body.mass = std::max(0.0f, mass); changed = true; }
+				float spin_vec[3] = {static_cast<float>(body.spin[0]), static_cast<float>(body.spin[1]), static_cast<float>(body.spin[2])};
+				if (ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)", spin_vec)) { body.spin = {static_cast<double>(spin_vec[0]), static_cast<double>(spin_vec[1]), static_cast<double>(spin_vec[2])}; changed = true; }
+				ImGui::TextDisabled("Dimensionless spin a/M = %.4f | Outer Horizon r_h = %.4f", body.kerr_spin_parameter(), body.kerr_outer_horizon_radius());
+				float charge = static_cast<float>(body.charge);
+				if (slider_float_with_input("Charge", &charge, -10.0f, 10.0f, "%.4e")) { body.charge = static_cast<double>(charge); changed = true; }
+				float pos[3] = {static_cast<float>(body.position[0]), static_cast<float>(body.position[1]), static_cast<float>(body.position[2])};
+				if (ImGui::InputFloat3("Position (x, y, z)", pos)) { body.position = {static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2])}; changed = true; }
+				float vel[3] = {static_cast<float>(body.velocity[0]), static_cast<float>(body.velocity[1]), static_cast<float>(body.velocity[2])};
+				if (ImGui::InputFloat3("Velocity (vx, vy, vz)", vel)) { body.velocity = {static_cast<double>(vel[0]), static_cast<double>(vel[1]), static_cast<double>(vel[2])}; changed = true; }
+				if (ImGui::Button("Set Circular Orbit Velocity")) {
+					body.velocity = compute_circular_orbit_velocity(body.position, orchestrator_.parameters().mass);
+					changed = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Look At")) {
+					look_at(body.position);
+				}
+				ImGui::SameLine();
+				bool tracking_this = tracking_enabled_ && tracked_body_id_ == static_cast<int>(body.id);
+				if (ImGui::Checkbox("Track", &tracking_this)) {
+					tracking_enabled_ = tracking_this;
+					tracked_body_id_ = tracking_this ? static_cast<int>(body.id) : -1;
+				}
+				if (ImGui::Button("Revert To Ordinary Body")) {
+					body.is_spacetime_source = false;
+					changed = true;
+				}
+				render_setting_tooltip("Removes this body's gravitating-source status; it becomes an ordinary body without its own event horizon, no longer able to absorb or merge with other bodies.");
+				ImGui::SameLine();
+				if (ImGui::Button("Delete This Black Hole")) {
+					source_to_delete = static_cast<int>(body.id);
+				}
+				if (changed) {
+					orchestrator_.notify_state_changed();
+				}
+			}
+			ImGui::PopID();
+		}
+		if (!any_source) {
+			ImGui::TextDisabled("No independent black holes yet. Create one below.");
+		}
+		if (source_to_delete >= 0) {
+			std::vector<Dynamics::PostNewtonianBody> survivors;
+			for (const auto& b : sys.bodies()) {
+				if (static_cast<int>(b.id) != source_to_delete) survivors.push_back(b);
+			}
+			sys.clear_bodies();
+			for (auto& b : survivors) sys.add_body(b);
+			sys.update_accelerations();
+			orchestrator_.notify_state_changed();
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Create New Black Hole");
+		ImGui::InputText("Name##NewBH", new_bh_name_, sizeof(new_bh_name_));
+		slider_float_with_input("Mass##NewBH", &new_bh_mass_, 1e-3f, 1.0e8f, "%.4e", &new_bh_mass_log_mode_, 1e-9f, 1e12f);
+		ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)##NewBH", new_bh_spin_);
+		slider_float_with_input("Charge##NewBH", &new_bh_charge_, -10.0f, 10.0f, "%.4e");
+		ImGui::InputFloat3("Position (x, y, z)##NewBH", new_bh_pos_);
+		ImGui::InputFloat3("Velocity (vx, vy, vz)##NewBH", new_bh_vel_);
+		if (ImGui::Button("Auto-Fill Circular Orbit Velocity##NewBH", ImVec2(-1.0f, 24.0f))) {
+			const std::array<double, 3> pos{static_cast<double>(new_bh_pos_[0]), static_cast<double>(new_bh_pos_[1]), static_cast<double>(new_bh_pos_[2])};
+			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass + static_cast<double>(new_bh_mass_));
+			new_bh_vel_[0] = static_cast<float>(v[0]);
+			new_bh_vel_[1] = static_cast<float>(v[1]);
+			new_bh_vel_[2] = static_cast<float>(v[2]);
+		}
+		render_setting_tooltip("Computes the Keplerian circular-orbit velocity for the position above, treating the combined primary and new black hole mass as the effective central mass.");
+		if (ImGui::Button("Spawn Black Hole", ImVec2(-1.0f, 30.0f))) {
+			Dynamics::PostNewtonianBody body(
+				0,
+				static_cast<double>(new_bh_mass_),
+				static_cast<double>(new_bh_mass_) * 2.0,
+				{static_cast<double>(new_bh_pos_[0]), static_cast<double>(new_bh_pos_[1]), static_cast<double>(new_bh_pos_[2])},
+				{static_cast<double>(new_bh_vel_[0]), static_cast<double>(new_bh_vel_[1]), static_cast<double>(new_bh_vel_[2])},
+				{static_cast<double>(new_bh_spin_[0]), static_cast<double>(new_bh_spin_[1]), static_cast<double>(new_bh_spin_[2])}
+			);
+			body.set_name(unique_name(std::string_view(new_bh_name_)));
+			body.charge = static_cast<double>(new_bh_charge_);
+			body.is_spacetime_source = true;
+			apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
+			sys.add_body(body);
+			sys.update_accelerations();
+			selected_body_index_ = -1;
+			orchestrator_.notify_state_changed();
+			const std::string refreshed_name = unique_name("New Black Hole");
+			std::strncpy(new_bh_name_, refreshed_name.c_str(), sizeof(new_bh_name_) - 1);
+			new_bh_name_[sizeof(new_bh_name_) - 1] = '\0';
+		}
+		render_setting_tooltip("Adds a fully N-body integrated independent black hole with its own Kerr event horizon to the running simulation, using the mass, spin, charge, position, and velocity configured above.");
+
+		ImGui::Spacing();
+		if (ImGui::Button("Spawn Companion In Wide Circular Orbit (Randomized)", ImVec2(-1.0f, 26.0f))) {
+			spawn_orbiting_spacetime_source();
+		}
+		render_setting_tooltip("Creates a new independent black hole roughly half the mass of the primary central object on a wide, randomly inclined circular orbit.");
+	}
+
 	void render_system_dynamics_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
 		std::lock_guard<std::recursive_mutex> system_dynamics_lock(sys.bodies_mutex());
@@ -1440,12 +1590,7 @@ private:
 				const double dist = distance_from_center(body);
 				const std::string label = display_name(body) + " (M=" + std::to_string(body.mass).substr(0, 5) + ", a/M=" + std::to_string(body.kerr_spin_parameter()).substr(0, 5) + ", r_h=" + std::to_string(body.kerr_outer_horizon_radius()).substr(0, 5) + ", dist=" + std::to_string(dist).substr(0, 6) + ")";
 				if (ImGui::Selectable(label.c_str(), false)) {
-					for (size_t k = 0; k < sys.bodies().size(); ++k) {
-						if (sys.bodies()[k].id == body.id) {
-							selected_body_index_ = static_cast<int>(k);
-							break;
-						}
-					}
+					selected_body_index_ = static_cast<int>(body.id);
 				}
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Look At")) {

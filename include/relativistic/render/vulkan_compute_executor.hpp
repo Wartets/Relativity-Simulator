@@ -93,13 +93,16 @@ private:
 			return std::nullopt;
 		}
 		const std::streamsize size = file.tellg();
-		if (size <= 0 || (size % 4) != 0) {
+		if (size < 20 || (size % 4) != 0) {
 			return std::nullopt;
 		}
 		std::vector<uint32_t> code(static_cast<size_t>(size) / 4);
 		file.seekg(0);
 		file.read(reinterpret_cast<char*>(code.data()), size);
 		if (!file) {
+			return std::nullopt;
+		}
+		if (code.front() != 0x07230203U) {
 			return std::nullopt;
 		}
 		return code;

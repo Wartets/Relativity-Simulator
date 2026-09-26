@@ -326,7 +326,7 @@ private:
 				const double dy = b.position[1] - sb.position[1];
 				const double dz = b.position[2] - sb.position[2];
 				const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
-				if (r <= source.horizon_radius * 1.001) {
+				if (r <= sb.kerr_outer_horizon_radius() * 1.001) {
 					const double m_total = sb.mass + b.mass;
 					if (m_total > 0.0) {
 						for (size_t c = 0; c < 3; ++c) {
@@ -352,7 +352,7 @@ private:
 				const double dy = sa.position[1] - sbo.position[1];
 				const double dz = sa.position[2] - sbo.position[2];
 				const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
-				const double contact = std::max(sources[i].horizon_radius, sources[j].horizon_radius);
+				const double contact = std::max(sa.kerr_outer_horizon_radius(), sbo.kerr_outer_horizon_radius());
 				if (r <= contact * 1.05) {
 					const double m_total = sa.mass + sbo.mass;
 					auto& survivor = (sa.mass >= sbo.mass) ? sa : sbo;
@@ -388,6 +388,7 @@ private:
 
 	void step_nbody_dynamics(double dt) noexcept {
 		if (dt <= 0.0 || nbody_system_.body_count() == 0) return;
+		std::lock_guard<std::recursive_mutex> step_lock(nbody_system_.bodies_mutex());
 		std::vector<std::pair<size_t, Dynamics::PostNewtonianBody>> disabled_bodies;
 		for (size_t i = 0; i < nbody_system_.bodies().size(); ++i) {
 			if (!nbody_system_.bodies()[i].enabled) disabled_bodies.emplace_back(i, nbody_system_.bodies()[i]);

@@ -191,7 +191,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.color_primary = {color[0], color[1], color[2], color[3]};
 		gpu.color_secondary = {color_secondary[0], color_secondary[1], color_secondary[2], color_secondary[3]};
 		gpu.atmosphere_color = {atmosphere_color[0], atmosphere_color[1], atmosphere_color[2], atmosphere_color[3]};
-		gpu.radius = radius;
+		gpu.radius = is_spacetime_source ? std::max(kerr_outer_horizon_radius(), 1e-6) : radius;
 		gpu.mass = mass;
 		gpu.charge = charge;
 		gpu.temperature = temperature;
@@ -212,6 +212,15 @@ struct alignas(64) PostNewtonianBody {
 		gpu.surface_texture_mode = static_cast<uint32_t>(surface_texture_mode);
 		gpu.atmosphere_mode = static_cast<uint32_t>(atmosphere_mode);
 		gpu.preset_3d = static_cast<uint32_t>(preset_3d);
+		if (is_spacetime_source) {
+			gpu.color_primary = {0.0, 0.0, 0.0, 1.0};
+			gpu.color_secondary = {0.01, 0.01, 0.015, 1.0};
+			gpu.color_tertiary = {0.02, 0.02, 0.025, 1.0};
+			gpu.emission_intensity = 0.0;
+			gpu.atmosphere_thickness = 0.0;
+			gpu.night_side_light_intensity = 0.0;
+			gpu.ring_system_enabled = 0.0;
+		}
 		return gpu;
 	}
 };

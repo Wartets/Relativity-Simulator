@@ -1696,6 +1696,77 @@ private:
 		return {to_srgb(r), to_srgb(g), to_srgb(b)};
 	}
 
+	struct SubsidiarySourceHit {
+		bool absorbed{false};
+		bool disk_hit{false};
+		std::array<float, 3> color{0.0f, 0.0f, 0.0f};
+		double opacity{0.0};
+	};
+
+	[[nodiscard]] static SubsidiarySourceHit evaluate_subsidiary_spacetime_sources(
+		const std::array<double, 3>& seg_start,
+		const std::array<double, 3>& seg_end,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		SubsidiarySourceHit result{};
+
+		const double seg_dx = seg_end[0] - seg_start[0];
+		const double seg_dy = seg_end[1] - seg_start[1];
+		const double seg_dz = seg_end[2] - seg_start[2];
+		const double a_coeff = seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz;
+		if (a_coeff <= 1e-18) {
+			return result;
+		}
+
+		for (const auto& body : bodies) {
+			if (body.preset_3d != 8U) continue;
+			const double m = std::max(body.mass, 1e-6);
+			const double rh = 2.0 * m;
+			const double isco = 6.0 * m;
+			const double disk_outer = 24.0 * m;
+
+			const double ox = seg_start[0] - body.position[0];
+			const double oy = seg_start[1] - body.position[1];
+			const double oz = seg_start[2] - body.position[2];
+
+			const double b_coeff = 2.0 * (ox * seg_dx + oy * seg_dy + oz * seg_dz);
+			const double c_coeff = ox * ox + oy * oy + oz * oz - rh * rh;
+			const double discr = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
+			if (discr >= 0.0) {
+				const double sqrt_discr = std::sqrt(discr);
+				const double t1 = (-b_coeff - sqrt_discr) / (2.0 * a_coeff);
+				const double t2 = (-b_coeff + sqrt_discr) / (2.0 * a_coeff);
+				const bool hits = (t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0);
+				if (hits) {
+					result.absorbed = true;
+					return result;
+				}
+			}
+
+			const double prev_z_rel = seg_start[2] - body.position[2];
+			const double curr_z_rel = seg_end[2] - body.position[2];
+			const double z_span = curr_z_rel - prev_z_rel;
+			if (prev_z_rel * curr_z_rel <= 0.0 && std::abs(z_span) > 1e-15) {
+				const double s_cross = std::clamp(std::abs(prev_z_rel) / std::abs(z_span), 0.0, 1.0);
+				const double cross_x = seg_start[0] + s_cross * seg_dx - body.position[0];
+				const double cross_y = seg_start[1] + s_cross * seg_dy - body.position[1];
+				const double r_cross = std::sqrt(cross_x * cross_x + cross_y * cross_y);
+				if (r_cross >= isco && r_cross <= disk_outer) {
+					const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
+					const double g_doppler = std::sqrt(std::max(1.0 - rh / r_cross, 1e-4));
+					const double t_eff_k = (18000.0 * t_norm + 1200.0) * g_doppler;
+					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+					const double flux_intensity = std::max(std::pow(g_doppler, 4.0) * t_norm * radial_envelope, 0.0) * 1.5;
+					result.disk_hit = true;
+					result.color = temperature_to_linear_rgb(t_eff_k, flux_intensity);
+					result.opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+					return result;
+				}
+			}
+		}
+		return result;
+	}
+
 private:
 	static void fill_bodies_only_sky(
 		const GpuCameraPushConstants& params,
@@ -1772,7 +1843,8 @@ public:
 		for (const auto& b : bodies) {
 			const double radius = std::max(b.radius, 1e-6);
 			const double oblateness = std::clamp(b.oblateness_ratio, 0.1, 5.0);
-			const double bound_r = radius * std::max(1.0, oblateness) * 1.2;
+			const double subsidiary_disk_extent = (b.preset_3d == 8U) ? (24.0 * std::max(b.mass, 1e-6)) : 0.0;
+			const double bound_r = std::max(radius * std::max(1.0, oblateness), subsidiary_disk_extent) * 1.2;
 			const double d = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
 			min_body_r = std::min(min_body_r, std::max(0.0, d - bound_r));
 			max_body_r = std::max(max_body_r, d + bound_r);
@@ -2095,6 +2167,19 @@ public:
 							const double seg_dz = seg_z1 - seg_z0;
 							const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz);
 							if (seg_len > 1e-12) {
+								const auto subsidiary_hit = evaluate_subsidiary_spacetime_sources({seg_x0, seg_y0, seg_z0}, {seg_x1, seg_y1, seg_z1}, bodies);
+								if (subsidiary_hit.absorbed) {
+									throughput = 0.0;
+									status |= PixelFlags::HORIZON_ABSORBED;
+									break;
+								}
+								if (subsidiary_hit.disk_hit) {
+									accumulated_r += throughput * static_cast<double>(subsidiary_hit.color[0]);
+									accumulated_g += throughput * static_cast<double>(subsidiary_hit.color[1]);
+									accumulated_b += throughput * static_cast<double>(subsidiary_hit.color[2]);
+									status |= PixelFlags::ACCRETION_DISK_HIT;
+									throughput *= (1.0 - subsidiary_hit.opacity);
+								}
 								const std::array<double, 3> seg_orig{seg_x0, seg_y0, seg_z0};
 								const std::array<double, 3> seg_dir{seg_dx / seg_len, seg_dy / seg_len, seg_dz / seg_len};
 								const auto seg_hit = evaluate_3d_bodies(seg_orig, seg_dir, bodies, params, body_candidates);

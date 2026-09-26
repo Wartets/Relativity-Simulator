@@ -1411,6 +1411,7 @@ private:
 				}
 				if (ImGui::Button("Revert To Ordinary Body")) {
 					body.is_spacetime_source = false;
+					apply_body_preset_defaults(body, Dynamics::Body3DPreset::Metallic);
 					changed = true;
 				}
 				render_setting_tooltip("Removes this body's gravitating-source status; it becomes an ordinary body without its own event horizon, no longer able to absorb or merge with other bodies.");

@@ -815,9 +815,11 @@ private:
 			if (ImGui::InputText("Output Directory", screenshot_dir_buffer_, sizeof(screenshot_dir_buffer_))) {
 				user_settings_.screenshot_output_directory = screenshot_dir_buffer_;
 			}
+			render_setting_tooltip("Destination folder where captured screenshots and video sequences are written.");
 			if (ImGui::InputText("Filename Pattern", screenshot_pattern_buffer_, sizeof(screenshot_pattern_buffer_))) {
 				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
 			}
+			render_setting_tooltip("Formatting template with metadata tags (%metric%, %mass%, %spin%, %tick%, %Y%m%d_%H%M%S).");
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Smart Name")) {
 				static constexpr const char* kSmartPattern = "%metric%_M%mass%_a%spin%_%width%x%height%_%Y%m%d_%H%M%S";
@@ -825,6 +827,7 @@ private:
 				screenshot_pattern_buffer_[sizeof(screenshot_pattern_buffer_) - 1] = '\0';
 				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
 			}
+			render_setting_tooltip("Applies recommended scientific naming pattern containing metric parameters and date.");
 
 			const char* format_names[] = {
 				"PPM (Lossless, Fast)",
@@ -844,8 +847,10 @@ private:
 			if (ImGui::Combo("If File Exists", &overwrite_idx, overwrite_names, IM_ARRAYSIZE(overwrite_names))) {
 				user_settings_.screenshot_overwrite_policy = static_cast<uint32_t>(overwrite_idx);
 			}
+			render_setting_tooltip("Collision resolution rule when saving a file whose target path already exists on disk.");
 
 			ImGui::Checkbox("Embed Watermark / Comment", &user_settings_.screenshot_watermark_enabled);
+			render_setting_tooltip("Toggles embedding custom textual metadata into supported export formats.");
 			if (user_settings_.screenshot_watermark_enabled) {
 				if (ImGui::InputText("Watermark Text", screenshot_watermark_buffer_, sizeof(screenshot_watermark_buffer_))) {
 					user_settings_.screenshot_watermark_text = screenshot_watermark_buffer_;
@@ -854,6 +859,7 @@ private:
 			}
 
 			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
+			render_setting_tooltip("Off-screen super-resolution factor applied during high-fidelity capture generation.");
 			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale. Capturing now runs in the background and never freezes the interface.");
 
 			IO::ScreenshotCaptureContext preview_ctx;
@@ -879,12 +885,16 @@ private:
 				if (ImGui::Button("Capture Now", ImVec2(140.0f, 26.0f))) {
 					trigger_screenshot_capture();
 				}
+				render_setting_tooltip("Triggers immediate asynchronous capture of the current simulation frame.");
 			} else {
 				ImGui::Separator();
 				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Sequence & Video Assembly");
 
-				ImGui::SliderFloat("Sequence Frame Rate", &sequence_settings_.frames_per_second, 1.0f, 120.0f, "%.0f fps");
-				ImGui::SliderFloat("Internal Resolution Scale", &sequence_settings_.resolution_scale, 0.1f, 2.0f, "%.2fx");
+				if (ImGui::SliderFloat("Sequence Frame Rate", &sequence_settings_.frames_per_second, 1.0f, 120.0f, "%.0f fps")) {
+				}
+				render_setting_tooltip("Temporal frame sampling frequency for the recorded image sequence.");
+				if (ImGui::SliderFloat("Internal Resolution Scale", &sequence_settings_.resolution_scale, 0.1f, 2.0f, "%.2fx")) {
+				}
 				render_setting_tooltip("Applied on top of the live viewport resolution scale for every captured sequence frame, independent of the single-screenshot multiplier above.");
 
 				const char* trigger_names[] = {"Manual (Stop Button)", "Fixed Duration", "Fixed Frame Count", "Continuous Until Stopped"};
@@ -892,18 +902,24 @@ private:
 				if (ImGui::Combo("Stop Condition", &trigger_idx, trigger_names, IM_ARRAYSIZE(trigger_names))) {
 					sequence_settings_.trigger = static_cast<IO::SequenceCaptureTrigger>(trigger_idx);
 				}
+				render_setting_tooltip("Defines termination condition for sequence recording.");
 
 				if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedDuration) {
-					ImGui::SliderFloat("Sequence Duration", &sequence_settings_.duration_seconds, 0.5f, 600.0f, "%.1f s");
+					if (ImGui::SliderFloat("Sequence Duration", &sequence_settings_.duration_seconds, 0.5f, 600.0f, "%.1f s")) {
+					}
+					render_setting_tooltip("Total recording duration in physical simulation seconds.");
 					const float estimated_frames = sequence_settings_.frames_per_second * sequence_settings_.duration_seconds;
 					ImGui::TextDisabled("Approximately %.0f frames will be written.", static_cast<double>(estimated_frames));
 				} else if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
-					ImGui::SliderInt("Frame Count", &sequence_frame_count_, 1, 100000);
+					if (ImGui::SliderInt("Frame Count", &sequence_frame_count_, 1, 100000)) {
+					}
+					render_setting_tooltip("Exact total frame count to write before stopping.");
 				}
 
 				ImGui::Checkbox("Pause Simulation While Capturing", &sequence_settings_.pause_simulation_during_capture);
 				render_setting_tooltip("Pauses the simulation clock for the duration of the sequence capture so every frame advances by exactly one render step, avoiding motion judder from real-time playback speed variance.");
 				ImGui::Checkbox("Loop Output Video", &sequence_settings_.loop_output);
+				render_setting_tooltip("Adds loop flags to the generated ffmpeg assembly command.");
 
 				ImGui::Separator();
 				ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.3f, 1.0f), "Video Encoding Preset (External ffmpeg)");
@@ -912,16 +928,19 @@ private:
 				if (ImGui::Combo("Video Codec", &codec_idx, codec_names, IM_ARRAYSIZE(codec_names))) {
 					sequence_settings_.codec = static_cast<IO::VideoCodecPreset>(codec_idx);
 				}
+				render_setting_tooltip("Target video compression standard used in the generated ffmpeg script.");
 				const char* container_names[] = {"MP4", "MKV", "MOV", "WebM"};
 				int container_idx = static_cast<int>(sequence_settings_.container);
 				if (ImGui::Combo("Container", &container_idx, container_names, IM_ARRAYSIZE(container_names))) {
 					sequence_settings_.container = static_cast<IO::VideoContainer>(container_idx);
 				}
+				render_setting_tooltip("Media container encapsulation format.");
 				if (sequence_settings_.codec != IO::VideoCodecPreset::PngSequence) {
 					int crf_val = static_cast<int>(sequence_settings_.crf);
 					if (ImGui::SliderInt("Quality (CRF, Lower = Better)", &crf_val, 0, 51)) {
 						sequence_settings_.crf = static_cast<uint32_t>(crf_val);
 					}
+					render_setting_tooltip("Constant Rate Factor determining compression quality (0 is lossless, 18-23 is visually lossless).");
 				}
 
 				const std::string extension_for_ffmpeg = (user_settings_.screenshot_format == 2U) ? "png" : (user_settings_.screenshot_format == 3U) ? "tga" : (user_settings_.screenshot_format == 4U) ? "hdr" : (user_settings_.screenshot_format == 1U) ? "bmp" : "ppm";
@@ -940,6 +959,7 @@ private:
 					if (ImGui::Button("Stop Sequence Capture", ImVec2(180.0f, 26.0f))) {
 						viewport_window_->stop_sequence_capture();
 					}
+					render_setting_tooltip("Terminates ongoing frame sequence recording.");
 				} else if (viewport_window_) {
 					if (ImGui::Button("Start Sequence Capture", ImVec2(200.0f, 26.0f))) {
 						viewport_window_->start_sequence_capture(
@@ -953,6 +973,7 @@ private:
 							sequence_settings_.pause_simulation_during_capture
 						);
 					}
+					render_setting_tooltip("Begins recording periodic rendered frames to the output directory.");
 				}
 			}
 
@@ -960,6 +981,7 @@ private:
 			if (ImGui::Button("Close", ImVec2(100.0f, 26.0f))) {
 				ImGui::CloseCurrentPopup();
 			}
+			render_setting_tooltip("Closes the Capture Studio configuration window.");
 			ImGui::EndPopup();
 		}
 	}

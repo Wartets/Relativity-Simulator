@@ -139,20 +139,20 @@ public:
 				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_SCALAR_PIPELINE, !use_simd)));
 			}
-			render_setting_tooltip("Evaluate bundles of 4 geodesic rays simultaneously using AVX2/AVX-512 vector registers.");
+			render_setting_tooltip("Executes null-geodesic RK4 integration across 4 parallel SIMD lanes per CPU thread.");
 
 			bool use_pool = !(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_PER_FRAME_THREADS);
 			if (ImGui::Checkbox("Persistent Thread Pool Work Distribution", &use_pool)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_visual_overlay(Render::RenderFlags::USE_PER_FRAME_THREADS, !use_pool)));
 			}
-			render_setting_tooltip("Use persistent worker threads synchronized via condition variables instead of spawning new threads per frame.");
+			render_setting_tooltip("Dispatches render tiles through a persistent thread pool to eliminate thread creation latency.");
 
 			bool use_tiling = (orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::USE_TILED_DISTRIBUTION) != 0U;
 			if (ImGui::Checkbox("Tiled Work Distribution (32x32 Tiles)", &use_tiling)) {
 				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WorkDistributionMode, use_tiling ? 1.0 : 0.0)));
 			}
-			render_setting_tooltip("Subdivide the screen into 32x32 pixel tiles for optimal CPU cache locality and balanced thread loads.");
+			render_setting_tooltip("Partitions screen into 32x32 pixel tiles for superior L1/L2 cache locality and load balancing.");
 
 			ImGui::Spacing();
 			ImGui::Separator();
@@ -175,11 +175,13 @@ public:
 				if (ImGui::SliderFloat("LOD Threshold Distance (M units)", &lod_threshold, 1.0f, 5000.0f, "%.0f")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodDistanceThreshold, static_cast<double>(lod_threshold))));
 				}
+				render_setting_tooltip("Observer radial distance beyond which the reduced ray step budget is enforced.");
 
 				int lod_steps = static_cast<int>(orchestrator_.parameters().lod_reduced_ray_steps);
 				if (ImGui::SliderInt("LOD Reduced Step Budget", &lod_steps, 16, 4096)) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodReducedSteps, static_cast<double>(lod_steps))));
 				}
+				render_setting_tooltip("Maximum integration steps allotted per ray when the observer is beyond the LOD threshold.");
 			}
 
 			ImGui::Spacing();
@@ -305,6 +307,7 @@ public:
 				if (ImGui::SliderFloat("Motion Render Scale", &motion_quality_scale_, 0.05f, 2.0f, "%.2fx")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::MotionQualityScale, static_cast<double>(motion_quality_scale_))));
 				}
+				render_setting_tooltip("Fixed internal resolution scale multiplier used strictly during active camera translation.");
 			}
 
 			ImGui::Spacing();

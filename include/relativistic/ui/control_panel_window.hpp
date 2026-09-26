@@ -301,7 +301,10 @@ private:
 				mass_ = static_cast<float>(mass_kg_disp / active_mass_scale_disp);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
-			render_setting_tooltip(("Central gravitating mass, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ". Governs Schwarzschild radius rs = 2M and spacetime curvature strength. Enable Log for finer control across small or very large magnitudes.").c_str());
+			const std::string mass_tt = "Central gravitating mass in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) +
+				". Sets horizon rs = " + std::to_string(2.0 * static_cast<double>(mass_)).substr(0, 5) +
+				" M and photon orbit r_ph = " + std::to_string(3.0 * static_cast<double>(mass_)).substr(0, 5) + " M.";
+			render_setting_tooltip(mass_tt.c_str());
 
 			const double active_mass_scale = orchestrator_.constants_engine().mass_scale();
 			mass_quantity_kg_ = static_cast<double>(mass_) * active_mass_scale;
@@ -312,7 +315,7 @@ private:
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, new_mass)));
 				}
 			}
-			render_setting_tooltip("Enter the central mass as a plain value or as a unit-aware expression, for example \"1.989e30 kg\" or \"1 msun\". The value must have dimensions of mass and is converted through the simulation's current Mass Scale factor from the Physical Constants Engine.");
+			render_setting_tooltip("Enter central mass with arbitrary unit expression (e.g. '1.989e30 kg', '4.3e6 msun'). Automatically scaled via active constants.");
 		}
 
 		if (needs_spin) {
@@ -320,10 +323,13 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
 			}
 			const auto spin_warning = metric_spin_incompatibility(orchestrator_.active_metric_name(), static_cast<double>(spin_), static_cast<double>(mass_));
+			const double spin_ratio = std::abs(static_cast<double>(spin_)) / std::max(static_cast<double>(mass_), 1e-6);
+			const std::string spin_info = "Dimensionless spin a/M = " + std::to_string(spin_ratio).substr(0, 5) +
+				(spin_ratio > 0.95 ? " (near-extremal ergosphere deformation)" : " (standard frame dragging)");
 			if (!spin_warning.empty()) {
-				render_setting_tooltip_warning("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.", std::string(spin_warning).c_str());
+				render_setting_tooltip_warning(spin_info.c_str(), std::string(spin_warning).c_str());
 			} else {
-				render_setting_tooltip("Specific angular momentum a = J / M. Deforms the event horizon into an oblate spheroid and induces Lense-Thirring frame-dragging.");
+				render_setting_tooltip(spin_info.c_str());
 			}
 		}
 
@@ -333,28 +339,31 @@ private:
 				charge_ = static_cast<float>(charge_disp);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
 			}
-			render_setting_tooltip(("Net electrostatic charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ". Creates an inner Cauchy horizon and counteracts gravitational attraction.").c_str());
+			const double q_ratio = std::abs(static_cast<double>(charge_)) / std::max(static_cast<double>(mass_), 1e-6);
+			const std::string charge_info = "Electrostatic charge in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) +
+				" (|Q|/M = " + std::to_string(q_ratio).substr(0, 5) + "). Repulsive geometry shifts outer horizon inwards.";
+			render_setting_tooltip(charge_info.c_str());
 		}
 
 		if (needs_lambda) {
 			if (slider_float_with_input("Cosmological Lambda", &lambda_, 1e-8f, 1e-2f, "%.2e", &lambda_log_mode_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
-			render_setting_tooltip("Cosmological constant responsible for large-scale cosmic acceleration and cosmological horizon creation. Logarithmic mode is on by default since this value typically spans many orders of magnitude.");
+			render_setting_tooltip("Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
 		}
 
 		if (needs_throat) {
 			if (ImGui::SliderFloat("Wormhole Throat (b0)", &throat_, 0.1f, 20.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
 			}
-			render_setting_tooltip("Radius of the non-singular throat b0 for the Morris-Thorne wormhole connecting two distinct asymptotically flat universes.");
+			render_setting_tooltip("Non-singular throat radius b0 connecting two asymptotically flat Riemannian universe sheets.");
 		}
 
 		if (needs_warp_velocity) {
 			if (ImGui::SliderFloat("Warp Bubble Velocity (vs)", &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
 			}
-			render_setting_tooltip("Apparent transluminal velocity of the Alcubierre spacetime bubble contracting space ahead and expanding behind.");
+			render_setting_tooltip("Apparent transluminal shift velocity vs of the Alcubierre spacetime perturbation bubble.");
 		}
 
 		if (!has_any_param) {
@@ -468,6 +477,7 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostShadows, 0.0)));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PostVignetteStrength, 0.0)));
 		}
+		render_setting_tooltip("Resets all post-tonemapping color grading parameters to neutral defaults.");
 
 		ImGui::Separator();
 
@@ -512,32 +522,41 @@ private:
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
 
 		const char* coord_systems[] = {"Cartesian (x, y, z)", "Spherical (r, theta, phi)"};
-		ImGui::Combo("Coordinate System", &camera_coord_system_, coord_systems, IM_ARRAYSIZE(coord_systems));
+		if (ImGui::Combo("Coordinate System", &camera_coord_system_, coord_systems, IM_ARRAYSIZE(coord_systems))) {
+			manual_placement_dirty_ = true;
+		}
+		render_setting_tooltip("Switches manual camera input between Cartesian (x, y, z) and Boyer-Lindquist spherical (r, theta, phi) coordinates.");
 
 		if (camera_coord_system_ == 0) {
 			if (ImGui::InputFloat3("Position (x, y, z)", manual_cartesian_position_)) {
 				manual_placement_dirty_ = true;
 			}
+			render_setting_tooltip("World-space Cartesian coordinates in geometric length units.");
 		} else {
 			if (ImGui::InputFloat("Radius (r)", &manual_spherical_position_[0])) {
 				manual_placement_dirty_ = true;
 			}
+			render_setting_tooltip("Radial Boyer-Lindquist / spherical distance from central origin.");
 			if (ImGui::SliderAngle("Polar Angle (theta)", &manual_spherical_position_[1], 0.1f, 179.9f)) {
 				manual_placement_dirty_ = true;
 			}
+			render_setting_tooltip("Polar colatitude angle theta (0 deg = North Pole, 90 deg = Equator, 180 deg = South Pole).");
 			if (ImGui::SliderAngle("Azimuthal Angle (phi)", &manual_spherical_position_[2], -180.0f, 180.0f)) {
 				manual_placement_dirty_ = true;
 			}
+			render_setting_tooltip("Azimuthal longitude angle phi around the central rotation axis.");
 		}
 
 		if (ImGui::InputFloat3("Orientation (pitch, yaw, roll)", manual_orientation_)) {
 			manual_placement_dirty_ = true;
 		}
+		render_setting_tooltip("Tait-Bryan intrinsic rotation angles in degrees defining observer look direction.");
 
 		if (ImGui::Button("Apply Camera Placement", ImVec2(220.0f, 28.0f))) {
 			apply_manual_camera_placement();
 			manual_placement_dirty_ = false;
 		}
+		render_setting_tooltip("Synchronizes manual position and orientation with the active simulation observer tetrad.");
 	}
 
 	void render_camera_controls_tab() noexcept {
@@ -548,15 +567,18 @@ private:
 		if (ImGui::SliderFloat("Mouse Sensitivity", &mouse_sens, 0.01f, 1.0f, "%.3f")) {
 			cfg.free_fly.mouse_sensitivity = static_cast<double>(mouse_sens);
 		}
+		render_setting_tooltip("Angular pitch and yaw sensitivity scaling factor for viewport mouse look.");
 		bool invert_mouse_y = cfg.free_fly.invert_mouse_y;
 		if (ImGui::Checkbox("Invert Mouse Y", &invert_mouse_y)) {
 			cfg.free_fly.invert_mouse_y = invert_mouse_y;
 		}
+		render_setting_tooltip("Reverses vertical pitch response to mouse movement.");
 		ImGui::SameLine();
 		bool invert_mouse_x = cfg.free_fly.invert_mouse_x;
 		if (ImGui::Checkbox("Invert Mouse X", &invert_mouse_x)) {
 			cfg.free_fly.invert_mouse_x = invert_mouse_x;
 		}
+		render_setting_tooltip("Reverses horizontal yaw response to mouse movement.");
 
 		ImGui::Separator();
 		bool ignore_pitch_roll = cfg.free_fly.ignore_pitch_roll_for_movement;
@@ -576,60 +598,80 @@ private:
 		if (ImGui::SliderFloat("Zoom Scroll Sensitivity", &zoom_sens, 0.02f, 1.0f, "%.2f")) {
 			cfg.zoom.zoom_scroll_sensitivity = static_cast<double>(zoom_sens);
 		}
+		render_setting_tooltip("Rate of magnification change when scrolling the mouse wheel while holding the zoom key.");
 		float zoom_max = static_cast<float>(cfg.zoom.max_zoom);
 		if (ImGui::SliderFloat("Maximum Zoom Level", &zoom_max, 1.5f, 16.0f, "%.1fx")) {
 			cfg.zoom.max_zoom = static_cast<double>(zoom_max);
 		}
+		render_setting_tooltip("Maximum optical magnification factor reachable when holding the zoom modifier key.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Free Fly 6-DOF Axis Speeds:");
 		const double ff_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
 		double ff_fwd = cfg.free_fly.forward_speed * ff_speed_scale_mps;
 		if (unit_aware_slider_double("Forward/Back Speed", &ff_fwd, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.forward_speed = ff_fwd / ff_speed_scale_mps;
+		render_setting_tooltip("Observer translational velocity along the forward/backward camera direction.");
 		double ff_lat = cfg.free_fly.lateral_speed * ff_speed_scale_mps;
 		if (unit_aware_slider_double("Left/Right Speed", &ff_lat, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.lateral_speed = ff_lat / ff_speed_scale_mps;
+		render_setting_tooltip("Observer translational velocity along the horizontal strafe axis.");
 		double ff_vert = cfg.free_fly.vertical_speed * ff_speed_scale_mps;
 		if (unit_aware_slider_double("Up/Down Speed", &ff_vert, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.vertical_speed = ff_vert / ff_speed_scale_mps;
+		render_setting_tooltip("Observer translational velocity along the vertical elevation axis.");
 		bool ff_invert_vert = cfg.free_fly.invert_vertical;
 		if (ImGui::Checkbox("Invert Up/Down Keys", &ff_invert_vert)) cfg.free_fly.invert_vertical = ff_invert_vert;
+		render_setting_tooltip("Swaps the direction of vertical movement keys.");
 		ImGui::SameLine();
 		bool ff_invert_lat = cfg.free_fly.invert_lateral;
 		if (ImGui::Checkbox("Invert Left/Right Keys", &ff_invert_lat)) cfg.free_fly.invert_lateral = ff_invert_lat;
+		render_setting_tooltip("Swaps the direction of horizontal strafe keys.");
 		float ff_sprint = static_cast<float>(cfg.free_fly.sprint_multiplier);
 		if (ImGui::SliderFloat("Sprint Multiplier", &ff_sprint, 1.0f, 20.0f, "%.1fx")) cfg.free_fly.sprint_multiplier = static_cast<double>(ff_sprint);
+		render_setting_tooltip("Speed boost multiplier applied while holding the sprint modifier key.");
 		float ff_crawl = static_cast<float>(cfg.free_fly.crawl_multiplier);
 		if (ImGui::SliderFloat("Crawl Multiplier", &ff_crawl, 0.01f, 1.0f, "%.2fx")) cfg.free_fly.crawl_multiplier = static_cast<double>(ff_crawl);
+		render_setting_tooltip("Speed reduction factor applied while holding the crawl modifier key.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Orbit Center Mode:");
 		const double orbit_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
 		double orb_dist = cfg.orbit.orbit_distance_speed * orbit_speed_scale_mps;
 		if (unit_aware_slider_double("Zoom Speed", &orb_dist, 0.1 * orbit_speed_scale_mps, 200.0 * orbit_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.orbit.orbit_distance_speed = orb_dist / orbit_speed_scale_mps;
+		render_setting_tooltip("Radial camera distance adjustment speed during orbit navigation.");
 		float orb_pitch = static_cast<float>(cfg.orbit.pitch_speed_deg_s);
 		if (ImGui::SliderFloat("Pitch Speed", &orb_pitch, 1.0f, 180.0f, "%.1f deg/s")) cfg.orbit.pitch_speed_deg_s = static_cast<double>(orb_pitch);
+		render_setting_tooltip("Colatitude orbital rotation speed around the origin in degrees per second.");
 		float orb_yaw = static_cast<float>(cfg.orbit.yaw_speed_deg_s);
 		if (ImGui::SliderFloat("Yaw Speed", &orb_yaw, 1.0f, 180.0f, "%.1f deg/s")) cfg.orbit.yaw_speed_deg_s = static_cast<double>(orb_yaw);
+		render_setting_tooltip("Azimuthal orbital rotation speed around the polar axis in degrees per second.");
 		bool orb_invert_pitch = cfg.orbit.invert_pitch;
 		if (ImGui::Checkbox("Invert Orbit Pitch Keys", &orb_invert_pitch)) cfg.orbit.invert_pitch = orb_invert_pitch;
+		render_setting_tooltip("Reverses orbital polar colatitude inclination key responses.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Rocket 6-DOF Thrust Mode:");
 		ImGui::TextDisabled("Thrust integrates only while simulation time is running (unpaused).");
 		float rk_main = static_cast<float>(cfg.rocket.main_thrust_accel);
 		if (ImGui::SliderFloat("Main Thrust Accel", &rk_main, 0.1f, 500.0f, "%.1f")) cfg.rocket.main_thrust_accel = static_cast<double>(rk_main);
+		render_setting_tooltip("Forward acceleration produced by the main engine under full throttle.");
 		float rk_lat = static_cast<float>(cfg.rocket.lateral_thrust_accel);
 		if (ImGui::SliderFloat("Lateral Thrust Accel", &rk_lat, 0.1f, 500.0f, "%.1f")) cfg.rocket.lateral_thrust_accel = static_cast<double>(rk_lat);
+		render_setting_tooltip("Horizontal translational acceleration produced by lateral thrusters.");
 		float rk_vert = static_cast<float>(cfg.rocket.vertical_thrust_accel);
 		if (ImGui::SliderFloat("Vertical Thrust Accel", &rk_vert, 0.1f, 500.0f, "%.1f")) cfg.rocket.vertical_thrust_accel = static_cast<double>(rk_vert);
+		render_setting_tooltip("Vertical translational acceleration produced by elevation thrusters.");
 		float rk_ang = static_cast<float>(cfg.rocket.angular_rate_deg_s);
 		if (ImGui::SliderFloat("Roll Rate", &rk_ang, 1.0f, 360.0f, "%.1f deg/s")) cfg.rocket.angular_rate_deg_s = static_cast<double>(rk_ang);
+		render_setting_tooltip("Rocket roll rotation rate around the longitudinal flight axis.");
 		bool rk_invert_vert = cfg.rocket.invert_vertical;
 		if (ImGui::Checkbox("Invert Rocket Up/Down", &rk_invert_vert)) cfg.rocket.invert_vertical = rk_invert_vert;
+		render_setting_tooltip("Inverts vertical thruster key response direction.");
 		ImGui::SameLine();
 		bool rk_invert_lat = cfg.rocket.invert_lateral;
 		if (ImGui::Checkbox("Invert Rocket Left/Right", &rk_invert_lat)) cfg.rocket.invert_lateral = rk_invert_lat;
+		render_setting_tooltip("Inverts lateral thruster key response direction.");
 		bool rk_requires_time = cfg.rocket.requires_time_running;
 		if (ImGui::Checkbox("Require Unpaused Time For Thrust", &rk_requires_time)) cfg.rocket.requires_time_running = rk_requires_time;
+		render_setting_tooltip("When enabled, thrust forces only alter velocity when the simulation clock is actively running.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Configuration:");
@@ -641,12 +683,14 @@ private:
 		if (ImGui::Button(keybind_window_already_open ? "Keybind Settings Open" : "Open Keybind Settings", ImVec2(220.0f, 28.0f))) {
 			keybind_settings_open_ = true;
 		}
+		render_setting_tooltip("Opens the comprehensive Keybind Settings window to customize hotkeys and controller layouts.");
 		if (keybind_window_already_open) {
 			ImGui::EndDisabled();
 			ImGui::SameLine();
 			if (ImGui::Button("Focus Window", ImVec2(120.0f, 28.0f))) {
 				ImGui::SetWindowFocus("Keybind Settings");
 			}
+			render_setting_tooltip("Brings the already opened Keybind Settings window to the front.");
 		}
 	}
 
@@ -733,25 +777,31 @@ private:
 		if (ImGui::Button("Full Starfield", ImVec2(120.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS);
 		}
+		render_setting_tooltip("Activates realistic celestial background with procedural starfield and diffuse galactic nebular glow.");
 		ImGui::SameLine();
 		if (ImGui::Button("Grid Sphere", ImVec2(110.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID);
 		}
+		render_setting_tooltip("Activates celestial spherical coordinate grid with 15-degree latitude and longitude markers.");
 		ImGui::SameLine();
 		if (ImGui::Button("Composite Overlay", ImVec2(130.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_COMPOSITE);
 		}
+		render_setting_tooltip("Layers celestial coordinate lines over the starfield and nebulae.");
 		if (ImGui::Button("Dark Void", ImVec2(120.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_VOID);
 		}
+		render_setting_tooltip("Removes all background celestial radiance for isolated black hole visualization.");
 		ImGui::SameLine();
 		if (ImGui::Button("Starfield (No Nebula)", ImVec2(170.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS_NO_NEBULA);
 		}
+		render_setting_tooltip("Renders point stars without diffuse galactic plane gas clouds.");
 		ImGui::SameLine();
 		if (ImGui::Button("Grid + Stars", ImVec2(110.0f, 26.0f))) {
 			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID_STARS);
 		}
+		render_setting_tooltip("Combines the coordinate grid with point stars while omitting nebula glow.");
 
 		ImGui::Separator();
 		ImGui::Text("Camera Quick Viewpoints:");
@@ -759,16 +809,19 @@ private:
 			camera_controller_.snap_to_equatorial_front(50.0);
 			orchestrator_.notify_state_changed();
 		}
+		render_setting_tooltip("Positions observer on the equatorial plane (theta=90 deg) at radius r = 50 M looking inward.");
 		ImGui::SameLine();
 		if (ImGui::Button("Top Polar View (z=50)")) {
 			camera_controller_.snap_to_north_pole(50.0);
 			orchestrator_.notify_state_changed();
 		}
+		render_setting_tooltip("Positions observer along the positive polar axis (theta=0 deg) looking down upon the accretion disk.");
 		ImGui::SameLine();
 		if (ImGui::Button("Close-up ISCO (r=8)")) {
 			camera_controller_.snap_to_equatorial_front(8.0);
 			orchestrator_.notify_state_changed();
 		}
+		render_setting_tooltip("Positions observer at radius r = 8 M close to the innermost stable circular orbit.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sky Style Customization:");
@@ -788,36 +841,44 @@ private:
 			if (ImGui::SliderFloat("Star Density", &sky_star_density_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, static_cast<double>(sky_star_density_))));
 			}
+			render_setting_tooltip("Controls Poisson distribution density of procedural star points on the celestial sphere.");
 			if (ImGui::SliderFloat("Star Brightness", &sky_star_brightness_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, static_cast<double>(sky_star_brightness_))));
 			}
+			render_setting_tooltip("Peak luminance multiplier applied to procedural point stars.");
 		}
 		if (has_nebula) {
 			if (ImGui::SliderFloat("Nebula Glow Intensity", &sky_nebula_intensity_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, static_cast<double>(sky_nebula_intensity_))));
 			}
+			render_setting_tooltip("Luminance of the galactic plane and diffuse nebular gas emissions.");
 		}
 		if (has_grid) {
 			if (ImGui::SliderFloat("Coordinate Grid Opacity", &sky_grid_opacity_, 0.0f, 2.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, static_cast<double>(sky_grid_opacity_))));
 			}
+			render_setting_tooltip("Opacity of celestial latitude/longitude 15-degree coordinate lines.");
 		}
 		if (has_rotation_hue) {
 			if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
 			}
+			render_setting_tooltip("Rotates the celestial sphere around the world polar axis.");
 			if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
 			}
+			render_setting_tooltip("Global hue rotation angle applied to celestial background radiance.");
 			if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
 			}
+			render_setting_tooltip("Chroma saturation multiplier for background starfield and nebulae.");
 		}
 		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
 		}
+		render_setting_tooltip("Additive RGB baseline pedestal applied to the celestial sphere.");
 		if (ImGui::Button("Reset Sky Style to Defaults", ImVec2(220.0f, 26.0f))) {
 			sky_star_density_ = 1.0f;
 			sky_star_brightness_ = 1.0f;
@@ -905,9 +966,11 @@ private:
 			if (ImGui::SliderFloat("Galaxy Brightness", &sky_galaxy_brightness_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyBrightness, static_cast<double>(sky_galaxy_brightness_))));
 			}
+			render_setting_tooltip("Luminance multiplier for background spiral galaxy cores and arms.");
 			if (ImGui::SliderFloat("Galaxy Size Scale", &sky_galaxy_size_scale_, 0.1f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxySizeScale, static_cast<double>(sky_galaxy_size_scale_))));
 			}
+			render_setting_tooltip("Angular size scaling factor for background galaxy projections.");
 		}
 
 		if (ImGui::SliderFloat("Dust Cloud Density", &sky_dust_density_, 0.0f, 4.0f, "%.2f")) {
@@ -918,9 +981,11 @@ private:
 			if (ImGui::SliderFloat("Dust Cloud Intensity", &sky_dust_intensity_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustIntensity, static_cast<double>(sky_dust_intensity_))));
 			}
+			render_setting_tooltip("Luminance and opacity multiplier for diffuse dust cloud filaments.");
 			if (ImGui::SliderFloat("Dust Cloud Scale", &sky_dust_scale_, 0.1f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustScale, static_cast<double>(sky_dust_scale_))));
 			}
+			render_setting_tooltip("Spatial turbulence frequency scale governing the structure of dust filaments.");
 		}
 
 		if (ImGui::SliderFloat("Star Cluster Density", &sky_cluster_density_, 0.0f, 4.0f, "%.2f")) {
@@ -931,9 +996,11 @@ private:
 			if (ImGui::SliderFloat("Cluster Brightness", &sky_cluster_brightness_, 0.0f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterBrightness, static_cast<double>(sky_cluster_brightness_))));
 			}
+			render_setting_tooltip("Luminance multiplier applied to member stars of globular and open clusters.");
 			if (ImGui::SliderFloat("Cluster Size Scale", &sky_cluster_size_scale_, 0.1f, 4.0f, "%.2fx")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, static_cast<double>(sky_cluster_size_scale_))));
 			}
+			render_setting_tooltip("Angular radius footprint of star cluster formations.");
 		}
 	}
 
@@ -962,17 +1029,21 @@ private:
 		if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
 		}
+		render_setting_tooltip("Rotates the panorama around the world polar axis.");
 		if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
 		}
+		render_setting_tooltip("Rotates color hues across the imported panorama.");
 		if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
 		}
+		render_setting_tooltip("Chroma saturation multiplier for the imported sky panorama.");
 		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
 		}
+		render_setting_tooltip("Additive RGB pedestal color mixed with the panorama background.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Rendering Path:");
@@ -1013,12 +1084,14 @@ private:
 			rtol = std::max(rtol * 0.1f, 1e-16f);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
 		}
+		render_setting_tooltip("Tightens relative error tolerance by 10x for sharper trajectory precision.");
 		ImGui::SameLine();
 		if (ImGui::SmallButton("rtol x10")) {
 			rtol = std::min(rtol * 10.0f, 1e-1f);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationRtol, static_cast<double>(rtol))));
 		}
-		render_setting_tooltip("Local relative error tolerance threshold controlling adaptive step-size regulation. The /10 and x10 buttons jump by a full order of magnitude.");
+		render_setting_tooltip("Relaxes relative error tolerance by 10x to reduce solver evaluations.");
+		render_setting_tooltip("Adaptive Runge-Kutta local truncation error threshold (scaled by state vector norm).");
 
 		float atol = static_cast<float>(orchestrator_.parameters().integration_atol);
 		if (slider_float_with_input("Absolute Tolerance (atol)", &atol, 1e-20f, 1e-4f, "%.2e", &integrator_atol_log_mode_, 1e-20f, 1e-4f)) {
@@ -1029,12 +1102,14 @@ private:
 			atol = std::max(atol * 0.1f, 1e-20f);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
 		}
+		render_setting_tooltip("Tightens absolute error floor by 10x.");
 		ImGui::SameLine();
 		if (ImGui::SmallButton("atol x10")) {
 			atol = std::min(atol * 10.0f, 1e-4f);
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationAtol, static_cast<double>(atol))));
 		}
-		render_setting_tooltip("Absolute error tolerance floor preventing step-size collapse near null-coordinate vanishing states. The /10 and x10 buttons jump by a full order of magnitude.");
+		render_setting_tooltip("Relaxes absolute error floor by 10x.");
+		render_setting_tooltip("Absolute error floor safeguarding step regulation when coordinates approach zero.");
 	}
 
 	void render_rocket_tab() noexcept {
@@ -1076,14 +1151,17 @@ private:
 		if (ImGui::SmallButton("Warp x10")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::min(static_cast<double>(warp) * 10.0, 1e9))));
 		}
+		render_setting_tooltip("Multiplies simulation progression rate by 10x.");
 		ImGui::SameLine(0.0f, 14.0f);
 		if (ImGui::SmallButton("Warp /10")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(std::max(static_cast<double>(warp) * 0.1, 1e-6))));
 		}
+		render_setting_tooltip("Divides simulation progression rate by 10x.");
 		ImGui::SameLine(0.0f, 14.0f);
 		if (ImGui::SmallButton("Warp Reset (1x)")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(1.0)));
 		}
+		render_setting_tooltip("Resets logical time rate to real-time 1:1 speed.");
 
 		float rate = static_cast<float>(snap.tick_rate_hz);
 		if (slider_float_with_input("Scheduler Rate", &rate, 10.0f, 1000.0f, "%.0f")) {
@@ -1096,24 +1174,28 @@ private:
 		if (schematic_locked) ImGui::BeginDisabled(true);
 
 		if (snap.is_paused) {
-			if (ImGui::Button("Resume (F5)", ImVec2(110.0f, 28.0f))) {
+			if (ImGui::Button("Resume", ImVec2(110.0f, 28.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 			}
+			render_setting_tooltip("Resumes continuous progression of simulation physical time.");
 		} else {
-			if (ImGui::Button("Pause (F5)", ImVec2(110.0f, 28.0f))) {
+			if (ImGui::Button("Pause", ImVec2(110.0f, 28.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
 			}
+			render_setting_tooltip("Freezes simulation physical time while keeping the viewport interactive.");
 		}
 
 		ImGui::SameLine();
-		if (ImGui::Button("Step 1 Tick (F6)", ImVec2(120.0f, 28.0f))) {
+		if (ImGui::Button("Step 1 Tick", ImVec2(120.0f, 28.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
 		}
+		render_setting_tooltip("Advances the simulation by exactly one fixed scheduler integration interval.");
 
 		ImGui::SameLine();
 		if (ImGui::Button("Reset Clock", ImVec2(110.0f, 28.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
 		}
+		render_setting_tooltip("Resets simulation logical time to t = 0 and resets body trajectories to initial conditions.");
 
 		if (schematic_locked) {
 			ImGui::EndDisabled();
@@ -1424,25 +1506,35 @@ private:
 		if (ImGui::Combo("Schematic Projection", &schematic_projection, schematic_projections, IM_ARRAYSIZE(schematic_projections))) {
 			schematic_cfg_.projection_mode = static_cast<Observer::ProjectionMode>(schematic_projection);
 		}
+		render_setting_tooltip("Geometric projection method used to project orbital vectors and schematic sphere overlays.");
 		ImGui::Checkbox("Human Perspective Schematic Rendering", &schematic_cfg_.human_perspective_mode);
-		render_setting_tooltip("Uses an ordinary 3D pinhole view for the schematic scene while retaining bodies, gravity vectors, trails, and predictions. The normal ray-traced viewport keeps its separate projection choice.");
+		render_setting_tooltip("Forces standard rectilinear perspective projection inside the schematic viewport.");
 		ImGui::Checkbox("Show Body & Orbit Overlays In Raytraced View", &schematic_cfg_.show_overlay_in_raytraced_view);
-		render_setting_tooltip("When enabled, projects orbiting bodies, trails, tags, and vectors on top of the raytraced 3D viewport so you can see them orbiting the black hole without switching to Schematic View.");
+		render_setting_tooltip("Renders schematic orbit tracks, vectors, and tags directly over the relativistic raytraced canvas.");
 		ImGui::Checkbox("Apply Lens Approximation To Normal-View Body Overlays", &schematic_cfg_.lens_body_overlays_in_raytraced_view);
+		render_setting_tooltip("Applies gravitational deflection bending to projected 2D overlay positions near the horizon.");
 
 		ImGui::Separator();
 		ImGui::Checkbox("Show Central Object", &schematic_cfg_.show_central_object);
+		render_setting_tooltip("Toggles schematic rendering of the central black hole or compact mass.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Show N-Body Bodies", &schematic_cfg_.show_bodies);
+		render_setting_tooltip("Toggles schematic markers for orbiting N-Body catalog objects.");
 		ImGui::Checkbox("Show Background Grid", &schematic_cfg_.show_background_grid);
+		render_setting_tooltip("Toggles spherical coordinate backdrop grid in schematic mode.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Show Field Lines", &schematic_cfg_.show_field_lines);
+		render_setting_tooltip("Toggles gravitational field line visualizers converging toward the center.");
 		ImGui::Checkbox("Show Trajectory Trails", &schematic_cfg_.show_trails);
+		render_setting_tooltip("Toggles historical position trail lines behind moving bodies.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Show Orbit Predictions", &schematic_cfg_.show_orbit_predictions);
+		render_setting_tooltip("Toggles forward numerical integration orbital arc predictions.");
 		ImGui::Checkbox("Show Vectors", &schematic_cfg_.show_vectors);
+		render_setting_tooltip("Toggles velocity, total force, and angular momentum arrow overlays.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Show Object Tags", &schematic_cfg_.show_tags);
+		render_setting_tooltip("Toggles floating text labels displaying identifier, mass, and velocity.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "Off-Screen Indicators:");
@@ -1628,48 +1720,56 @@ private:
 		if (ImGui::Combo("Distance Unit", &distance_idx, distance_units, IM_ARRAYSIZE(distance_units))) {
 			prefs.distance = static_cast<Units::DistanceUnit>(distance_idx);
 		}
+		render_setting_tooltip("Display unit for distances, radii, and spatial coordinates across all UI readouts.");
 
 		const char* mass_units[] = {"Kilograms", "Grams", "Pounds", "Metric Tonnes", "Solar Masses", "Earth Masses", "Jupiter Masses", "Turkeys (~11 kg)"};
 		int mass_idx = static_cast<int>(prefs.mass);
 		if (ImGui::Combo("Mass Unit", &mass_idx, mass_units, IM_ARRAYSIZE(mass_units))) {
 			prefs.mass = static_cast<Units::MassUnit>(mass_idx);
 		}
+		render_setting_tooltip("Display unit for central mass and celestial body masses.");
 
 		const char* velocity_units[] = {"Meters/Second", "Kilometers/Hour", "Miles/Hour", "Kilometers/Second", "Fraction of c", "Parsecs/Year", "Astronomical Units/Day"};
 		int velocity_idx = static_cast<int>(prefs.velocity);
 		if (ImGui::Combo("Velocity Unit", &velocity_idx, velocity_units, IM_ARRAYSIZE(velocity_units))) {
 			prefs.velocity = static_cast<Units::VelocityUnit>(velocity_idx);
 		}
+		render_setting_tooltip("Display unit for observer and body velocities and speeds.");
 
 		const char* energy_units[] = {"Joules", "Kilojoules", "Megajoules", "Electronvolts", "Kilowatt-Hours", "Ergs", "Foot-Pounds", "Calories"};
 		int energy_idx = static_cast<int>(prefs.energy);
 		if (ImGui::Combo("Energy Unit", &energy_idx, energy_units, IM_ARRAYSIZE(energy_units))) {
 			prefs.energy = static_cast<Units::EnergyUnit>(energy_idx);
 		}
+		render_setting_tooltip("Display unit for mechanical, thermal, and relativistic kinetic energy.");
 
 		const char* angle_units[] = {"Radians", "Degrees", "Arcminutes", "Arcseconds", "Gradians", "Revolutions", "Milliradians"};
 		int angle_idx = static_cast<int>(prefs.angle);
 		if (ImGui::Combo("Angle Unit", &angle_idx, angle_units, IM_ARRAYSIZE(angle_units))) {
 			prefs.angle = static_cast<Units::AngleUnit>(angle_idx);
 		}
+		render_setting_tooltip("Display unit for colatitude, longitude, field of view, and orientation angles.");
 
 		const char* temperature_units[] = {"Kelvin", "Celsius", "Fahrenheit", "Rankine"};
 		int temperature_idx = static_cast<int>(prefs.temperature);
 		if (ImGui::Combo("Temperature Unit", &temperature_idx, temperature_units, IM_ARRAYSIZE(temperature_units))) {
 			prefs.temperature = static_cast<Units::TemperatureUnit>(temperature_idx);
 		}
+		render_setting_tooltip("Display unit for thermodynamic temperatures of black holes, accretion disks, and celestial bodies.");
 
 		const char* charge_units[] = {"Coulombs", "Millicoulombs", "Microcoulombs", "Elementary Charges", "Ampere-Hours", "Statcoulombs"};
 		int charge_idx = static_cast<int>(prefs.charge);
 		if (ImGui::Combo("Charge Unit", &charge_idx, charge_units, IM_ARRAYSIZE(charge_units))) {
 			prefs.charge = static_cast<Units::ChargeUnit>(charge_idx);
 		}
+		render_setting_tooltip("Display unit for electrostatic charges.");
 
 		const char* current_units[] = {"Amperes", "Milliamperes", "Microamperes", "Kiloamperes"};
 		int current_idx = static_cast<int>(prefs.current);
 		if (ImGui::Combo("Current Unit", &current_idx, current_units, IM_ARRAYSIZE(current_units))) {
 			prefs.current = static_cast<Units::CurrentUnit>(current_idx);
 		}
+		render_setting_tooltip("Display unit for macroscopic electric currents.");
 
 		const char* frame_rate_units[] = {"Frames Per Second", "Milliseconds", "Microseconds", "Hertz"};
 		int frame_rate_idx = static_cast<int>(prefs.frame_rate);
@@ -1683,60 +1783,70 @@ private:
 		if (ImGui::Combo("Time Unit", &time_idx, time_units, IM_ARRAYSIZE(time_units))) {
 			prefs.time = static_cast<Units::TimeUnit>(time_idx);
 		}
+		render_setting_tooltip("Display unit for simulation coordinate and proper times.");
 
 		const char* accel_units[] = {"Meters/Second^2", "Centimeters/Second^2", "Feet/Second^2", "Standard Gravity (g)", "Kilometers/Second^2"};
 		int accel_idx = static_cast<int>(prefs.acceleration);
 		if (ImGui::Combo("Acceleration Unit", &accel_idx, accel_units, IM_ARRAYSIZE(accel_units))) {
 			prefs.acceleration = static_cast<Units::AccelerationUnit>(accel_idx);
 		}
+		render_setting_tooltip("Display unit for gravitational and proper 4-acceleration readouts.");
 
 		const char* ang_vel_units[] = {"Radians/Second", "Degrees/Second", "Revolutions/Minute (RPM)", "Hertz (Hz)"};
 		int ang_vel_idx = static_cast<int>(prefs.angular_velocity);
 		if (ImGui::Combo("Angular Velocity Unit", &ang_vel_idx, ang_vel_units, IM_ARRAYSIZE(ang_vel_units))) {
 			prefs.angular_velocity = static_cast<Units::AngularVelocityUnit>(ang_vel_idx);
 		}
+		render_setting_tooltip("Display unit for orbital and body rotation rates.");
 
 		const char* density_units[] = {"Kilograms/Meter^3", "Grams/Centimeter^3", "Pounds/Foot^3", "Solar Masses/Parsec^3"};
 		int density_idx = static_cast<int>(prefs.density);
 		if (ImGui::Combo("Density Unit", &density_idx, density_units, IM_ARRAYSIZE(density_units))) {
 			prefs.density = static_cast<Units::DensityUnit>(density_idx);
 		}
+		render_setting_tooltip("Display unit for volumetric mass density.");
 
 		const char* pressure_units[] = {"Pascals", "Kilopascals", "Megapascals", "Gigapascals", "Bars", "Atmospheres", "PSI"};
 		int pressure_idx = static_cast<int>(prefs.pressure);
 		if (ImGui::Combo("Pressure Unit", &pressure_idx, pressure_units, IM_ARRAYSIZE(pressure_units))) {
 			prefs.pressure = static_cast<Units::PressureUnit>(pressure_idx);
 		}
+		render_setting_tooltip("Display unit for atmospheric and hydrodynamic pressures.");
 
 		const char* power_units[] = {"Watts", "Kilowatts", "Megawatts", "Solar Luminosities", "Horsepower"};
 		int power_idx = static_cast<int>(prefs.power);
 		if (ImGui::Combo("Power Unit", &power_idx, power_units, IM_ARRAYSIZE(power_units))) {
 			prefs.power = static_cast<Units::PowerUnit>(power_idx);
 		}
+		render_setting_tooltip("Display unit for radiation flux power and luminosity.");
 
 		const char* frequency_units[] = {"Hertz", "Kilohertz", "Megahertz", "Gigahertz"};
 		int freq_idx = static_cast<int>(prefs.frequency);
 		if (ImGui::Combo("Frequency Unit", &freq_idx, frequency_units, IM_ARRAYSIZE(frequency_units))) {
 			prefs.frequency = static_cast<Units::FrequencyUnit>(freq_idx);
 		}
+		render_setting_tooltip("Display unit for scheduler tick rates and spectral frequencies.");
 
 		const char* force_units[] = {"Newtons", "Kilonewtons", "Dynes", "Pounds-Force"};
 		int force_idx = static_cast<int>(prefs.force);
 		if (ImGui::Combo("Force Unit", &force_idx, force_units, IM_ARRAYSIZE(force_units))) {
 			prefs.force = static_cast<Units::ForceUnit>(force_idx);
 		}
+		render_setting_tooltip("Display unit for interaction, tidal, and thrust forces.");
 
 		const char* magnetic_units[] = {"Teslas", "Gauss", "Microteslas"};
 		int mag_idx = static_cast<int>(prefs.magnetic_field);
 		if (ImGui::Combo("Magnetic Field Unit", &mag_idx, magnetic_units, IM_ARRAYSIZE(magnetic_units))) {
 			prefs.magnetic_field = static_cast<Units::MagneticFieldUnit>(mag_idx);
 		}
+		render_setting_tooltip("Display unit for magnetic induction field strength.");
 
 		const char* voltage_units[] = {"Volts", "Millivolts", "Kilovolts", "Megavolts"};
 		int volt_idx = static_cast<int>(prefs.voltage);
 		if (ImGui::Combo("Voltage Unit", &volt_idx, voltage_units, IM_ARRAYSIZE(voltage_units))) {
 			prefs.voltage = static_cast<Units::VoltageUnit>(volt_idx);
 		}
+		render_setting_tooltip("Display unit for electric potential and voltage.");
 
 		ImGui::Separator();
 		ImGui::TextDisabled("Live Previews:");

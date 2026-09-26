@@ -934,11 +934,13 @@ public:
 				if (ImGui::Button(label.c_str(), ImVec2(75.0f, 24.0f))) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
 				}
+				render_setting_tooltip("Resumes simulation clock progression.");
 			} else {
 				const std::string label = "Pause (" + toolbar_key_hint(InputAction::TogglePausePlay) + ")";
 				if (ImGui::Button(label.c_str(), ImVec2(75.0f, 24.0f))) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
 				}
+				render_setting_tooltip("Pauses simulation clock progression.");
 			}
 			if (schematic_locked) {
 				ImGui::EndDisabled();
@@ -953,6 +955,7 @@ public:
 			if (ImGui::Button(step_label.c_str(), ImVec2(68.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
 			}
+			render_setting_tooltip("Advances logical simulation state by exactly 1 tick.");
 			if (schematic_locked) {
 				ImGui::EndDisabled();
 				render_setting_tooltip_warning("Advance the simulation by one tick.", "Disabled while Schematic Orbital View is active. Enable 'Allow Simulation Clock To Run In Schematic View' in the Schematic View tab to unlock.");
@@ -964,6 +967,7 @@ public:
 			if (ImGui::Button("Reset View", ImVec2(78.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_reset()));
 			}
+			render_setting_tooltip("Resets camera coordinates and orientation to default front view.");
 			ImGui::SameLine();
 		}
 
@@ -981,7 +985,9 @@ public:
 
 		if (tb.look_at_target_combo || tb.jump_to_target) {
 			ImGui::SetNextItemWidth(210.0f);
-			ImGui::Combo("##AimTargetCombo", &selected_target_idx, target_labels.data(), static_cast<int>(target_labels.size()));
+			if (ImGui::Combo("##AimTargetCombo", &selected_target_idx, target_labels.data(), static_cast<int>(target_labels.size()))) {
+			}
+			render_setting_tooltip("Select a physical landmark or orbiting celestial body to look at or jump toward.");
 			ImGui::SameLine();
 		}
 
@@ -989,6 +995,7 @@ public:
 			if (ImGui::Button("Look At Object", ImVec2(105.0f, 24.0f)) && selected_target_idx < static_cast<int>(dynamic_targets.size())) {
 				camera_controller_.look_at_target(dynamic_targets[selected_target_idx].position);
 			}
+			render_setting_tooltip("Reorients camera gaze vector directly toward the selected target.");
 			ImGui::SameLine();
 		}
 
@@ -1001,6 +1008,7 @@ public:
 				c.synchronize_spherical();
 				camera_controller_.look_at_target(tgt.position);
 			}
+			render_setting_tooltip("Teleports observer to a safe framing distance and looks at target.");
 			ImGui::SameLine();
 		}
 
@@ -1011,11 +1019,13 @@ public:
 			if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
 			}
+			render_setting_tooltip("Switches observer navigation model between 6-DOF Free Fly, Center Orbit, Spherical, and Rocket flight.");
 			ImGui::SameLine();
 		}
 
 		if (tb.hud_master_toggle) {
 			ImGui::Checkbox("HUD", &hud_layout_.master_enabled);
+			render_setting_tooltip("Toggles master visibility for all viewport overlay readouts and panels.");
 		}
 
 		if (tb.screenshot) {
@@ -1023,6 +1033,7 @@ public:
 			if (ImGui::Button("Capture", ImVec2(70.0f, 24.0f)) && open_screenshot_settings_callback_) {
 				open_screenshot_settings_callback_();
 			}
+			render_setting_tooltip("Opens the Capture Studio to configure and take high-resolution screenshots or video sequences.");
 			if (is_high_res_capture_pending()) {
 				ImGui::SameLine();
 				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Capturing...");
@@ -1034,6 +1045,7 @@ public:
 			if (ImGui::Button("Fullscreen", ImVec2(86.0f, 24.0f)) && fullscreen_toggle_callback_) {
 				fullscreen_toggle_callback_();
 			}
+			render_setting_tooltip("Toggles fullscreen borderless presentation for the primary viewport.");
 		}
 
 		if (tb.gpu_compute_toggle) {
@@ -1042,6 +1054,7 @@ public:
 			if (ImGui::Checkbox("GPU", &gpu_on)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, gpu_on ? 1.0 : 0.0)));
 			}
+			render_setting_tooltip("Toggles Vulkan GPU compute dispatch offload.");
 		}
 
 		if (tb.space_skip_toggle) {
@@ -1050,6 +1063,7 @@ public:
 			if (ImGui::Checkbox("Skip", &skip_on)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SpaceSkippingEnabled, skip_on ? 1.0 : 0.0)));
 			}
+			render_setting_tooltip("Toggles asymptotic space-skipping for weak-field rays.");
 		}
 
 		if (tb.lod_toggle) {
@@ -1058,6 +1072,7 @@ public:
 			if (ImGui::Checkbox("LOD", &lod_on)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::LodEnabled, lod_on ? 1.0 : 0.0)));
 			}
+			render_setting_tooltip("Toggles distance-based level of detail step budget reduction.");
 		}
 
 		if (tb.exposure_controls) {
@@ -1066,11 +1081,13 @@ public:
 				const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure - 0.25, -6.0, 6.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
 			}
+			render_setting_tooltip("Decreases optical exposure compensation by 0.25 EV.");
 			ImGui::SameLine();
 			if (ImGui::Button("EV+", ImVec2(34.0f, 24.0f))) {
 				const double next_exposure = std::clamp(orchestrator_.parameters().camera_exposure + 0.25, -6.0, 6.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, next_exposure)));
 			}
+			render_setting_tooltip("Increases optical exposure compensation by 0.25 EV.");
 		}
 
 		if (tb.warp_controls) {
@@ -1079,11 +1096,13 @@ public:
 				const double next_warp = std::max(orchestrator_.scheduler().warp_factor() / 1.5, 0.05);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
 			}
+			render_setting_tooltip("Slows simulation time warp rate by 1.5x.");
 			ImGui::SameLine();
 			if (ImGui::Button("Warp+", ImVec2(50.0f, 24.0f))) {
 				const double next_warp = orchestrator_.scheduler().warp_factor() * 1.5;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_warp(next_warp)));
 			}
+			render_setting_tooltip("Accelerates simulation time warp rate by 1.5x.");
 		}
 
 		if (tb.tonemapper_cycle) {
@@ -1092,6 +1111,7 @@ public:
 				const uint32_t next_mode = (orchestrator_.parameters().tonemapping_mode + 1) % 4;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(next_mode))));
 			}
+			render_setting_tooltip("Cycles through Linear, ACES Filmic, Logarithmic, and Reinhard HDR tonemappers.");
 		}
 
 		if (tb.projection_cycle) {
@@ -1100,6 +1120,7 @@ public:
 				const uint32_t next_mode = (orchestrator_.parameters().projection_mode + 1) % 8;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::ProjectionMode, static_cast<double>(next_mode))));
 			}
+			render_setting_tooltip("Cycles camera projection geometry (Pinhole, Fisheye, 360, Panini, Hammer-Aitoff).");
 		}
 
 		if (tb.skybox_cycle) {
@@ -1110,6 +1131,7 @@ public:
 				const uint32_t next_flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | next_style;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
 			}
+			render_setting_tooltip("Cycles celestial background modes (Stars, Grid, Composite, Void, Grid+Stars).");
 		}
 
 		if (tb.metric_cycle) {
@@ -1133,6 +1155,7 @@ public:
 				orchestrator_.set_active_metric_name(kToolbarMetricCycle[next_idx]);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_metric(kToolbarMetricCycle[next_idx])));
 			}
+			render_setting_tooltip("Cycles sequentially through all available spacetime solutions.");
 		}
 
 		if (tb.integrator_cycle) {
@@ -1154,6 +1177,7 @@ public:
 				orchestrator_.set_active_integrator_name(kToolbarIntegratorCycle[next_idx]);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_integrator(kToolbarIntegratorCycle[next_idx])));
 			}
+			render_setting_tooltip("Cycles through numerical differential equation integration schemes.");
 		}
 
 		if (tb.performance_preset_combo) {
@@ -1164,6 +1188,7 @@ public:
 			if (ImGui::Combo("##ToolbarPresetCombo", &preset_idx, toolbar_presets, IM_ARRAYSIZE(toolbar_presets)) && preset_idx < 6) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(static_cast<uint32_t>(preset_idx))));
 			}
+			render_setting_tooltip("Quickly applies a performance preset profile.");
 		}
 
 		if (tb.quicksave_quickload) {
@@ -1171,10 +1196,12 @@ public:
 			if (ImGui::Button("QSave", ImVec2(56.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario("scenarios/quicksave.yaml")));
 			}
+			render_setting_tooltip("Quick-saves the active simulation state to scenarios/quicksave.yaml.");
 			ImGui::SameLine();
 			if (ImGui::Button("QLoad", ImVec2(56.0f, 24.0f))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario("scenarios/quicksave.yaml")));
 			}
+			render_setting_tooltip("Quick-loads the simulation state from scenarios/quicksave.yaml.");
 		}
 
 		if (tb.step_controller_cycle) {
@@ -1183,6 +1210,7 @@ public:
 				const uint32_t next_mode = (orchestrator_.parameters().step_controller_mode + 1) % 3;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::StepControllerMode, static_cast<double>(next_mode))));
 			}
+			render_setting_tooltip("Cycles adaptive step-size controller strategy (Standard, PI-30, PID-42).");
 		}
 
 		if (tb.render_distance_toggle) {
@@ -1192,6 +1220,7 @@ public:
 				const double next_distance = unbounded ? 100.0 : 0.0;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RenderDistanceScale, next_distance)));
 			}
+			render_setting_tooltip("Toggles between unbounded render distance and 100 M cutoff radius.");
 		}
 
 		if (tb.pole_precision_nudge) {
@@ -1200,11 +1229,13 @@ public:
 				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale - 0.25, 0.05, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
+			render_setting_tooltip("Reduces polar region integration damping precision scale.");
 			ImGui::SameLine();
 			if (ImGui::Button("Pole+", ImVec2(48.0f, 24.0f))) {
 				const double next_val = std::clamp(orchestrator_.parameters().pole_guard_precision_scale + 0.25, 0.05, 8.0);
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
+			render_setting_tooltip("Increases polar region integration damping precision scale to eliminate axis artifacts.");
 		}
 
 		ImGui::EndGroup();

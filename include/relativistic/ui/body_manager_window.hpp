@@ -23,6 +23,7 @@
 #include <cfloat>
 #include <cstdint>
 #include <random>
+#include <mutex>
 
 namespace Relativistic::UI {
 
@@ -84,6 +85,7 @@ private:
 	float new_body_polar_cap_strength_{0.0f};
 	float new_body_night_side_light_intensity_{0.0f};
 	bool new_body_ring_system_enabled_{false};
+	bool new_body_is_spacetime_source_{false};
 	bool new_body_mass_log_mode_{true};
 	bool new_body_radius_log_mode_{true};
 	bool new_body_r_ref_log_mode_{true};
@@ -740,6 +742,7 @@ private:
 
 	void render_body_list_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> body_list_lock(sys.bodies_mutex());
 		auto bodies = sys.bodies();
 		const size_t n = bodies.size();
 
@@ -931,6 +934,18 @@ private:
 		if (ImGui::Checkbox("Track", &tracking_this)) {
 			tracking_enabled_ = tracking_this;
 			tracked_body_id_ = tracking_this ? static_cast<int>(b.id) : -1;
+		}
+		bool is_spacetime_source = b.is_spacetime_source;
+		if (ImGui::Checkbox("Spacetime Source (Independent Black Hole)", &is_spacetime_source)) {
+			b.is_spacetime_source = is_spacetime_source;
+			if (is_spacetime_source) {
+				apply_body_preset_defaults(b, Dynamics::Body3DPreset::BlackHole);
+			}
+			changed = true;
+		}
+		render_setting_tooltip("Marks this body as its own gravitating compact object with a Kerr event horizon derived from its mass and spin. It participates fully in N-body gravitational dynamics, can absorb ordinary bodies crossing its horizon, and merges with other spacetime sources on contact. The rendered lensing still follows the primary central object only.");
+		if (b.is_spacetime_source) {
+			ImGui::TextDisabled("Dimensionless spin a/M = %.4f | Horizon radius = %.4f", b.kerr_spin_parameter(), b.kerr_outer_horizon_radius());
 		}
 		ImGui::Separator();
 
@@ -1269,6 +1284,11 @@ private:
 		}
 		render_setting_tooltip("Controls the rim-lit atmospheric glow drawn around this body's silhouette. Off disables the effect entirely; the other modes trade rendering cost for visual richness.");
 
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Spacetime Source:");
+		ImGui::Checkbox("Spawn As Independent Black Hole (Spacetime Source)", &new_body_is_spacetime_source_);
+		render_setting_tooltip("Creates this body as its own gravitating compact object with a Kerr-derived event horizon, participating fully in N-body dynamics alongside the primary central object. Multiple spacetime sources gravitationally interact, can merge with each other, and can absorb ordinary bodies that cross their horizon. Enabling this automatically applies the Black Hole surface preset.");
+
 		ImGui::Spacing();
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
 			auto& sys = orchestrator_.nbody_system();
@@ -1300,6 +1320,10 @@ private:
 			body.polar_cap_strength = new_body_polar_cap_strength_;
 			body.night_side_light_intensity = new_body_night_side_light_intensity_;
 			body.ring_system_enabled = new_body_ring_system_enabled_;
+			body.is_spacetime_source = new_body_is_spacetime_source_;
+			if (new_body_is_spacetime_source_) {
+				apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
+			}
 
 			sys.add_body(body);
 			sys.update_accelerations();
@@ -1312,6 +1336,7 @@ private:
 
 	void render_system_dynamics_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> system_dynamics_lock(sys.bodies_mutex());
 		const size_t n = sys.body_count();
 
 		if (n == 0) {
@@ -1397,6 +1422,47 @@ private:
 				Dynamics::BulkBodyActions::average_parameter(sys, bulk_param);
 			}
 			render_setting_tooltip("Applies to the selected physical parameter across every enabled body: sets an explicit value, or replaces every value with the current mean.");
+		}
+
+		ImGui::Separator();
+		if (ImGui::CollapsingHeader("Spacetime Sources (Black Holes)", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Primary Metric Source");
+			ImGui::Text("Mass=%.6e  Spin a=%.4f  Position=(0,0,0)", orchestrator_.parameters().mass, orchestrator_.parameters().spin);
+			render_setting_tooltip("The single spacetime source that curves the rendered background metric and lensing. It is always fixed at the coordinate origin; use Spacetime & Metrics to change its mass and spin.");
+
+			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Independent N-Body Spacetime Sources");
+			bool any_source = false;
+			for (auto& body : sys.bodies()) {
+				if (!body.is_spacetime_source) continue;
+				any_source = true;
+				ImGui::PushID(static_cast<int>(body.id));
+				const double dist = distance_from_center(body);
+				const std::string label = display_name(body) + " (M=" + std::to_string(body.mass).substr(0, 5) + ", a/M=" + std::to_string(body.kerr_spin_parameter()).substr(0, 5) + ", r_h=" + std::to_string(body.kerr_outer_horizon_radius()).substr(0, 5) + ", dist=" + std::to_string(dist).substr(0, 6) + ")";
+				if (ImGui::Selectable(label.c_str(), false)) {
+					for (size_t k = 0; k < sys.bodies().size(); ++k) {
+						if (sys.bodies()[k].id == body.id) {
+							selected_body_index_ = static_cast<int>(k);
+							break;
+						}
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Look At")) {
+					look_at(body.position);
+				}
+				ImGui::PopID();
+			}
+			if (!any_source) {
+				ImGui::TextDisabled("No independent spacetime sources yet. Create one from the Create Body tab and enable 'Spawn As Independent Black Hole'.");
+			}
+			render_setting_tooltip("Bodies flagged as spacetime sources are fully integrated N-body gravitating objects with their own Kerr event horizon. They attract and are attracted by every other body and each other, merge with each other on contact, and absorb ordinary bodies crossing their horizon, letting several black holes coexist and orbit within the same simulation.");
+
+			ImGui::Spacing();
+			if (ImGui::Button("Spawn A Second Black Hole In Orbit", ImVec2(-1.0f, 28.0f))) {
+				spawn_orbiting_spacetime_source();
+			}
+			render_setting_tooltip("Creates a new independent black hole roughly half the mass of the primary central object, placed on a wide circular orbit with a small random inclination, ready for binary or multi-black-hole dynamics.");
 		}
 		ImGui::Separator();
 
@@ -1765,6 +1831,34 @@ private:
 		new_body_radius_log_mode_ = true;
 		new_body_r_ref_log_mode_ = true;
 		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+	}
+
+	void spawn_orbiting_spacetime_source() noexcept {
+		auto& sys = orchestrator_.nbody_system();
+		const double primary_mass = std::max(orchestrator_.parameters().mass, 1e-6);
+		const double companion_mass = primary_mass * 0.5;
+		const double orbit_radius = std::max(primary_mass * 40.0, 20.0);
+		const double theta = random_real(std::numbers::pi * 0.35, std::numbers::pi * 0.65);
+		const double phi = random_real(0.0, 2.0 * std::numbers::pi);
+		const std::array<double, 3> position{
+			orbit_radius * std::sin(theta) * std::cos(phi),
+			orbit_radius * std::sin(theta) * std::sin(phi),
+			orbit_radius * std::cos(theta)
+		};
+		const auto velocity = compute_circular_orbit_velocity(position, primary_mass + companion_mass);
+
+		Dynamics::PostNewtonianBody body(
+			0, companion_mass, companion_mass * 2.0,
+			position, velocity,
+			{0.0, 0.0, companion_mass * 0.3}
+		);
+		body.set_name(unique_name("Companion Black Hole"));
+		body.is_spacetime_source = true;
+		apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
+		sys.add_body(body);
+		sys.update_accelerations();
+		selected_body_index_ = -1;
+		orchestrator_.notify_state_changed();
 	}
 
 	void populate_solar_system_archetype() noexcept {

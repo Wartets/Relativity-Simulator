@@ -14,6 +14,7 @@
 #include <numbers>
 #include <span>
 #include <limits>
+#include <mutex>
 
 namespace Relativistic::Dynamics {
 
@@ -30,6 +31,7 @@ private:
 	bool central_body_stationary_{true};
 	PostNewtonianBody central_body_{};
 	uint32_t next_body_id_{1};
+	mutable std::recursive_mutex bodies_mutex_{};
 
 	[[nodiscard]] bool id_in_use(uint32_t id) const noexcept {
 		return std::any_of(bodies_.begin(), bodies_.end(), [id](const PostNewtonianBody& b) { return b.id == id; });
@@ -44,16 +46,92 @@ public:
 	explicit PostNewtonianSystem(const PNOrderConfig& config = {}) noexcept
 		: config_(config) {}
 
+	PostNewtonianSystem(const PostNewtonianSystem& other) {
+		std::lock_guard<std::recursive_mutex> lock(other.bodies_mutex_);
+		bodies_ = other.bodies_;
+		config_ = other.config_;
+		time_ = other.time_;
+		step_count_ = other.step_count_;
+		latest_gw_emission_ = other.latest_gw_emission_;
+		accelerations_buffer_ = other.accelerations_buffer_;
+		interaction_config_ = other.interaction_config_;
+		has_central_body_ = other.has_central_body_;
+		central_body_stationary_ = other.central_body_stationary_;
+		central_body_ = other.central_body_;
+		next_body_id_ = other.next_body_id_;
+	}
+
+	PostNewtonianSystem(PostNewtonianSystem&& other) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(other.bodies_mutex_);
+		bodies_ = std::move(other.bodies_);
+		config_ = other.config_;
+		time_ = other.time_;
+		step_count_ = other.step_count_;
+		latest_gw_emission_ = other.latest_gw_emission_;
+		accelerations_buffer_ = std::move(other.accelerations_buffer_);
+		interaction_config_ = other.interaction_config_;
+		has_central_body_ = other.has_central_body_;
+		central_body_stationary_ = other.central_body_stationary_;
+		central_body_ = std::move(other.central_body_);
+		next_body_id_ = other.next_body_id_;
+	}
+
+	PostNewtonianSystem& operator=(const PostNewtonianSystem& other) {
+		if (this != &other) {
+			std::unique_lock<std::recursive_mutex> lock_this(bodies_mutex_, std::defer_lock);
+			std::unique_lock<std::recursive_mutex> lock_other(other.bodies_mutex_, std::defer_lock);
+			std::lock(lock_this, lock_other);
+			bodies_ = other.bodies_;
+			config_ = other.config_;
+			time_ = other.time_;
+			step_count_ = other.step_count_;
+			latest_gw_emission_ = other.latest_gw_emission_;
+			accelerations_buffer_ = other.accelerations_buffer_;
+			interaction_config_ = other.interaction_config_;
+			has_central_body_ = other.has_central_body_;
+			central_body_stationary_ = other.central_body_stationary_;
+			central_body_ = other.central_body_;
+			next_body_id_ = other.next_body_id_;
+		}
+		return *this;
+	}
+
+	PostNewtonianSystem& operator=(PostNewtonianSystem&& other) noexcept {
+		if (this != &other) {
+			std::unique_lock<std::recursive_mutex> lock_this(bodies_mutex_, std::defer_lock);
+			std::unique_lock<std::recursive_mutex> lock_other(other.bodies_mutex_, std::defer_lock);
+			std::lock(lock_this, lock_other);
+			bodies_ = std::move(other.bodies_);
+			config_ = other.config_;
+			time_ = other.time_;
+			step_count_ = other.step_count_;
+			latest_gw_emission_ = other.latest_gw_emission_;
+			accelerations_buffer_ = std::move(other.accelerations_buffer_);
+			interaction_config_ = other.interaction_config_;
+			has_central_body_ = other.has_central_body_;
+			central_body_stationary_ = other.central_body_stationary_;
+			central_body_ = std::move(other.central_body_);
+			next_body_id_ = other.next_body_id_;
+		}
+		return *this;
+	}
+
 	uint32_t add_body(PostNewtonianBody body) {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		if (body.id == 0 || id_in_use(body.id)) body.id = allocate_id();
 		else if (body.id >= next_body_id_) next_body_id_ = body.id + 1;
 		bodies_.push_back(std::move(body));
 		return bodies_.back().id;
 	}
 
+	[[nodiscard]] std::recursive_mutex& bodies_mutex() const noexcept {
+		return bodies_mutex_;
+	}
+
 	uint32_t next_body_id() noexcept { return allocate_id(); }
 
 	void clear_bodies() noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		bodies_.clear();
 		time_ = 0.0;
 		step_count_ = 0;
@@ -61,12 +139,14 @@ public:
 	}
 
 	void set_central_body(const PostNewtonianBody& cb, bool stationary = true) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		central_body_ = cb;
 		has_central_body_ = true;
 		central_body_stationary_ = stationary;
 	}
 
 	void clear_central_body() noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		has_central_body_ = false;
 	}
 
@@ -123,6 +203,7 @@ public:
 	}
 
 	void step_interactions(double dt) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		if (bodies_.empty()) return;
 
 		InteractionSolver::apply_electromagnetic(bodies_, interaction_config_.electromagnetic);
@@ -182,6 +263,7 @@ public:
 	}
 
 	void update_accelerations() noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
 		std::vector<size_t> active_indices;
 		active_indices.reserve(bodies_.size());
 		for (size_t i = 0; i < bodies_.size(); ++i) {

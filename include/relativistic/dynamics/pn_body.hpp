@@ -70,6 +70,7 @@ struct alignas(64) PostNewtonianBody {
 	std::array<double, 3> acceleration{0.0, 0.0, 0.0};
 	std::array<double, 3> spin{0.0, 0.0, 0.0};
 	bool enabled{true};
+	bool is_spacetime_source{false};
 	std::array<float, 4> color{0.62f, 0.75f, 1.0f, 1.0f};
 	std::array<float, 4> color_secondary{0.18f, 0.30f, 0.75f, 1.0f};
 	double charge{0.0};
@@ -166,6 +167,16 @@ struct alignas(64) PostNewtonianBody {
 	[[nodiscard]] double spin_magnitude() const noexcept { return std::sqrt(spin_magnitude_squared()); }
 
 	[[nodiscard]] double kinetic_energy() const noexcept { return 0.5 * mass * speed_squared(); }
+
+	[[nodiscard]] double kerr_spin_parameter() const noexcept {
+		return (mass > 1e-12) ? std::clamp(spin_magnitude() / mass, 0.0, 0.999) : 0.0;
+	}
+
+	[[nodiscard]] double kerr_outer_horizon_radius() const noexcept {
+		const double rg = mass;
+		const double a = rg * kerr_spin_parameter();
+		return rg + std::sqrt(std::max(rg * rg - a * a, 0.0));
+	}
 
 	void set_composition(std::string_view value) noexcept {
 		const size_t len = std::min(value.size(), composition.size() - 1);

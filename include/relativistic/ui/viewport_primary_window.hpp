@@ -32,6 +32,7 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -573,6 +574,7 @@ public:
 
 			uint32_t total_enabled_bodies_this_frame = 0;
 			std::vector<Render::GpuBodyData> gpu_bodies;
+			std::lock_guard<std::recursive_mutex> body_collection_lock(orchestrator_.nbody_system().bodies_mutex());
 			if ((params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
 				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
 				gpu_bodies.reserve(nbody_sys.size());

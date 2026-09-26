@@ -22,6 +22,7 @@
 #include <numbers>
 #include <fstream>
 #include <sstream>
+#include <mutex>
 
 namespace Relativistic::Orchestrator {
 
@@ -278,32 +279,104 @@ private:
 	}
 
 	void handle_horizon_absorption() noexcept {
-		if (params_.mass <= 0.0) return;
-		const double r_g = params_.mass;
-		const double a = std::clamp(params_.spin, -0.999 * params_.mass, 0.999 * params_.mass);
-		const double r_h = r_g + std::sqrt(std::max(r_g * r_g - a * a, 0.0));
+		std::vector<Dynamics::PostNewtonianBody> bodies_copy;
+		{
+			std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
+			const auto span = nbody_system_.bodies();
+			bodies_copy.assign(span.begin(), span.end());
+		}
 
-		auto bodies = nbody_system_.bodies();
-		bool absorbed_any = false;
-		std::vector<Dynamics::PostNewtonianBody> survivors;
-		survivors.reserve(bodies.size());
-
-		for (size_t i = 0; i < bodies.size(); ++i) {
-			const auto& b = bodies[i];
-			if (!b.enabled) {
-				survivors.push_back(b);
-				continue;
-			}
-			const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
-			if (r <= r_h * 1.001) {
-				params_.mass += b.mass;
-				absorbed_any = true;
-			} else {
-				survivors.push_back(b);
+		bool primary_absorbed_any = false;
+		if (params_.mass > 0.0) {
+			const double r_g = params_.mass;
+			const double a = std::clamp(params_.spin, -0.999 * params_.mass, 0.999 * params_.mass);
+			const double r_h = r_g + std::sqrt(std::max(r_g * r_g - a * a, 0.0));
+			for (auto& b : bodies_copy) {
+				if (!b.enabled || b.is_spacetime_source) continue;
+				const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
+				if (r <= r_h * 1.001) {
+					params_.mass += b.mass;
+					b.enabled = false;
+					b.integrity = 0.0;
+					primary_absorbed_any = true;
+				}
 			}
 		}
 
-		if (absorbed_any) {
+		struct SourceInfo {
+			size_t index;
+			double horizon_radius;
+		};
+
+		std::vector<SourceInfo> sources;
+		for (size_t i = 0; i < bodies_copy.size(); ++i) {
+			if (bodies_copy[i].enabled && bodies_copy[i].is_spacetime_source) {
+				sources.push_back(SourceInfo{i, bodies_copy[i].kerr_outer_horizon_radius()});
+			}
+		}
+
+		bool sources_changed = false;
+
+		for (const auto& source : sources) {
+			auto& sb = bodies_copy[source.index];
+			if (!sb.enabled) continue;
+			for (auto& b : bodies_copy) {
+				if (!b.enabled || b.is_spacetime_source) continue;
+				const double dx = b.position[0] - sb.position[0];
+				const double dy = b.position[1] - sb.position[1];
+				const double dz = b.position[2] - sb.position[2];
+				const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
+				if (r <= source.horizon_radius * 1.001) {
+					const double m_total = sb.mass + b.mass;
+					if (m_total > 0.0) {
+						for (size_t c = 0; c < 3; ++c) {
+							sb.velocity[c] = (sb.mass * sb.velocity[c] + b.mass * b.velocity[c]) / m_total;
+							sb.spin[c] += b.spin[c];
+						}
+					}
+					sb.mass = m_total;
+					b.enabled = false;
+					b.integrity = 0.0;
+					sources_changed = true;
+				}
+			}
+		}
+
+		for (size_t i = 0; i < sources.size(); ++i) {
+			auto& sa = bodies_copy[sources[i].index];
+			if (!sa.enabled) continue;
+			for (size_t j = i + 1; j < sources.size(); ++j) {
+				auto& sbo = bodies_copy[sources[j].index];
+				if (!sbo.enabled) continue;
+				const double dx = sa.position[0] - sbo.position[0];
+				const double dy = sa.position[1] - sbo.position[1];
+				const double dz = sa.position[2] - sbo.position[2];
+				const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
+				const double contact = std::max(sources[i].horizon_radius, sources[j].horizon_radius);
+				if (r <= contact * 1.05) {
+					const double m_total = sa.mass + sbo.mass;
+					auto& survivor = (sa.mass >= sbo.mass) ? sa : sbo;
+					auto& merged = (sa.mass >= sbo.mass) ? sbo : sa;
+					for (size_t c = 0; c < 3; ++c) {
+						survivor.velocity[c] = (sa.mass * sa.velocity[c] + sbo.mass * sbo.velocity[c]) / m_total;
+						survivor.spin[c] += merged.spin[c];
+					}
+					survivor.mass = m_total;
+					merged.enabled = false;
+					merged.integrity = 0.0;
+					sources_changed = true;
+				}
+			}
+		}
+
+		if (primary_absorbed_any || sources_changed) {
+			std::vector<Dynamics::PostNewtonianBody> survivors;
+			survivors.reserve(bodies_copy.size());
+			for (auto& b : bodies_copy) {
+				if (b.enabled) survivors.push_back(b);
+			}
+
+			std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
 			nbody_system_.clear_bodies();
 			for (auto& sb : survivors) {
 				nbody_system_.add_body(sb);
@@ -344,8 +417,11 @@ private:
 			}
 			nbody_system_.step_interactions(sub_dt);
 			handle_horizon_absorption();
-			for (const auto& [index, state] : disabled_bodies) {
-				if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
+			{
+				std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
+				for (const auto& [index, state] : disabled_bodies) {
+					if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
+				}
 			}
 		}
 	}

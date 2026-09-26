@@ -13,6 +13,7 @@
 #include "relativistic/metrics/kerr_schild.hpp"
 #include "relativistic/metrics/reissner_nordstrom.hpp"
 #include "relativistic/metrics/kerr_newman.hpp"
+#include "relativistic/metrics/subsidiary_source_field.hpp"
 #include "relativistic/core/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/geodesic_bundle.hpp"
@@ -1703,65 +1704,93 @@ private:
 		double opacity{0.0};
 	};
 
+	[[nodiscard]] static std::vector<Metrics::SubsidiarySourceParams> collect_subsidiary_sources(
+		std::span<const GpuBodyData> bodies
+	) {
+		std::vector<Metrics::SubsidiarySourceParams> sources;
+		sources.reserve(bodies.size());
+		for (const auto& body : bodies) {
+			if (body.preset_3d != 8U) continue;
+			sources.push_back(Metrics::SubsidiarySourceParams::from_gpu_body(body));
+		}
+		return sources;
+	}
+
+	[[nodiscard]] static std::array<double, 3> spherical_state_to_cartesian_velocity(
+		double r, double theta, double phi, double pr, double ptheta, double pphi
+	) noexcept {
+		const double sin_t = std::sin(theta);
+		const double cos_t = std::cos(theta);
+		const double sin_p = std::sin(phi);
+		const double cos_p = std::cos(phi);
+		const double vx = pr * sin_t * cos_p + r * ptheta * cos_t * cos_p - r * sin_t * pphi * sin_p;
+		const double vy = pr * sin_t * sin_p + r * ptheta * cos_t * sin_p + r * sin_t * pphi * cos_p;
+		const double vz = pr * cos_t - r * ptheta * sin_t;
+		return {vx, vy, vz};
+	}
+
+	static void cartesian_velocity_to_spherical_state(
+		double r, double theta, double phi,
+		const std::array<double, 3>& v,
+		double& pr, double& ptheta, double& pphi
+	) noexcept {
+		const double sin_t = std::sin(theta);
+		const double cos_t = std::cos(theta);
+		const double sin_p = std::sin(phi);
+		const double cos_p = std::cos(phi);
+		const double safe_sin_t = (std::abs(sin_t) > 1e-9) ? sin_t : ((sin_t >= 0.0) ? 1e-9 : -1e-9);
+		pr = v[0] * sin_t * cos_p + v[1] * sin_t * sin_p + v[2] * cos_t;
+		ptheta = (v[0] * cos_t * cos_p + v[1] * cos_t * sin_p - v[2] * sin_t) / std::max(r, 1e-9);
+		pphi = (-v[0] * sin_p + v[1] * cos_p) / std::max(r * safe_sin_t, 1e-9);
+	}
+
+	static void apply_subsidiary_deflection_step(
+		double& ray_r, double ray_theta, double ray_phi,
+		double& ray_pr, double& ray_ptheta, double& ray_pphi,
+		double dt,
+		const std::vector<Metrics::SubsidiarySourceParams>& sources
+	) noexcept {
+		if (sources.empty()) return;
+		const auto pos = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
+		const auto* dominant = Metrics::SubsidiarySourceField::find_dominant_source(pos, sources);
+		if (dominant == nullptr) return;
+
+		const auto v = spherical_state_to_cartesian_velocity(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi);
+		const double speed = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+		if (speed < 1e-12) return;
+		const std::array<double, 3> dir{v[0] / speed, v[1] / speed, v[2] / speed};
+
+		const auto new_dir = Metrics::SubsidiarySourceField::compute_weak_field_deflection(pos, dir, std::abs(dt), *dominant);
+		const std::array<double, 3> new_v{new_dir[0] * speed, new_dir[1] * speed, new_dir[2] * speed};
+
+		double new_pr = 0.0, new_ptheta = 0.0, new_pphi = 0.0;
+		cartesian_velocity_to_spherical_state(ray_r, ray_theta, ray_phi, new_v, new_pr, new_ptheta, new_pphi);
+		ray_pr = new_pr;
+		ray_ptheta = new_ptheta;
+		ray_pphi = new_pphi;
+	}
+
 	[[nodiscard]] static SubsidiarySourceHit evaluate_subsidiary_spacetime_sources(
 		const std::array<double, 3>& seg_start,
 		const std::array<double, 3>& seg_end,
-		std::span<const GpuBodyData> bodies
+		const std::vector<Metrics::SubsidiarySourceParams>& sources
 	) noexcept {
 		SubsidiarySourceHit result{};
-
-		const double seg_dx = seg_end[0] - seg_start[0];
-		const double seg_dy = seg_end[1] - seg_start[1];
-		const double seg_dz = seg_end[2] - seg_start[2];
-		const double a_coeff = seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz;
-		if (a_coeff <= 1e-18) {
-			return result;
-		}
-
-		for (const auto& body : bodies) {
-			if (body.preset_3d != 8U) continue;
-			const double m = std::max(body.mass, 1e-6);
-			const double rh = 2.0 * m;
-			const double isco = 6.0 * m;
-			const double disk_outer = 24.0 * m;
-
-			const double ox = seg_start[0] - body.position[0];
-			const double oy = seg_start[1] - body.position[1];
-			const double oz = seg_start[2] - body.position[2];
-
-			const double b_coeff = 2.0 * (ox * seg_dx + oy * seg_dy + oz * seg_dz);
-			const double c_coeff = ox * ox + oy * oy + oz * oz - rh * rh;
-			const double discr = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
-			if (discr >= 0.0) {
-				const double sqrt_discr = std::sqrt(discr);
-				const double t1 = (-b_coeff - sqrt_discr) / (2.0 * a_coeff);
-				const double t2 = (-b_coeff + sqrt_discr) / (2.0 * a_coeff);
-				const bool hits = (t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0);
-				if (hits) {
-					result.absorbed = true;
-					return result;
-				}
+		for (const auto& source : sources) {
+			if (Metrics::SubsidiarySourceField::segment_crosses_horizon(seg_start, seg_end, source)) {
+				result.absorbed = true;
+				return result;
 			}
 
-			const double prev_z_rel = seg_start[2] - body.position[2];
-			const double curr_z_rel = seg_end[2] - body.position[2];
-			const double z_span = curr_z_rel - prev_z_rel;
-			if (prev_z_rel * curr_z_rel <= 0.0 && std::abs(z_span) > 1e-15) {
-				const double s_cross = std::clamp(std::abs(prev_z_rel) / std::abs(z_span), 0.0, 1.0);
-				const double cross_x = seg_start[0] + s_cross * seg_dx - body.position[0];
-				const double cross_y = seg_start[1] + s_cross * seg_dy - body.position[1];
-				const double r_cross = std::sqrt(cross_x * cross_x + cross_y * cross_y);
-				if (r_cross >= isco && r_cross <= disk_outer) {
-					const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-					const double g_doppler = std::sqrt(std::max(1.0 - rh / r_cross, 1e-4));
-					const double t_eff_k = (18000.0 * t_norm + 1200.0) * g_doppler;
-					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-					const double flux_intensity = std::max(std::pow(g_doppler, 4.0) * t_norm * radial_envelope, 0.0) * 1.5;
-					result.disk_hit = true;
-					result.color = temperature_to_linear_rgb(t_eff_k, flux_intensity);
-					result.opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
-					return result;
-				}
+			const auto crossing = Metrics::SubsidiarySourceField::segment_crosses_disk(seg_start, seg_end, source);
+			if (crossing.has_value()) {
+				const double radial_envelope = std::clamp((source.disk_outer_radius - crossing->radius) / (1.5 * source.mass), 0.0, 1.0)
+					* std::clamp((crossing->radius - source.isco_radius) / (0.8 * source.mass), 0.0, 1.0);
+				const double flux_intensity = std::max(std::pow(crossing->doppler_factor, 4.0) * crossing->normalized_flux * radial_envelope, 0.0) * 1.5;
+				result.disk_hit = true;
+				result.color = temperature_to_linear_rgb(crossing->temperature_kelvin, flux_intensity);
+				result.opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+				return result;
 			}
 		}
 		return result;
@@ -1853,6 +1882,8 @@ public:
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
 			return;
 		}
+
+		const auto subsidiary_sources = collect_subsidiary_sources(bodies);
 
 		const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
 		std::vector<std::jthread> workers;
@@ -2144,6 +2175,10 @@ public:
 						ray_ptheta += sixth_dt * (k1_pth + 2.0 * k2_pth + 2.0 * k3_pth + k4_pth);
 						ray_pphi += sixth_dt * (k1_pphi + 2.0 * k2_pphi + 2.0 * k3_pphi + k4_pphi);
 
+						if (bodies_need_curved_path && !subsidiary_sources.empty()) {
+							apply_subsidiary_deflection_step(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, dt, subsidiary_sources);
+						}
+
 						if (ray_theta < 0.0) {
 							ray_theta = -ray_theta;
 							ray_phi += std::numbers::pi_v<double>;
@@ -2167,7 +2202,7 @@ public:
 							const double seg_dz = seg_z1 - seg_z0;
 							const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz);
 							if (seg_len > 1e-12) {
-								const auto subsidiary_hit = evaluate_subsidiary_spacetime_sources({seg_x0, seg_y0, seg_z0}, {seg_x1, seg_y1, seg_z1}, bodies);
+								const auto subsidiary_hit = evaluate_subsidiary_spacetime_sources({seg_x0, seg_y0, seg_z0}, {seg_x1, seg_y1, seg_z1}, subsidiary_sources);
 								if (subsidiary_hit.absorbed) {
 									throughput = 0.0;
 									status |= PixelFlags::HORIZON_ABSORBED;

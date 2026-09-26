@@ -202,6 +202,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.emission_intensity = static_cast<double>(emission_intensity);
 		gpu.rotation_speed = static_cast<double>(rotation_speed_3d);
 		gpu.oblateness_ratio = (std::abs(j2) > 1e-9) ? (1.0 - j2) : 1.0;
+		gpu.spin_parameter = is_spacetime_source ? kerr_spin_parameter() : 0.0;
 		gpu.color_tertiary = {color_tertiary[0], color_tertiary[1], color_tertiary[2], color_tertiary[3]};
 		gpu.texture_detail_scale = static_cast<double>(texture_detail_scale);
 		gpu.polar_cap_strength = static_cast<double>(polar_cap_strength);

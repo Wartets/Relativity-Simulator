@@ -189,6 +189,7 @@ struct alignas(16) GpuBodyData {
 	double emission_intensity{0.0};
 	double rotation_speed{0.1};
 	double oblateness_ratio{1.0};
+	double spin_parameter{0.0};
 	uint32_t body_id{0};
 
 	uint32_t geometry_model{0};
@@ -225,6 +226,7 @@ struct alignas(16) GpuBodyGpuLayout {
 	double emission_intensity{0.0};
 	double rotation_speed{0.1};
 	double oblateness_ratio{1.0};
+	double spin_parameter{0.0};
 	uint32_t body_id{0};
 	uint32_t geometry_model{0};
 	uint32_t surface_texture_mode{0};
@@ -255,6 +257,7 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.emission_intensity = b.emission_intensity;
 		g.rotation_speed = b.rotation_speed;
 		g.oblateness_ratio = b.oblateness_ratio;
+		g.spin_parameter = b.spin_parameter;
 		g.body_id = b.body_id;
 		g.geometry_model = b.geometry_model;
 		g.surface_texture_mode = b.surface_texture_mode;
@@ -265,6 +268,6 @@ struct alignas(16) GpuBodyGpuLayout {
 	}
 };
 
-static_assert(sizeof(GpuBodyGpuLayout) == 272);
+static_assert(sizeof(GpuBodyGpuLayout) == 288);
 
 }

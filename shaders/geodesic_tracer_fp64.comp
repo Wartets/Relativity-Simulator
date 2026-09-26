@@ -131,6 +131,7 @@ struct GpuBody {
 	double emission_intensity;
 	double rotation_speed;
 	double oblateness_ratio;
+	double spin_parameter;
 	uint body_id;
 	uint geometry_model;
 	uint surface_texture_mode;
@@ -839,6 +840,69 @@ double body_fbm(dvec3 p_d, uint octaves, double roughness) {
 	return double(total / max(max_val, 1e-5));
 }
 
+bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_color, out double out_opacity, out bool out_absorbed) {
+	out_color = vec3(0.0);
+	out_opacity = 0.0;
+	out_absorbed = false;
+	dvec3 seg_vec = seg_end - seg_start;
+	double seg_len_sq = dot(seg_vec, seg_vec);
+	if (seg_len_sq <= 1e-18) return false;
+
+	bool any_hit = false;
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bodies[bi].preset_3d != 8u) continue;
+		double m = max(bodies[bi].mass, 1e-9);
+		double a_star = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999);
+		double a_spin = a_star * m;
+		double rh = m + sqrt(max(m * m - a_spin * a_spin, 0.0));
+		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
+
+		dvec3 o = seg_start - bpos;
+		double b_coeff = 2.0 * dot(o, seg_vec);
+		double c_coeff = dot(o, o) - rh * rh;
+		double discr = b_coeff * b_coeff - 4.0 * seg_len_sq * c_coeff;
+		if (discr >= 0.0) {
+			double sqrt_discr = sqrt(discr);
+			double t1 = (-b_coeff - sqrt_discr) / (2.0 * seg_len_sq);
+			double t2 = (-b_coeff + sqrt_discr) / (2.0 * seg_len_sq);
+			if ((t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0)) {
+				out_absorbed = true;
+				return true;
+			}
+		}
+
+		double prev_z_rel = seg_start.z - bpos.z;
+		double curr_z_rel = seg_end.z - bpos.z;
+		double z_span = curr_z_rel - prev_z_rel;
+		if (prev_z_rel * curr_z_rel <= 0.0 && abs(z_span) > 1e-15) {
+			double isco = kerr_isco_radius_prograde_retrograde(m, a_spin);
+			double disk_outer = 24.0 * m;
+			double s_cross = clamp(abs(prev_z_rel) / abs(z_span), 0.0, 1.0);
+			dvec3 cross_pos = seg_start + s_cross * seg_vec - bpos;
+			double r_cross = length(dvec2(cross_pos.x, cross_pos.y));
+			if (r_cross >= isco && r_cross <= disk_outer) {
+				double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
+				double g_doppler = sqrt(max(1.0 - rh / r_cross, 1e-4)) / gamma_orb;
+				double q_ratio = isco / r_cross;
+				double q_quarter = sqrt(sqrt(q_ratio));
+				double q_three_quarter = q_quarter * q_quarter * q_quarter;
+				double w_ratio = max(1.0 - sqrt(q_ratio), 0.0);
+				double w_quarter = sqrt(sqrt(w_ratio));
+				double t_norm = q_three_quarter * w_quarter;
+				double t_eff_k = (18000.0 * t_norm + 1200.0) * g_doppler;
+				double g_doppler2 = g_doppler * g_doppler;
+				double g_doppler4 = g_doppler2 * g_doppler2;
+				double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+				double flux_intensity = max(g_doppler4 * t_norm * radial_envelope, 0.0) * 1.5;
+				out_color = vec3(temperature_to_linear_rgb(t_eff_k, flux_intensity, 1.0));
+				out_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
+				any_hit = true;
+			}
+		}
+	}
+	return any_hit;
+}
+
 bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 out_color, out uint out_status, out double out_hit_dist) {
 	bool hit_any = false;
 	double best_t = max_dist;
@@ -1106,6 +1170,93 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 	return true;
 }
 
+void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double dt) {
+	if (pc.body_count == 0u) return;
+
+	dvec3 pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+	dvec2 sincos_th = precise_sincos(ray_th);
+	double sin_t = sincos_th.x;
+	double cos_t = sincos_th.y;
+	float phi_f = float(ray_phi);
+	double sin_p = double(sin(phi_f));
+	double cos_p = double(cos(phi_f));
+
+	dvec3 v = dvec3(
+		ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p,
+		ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p,
+		ray_pr * cos_t - ray_r * ray_pth * sin_t
+	);
+	double speed = length(v);
+	if (speed < 1e-12) return;
+	dvec3 dir = v / speed;
+
+	uint dominant_idx = 0xFFFFFFFFu;
+	double strongest = 0.0;
+	dvec3 dominant_pos = dvec3(0.0);
+	double dominant_mass = 0.0;
+	double dominant_spin = 0.0;
+	double dominant_rh = 0.0;
+
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bodies[bi].preset_3d != 8u) continue;
+		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
+		dvec3 diff = pos - bpos;
+		double dist_sq = max(dot(diff, diff), 1e-9);
+		double m = max(bodies[bi].mass, 1e-9);
+		double influence = m / dist_sq;
+		if (influence > strongest) {
+			strongest = influence;
+			dominant_idx = bi;
+			dominant_pos = bpos;
+			dominant_mass = m;
+			double a_star = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999);
+			dominant_spin = a_star * m;
+			dominant_rh = m + sqrt(max(m * m - dominant_spin * dominant_spin, 0.0));
+		}
+	}
+
+	if (dominant_idx == 0xFFFFFFFFu) return;
+
+	dvec3 rel = pos - dominant_pos;
+	double r_len = length(rel);
+	if (r_len < dominant_rh * 1.5) return;
+
+	double proj = dot(rel, dir);
+	dvec3 perp = rel - proj * dir;
+	double impact_param = length(perp);
+	if (impact_param < dominant_rh * 0.1) return;
+
+	double cross_x = rel.y * dir.z - rel.z * dir.y;
+	double cross_y = rel.z * dir.x - rel.x * dir.z;
+	double cross_z = rel.x * dir.y - rel.y * dir.x;
+	double cross_norm = sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
+	if (cross_norm < 1e-12) return;
+	dvec3 n_axis = dvec3(cross_x, cross_y, cross_z) / cross_norm;
+
+	double schwarzschild_term = (4.0 * dominant_mass) / max(impact_param, dominant_mass * 1e-3);
+	double impact_cubed = impact_param * impact_param * impact_param;
+	double gravitomagnetic_term = (4.0 * dominant_spin * dominant_mass) / max(impact_cubed, dominant_mass * dominant_mass * 1e-6);
+	double weight = double(exp(float(-r_len / (30.0 * max(dominant_mass, 1e-6)))));
+	double total_deflection = min((schwarzschild_term + gravitomagnetic_term) * weight * (abs(dt) / max(r_len, dominant_mass)), 0.5);
+
+	double wx = n_axis.y * dir.z - n_axis.z * dir.y;
+	double wy = n_axis.z * dir.x - n_axis.x * dir.z;
+	double wz = n_axis.x * dir.y - n_axis.y * dir.x;
+
+	float defl_f = float(total_deflection);
+	double cos_a = double(cos(defl_f));
+	double sin_a = double(sin(defl_f));
+	dvec3 new_dir = dir * cos_a + dvec3(wx, wy, wz) * sin_a;
+	double new_len = length(new_dir);
+	if (new_len > 1e-12) new_dir /= new_len;
+
+	dvec3 new_v = new_dir * speed;
+	double safe_sin_t = (abs(sin_t) > 1e-9) ? sin_t : ((sin_t >= 0.0) ? 1e-9 : -1e-9);
+	ray_pr = new_v.x * sin_t * cos_p + new_v.y * sin_t * sin_p + new_v.z * cos_t;
+	ray_pth = (new_v.x * cos_t * cos_p + new_v.y * cos_t * sin_p - new_v.z * sin_t) / max(ray_r, 1e-9);
+	ray_pphi = (-new_v.x * sin_p + new_v.y * cos_p) / max(ray_r * safe_sin_t, 1e-9);
+}
+
 void main() {
 	uint tiles_x = (pc.screen_width + 15u) / 16u;
 	uint tiles_y = (pc.screen_height + 15u) / 16u;
@@ -1354,6 +1505,10 @@ void main() {
 				ray_pphi += dt * d_pphi;
 			}
 
+			if (bodies_traced) {
+				apply_subsidiary_deflection(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt);
+			}
+
 			if (ray_th < 0.0) {
 				ray_th = -ray_th;
 				ray_phi += PI_D;
@@ -1364,8 +1519,8 @@ void main() {
 				ray_pth = -ray_pth;
 			}
 
-			bool body_segment_hit = false;
 			vec3 body_segment_color = vec3(0.0);
+			bool body_segment_hit = false;
 			if (bodies_traced) {
 				dvec3 next_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
 				dvec3 segment_vector = next_body_cart_pos - curr_body_cart_pos;
@@ -1375,6 +1530,20 @@ void main() {
 					double segment_dist;
 					body_segment_hit = intersect_bodies(curr_body_cart_pos, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
 				}
+
+				vec3 subsidiary_color;
+				double subsidiary_opacity;
+				bool subsidiary_absorbed;
+				if (intersect_subsidiary_sources(curr_body_cart_pos, next_body_cart_pos, subsidiary_color, subsidiary_opacity, subsidiary_absorbed)) {
+					if (subsidiary_absorbed) {
+						status = 1u;
+						throughput = 0.0;
+						break;
+					}
+					accum += throughput * dvec3(subsidiary_color);
+					throughput *= (1.0 - subsidiary_opacity);
+				}
+
 				curr_body_cart_pos = next_body_cart_pos;
 			}
 

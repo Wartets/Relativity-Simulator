@@ -878,6 +878,7 @@ private:
 	std::mutex mutex_{};
 	std::array<Slot, kSlotCount> slots_{};
 	uint64_t stamp_counter_{0};
+	std::vector<std::jthread> decode_threads_{};
 
 	SkyPanoramaLoader() = default;
 
@@ -951,13 +952,14 @@ public:
 		}
 
 		if (need_decode) {
-			std::thread([this, target, key]() {
+			std::lock_guard<std::mutex> threads_lock(mutex_);
+			decode_threads_.emplace_back([this, target, key]() {
 				auto decoded = decode_key(key);
 				std::lock_guard<std::mutex> lock(mutex_);
 				target->image = decoded;
 				target->ready = true;
 				target->decoding = false;
-			}).detach();
+			});
 			return nullptr;
 		}
 

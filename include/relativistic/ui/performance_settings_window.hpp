@@ -252,7 +252,7 @@ public:
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "GPU Compute Offload (Vulkan)");
 
-			const bool gpu_platform_supported = Render::VulkanComputeExecutor::is_platform_supported();
+			const bool gpu_platform_supported = (render_pipeline_ != nullptr) && render_pipeline_->context().has_compute_device();
 			bool use_gpu = orchestrator_.parameters().use_gpu_compute;
 
 			if (!gpu_platform_supported) {

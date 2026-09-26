@@ -2,7 +2,7 @@
 #extension GL_ARB_gpu_shader_fp64 : enable
 #extension GL_EXT_scalar_block_layout : require
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
@@ -145,7 +145,12 @@ layout(std430, binding = 2) readonly buffer BodyBuffer {
 
 layout(binding = 3) uniform sampler2D panorama_sampler;
 
+layout(std430, binding = 4) buffer PersistentWorkQueue {
+	uint persistent_next_pixel_index;
+};
+
 const double PI_D = 3.14159265358979323846;
+const uint PERSISTENT_BATCH_SIZE = 8u;
 
 uint hash_u32(uint x) {
 	x ^= x >> 16;
@@ -1101,12 +1106,17 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 }
 
 void main() {
-	uint px = gl_GlobalInvocationID.x;
-	uint py = gl_GlobalInvocationID.y;
-	if (px >= pc.screen_width || py >= pc.screen_height) {
+	uint total_pixel_count = pc.screen_width * pc.screen_height;
+
+	for (;;) {
+	uint persistent_batch_start = atomicAdd(persistent_next_pixel_index, PERSISTENT_BATCH_SIZE);
+	if (persistent_batch_start >= total_pixel_count) {
 		return;
 	}
-	uint pixel_index = py * pc.screen_width + px;
+	uint persistent_batch_end = min(persistent_batch_start + PERSISTENT_BATCH_SIZE, total_pixel_count);
+	for (uint pixel_index = persistent_batch_start; pixel_index < persistent_batch_end; ++pixel_index) {
+	uint px = pixel_index % pc.screen_width;
+	uint py = pixel_index / pc.screen_width;
 
 	double aspect = double(pc.screen_width) / double(pc.screen_height);
 	double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
@@ -1139,7 +1149,7 @@ void main() {
 				pixels[pixel_index].affine_parameter = 0.0;
 				pixels[pixel_index].status_flags = body_status;
 				pixels[pixel_index].iterations_used = 0u;
-				return;
+				continue;
 			}
 		}
 
@@ -1151,7 +1161,7 @@ void main() {
 			pixels[pixel_index].affine_parameter = 0.0;
 			pixels[pixel_index].status_flags = 2u;
 			pixels[pixel_index].iterations_used = 0u;
-			return;
+			continue;
 		}
 	}
 
@@ -1448,4 +1458,6 @@ void main() {
 	pixels[pixel_index].affine_parameter = float(iters) * 0.05;
 	pixels[pixel_index].status_flags = status;
 	pixels[pixel_index].iterations_used = iters;
+	}
+	}
 }

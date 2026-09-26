@@ -6,8 +6,10 @@
 #include "relativistic/optics/spectrum.hpp"
 #include "relativistic/optics/cie_observer.hpp"
 #include "relativistic/optics/sky_panorama_image.hpp"
+#include "relativistic/optics/carter_ray_classifier.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/kerr.hpp"
+#include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
 #include "relativistic/metrics/reissner_nordstrom.hpp"
 #include "relativistic/metrics/kerr_newman.hpp"
@@ -1006,6 +1008,20 @@ private:
 
 		const double disk_outer = 24.0 * m;
 
+		if constexpr (std::is_same_v<MetricType, Metrics::KerrMetric<double>>) {
+			const auto invariants = Metrics::compute_kerr_invariants_bl(metric, x, u);
+			const double xi = invariants.angular_momentum_z / std::max(std::abs(invariants.energy), 1e-12);
+			const double eta = invariants.carter_constant / std::max(invariants.energy * invariants.energy, 1e-24);
+			const auto phase_result = Optics::CarterPhaseClassifier<double>::classify(m, metric.spin(), r_obs, rh, disk_outer, xi, eta, u(1) < 0.0);
+			if (phase_result.phase == Optics::GeodesicPhaseClass::CertainAbsorption) {
+				return GpuPixelOutput{
+					.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f,
+					.redshift = 0.0f, .affine_parameter = 0.0f,
+					.status_flags = PixelFlags::HORIZON_ABSORBED, .iterations_used = 0
+				};
+			}
+		}
+
 		auto compute_acc = [&](const Core::FourVector<double>& xs, const Core::FourVector<double>& us) noexcept -> Core::FourVector<double> {
 			const auto gamma = Core::compute_christoffel<Core::DerivativeOrder::EighthOrder, MetricType, double>(metric, xs);
 			Core::FourVector<double> acc;
@@ -1928,6 +1944,21 @@ public:
 					const double E_cons = 1.0;
 					const double Lz_cons = p_phi_init * (r_obs * r_obs * sin_to * sin_to);
 
+					const double carter_eta_estimate = (r_obs * r_obs * ray_ptheta) * (r_obs * r_obs * ray_ptheta) + Lz_cons * Lz_cons * (cos_to * cos_to) / std::max(sin_to * sin_to, 1e-12);
+					const auto carter_phase = Optics::CarterPhaseClassifier<double>::classify(m, 0.0, r_obs, rh, disk_outer, Lz_cons, carter_eta_estimate, ray_pr < 0.0);
+					if (carter_phase.phase == Optics::GeodesicPhaseClass::CertainAbsorption) {
+						output_framebuffer[pixel_idx] = GpuPixelOutput{
+							.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f,
+							.redshift = 0.0f, .affine_parameter = 0.0f,
+							.status_flags = PixelFlags::HORIZON_ABSORBED, .iterations_used = 0
+						};
+						continue;
+					}
+					const bool force_ray_space_skip = (carter_phase.phase == Optics::GeodesicPhaseClass::CertainEscape);
+					const double effective_space_skip_radius_for_ray = force_ray_space_skip
+						? std::min(effective_space_skip_radius, carter_phase.outer_turning_point * 1.05)
+						: effective_space_skip_radius;
+
 					double accumulated_r = 0.0;
 					double accumulated_g = 0.0;
 					double accumulated_b = 0.0;
@@ -1953,9 +1984,9 @@ public:
 							break;
 						}
 
-						if (space_skip_enabled && ray_r > effective_space_skip_radius) {
+						if ((space_skip_enabled || force_ray_space_skip) && ray_r > effective_space_skip_radius_for_ray) {
 							const auto skip_origin = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
-							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius, params.escape_radius, m)) {
+							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius_for_ray, params.escape_radius, m)) {
 								if (bodies_need_curved_path) {
 									const auto skip_hit = evaluate_3d_body_segment(skip_origin, spherical_to_cartesian(ray_r, ray_theta, ray_phi), bodies, params, body_candidates);
 									if (skip_hit.hit) {
@@ -2359,7 +2390,17 @@ public:
 							bundle.p1[l] = -n_r;
 							bundle.p2[l] = -n_th / (r_obs * sqrt_factor_obs);
 							bundle.p3[l] = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
-							bundle.active_mask[l] = true;
+
+							const double lane_lz = bundle.p3[l] * (r_obs * r_obs * sin_to * sin_to);
+							const double lane_eta = (r_obs * r_obs * bundle.p2[l]) * (r_obs * r_obs * bundle.p2[l]) + lane_lz * lane_lz * (cos_to * cos_to) / std::max(sin_to * sin_to, 1e-12);
+							const auto lane_phase = Optics::CarterPhaseClassifier<double>::classify(m, 0.0, r_obs, rh, disk_outer, lane_lz, lane_eta, bundle.p1[l] < 0.0);
+							if (lane_phase.phase == Optics::GeodesicPhaseClass::CertainAbsorption) {
+								status[l] = PixelFlags::HORIZON_ABSORBED;
+								throughput[l] = 0.0;
+								bundle.active_mask[l] = false;
+							} else {
+								bundle.active_mask[l] = true;
+							}
 						} else {
 							bundle.x0[l] = 0.0;
 							bundle.x1[l] = r_obs;

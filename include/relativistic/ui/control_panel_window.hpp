@@ -1092,25 +1092,6 @@ private:
 		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.7f, 1.0f), "Adaptive Render Performance:");
-		bool dynamic_res = orchestrator_.parameters().dynamic_resolution_enabled;
-		if (ImGui::Checkbox("Dynamic Resolution Scaling", &dynamic_res)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionEnabled, dynamic_res ? 1.0 : 0.0)));
-		}
-		render_setting_tooltip("Automatically shrinks and grows the internal render resolution frame by frame to hold the target frame rate below, multiplying on top of the manual resolution scale above. Disabled by default so the currently tuned performance defaults stay untouched.");
-		if (dynamic_res) {
-			float target_fps = static_cast<float>(orchestrator_.parameters().dynamic_resolution_target_fps);
-			if (ImGui::SliderFloat("Target Frame Rate", &target_fps, 15.0f, 240.0f, "%.0f fps")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DynamicResolutionTargetFps, static_cast<double>(target_fps))));
-			}
-		}
-		bool tile_prepass = orchestrator_.parameters().adaptive_tile_prepass_enabled;
-		if (ImGui::Checkbox("Adaptive Tile Sky Prepass", &tile_prepass)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::AdaptiveTilePrepassEnabled, tile_prepass ? 1.0 : 0.0)));
-		}
-		render_setting_tooltip("Tests only the four corner rays of every 32x32 CPU render tile; when the whole tile is confirmed to be untouched empty sky far from the black hole, it is filled from a single analytic sky sample instead of fully integrating every one of its pixels. Only affects the CPU fallback path. Disabled by default.");
-
-		ImGui::Separator();
 
 		if (schematic_locked) ImGui::BeginDisabled(true);
 

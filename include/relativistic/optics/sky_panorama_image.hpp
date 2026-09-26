@@ -903,7 +903,7 @@ private:
 		}
 		if (!image) {
 			try {
-				Core::log_error("Sky panorama could not be decoded, the procedural sky is used instead: " + std::string(path));
+				// Core::log_error("Sky panorama could not be decoded, the procedural sky is used instead: " + std::string(path));
 			} catch (...) {
 			}
 		}

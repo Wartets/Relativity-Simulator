@@ -34,6 +34,7 @@ private:
 	float pole_guard_precision_{0.7f};
 	float far_field_step_scale_{1.0f};
 	bool interlace_enabled_{false};
+	bool adaptive_tile_prepass_enabled_{false};
 
 public:
 	explicit PerformanceSettingsWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
@@ -67,6 +68,7 @@ public:
 		interlace_enabled_ = p.interlace_rendering_enabled;
 		enable_dynamic_resolution_ = p.dynamic_resolution_enabled;
 		target_framerate_ = static_cast<float>(p.dynamic_resolution_target_fps);
+		adaptive_tile_prepass_enabled_ = p.adaptive_tile_prepass_enabled;
 	}
 
 	void render() {
@@ -230,6 +232,11 @@ public:
 				}
 				render_setting_tooltip("Reduces resolution when the framerate drops below the target and increases it when the framerate exceeds the target.");
 			}
+
+			if (ImGui::Checkbox("Adaptive Tile Sky Prepass", &adaptive_tile_prepass_enabled_)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::AdaptiveTilePrepassEnabled, adaptive_tile_prepass_enabled_ ? 1.0 : 0.0)));
+			}
+			render_setting_tooltip("Tests only the four corner rays of every 32x32 CPU render tile; when the whole tile is confirmed to be untouched empty sky far from the black hole, it is filled from a single analytic sky sample instead of fully integrating every one of its pixels. Only affects the CPU fallback path. Disabled by default.");
 
 			ImGui::Spacing();
 			ImGui::Separator();

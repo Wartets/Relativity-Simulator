@@ -45,6 +45,10 @@ private:
 	void* body_mapped_{nullptr};
 	VkDeviceSize body_capacity_bytes_{0};
 
+	VkBuffer persistent_counter_buffer_{VK_NULL_HANDLE};
+	VkDeviceMemory persistent_counter_memory_{VK_NULL_HANDLE};
+	void* persistent_counter_mapped_{nullptr};
+
 	VkBuffer staging_buffer_{VK_NULL_HANDLE};
 	VkDeviceMemory staging_memory_{VK_NULL_HANDLE};
 	void* staging_mapped_{nullptr};
@@ -547,7 +551,7 @@ public:
 			return false;
 		}
 
-		std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+		std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		bindings[0].descriptorCount = 1;
@@ -567,6 +571,11 @@ public:
 		bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		bindings[3].descriptorCount = 1;
 		bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[4].binding = 4;
+		bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		bindings[4].descriptorCount = 1;
+		bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -603,7 +612,7 @@ public:
 
 		std::array<VkDescriptorPoolSize, 3> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
-		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};
+		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
 		pool_sizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
 
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -654,6 +663,35 @@ public:
 		uniform_write.pBufferInfo = &uniform_info;
 
 		vkUpdateDescriptorSets(device_, 1, &uniform_write, 0, nullptr);
+
+		if (!create_buffer(
+			sizeof(uint32_t),
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			persistent_counter_buffer_,
+			persistent_counter_memory_
+		)) {
+			return false;
+		}
+		if (vkMapMemory(device_, persistent_counter_memory_, 0, sizeof(uint32_t), 0, &persistent_counter_mapped_) != VK_SUCCESS) {
+			return false;
+		}
+		*static_cast<uint32_t*>(persistent_counter_mapped_) = 0U;
+
+		VkDescriptorBufferInfo persistent_counter_info{};
+		persistent_counter_info.buffer = persistent_counter_buffer_;
+		persistent_counter_info.offset = 0;
+		persistent_counter_info.range = sizeof(uint32_t);
+
+		VkWriteDescriptorSet persistent_counter_write{};
+		persistent_counter_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		persistent_counter_write.dstSet = descriptor_set_;
+		persistent_counter_write.dstBinding = 4;
+		persistent_counter_write.descriptorCount = 1;
+		persistent_counter_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		persistent_counter_write.pBufferInfo = &persistent_counter_info;
+
+		vkUpdateDescriptorSets(device_, 1, &persistent_counter_write, 0, nullptr);
 
 		if (!ensure_output_capacity(64 * 64)) {
 			return false;
@@ -717,6 +755,7 @@ public:
 		destroy_buffer(storage_buffer_, storage_memory_);
 		destroy_buffer(staging_buffer_, staging_memory_, &staging_mapped_);
 		destroy_buffer(body_buffer_, body_memory_, &body_mapped_);
+		destroy_buffer(persistent_counter_buffer_, persistent_counter_memory_, &persistent_counter_mapped_);
 		destroy_panorama_texture();
 		if (panorama_sampler_ != VK_NULL_HANDLE) {
 			vkDestroySampler(device_, panorama_sampler_, nullptr);
@@ -831,6 +870,9 @@ public:
 		if (!bodies.empty() && body_mapped_ != nullptr) {
 			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));
 		}
+		if (persistent_counter_mapped_ != nullptr) {
+			*static_cast<uint32_t*>(persistent_counter_mapped_) = 0U;
+		}
 
 		if (vkResetCommandBuffer(command_buffer_, 0) != VK_SUCCESS) {
 			return false;
@@ -847,9 +889,13 @@ public:
 		vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_);
 		vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, 1, &descriptor_set_, 0, nullptr);
 
-		const uint32_t group_x = (params.screen_width + 15U) / 16U;
-		const uint32_t group_y = (params.screen_height + 15U) / 16U;
-		vkCmdDispatch(command_buffer_, group_x, group_y, 1);
+		const uint32_t total_pixel_count = params.screen_width * params.screen_height;
+		constexpr uint32_t persistent_local_size = 256U;
+		constexpr uint32_t persistent_batch_size = 8U;
+		const uint32_t work_per_group = persistent_local_size * persistent_batch_size;
+		const uint32_t ideal_group_count = (total_pixel_count + work_per_group - 1U) / std::max(work_per_group, 1U);
+		const uint32_t persistent_group_count = std::clamp(ideal_group_count, 64U, 4096U);
+		vkCmdDispatch(command_buffer_, persistent_group_count, 1, 1);
 
 		VkBufferMemoryBarrier barrier{};
 		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;

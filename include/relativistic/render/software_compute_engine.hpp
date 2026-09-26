@@ -122,10 +122,12 @@ private:
 		const std::array<double, 3>& ray_dir,
 		std::span<const GpuBodyData> bodies,
 		const GpuCameraPushConstants& params,
-		std::span<const uint32_t> candidate_indices = {}
+		std::span<const uint32_t> candidate_indices = {},
+		double max_distance = 1e30
 	) noexcept {
 		BodyHitResult best_result{};
 		if (bodies.empty()) return best_result;
+		best_result.t_hit = max_distance;
 
 		const bool enable_doppler = (params.render_flags & RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U;
 		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
@@ -850,11 +852,7 @@ private:
 			return BodyHitResult{};
 		}
 		const std::array<double, 3> direction{dx / length, dy / length, dz / length};
-		const auto hit = evaluate_3d_bodies(from, direction, bodies, params, candidates);
-		if (hit.hit && hit.t_hit <= length + 1e-6) {
-			return hit;
-		}
-		return BodyHitResult{};
+		return evaluate_3d_bodies(from, direction, bodies, params, candidates, length + 1e-6);
 	}
 
 	template <typename Scalar>

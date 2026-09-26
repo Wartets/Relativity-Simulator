@@ -889,12 +889,10 @@ public:
 		vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_);
 		vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, 1, &descriptor_set_, 0, nullptr);
 
-		const uint32_t total_pixel_count = params.screen_width * params.screen_height;
-		constexpr uint32_t persistent_local_size = 256U;
-		constexpr uint32_t persistent_batch_size = 8U;
-		const uint32_t work_per_group = persistent_local_size * persistent_batch_size;
-		const uint32_t ideal_group_count = (total_pixel_count + work_per_group - 1U) / std::max(work_per_group, 1U);
-		const uint32_t persistent_group_count = std::clamp(ideal_group_count, 64U, 4096U);
+		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
+		const uint32_t tiles_y = (params.screen_height + 15U) / 16U;
+		const uint32_t total_tiles = tiles_x * tiles_y;
+		const uint32_t persistent_group_count = std::clamp(total_tiles, 64U, 4096U);
 		vkCmdDispatch(command_buffer_, persistent_group_count, 1, 1);
 
 		VkBufferMemoryBarrier barrier{};

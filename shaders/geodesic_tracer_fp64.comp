@@ -150,7 +150,7 @@ layout(std430, binding = 4) buffer PersistentWorkQueue {
 };
 
 const double PI_D = 3.14159265358979323846;
-const uint PERSISTENT_BATCH_SIZE = 8u;
+shared uint s_tile_index;
 
 uint hash_u32(uint x) {
 	x ^= x >> 16;
@@ -845,26 +845,26 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 	vec3 best_color = vec3(0.0);
 
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
-		GpuBody body = bodies[bi];
-		dvec3 bpos = dvec3(body.position_xy.x, body.position_xy.y, body.position_zw.x);
-		double radius = max(body.radius, 1e-6);
-		double oblateness = clamp(body.oblateness_ratio, 0.1, 5.0);
+		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
+		double radius = max(bodies[bi].radius, 1e-6);
+		double oblateness = clamp(bodies[bi].oblateness_ratio, 0.1, 5.0);
 
 		double scale_a = radius;
 		double scale_b = radius;
 		double scale_c = radius;
-		if (body.geometry_model == 0u) {
+		uint geom = bodies[bi].geometry_model;
+		if (geom == 0u) {
 			scale_c = radius * oblateness;
-		} else if (body.geometry_model == 2u) {
+		} else if (geom == 2u) {
 			scale_c = radius / max(oblateness, 0.1);
-		} else if (body.geometry_model == 3u) {
+		} else if (geom == 3u) {
 			scale_b = radius * 0.85;
 			scale_c = radius * oblateness;
 		}
 
 		dvec3 o = ray_pos - bpos;
 		double bound_radius = max(scale_a, max(scale_b, scale_c));
-		double max_reach = bound_radius + max_dist;
+		double max_reach = bound_radius + best_t;
 		double dist_sq = dot(o, o);
 		if (dist_sq > max_reach * max_reach) continue;
 		double bound_b = dot(o, ray_dir);
@@ -872,6 +872,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		if (bound_disc < 0.0) continue;
 		double bound_root = sqrt(bound_disc);
 		if (-bound_b + bound_root < 1e-5 || -bound_b - bound_root > best_t) continue;
+
 		double inv_a2 = 1.0 / (scale_a * scale_a);
 		double inv_b2 = 1.0 / (scale_b * scale_b);
 		double inv_c2 = 1.0 / (scale_c * scale_c);
@@ -905,13 +906,13 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		bool is_point_lod = (pc.body_render_low_power_mode == 0u) && (coverage < double(max(pc.body_render_point_pixel_threshold, 1u)));
 		bool is_simple_lod = (pc.body_render_low_power_mode != 0u) || is_point_lod || (coverage < double(pc.body_render_lod_pixel_threshold));
 
-		vec3 surf = vec3(body.color_primary_xy.x, body.color_primary_xy.y, body.color_primary_zw.x);
+		vec3 surf = vec3(bodies[bi].color_primary_xy.x, bodies[bi].color_primary_xy.y, bodies[bi].color_primary_zw.x);
 
 		if (!is_simple_lod) {
-			double noise_scale = max(body.noise_scale, 0.1);
-			double roughness = clamp(body.noise_roughness, 0.05, 1.0);
+			double noise_scale = max(bodies[bi].noise_scale, 0.1);
+			double roughness = clamp(bodies[bi].noise_roughness, 0.05, 1.0);
 			double n_val = body_fbm(nrm * noise_scale, clamp(pc.body_noise_octaves, 1u, 6u), roughness);
-			vec3 secondary = vec3(body.color_secondary_xy.x, body.color_secondary_xy.y, body.color_secondary_zw.x);
+			vec3 secondary = vec3(bodies[bi].color_secondary_xy.x, bodies[bi].color_secondary_xy.y, bodies[bi].color_secondary_zw.x);
 			double mix_t = clamp((n_val + 1.0) * 0.5, 0.0, 1.0);
 			surf = mix(surf, secondary, float(mix_t));
 		}
@@ -927,13 +928,13 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		}
 
 		float light_factor = is_point_lod ? 1.0 : float(0.25 + 0.75 * lighting);
-		if (body.emission_intensity > 0.0) {
-			light_factor += float(body.emission_intensity);
+		if (bodies[bi].emission_intensity > 0.0) {
+			light_factor += float(bodies[bi].emission_intensity);
 		}
 		surf *= light_factor;
 
 		if ((pc.render_flags & (1u << 13)) != 0u) {
-			dvec3 vel = dvec3(body.velocity_xy.x, body.velocity_xy.y, body.velocity_zw.x);
+			dvec3 vel = dvec3(bodies[bi].velocity_xy.x, bodies[bi].velocity_xy.y, bodies[bi].velocity_zw.x);
 			double v_sq = dot(vel, vel);
 			if (v_sq > 1e-12) {
 				double beta = min(sqrt(v_sq), 0.9999);
@@ -945,16 +946,16 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 			}
 		}
 
-		if ((pc.render_flags & (1u << 14)) != 0u && body.mass > 0.0) {
-			double z_factor = sqrt(max(1.0 - 2.0 * body.mass / radius, 0.05));
+		if ((pc.render_flags & (1u << 14)) != 0u && bodies[bi].mass > 0.0) {
+			double z_factor = sqrt(max(1.0 - 2.0 * bodies[bi].mass / radius, 0.05));
 			surf *= vec3(float(z_factor), float(z_factor * 0.9), float(z_factor * 0.7));
 		}
 
-		if ((pc.render_flags & (1u << 15)) != 0u && !is_simple_lod && body.atmosphere_mode != 2u) {
+		if ((pc.render_flags & (1u << 15)) != 0u && !is_simple_lod && bodies[bi].atmosphere_mode != 2u) {
 			float rim = pow(1.0 - float(view_dot_n), 3.0);
-			float atmo_thick = float(body.atmosphere_thickness * pc.body_atmosphere_global_intensity);
-			vec3 acol = vec3(body.atmosphere_color_xy.x, body.atmosphere_color_xy.y, body.atmosphere_color_zw.x);
-			float aa = float(body.atmosphere_color_zw.y);
+			float atmo_thick = float(bodies[bi].atmosphere_thickness * pc.body_atmosphere_global_intensity);
+			vec3 acol = vec3(bodies[bi].atmosphere_color_xy.x, bodies[bi].atmosphere_color_xy.y, bodies[bi].atmosphere_color_zw.x);
+			float aa = float(bodies[bi].atmosphere_color_zw.y);
 			surf = surf * (1.0 - rim * aa) + acol * rim * atmo_thick * 2.5;
 		}
 
@@ -1106,23 +1107,37 @@ bool attempt_analytic_space_skip(inout double ray_r, inout double ray_th, inout 
 }
 
 void main() {
-	uint total_pixel_count = pc.screen_width * pc.screen_height;
+	uint tiles_x = (pc.screen_width + 15u) / 16u;
+	uint tiles_y = (pc.screen_height + 15u) / 16u;
+	uint total_tiles = tiles_x * tiles_y;
 
 	for (;;) {
-	uint persistent_batch_start = atomicAdd(persistent_next_pixel_index, PERSISTENT_BATCH_SIZE);
-	if (persistent_batch_start >= total_pixel_count) {
-		return;
-	}
-	uint persistent_batch_end = min(persistent_batch_start + PERSISTENT_BATCH_SIZE, total_pixel_count);
-	for (uint pixel_index = persistent_batch_start; pixel_index < persistent_batch_end; ++pixel_index) {
-	uint px = pixel_index % pc.screen_width;
-	uint py = pixel_index / pc.screen_width;
+		if (gl_LocalInvocationIndex == 0u) {
+			s_tile_index = atomicAdd(persistent_next_pixel_index, 1u);
+		}
+		barrier();
 
-	double aspect = double(pc.screen_width) / double(pc.screen_height);
-	double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
-	bool is_allsky = (pc.projection_mode == 3u || pc.projection_mode == 7u);
-	double u_raw = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
-	double u_coord = is_allsky ? u_raw : (u_raw * aspect);
+		uint current_tile = s_tile_index;
+		if (current_tile >= total_tiles) {
+			return;
+		}
+
+		uint tile_x = (current_tile % tiles_x) * 16u;
+		uint tile_y = (current_tile / tiles_x) * 16u;
+		uint px = tile_x + (gl_LocalInvocationIndex % 16u);
+		uint py = tile_y + (gl_LocalInvocationIndex / 16u);
+
+		if (px >= pc.screen_width || py >= pc.screen_height) {
+			continue;
+		}
+
+		uint pixel_index = py * pc.screen_width + px;
+
+		double aspect = double(pc.screen_width) / double(pc.screen_height);
+		double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
+		bool is_allsky = (pc.projection_mode == 3u || pc.projection_mode == 7u);
+		double u_raw = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
+		double u_coord = is_allsky ? u_raw : (u_raw * aspect);
 
 	dvec3 n_local = compute_ray_direction(pc.projection_mode, u_coord, v_norm, pc.field_of_view_rad);
 
@@ -1453,11 +1468,10 @@ void main() {
 
 	vec3 mapped = apply_tonemapping(vec3(accum), pc.tonemapping_mode, pc.camera_exposure);
 
-	pixels[pixel_index].rgba = vec4(mapped, 1.0);
-	pixels[pixel_index].redshift = float(redshift_rec);
-	pixels[pixel_index].affine_parameter = float(iters) * 0.05;
-	pixels[pixel_index].status_flags = status;
-	pixels[pixel_index].iterations_used = iters;
-	}
+		pixels[pixel_index].rgba = vec4(mapped, 1.0);
+		pixels[pixel_index].redshift = float(redshift_rec);
+		pixels[pixel_index].affine_parameter = float(iters) * 0.05;
+		pixels[pixel_index].status_flags = status;
+		pixels[pixel_index].iterations_used = iters;
 	}
 }

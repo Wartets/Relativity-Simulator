@@ -660,43 +660,47 @@ public:
 					} else {
 						const float grade_inv_w = (fb_w > 0) ? (1.0f / static_cast<float>(fb_w)) : 0.0f;
 						const float grade_inv_h = (fb_h > 0) ? (1.0f / static_cast<float>(fb_h)) : 0.0f;
-						for (size_t i = 0; i < pixel_count; ++i) {
-							float gr = fb[i].r, gg = fb[i].g, gb = fb[i].b;
-							auto grade_channel = [&](float c) noexcept -> float {
-								c = std::clamp(c + grade_lift * (1.0f - c), 0.0f, 4.0f);
-								c = (c - 0.5f) * grade_contrast + 0.5f;
-								c = std::max(c, 0.0f);
-								c = std::pow(c, grade_inv_gamma) * grade_gain;
-								if (grade_highlights != 0.0f) {
-									const float w = std::clamp((c - 0.6f) / 0.4f, 0.0f, 1.0f);
-									c += grade_highlights * w * (1.0f - c) * 0.5f;
-								}
-								if (grade_shadows != 0.0f) {
-									const float w = std::clamp(1.0f - c / 0.4f, 0.0f, 1.0f);
-									c += grade_shadows * w * c * 0.5f;
-								}
-								return std::clamp(c, 0.0f, 1.0f);
-							};
-							gr = grade_channel(gr);
-							gg = grade_channel(gg);
-							gb = grade_channel(gb);
-							const float luma = 0.2126f * gr + 0.7152f * gg + 0.0722f * gb;
-							gr = std::clamp(luma + (gr - luma) * grade_saturation, 0.0f, 1.0f);
-							gg = std::clamp(luma + (gg - luma) * grade_saturation, 0.0f, 1.0f);
-							gb = std::clamp(luma + (gb - luma) * grade_saturation, 0.0f, 1.0f);
-							if (grade_vignette > 0.0f && fb_w > 0 && fb_h > 0) {
-								const float px = (static_cast<float>(i % fb_w) + 0.5f) * grade_inv_w - 0.5f;
-								const float py = (static_cast<float>(i / fb_w) + 0.5f) * grade_inv_h - 0.5f;
-								const float dist = std::clamp(std::sqrt(px * px + py * py) * 1.4142135f, 0.0f, 1.0f);
-								const float falloff = 1.0f - grade_vignette * dist * dist;
-								gr *= falloff;
-								gg *= falloff;
-								gb *= falloff;
+						auto grade_channel = [&](float c) noexcept -> float {
+							c = std::clamp(c + grade_lift * (1.0f - c), 0.0f, 4.0f);
+							c = (c - 0.5f) * grade_contrast + 0.5f;
+							c = std::max(c, 0.0f);
+							c = std::pow(c, grade_inv_gamma) * grade_gain;
+							if (grade_highlights != 0.0f) {
+								const float w = std::clamp((c - 0.6f) / 0.4f, 0.0f, 1.0f);
+								c += grade_highlights * w * (1.0f - c) * 0.5f;
 							}
-							color_upload_buffer_[i * 4 + 0] = gr;
-							color_upload_buffer_[i * 4 + 1] = gg;
-							color_upload_buffer_[i * 4 + 2] = gb;
-							color_upload_buffer_[i * 4 + 3] = fb[i].a;
+							if (grade_shadows != 0.0f) {
+								const float w = std::clamp(1.0f - c / 0.4f, 0.0f, 1.0f);
+								c += grade_shadows * w * c * 0.5f;
+							}
+							return std::clamp(c, 0.0f, 1.0f);
+						};
+						for (size_t y = 0; y < fb_h; ++y) {
+							const float py = (static_cast<float>(y) + 0.5f) * grade_inv_h - 0.5f;
+							const float py2 = py * py;
+							const size_t row_offset = y * fb_w;
+							for (size_t x = 0; x < fb_w; ++x) {
+								const size_t i = row_offset + x;
+								float gr = grade_channel(fb[i].r);
+								float gg = grade_channel(fb[i].g);
+								float gb = grade_channel(fb[i].b);
+								const float luma = 0.2126f * gr + 0.7152f * gg + 0.0722f * gb;
+								gr = std::clamp(luma + (gr - luma) * grade_saturation, 0.0f, 1.0f);
+								gg = std::clamp(luma + (gg - luma) * grade_saturation, 0.0f, 1.0f);
+								gb = std::clamp(luma + (gb - luma) * grade_saturation, 0.0f, 1.0f);
+								if (grade_vignette > 0.0f) {
+									const float px = (static_cast<float>(x) + 0.5f) * grade_inv_w - 0.5f;
+									const float dist_sq = std::min((px * px + py2) * 2.0f, 1.0f);
+									const float falloff = 1.0f - grade_vignette * dist_sq;
+									gr *= falloff;
+									gg *= falloff;
+									gb *= falloff;
+								}
+								color_upload_buffer_[i * 4 + 0] = gr;
+								color_upload_buffer_[i * 4 + 1] = gg;
+								color_upload_buffer_[i * 4 + 2] = gb;
+								color_upload_buffer_[i * 4 + 3] = fb[i].a;
+							}
 						}
 					}
 					has_received_frame_ = true;

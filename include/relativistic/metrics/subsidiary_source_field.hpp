@@ -2,6 +2,8 @@
 
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/metrics/kerr_schild.hpp"
+#include "relativistic/core/tensor.hpp"
 #include <array>
 #include <cmath>
 #include <algorithm>
@@ -18,6 +20,7 @@ struct SubsidiarySourceParams {
 	double horizon_radius{0.0};
 	double isco_radius{0.0};
 	double disk_outer_radius{0.0};
+	KerrSchildMetric<double> metric{1.0, 0.0};
 
 	[[nodiscard]] static SubsidiarySourceParams from_gpu_body(const Render::GpuBodyData& body) noexcept {
 		SubsidiarySourceParams p;
@@ -26,8 +29,8 @@ struct SubsidiarySourceParams {
 		p.mass = std::max(body.mass, 1e-9);
 		const double a_star = std::clamp(body.spin_parameter, -0.9999, 0.9999);
 		p.spin = a_star * p.mass;
-		const double horizon_discriminant = p.mass * p.mass - p.spin * p.spin;
-		p.horizon_radius = p.mass + std::sqrt(std::max(horizon_discriminant, 0.0));
+		p.metric = KerrSchildMetric<double>(p.mass, p.spin);
+		p.horizon_radius = p.metric.outer_horizon_radius();
 		p.isco_radius = Optics::DiskThermalProfile::kerr_isco_radius(p.mass, p.spin);
 		p.disk_outer_radius = Optics::DiskThermalProfile::disk_outer_radius(p.mass);
 		return p;
@@ -168,6 +171,126 @@ public:
 			new_dir[2] /= len;
 		}
 		return new_dir;
+	}
+
+	[[nodiscard]] static double distance_squared(const std::array<double, 3>& a, const std::array<double, 3>& b) noexcept {
+		const double dx = a[0] - b[0];
+		const double dy = a[1] - b[1];
+		const double dz = a[2] - b[2];
+		return dx * dx + dy * dy + dz * dz;
+	}
+
+	[[nodiscard]] static std::array<double, 3> integrate_local_geodesic_correction(
+		double rx, double ry, double rz,
+		const std::array<double, 3>& ray_dir,
+		double step_length,
+		const KerrSchildMetric<double>& metric
+	) noexcept {
+		Core::FourVector<double> x(0.0, rx, ry, rz);
+		Core::FourVector<double> p(1.0, ray_dir[0], ray_dir[1], ray_dir[2]);
+
+		auto acceleration = [&](const Core::FourVector<double>& xs, const Core::FourVector<double>& ps) noexcept -> Core::FourVector<double> {
+			const auto gamma = metric.christoffel_symbols(xs);
+			Core::FourVector<double> acc;
+			acc.zero();
+			for (size_t mu = 0; mu < 4; ++mu) {
+				double sum = 0.0;
+				for (size_t a = 0; a < 4; ++a) {
+					const double pa = ps(a);
+					if (pa == 0.0) continue;
+					sum -= gamma(mu, a, a) * pa * pa;
+					for (size_t b = a + 1; b < 4; ++b) {
+						const double pb = ps(b);
+						if (pb != 0.0) {
+							sum -= 2.0 * gamma(mu, a, b) * pa * pb;
+						}
+					}
+				}
+				acc(mu) = sum;
+			}
+			return acc;
+		};
+
+		const double dt = std::clamp(step_length, 1e-4, 2.0);
+
+		const auto k1_x = p;
+		const auto k1_p = acceleration(x, p);
+
+		Core::FourVector<double> x2 = x, p2 = p;
+		for (size_t i = 0; i < 4; ++i) { x2(i) += 0.5 * dt * k1_x(i); p2(i) += 0.5 * dt * k1_p(i); }
+		const auto k2_x = p2;
+		const auto k2_p = acceleration(x2, p2);
+
+		Core::FourVector<double> x3 = x, p3 = p;
+		for (size_t i = 0; i < 4; ++i) { x3(i) += 0.5 * dt * k2_x(i); p3(i) += 0.5 * dt * k2_p(i); }
+		const auto k3_x = p3;
+		const auto k3_p = acceleration(x3, p3);
+
+		Core::FourVector<double> x4 = x, p4 = p;
+		for (size_t i = 0; i < 4; ++i) { x4(i) += dt * k3_x(i); p4(i) += dt * k3_p(i); }
+		// const auto k4_x = p4;
+		const auto k4_p = acceleration(x4, p4);
+
+		Core::FourVector<double> p_next = p;
+		const double sixth = dt / 6.0;
+		for (size_t i = 0; i < 4; ++i) {
+			p_next(i) += sixth * (k1_p(i) + 2.0 * k2_p(i) + 2.0 * k3_p(i) + k4_p(i));
+		}
+
+		std::array<double, 3> new_dir{p_next(1), p_next(2), p_next(3)};
+		const double len = std::sqrt(new_dir[0] * new_dir[0] + new_dir[1] * new_dir[1] + new_dir[2] * new_dir[2]);
+		if (len > 1e-12) {
+			new_dir[0] /= len;
+			new_dir[1] /= len;
+			new_dir[2] /= len;
+		}
+		return new_dir;
+	}
+
+	[[nodiscard]] static std::array<double, 3> compute_source_deflection(
+		const std::array<double, 3>& ray_pos,
+		const std::array<double, 3>& ray_dir,
+		double step_length,
+		const SubsidiarySourceParams& source
+	) noexcept {
+		const double rx = ray_pos[0] - source.position[0];
+		const double ry = ray_pos[1] - source.position[1];
+		const double rz = ray_pos[2] - source.position[2];
+		const double r_len = std::sqrt(rx * rx + ry * ry + rz * rz);
+		if (r_len < source.horizon_radius * 1.5) {
+			return ray_dir;
+		}
+
+		const double strong_field_radius = std::max(source.disk_outer_radius, source.horizon_radius * 40.0);
+		if (r_len < strong_field_radius) {
+			return integrate_local_geodesic_correction(rx, ry, rz, ray_dir, step_length, source.metric);
+		}
+		return compute_weak_field_deflection(ray_pos, ray_dir, step_length, source);
+	}
+
+	[[nodiscard]] static std::array<double, 3> apply_all_source_corrections(
+		const std::array<double, 3>& ray_pos,
+		const std::array<double, 3>& ray_dir,
+		double step_length,
+		const std::vector<SubsidiarySourceParams>& sources
+	) noexcept {
+		if (sources.empty()) {
+			return ray_dir;
+		}
+
+		std::vector<size_t> order(sources.size());
+		for (size_t i = 0; i < sources.size(); ++i) {
+			order[i] = i;
+		}
+		std::sort(order.begin(), order.end(), [&](size_t a, size_t b) noexcept {
+			return distance_squared(ray_pos, sources[a].position) < distance_squared(ray_pos, sources[b].position);
+		});
+
+		std::array<double, 3> current_dir = ray_dir;
+		for (const size_t idx : order) {
+			current_dir = compute_source_deflection(ray_pos, current_dir, step_length, sources[idx]);
+		}
+		return current_dir;
 	}
 
 	[[nodiscard]] static const SubsidiarySourceParams* find_dominant_source(

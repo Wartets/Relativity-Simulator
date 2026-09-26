@@ -1441,13 +1441,13 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Create New Black Hole");
-		ImGui::InputText("Name##NewBH", new_bh_name_, sizeof(new_bh_name_));
-		slider_float_with_input("Mass##NewBH", &new_bh_mass_, 1e-3f, 1.0e8f, "%.4e", &new_bh_mass_log_mode_, 1e-9f, 1e12f);
-		ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)##NewBH", new_bh_spin_);
-		slider_float_with_input("Charge##NewBH", &new_bh_charge_, -10.0f, 10.0f, "%.4e");
-		ImGui::InputFloat3("Position (x, y, z)##NewBH", new_bh_pos_);
-		ImGui::InputFloat3("Velocity (vx, vy, vz)##NewBH", new_bh_vel_);
-		if (ImGui::Button("Auto-Fill Circular Orbit Velocity##NewBH", ImVec2(-1.0f, 24.0f))) {
+		ImGui::InputText("Name", new_bh_name_, sizeof(new_bh_name_));
+		slider_float_with_input("Mass", &new_bh_mass_, 1e-3f, 1.0e8f, "%.4e", &new_bh_mass_log_mode_, 1e-9f, 1e12f);
+		ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)", new_bh_spin_);
+		slider_float_with_input("Charge", &new_bh_charge_, -10.0f, 10.0f, "%.4e");
+		ImGui::InputFloat3("Position (x, y, z)", new_bh_pos_);
+		ImGui::InputFloat3("Velocity (vx, vy, vz)", new_bh_vel_);
+		if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
 			const std::array<double, 3> pos{static_cast<double>(new_bh_pos_[0]), static_cast<double>(new_bh_pos_[1]), static_cast<double>(new_bh_pos_[2])};
 			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass + static_cast<double>(new_bh_mass_));
 			new_bh_vel_[0] = static_cast<float>(v[0]);

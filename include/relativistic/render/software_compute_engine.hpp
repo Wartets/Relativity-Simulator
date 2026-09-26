@@ -1752,15 +1752,13 @@ private:
 	) noexcept {
 		if (sources.empty()) return;
 		const auto pos = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
-		const auto* dominant = Metrics::SubsidiarySourceField::find_dominant_source(pos, sources);
-		if (dominant == nullptr) return;
 
 		const auto v = spherical_state_to_cartesian_velocity(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi);
 		const double speed = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 		if (speed < 1e-12) return;
 		const std::array<double, 3> dir{v[0] / speed, v[1] / speed, v[2] / speed};
 
-		const auto new_dir = Metrics::SubsidiarySourceField::compute_weak_field_deflection(pos, dir, std::abs(dt), *dominant);
+		const auto new_dir = Metrics::SubsidiarySourceField::apply_all_source_corrections(pos, dir, std::abs(dt), sources);
 		const std::array<double, 3> new_v{new_dir[0] * speed, new_dir[1] * speed, new_dir[2] * speed};
 
 		double new_pr = 0.0, new_ptheta = 0.0, new_pphi = 0.0;

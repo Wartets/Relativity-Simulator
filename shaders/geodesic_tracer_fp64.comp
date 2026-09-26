@@ -1189,68 +1189,58 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 	double speed = length(v);
 	if (speed < 1e-12) return;
 	dvec3 dir = v / speed;
-
-	uint dominant_idx = 0xFFFFFFFFu;
-	double strongest = 0.0;
-	dvec3 dominant_pos = dvec3(0.0);
-	double dominant_mass = 0.0;
-	double dominant_spin = 0.0;
-	double dominant_rh = 0.0;
+	bool any_correction = false;
 
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
 		if (bodies[bi].preset_3d != 8u) continue;
 		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
-		dvec3 diff = pos - bpos;
-		double dist_sq = max(dot(diff, diff), 1e-9);
 		double m = max(bodies[bi].mass, 1e-9);
-		double influence = m / dist_sq;
-		if (influence > strongest) {
-			strongest = influence;
-			dominant_idx = bi;
-			dominant_pos = bpos;
-			dominant_mass = m;
-			double a_star = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999);
-			dominant_spin = a_star * m;
-			dominant_rh = m + sqrt(max(m * m - dominant_spin * dominant_spin, 0.0));
+		double a_star = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999);
+		double a_spin = a_star * m;
+		double rh = m + sqrt(max(m * m - a_spin * a_spin, 0.0));
+
+		dvec3 rel = pos - bpos;
+		double r_len = length(rel);
+		if (r_len < rh * 1.5) continue;
+
+		double proj = dot(rel, dir);
+		dvec3 perp = rel - proj * dir;
+		double impact_param = length(perp);
+		if (impact_param < rh * 0.1) continue;
+
+		double cross_x = rel.y * dir.z - rel.z * dir.y;
+		double cross_y = rel.z * dir.x - rel.x * dir.z;
+		double cross_z = rel.x * dir.y - rel.y * dir.x;
+		double cross_norm = sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
+		if (cross_norm < 1e-12) continue;
+		dvec3 n_axis = dvec3(cross_x, cross_y, cross_z) / cross_norm;
+
+		double schwarzschild_term = (4.0 * m) / max(impact_param, m * 1e-3);
+		double impact_cubed = impact_param * impact_param * impact_param;
+		double gravitomagnetic_term = (4.0 * a_spin * m) / max(impact_cubed, m * m * 1e-6);
+		double quad_term = (schwarzschild_term * schwarzschild_term) * 0.1875;
+		double weight = double(exp(float(-r_len / (30.0 * max(m, 1e-6)))));
+		double total_deflection = min((schwarzschild_term + gravitomagnetic_term + quad_term) * weight * (abs(dt) / max(r_len, m)), 0.5);
+		if (total_deflection < 1e-14) continue;
+
+		double wx = n_axis.y * dir.z - n_axis.z * dir.y;
+		double wy = n_axis.z * dir.x - n_axis.x * dir.z;
+		double wz = n_axis.x * dir.y - n_axis.y * dir.x;
+
+		float defl_f = float(total_deflection);
+		double cos_a = double(cos(defl_f));
+		double sin_a = double(sin(defl_f));
+		dvec3 new_dir = dir * cos_a + dvec3(wx, wy, wz) * sin_a;
+		double new_len = length(new_dir);
+		if (new_len > 1e-12) {
+			dir = new_dir / new_len;
+			any_correction = true;
 		}
 	}
 
-	if (dominant_idx == 0xFFFFFFFFu) return;
+	if (!any_correction) return;
 
-	dvec3 rel = pos - dominant_pos;
-	double r_len = length(rel);
-	if (r_len < dominant_rh * 1.5) return;
-
-	double proj = dot(rel, dir);
-	dvec3 perp = rel - proj * dir;
-	double impact_param = length(perp);
-	if (impact_param < dominant_rh * 0.1) return;
-
-	double cross_x = rel.y * dir.z - rel.z * dir.y;
-	double cross_y = rel.z * dir.x - rel.x * dir.z;
-	double cross_z = rel.x * dir.y - rel.y * dir.x;
-	double cross_norm = sqrt(cross_x * cross_x + cross_y * cross_y + cross_z * cross_z);
-	if (cross_norm < 1e-12) return;
-	dvec3 n_axis = dvec3(cross_x, cross_y, cross_z) / cross_norm;
-
-	double schwarzschild_term = (4.0 * dominant_mass) / max(impact_param, dominant_mass * 1e-3);
-	double impact_cubed = impact_param * impact_param * impact_param;
-	double gravitomagnetic_term = (4.0 * dominant_spin * dominant_mass) / max(impact_cubed, dominant_mass * dominant_mass * 1e-6);
-	double weight = double(exp(float(-r_len / (30.0 * max(dominant_mass, 1e-6)))));
-	double total_deflection = min((schwarzschild_term + gravitomagnetic_term) * weight * (abs(dt) / max(r_len, dominant_mass)), 0.5);
-
-	double wx = n_axis.y * dir.z - n_axis.z * dir.y;
-	double wy = n_axis.z * dir.x - n_axis.x * dir.z;
-	double wz = n_axis.x * dir.y - n_axis.y * dir.x;
-
-	float defl_f = float(total_deflection);
-	double cos_a = double(cos(defl_f));
-	double sin_a = double(sin(defl_f));
-	dvec3 new_dir = dir * cos_a + dvec3(wx, wy, wz) * sin_a;
-	double new_len = length(new_dir);
-	if (new_len > 1e-12) new_dir /= new_len;
-
-	dvec3 new_v = new_dir * speed;
+	dvec3 new_v = dir * speed;
 	double safe_sin_t = (abs(sin_t) > 1e-9) ? sin_t : ((sin_t >= 0.0) ? 1e-9 : -1e-9);
 	ray_pr = new_v.x * sin_t * cos_p + new_v.y * sin_t * sin_p + new_v.z * cos_t;
 	ray_pth = (new_v.x * cos_t * cos_p + new_v.y * cos_t * sin_p - new_v.z * sin_t) / max(ray_r, 1e-9);

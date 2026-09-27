@@ -4,6 +4,7 @@
 #include "relativistic/ui/ui_manager.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/core/system_console.hpp"
+#include "relativistic/core/engine_log.hpp"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -29,20 +30,28 @@ int main(int argc, char* argv[]) {
 	std::jthread sim_thread([&orchestrator](std::stop_token stop_token) {
 		auto last_time = std::chrono::steady_clock::now();
 		while (!stop_token.stop_requested() && orchestrator->is_running()) {
-			const auto current_time = std::chrono::steady_clock::now();
-			const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(current_time - last_time).count();
-			last_time = current_time;
+			try {
+				const auto current_time = std::chrono::steady_clock::now();
+				const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(current_time - last_time).count();
+				last_time = current_time;
 
-			orchestrator->scheduler().add_real_time_nanoseconds(elapsed_ns);
-			orchestrator->process_incoming_commands();
+				orchestrator->scheduler().add_real_time_nanoseconds(elapsed_ns);
+				orchestrator->process_incoming_commands();
 
-			if (!orchestrator->parameters().schematic_mode_enabled || orchestrator->parameters().schematic_allow_simulation) {
-				while (orchestrator->scheduler().can_advance_tick()) {
-					if (orchestrator->scheduler().advance_tick()) {
-						const double tick_dt = orchestrator->scheduler().tick_dt() * orchestrator->scheduler().warp_factor();
-						orchestrator->advance_simulation(tick_dt);
+				if (!orchestrator->parameters().schematic_mode_enabled || orchestrator->parameters().schematic_allow_simulation) {
+					uint32_t ticks_this_iteration = 0;
+					while (orchestrator->scheduler().can_advance_tick() && ticks_this_iteration < 200U) {
+						if (orchestrator->scheduler().advance_tick()) {
+							const double tick_dt = orchestrator->scheduler().tick_dt() * orchestrator->scheduler().warp_factor();
+							orchestrator->advance_simulation(tick_dt);
+						}
+						++ticks_this_iteration;
 					}
 				}
+			} catch (const std::exception& ex) {
+				Relativistic::Core::log_error(std::string("Simulation thread caught an exception and will continue: ") + ex.what());
+			} catch (...) {
+				Relativistic::Core::log_error("Simulation thread caught an unknown exception and will continue.");
 			}
 
 			if (orchestrator->scheduler().is_paused()) {

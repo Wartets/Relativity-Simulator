@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <span>
 #include <concepts>
+#include <cstdio>
+#include <exception>
 
 namespace Relativistic::Core {
 
@@ -43,7 +45,13 @@ private:
 			}
 
 			if (task) {
-				task();
+				try {
+					task();
+				} catch (const std::exception& ex) {
+					std::fprintf(stderr, "[ThreadPool] worker task threw exception: %s\n", ex.what());
+				} catch (...) {
+					std::fprintf(stderr, "[ThreadPool] worker task threw an unknown exception\n");
+				}
 				if (active_tasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
 					std::lock_guard<std::mutex> lock(queue_mutex_);
 					cv_finished_.notify_all();
@@ -57,9 +65,17 @@ public:
 		const size_t count = (thread_count > 0) ? thread_count : std::max(size_t{1}, static_cast<size_t>(std::thread::hardware_concurrency()));
 		workers_.reserve(count);
 		for (size_t i = 0; i < count; ++i) {
-			workers_.emplace_back([this](std::stop_token st) {
-				worker_loop(st);
-			});
+			try {
+				workers_.emplace_back([this](std::stop_token st) {
+					worker_loop(st);
+				});
+			} catch (const std::exception& ex) {
+				std::fprintf(stderr, "[ThreadPool] failed to start worker thread %zu of %zu: %s\n", i, count, ex.what());
+				break;
+			} catch (...) {
+				std::fprintf(stderr, "[ThreadPool] failed to start worker thread %zu of %zu due to an unknown error\n", i, count);
+				break;
+			}
 		}
 	}
 
@@ -104,7 +120,13 @@ public:
 				tasks_.pop();
 			}
 			if (task) {
-				task();
+				try {
+					task();
+				} catch (const std::exception& ex) {
+					std::fprintf(stderr, "[ThreadPool] wait_idle task threw exception: %s\n", ex.what());
+				} catch (...) {
+					std::fprintf(stderr, "[ThreadPool] wait_idle task threw an unknown exception\n");
+				}
 				if (active_tasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
 					std::lock_guard<std::mutex> lock(queue_mutex_);
 					cv_finished_.notify_all();
@@ -126,7 +148,13 @@ public:
 				const size_t start = current_index.fetch_add(chunk_size, std::memory_order_relaxed);
 				if (start >= total_items) break;
 				const size_t end = std::min(start + chunk_size, total_items);
-				func(start, end);
+				try {
+					func(start, end);
+				} catch (const std::exception& ex) {
+					std::fprintf(stderr, "[ThreadPool] parallel_for chunk threw exception: %s\n", ex.what());
+				} catch (...) {
+					std::fprintf(stderr, "[ThreadPool] parallel_for chunk threw an unknown exception\n");
+				}
 			}
 		};
 

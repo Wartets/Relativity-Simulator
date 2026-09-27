@@ -416,7 +416,12 @@ private:
 			return false;
 		}
 		constexpr uint64_t kPanoramaUploadTimeoutNs = 4000000000ULL;
-		return vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs) == VK_SUCCESS;
+		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
+		if (panorama_fence_result != VK_SUCCESS) {
+			ready_ = false;
+			return false;
+		}
+		return true;
 	}
 
 	[[nodiscard]] bool upload_panorama_pixels(uint32_t width, uint32_t height, const uint32_t* pixels) {
@@ -939,7 +944,9 @@ public:
 		}
 
 		constexpr uint64_t kComputeDispatchTimeoutNs = 4000000000ULL;
-		if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs) != VK_SUCCESS) {
+		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
+		if (fence_wait_result != VK_SUCCESS) {
+			ready_ = false;
 			return false;
 		}
 

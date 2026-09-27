@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -878,7 +879,6 @@ private:
 	std::mutex mutex_{};
 	std::array<Slot, kSlotCount> slots_{};
 	uint64_t stamp_counter_{0};
-	std::vector<std::jthread> decode_threads_{};
 
 	SkyPanoramaLoader() = default;
 
@@ -952,14 +952,22 @@ public:
 		}
 
 		if (need_decode) {
-			std::lock_guard<std::mutex> threads_lock(mutex_);
-			decode_threads_.emplace_back([this, target, key]() {
-				auto decoded = decode_key(key);
+			try {
+				std::jthread decode_thread([this, target, key]() {
+					auto decoded = decode_key(key);
+					std::lock_guard<std::mutex> lock(mutex_);
+					target->image = decoded;
+					target->ready = true;
+					target->decoding = false;
+				});
+				decode_thread.detach();
+			} catch (const std::exception&) {
 				std::lock_guard<std::mutex> lock(mutex_);
-				target->image = decoded;
-				target->ready = true;
 				target->decoding = false;
-			});
+			} catch (...) {
+				std::lock_guard<std::mutex> lock(mutex_);
+				target->decoding = false;
+			}
 			return nullptr;
 		}
 

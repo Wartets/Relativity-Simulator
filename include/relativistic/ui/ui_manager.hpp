@@ -39,6 +39,7 @@
 #include <string>
 #include <chrono>
 #include <stdexcept>
+#include <exception>
 #include <algorithm>
 #include <optional>
 #include <cstring>
@@ -406,7 +407,13 @@ public:
 
 		show_viewport_ = true;
 		if (viewport_window_) {
-			viewport_window_->render(main_window_, dt, multi_window_mode_);
+			try {
+				viewport_window_->render(main_window_, dt, multi_window_mode_);
+			} catch (const std::exception& ex) {
+				Core::log_error(std::string("Viewport render frame failed and was skipped: ") + ex.what());
+			} catch (...) {
+				Core::log_error("Viewport render frame failed with an unknown error and was skipped.");
+			}
 		}
 
 		if (scenario_window_ && scenario_window_->open_state()) {

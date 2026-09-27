@@ -80,6 +80,7 @@ private:
 	std::unique_ptr<Core::ThreadPool> thread_pool_{};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
+	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
 	std::atomic<uint32_t> pending_total_enabled_bodies_{0};
 	std::jthread worker_thread_;
 	static constexpr size_t kMaxGpuBackgroundBodies = 512;
@@ -100,7 +101,7 @@ private:
 		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
 		}
-		if (config_.precision != PrecisionMode::NativeFloat64) {
+		if (precision_mode_.load(std::memory_order_relaxed) != PrecisionMode::NativeFloat64) {
 			return false;
 		}
 		if (!is_metric_gpu_accelerable(params)) {
@@ -124,6 +125,7 @@ private:
 		while (!st.stop_requested() && is_running_.load(std::memory_order_relaxed)) {
 			GpuCameraPushConstants current_job;
 			std::vector<GpuBodyData> current_bodies;
+			PrecisionMode current_precision = PrecisionMode::NativeFloat64;
 			{
 				std::unique_lock<std::mutex> lock(mutex_);
 				cv_.wait(lock, [&]() {
@@ -139,10 +141,25 @@ private:
 				request_pending_.store(false, std::memory_order_relaxed);
 				is_rendering_.store(true, std::memory_order_relaxed);
 			}
+			current_precision = precision_mode_.load(std::memory_order_relaxed);
 
 			const size_t req_pixels = static_cast<size_t>(current_job.screen_width) * static_cast<size_t>(current_job.screen_height);
-			if (back_buffer_.size() != req_pixels) {
-				back_buffer_.assign(req_pixels, GpuPixelOutput{});
+			bool frame_allocation_ok = true;
+			try {
+				if (back_buffer_.size() != req_pixels) {
+					back_buffer_.assign(req_pixels, GpuPixelOutput{});
+				}
+			} catch (const std::exception& ex) {
+				Core::log_error(std::string("Render frame buffer allocation failed, skipping frame: ") + ex.what());
+				frame_allocation_ok = false;
+			} catch (...) {
+				Core::log_error("Render frame buffer allocation failed with an unknown error, skipping frame.");
+				frame_allocation_ok = false;
+			}
+
+			if (!frame_allocation_ok) {
+				is_rendering_.store(false, std::memory_order_relaxed);
+				continue;
 			}
 
 			cancel_render_.store(false, std::memory_order_relaxed);
@@ -152,18 +169,32 @@ private:
 			bool bodies_patched_on_top = false;
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
-			if (gpu_background_eligible) {
-				if (try_gpu_dispatch(current_job, back_buffer_, current_bodies) && back_buffer_.size() == req_pixels) {
-					rendered_on_gpu = true;
+			bool dispatch_failed = false;
+			try {
+				if (gpu_background_eligible) {
+					if (try_gpu_dispatch(current_job, back_buffer_, current_bodies) && back_buffer_.size() == req_pixels) {
+						rendered_on_gpu = true;
+					}
 				}
+
+				if (!rendered_on_gpu) {
+					if (current_precision == PrecisionMode::NativeFloat64) {
+						SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+					} else {
+						SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+					}
+				}
+			} catch (const std::exception& ex) {
+				Core::log_error(std::string("Render dispatch threw an exception, frame skipped: ") + ex.what());
+				dispatch_failed = true;
+			} catch (...) {
+				Core::log_error("Render dispatch threw an unknown exception, frame skipped.");
+				dispatch_failed = true;
 			}
 
-			if (!rendered_on_gpu) {
-				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
-				} else {
-					SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
-				}
+			if (dispatch_failed) {
+				is_rendering_.store(false, std::memory_order_relaxed);
+				continue;
 			}
 			const auto t_end = std::chrono::high_resolution_clock::now();
 			if (!rendered_on_gpu && cancel_render_.load(std::memory_order_relaxed)) {
@@ -276,19 +307,37 @@ public:
 	explicit GeodesicComputePipeline(const GeodesicPipelineConfig& config = {})
 		: config_(config),
 		  thread_pool_(std::make_unique<Core::ThreadPool>()) {
-		front_buffer_.resize(config_.width * config_.height);
-		back_buffer_.resize(config_.width * config_.height);
-		static_cast<void>(context_.initialize(config_.headless, config_.precision == PrecisionMode::NativeFloat64));
+		precision_mode_.store(config_.precision, std::memory_order_relaxed);
+		try {
+			front_buffer_.resize(static_cast<size_t>(config_.width) * config_.height);
+			back_buffer_.resize(static_cast<size_t>(config_.width) * config_.height);
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Failed to allocate initial render framebuffers, retrying at reduced resolution: ") + ex.what());
+			config_.width = std::min(config_.width, 1280U);
+			config_.height = std::min(config_.height, 720U);
+			front_buffer_.assign(static_cast<size_t>(config_.width) * config_.height, GpuPixelOutput{});
+			back_buffer_.assign(static_cast<size_t>(config_.width) * config_.height, GpuPixelOutput{});
+		}
 
-		if (context_.has_compute_device()) {
-			auto candidate_executor = std::make_unique<VulkanComputeExecutor>();
-			if (candidate_executor->initialize(context_)) {
-				gpu_executor_ = std::move(candidate_executor);
+		try {
+			static_cast<void>(context_.initialize(config_.headless, config_.precision == PrecisionMode::NativeFloat64));
+
+			if (context_.has_compute_device()) {
+				auto candidate_executor = std::make_unique<VulkanComputeExecutor>();
+				if (candidate_executor->initialize(context_)) {
+					gpu_executor_ = std::move(candidate_executor);
+				} else {
+					Core::log_warning("Vulkan compute device detected but pipeline initialization failed; falling back to CPU rendering.");
+				}
 			} else {
-				Core::log_warning("Vulkan compute device detected but pipeline initialization failed; falling back to CPU rendering.");
+				Core::log_warning("No Vulkan compute-capable device detected; GPU offload is unavailable for this session.");
 			}
-		} else {
-			Core::log_warning("No Vulkan compute-capable device detected; GPU offload is unavailable for this session.");
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("GPU compute initialization failed, continuing with CPU rendering only: ") + ex.what());
+			gpu_executor_.reset();
+		} catch (...) {
+			Core::log_error("GPU compute initialization failed with an unknown error, continuing with CPU rendering only.");
+			gpu_executor_.reset();
 		}
 
 		if (!config_.headless) {
@@ -311,10 +360,12 @@ public:
 	}
 
 	void set_precision_mode(PrecisionMode mode) noexcept {
+		precision_mode_.store(mode, std::memory_order_relaxed);
 		config_.precision = mode;
 	}
 
 	void set_projection_mode(Observer::ProjectionMode mode) noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
 		config_.projection_mode = mode;
 	}
 
@@ -376,27 +427,41 @@ public:
 	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
-			actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			}
 
 			bool rendered_on_gpu = false;
 			bool bodies_patched_on_top = false;
 			SoftwareComputeEngine::RenderStageStats headless_stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies;
-			if (gpu_background_eligible) {
-				const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
-				if (front_buffer_.size() >= total_pixels) {
-					if (try_gpu_dispatch(actual_constants, front_buffer_, bodies) && front_buffer_.size() == total_pixels) {
-						rendered_on_gpu = true;
+			const PrecisionMode active_precision_mode = precision_mode_.load(std::memory_order_relaxed);
+			try {
+				if (gpu_background_eligible) {
+					const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
+					if (front_buffer_.size() >= total_pixels) {
+						if (try_gpu_dispatch(actual_constants, front_buffer_, bodies) && front_buffer_.size() == total_pixels) {
+							rendered_on_gpu = true;
+						}
 					}
 				}
-			}
 
-			if (!rendered_on_gpu) {
-				if (config_.precision == PrecisionMode::NativeFloat64) {
-					SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
-				} else {
-					SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+				if (!rendered_on_gpu) {
+					if (active_precision_mode == PrecisionMode::NativeFloat64) {
+						SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+					} else {
+						SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+					}
 				}
+			} catch (const std::exception& ex) {
+				Core::log_error(std::string("Headless render dispatch threw an exception, frame skipped: ") + ex.what());
+				new_frame_ready_.store(true, std::memory_order_release);
+				return;
+			} catch (...) {
+				Core::log_error("Headless render dispatch threw an unknown exception, frame skipped.");
+				new_frame_ready_.store(true, std::memory_order_release);
+				return;
 			}
 			telemetry_.used_gpu_path = rendered_on_gpu;
 			telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;

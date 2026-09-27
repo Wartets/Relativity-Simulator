@@ -909,6 +909,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 	vec3 best_color = vec3(0.0);
 
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bodies[bi].preset_3d == 8u) continue;
 		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
 		double radius = max(bodies[bi].radius, 1e-6);
 		double oblateness = clamp(bodies[bi].oblateness_ratio, 0.1, 5.0);
@@ -1288,13 +1289,18 @@ void main() {
 
 	dvec3 ray_dir = n_local.x * fwd + n_local.z * rgt + n_local.y * up;
 
+	bool subsidiary_sources_present = false;
+	for (uint sbi = 0u; sbi < pc.body_count; ++sbi) {
+		if (bodies[sbi].preset_3d == 8u) { subsidiary_sources_present = true; break; }
+	}
+
 	{
 		double obs_r0 = pc.observer_position.y;
 		double obs_th0 = pc.observer_position.z;
 		double obs_ph0 = pc.observer_position.w;
 		dvec3 obs_pos0 = spherical_to_cartesian(obs_r0, obs_th0, obs_ph0);
 
-		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.metric_type == 0u || (pc.render_flags & (1u << 17)) != 0u)) {
+		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && ((pc.metric_type == 0u && !subsidiary_sources_present) || (pc.render_flags & (1u << 17)) != 0u)) {
 			vec3 body_color;
 			uint body_status;
 			double body_dist;
@@ -1321,7 +1327,7 @@ void main() {
 		}
 	}
 
-	double m = max(pc.metric_mass, 1e-4);
+	double m = (pc.metric_type == 0u) ? 0.0 : max(pc.metric_mass, 1e-4);
 	double raw_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
 	double a_spin = (pc.metric_type == 4u) ? 0.0 : raw_spin;
 	double kn_charge_sq = (pc.metric_type == 4u || pc.metric_type == 5u) ? (pc.metric_charge * pc.metric_charge) : 0.0;
@@ -1333,7 +1339,9 @@ void main() {
 	dvec3 accum = dvec3(0.0);
 	double redshift_rec = 1.0;
 
-	if (pc.metric_type == 0u) {
+	bool needs_ray_march = (pc.metric_type != 0u) || (subsidiary_sources_present && (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u);
+
+	if (!needs_ray_march) {
 		iters = 1u;
 		vec3 sky = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
 		accum = dvec3(sky);

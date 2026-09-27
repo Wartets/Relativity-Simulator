@@ -138,6 +138,7 @@ private:
 		for (size_t candidate_i = 0; candidate_i < candidate_count; ++candidate_i) {
 			const size_t body_index = candidate_indices.empty() ? candidate_i : static_cast<size_t>(candidate_indices[candidate_i]);
 			const auto& body = bodies[body_index];
+			if (body.preset_3d == 8U) continue;
 			const double bx = body.position[0];
 			const double by = body.position[1];
 			const double bz = body.position[2];
@@ -1894,7 +1895,7 @@ public:
 		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
 		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
 
-		const double m = std::max(params.metric_mass, 1e-4);
+		const double m = is_flat ? 0.0 : std::max(params.metric_mass, 1e-4);
 		const double a_spin = std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
 		const double rs = 2.0 * m;
 		const double rh = (std::abs(a_spin) > 1e-12) ? (m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0))) : rs;
@@ -1966,7 +1967,7 @@ public:
 					}
 
 					const bool bodies_only_mode_active = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
-					const bool bodies_need_curved_path = has_event_horizon
+					const bool bodies_need_curved_path = (has_event_horizon || !subsidiary_sources.empty())
 						&& !bodies_only_mode_active
 						&& ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U)
 						&& !bodies.empty();
@@ -2083,7 +2084,7 @@ public:
 							break;
 						}
 
-						if ((space_skip_enabled || force_ray_space_skip) && ray_r > effective_space_skip_radius_for_ray) {
+						if ((space_skip_enabled || force_ray_space_skip) && ray_r > effective_space_skip_radius_for_ray && subsidiary_sources.empty()) {
 							const auto skip_origin = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
 							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius_for_ray, params.escape_radius, m)) {
 								if (bodies_need_curved_path) {
@@ -2188,7 +2189,7 @@ public:
 						}
 
 						const bool inside_body_shell = (ray_r >= min_body_r && ray_r <= max_body_r);
-						if (bodies_need_curved_path && inside_body_shell) {
+						if (bodies_need_curved_path && (inside_body_shell || !subsidiary_sources.empty())) {
 							const double seg_x0 = prev_r * std::sin(prev_theta) * std::cos(prev_phi);
 							const double seg_y0 = prev_r * std::sin(prev_theta) * std::sin(prev_phi);
 							const double seg_z0 = prev_r * std::cos(prev_theta);
@@ -2412,7 +2413,7 @@ public:
 		const bool has_accretion_disk = (metric_id == 1 || metric_id == 2 || metric_id == 3 || metric_id == 4 || metric_id == 5);
 		const bool has_event_horizon = (!is_wormhole && !is_warp && !is_flat);
 
-		const double m = std::max(params.metric_mass, 1e-4);
+		const double m = is_flat ? 0.0 : std::max(params.metric_mass, 1e-4);
 		const double a_spin = std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
 		const double rs = 2.0 * m;
 		const double rh = (std::abs(a_spin) > 1e-12) ? (m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0))) : rs;

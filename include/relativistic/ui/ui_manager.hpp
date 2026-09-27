@@ -134,14 +134,20 @@ public:
 		glfwSwapInterval(1);
 
 		glfwSetWindowUserPointer(main_window_, this);
-		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) {
-			auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
-			if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
-				if (self->camera_controller_.config().keybinds.is_active(InputAction::ZoomModifier, win)) {
-					self->viewport_window_->handle_zoom_scroll(yoffset);
-				} else {
-					self->camera_controller_.handle_scroll(yoffset);
+		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) noexcept {
+			try {
+				auto* self = static_cast<UiManager*>(glfwGetWindowUserPointer(win));
+				if (self && self->viewport_window_ && self->viewport_window_->is_hovered()) {
+					if (self->camera_controller_.config().keybinds.is_active(InputAction::ZoomModifier, win)) {
+						self->viewport_window_->handle_zoom_scroll(yoffset);
+					} else {
+						self->camera_controller_.handle_scroll(yoffset);
+					}
 				}
+			} catch (const std::exception& ex) {
+				Core::log_error(std::string("Scroll callback failed and was ignored: ") + ex.what());
+			} catch (...) {
+				Core::log_error("Scroll callback failed with an unknown error and was ignored.");
 			}
 		});
 

@@ -9,8 +9,23 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <exception>
+#include <cstdlib>
 
 int main(int argc, char* argv[]) {
+	std::set_terminate([]() noexcept {
+		try {
+			if (const auto current_exception_ptr = std::current_exception()) {
+				std::rethrow_exception(current_exception_ptr);
+			}
+		} catch (const std::exception& ex) {
+			Relativistic::Core::log_error(std::string("Unhandled exception reached top level, engine is terminating: ") + ex.what());
+		} catch (...) {
+			Relativistic::Core::log_error("Unhandled non-standard exception reached top level, engine is terminating.");
+		}
+		std::abort();
+	});
+
 	using namespace Relativistic::Orchestrator;
 
 	bool headless = false;
@@ -66,18 +81,24 @@ int main(int argc, char* argv[]) {
 		std::cout << "Running in headless mode. Press Ctrl+C or send 'shutdown' to exit.\n";
 		std::string line;
 		while (orchestrator->is_running()) {
-			repl.print_prompt();
-			if (!std::getline(std::cin, line)) {
-				break;
-			}
-			if (line.empty()) continue;
-			if (line == "help") { repl.print_help(); continue; }
-			if (line == "status") { repl.print_status(); continue; }
+			try {
+				repl.print_prompt();
+				if (!std::getline(std::cin, line)) {
+					break;
+				}
+				if (line.empty()) continue;
+				if (line == "help") { repl.print_help(); continue; }
+				if (line == "status") { repl.print_status(); continue; }
 
-			CommandResult result{};
-			const bool ok = repl.execute_line(line, &result);
-			if (!ok) std::cout << "Error: " << result.message << "\n";
-			else if (result.message[0] != '\0') std::cout << "OK: " << result.message << "\n";
+				CommandResult result{};
+				const bool ok = repl.execute_line(line, &result);
+				if (!ok) std::cout << "Error: " << result.message << "\n";
+				else if (result.message[0] != '\0') std::cout << "OK: " << result.message << "\n";
+			} catch (const std::exception& ex) {
+				Relativistic::Core::log_error(std::string("Headless command loop caught an exception and will continue: ") + ex.what());
+			} catch (...) {
+				Relativistic::Core::log_error("Headless command loop caught an unknown exception and will continue.");
+			}
 		}
 	} else {
 		Relativistic::IO::UserSettings user_settings = Relativistic::IO::UserSettings::load_or_default();
@@ -88,7 +109,13 @@ int main(int argc, char* argv[]) {
 		ui_manager.initialize();
 
 		while (orchestrator->is_running() && !ui_manager.should_close()) {
-			ui_manager.render_frame();
+			try {
+				ui_manager.render_frame();
+			} catch (const std::exception& ex) {
+				Relativistic::Core::log_error(std::string("UI frame render failed and was skipped: ") + ex.what());
+			} catch (...) {
+				Relativistic::Core::log_error("UI frame render failed with an unknown error and was skipped.");
+			}
 		}
 		orchestrator->stop();
 

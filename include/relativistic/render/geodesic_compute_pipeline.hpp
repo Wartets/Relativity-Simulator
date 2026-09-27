@@ -77,7 +77,7 @@ private:
 
 	GpuCameraPushConstants pending_constants_{};
 	std::vector<GpuBodyData> pending_bodies_{};
-	std::unique_ptr<Core::ThreadPool> thread_pool_{};
+	std::unique_ptr<Core::ThreadPool, void(*)(Core::ThreadPool*)> thread_pool_{nullptr, [](Core::ThreadPool*) noexcept {}};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
 	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
@@ -306,7 +306,7 @@ private:
 public:
 	explicit GeodesicComputePipeline(const GeodesicPipelineConfig& config = {})
 		: config_(config),
-		  thread_pool_(std::make_unique<Core::ThreadPool>()) {
+		  thread_pool_(&Core::global_render_thread_pool(), [](Core::ThreadPool*) noexcept {}) {
 		precision_mode_.store(config_.precision, std::memory_order_relaxed);
 		try {
 			front_buffer_.resize(static_cast<size_t>(config_.width) * config_.height);
@@ -355,8 +355,8 @@ public:
 
 	void resize(uint32_t width, uint32_t height) {
 		std::lock_guard<std::mutex> lock(mutex_);
-		config_.width = width;
-		config_.height = height;
+		config_.width = std::clamp(width, 16U, 7680U);
+		config_.height = std::clamp(height, 16U, 4320U);
 	}
 
 	void set_precision_mode(PrecisionMode mode) noexcept {

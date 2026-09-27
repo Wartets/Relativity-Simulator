@@ -62,7 +62,7 @@ private:
 
 public:
 	explicit ThreadPool(size_t thread_count = 0) {
-		const size_t count = (thread_count > 0) ? thread_count : std::max(size_t{1}, static_cast<size_t>(std::thread::hardware_concurrency()));
+		const size_t count = std::clamp((thread_count > 0) ? thread_count : static_cast<size_t>(std::thread::hardware_concurrency()), size_t{1}, size_t{32});
 		workers_.reserve(count);
 		for (size_t i = 0; i < count; ++i) {
 			try {
@@ -142,6 +142,11 @@ public:
 		const size_t count = workers_.size();
 		const size_t chunk_size = std::max(min_chunk, std::max(size_t{1}, total_items / (std::max(count, size_t{1}) * 4)));
 		std::atomic<size_t> current_index{0};
+		const size_t tasks_needed = std::min(count, (total_items + chunk_size - 1) / chunk_size);
+
+		std::mutex completion_mutex;
+		std::condition_variable completion_cv;
+		std::atomic<size_t> remaining_tasks{std::max(tasks_needed, size_t{1})};
 
 		auto worker_task = [&]() {
 			while (true) {
@@ -156,10 +161,14 @@ public:
 					std::fprintf(stderr, "[ThreadPool] parallel_for chunk threw an unknown exception\n");
 				}
 			}
+			if (remaining_tasks.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+				std::lock_guard<std::mutex> lock(completion_mutex);
+				completion_cv.notify_all();
+			}
 		};
 
-		const size_t tasks_needed = std::min(count, (total_items + chunk_size - 1) / chunk_size);
 		if (tasks_needed > 1) {
+			bool queued = false;
 			{
 				std::lock_guard<std::mutex> lock(queue_mutex_);
 				if (!stop_.load(std::memory_order_relaxed)) {
@@ -167,15 +176,20 @@ public:
 					for (size_t i = 1; i < tasks_needed; ++i) {
 						tasks_.push(worker_task);
 					}
+					queued = true;
 				}
 			}
-			cv_task_.notify_all();
+			if (queued) {
+				cv_task_.notify_all();
+			} else {
+				remaining_tasks.fetch_sub(tasks_needed - 1, std::memory_order_acq_rel);
+			}
 		}
 
 		worker_task();
-		if (tasks_needed > 1) {
-			wait_idle();
-		}
+
+		std::unique_lock<std::mutex> completion_lock(completion_mutex);
+		completion_cv.wait(completion_lock, [&]() { return remaining_tasks.load(std::memory_order_acquire) == 0; });
 	}
 
 	void shutdown() noexcept {
@@ -187,5 +201,10 @@ public:
 		workers_.clear();
 	}
 };
+
+[[nodiscard]] inline ThreadPool& global_render_thread_pool() {
+	static ThreadPool instance;
+	return instance;
+}
 
 }

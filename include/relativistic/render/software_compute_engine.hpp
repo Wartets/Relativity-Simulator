@@ -2106,7 +2106,20 @@ public:
 						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
 						const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
-						const double dt = -std::clamp(smooth_dt * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard;
+						double subsidiary_horizon_guard = 1.0;
+						if (!subsidiary_sources.empty()) {
+							const auto ray_cartesian_pos = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
+							double nearest_horizon_ratio = 1e30;
+							for (const auto& subsidiary_source : subsidiary_sources) {
+								const double delta_x = ray_cartesian_pos[0] - subsidiary_source.position[0];
+								const double delta_y = ray_cartesian_pos[1] - subsidiary_source.position[1];
+								const double delta_z = ray_cartesian_pos[2] - subsidiary_source.position[2];
+								const double distance_to_source = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
+								nearest_horizon_ratio = std::min(nearest_horizon_ratio, distance_to_source / std::max(subsidiary_source.horizon_radius, 1e-9));
+							}
+							subsidiary_horizon_guard = std::clamp(nearest_horizon_ratio / 8.0, 0.03, 1.0);
+						}
+						const double dt = -std::clamp(smooth_dt * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard * subsidiary_horizon_guard;
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;

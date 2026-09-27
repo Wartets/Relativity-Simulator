@@ -1248,6 +1248,23 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 	ray_pphi = (-new_v.x * sin_p + new_v.y * cos_p) / max(ray_r * safe_sin_t, 1e-9);
 }
 
+double subsidiary_step_guard(dvec3 pos) {
+	if (pc.body_count == 0u) return 1.0;
+	double nearest_ratio = 1.0e30;
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bodies[bi].preset_3d != 8u) continue;
+		double m_b = max(bodies[bi].mass, 1e-9);
+		double a_star = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999);
+		double a_spin = a_star * m_b;
+		double rh_b = m_b + sqrt(max(m_b * m_b - a_spin * a_spin, 0.0));
+		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
+		double dist = length(pos - bpos);
+		nearest_ratio = min(nearest_ratio, dist / max(rh_b, 1e-9));
+	}
+	if (nearest_ratio > 1.0e29) return 1.0;
+	return clamp(nearest_ratio / 8.0, 0.03, 1.0);
+}
+
 void main() {
 	uint tiles_x = (pc.screen_width + 15u) / 16u;
 	uint tiles_y = (pc.screen_height + 15u) / 16u;
@@ -1457,7 +1474,8 @@ void main() {
 			double cos_t = sincos_ray_th.y;
 			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
 			double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard;
+			double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
+			double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
 
 			double prev_r = ray_r;
 			double prev_th = ray_th;

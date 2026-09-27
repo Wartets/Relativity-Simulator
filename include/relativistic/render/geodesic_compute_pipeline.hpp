@@ -94,13 +94,14 @@ private:
 		}
 	}
 
-	static void clamp_workload_budget(GpuCameraPushConstants& constants) noexcept {
+	static void clamp_workload_budget(GpuCameraPushConstants& constants, size_t body_count) noexcept {
 		constexpr uint64_t kMaxStepPixelBudget = 20000000000ULL;
 		const uint64_t pixel_count = static_cast<uint64_t>(constants.screen_width) * static_cast<uint64_t>(constants.screen_height);
 		if (pixel_count == 0ULL) {
 			return;
 		}
-		const uint64_t budgeted_steps = kMaxStepPixelBudget / pixel_count;
+		const uint64_t body_divisor = std::max<uint64_t>(1ULL, static_cast<uint64_t>(body_count));
+		const uint64_t budgeted_steps = kMaxStepPixelBudget / (pixel_count * body_divisor);
 		const uint32_t safe_steps = static_cast<uint32_t>(std::clamp<uint64_t>(budgeted_steps, 64ULL, 16384ULL));
 		constants.max_integration_steps = std::min(constants.max_integration_steps, safe_steps);
 	}
@@ -111,6 +112,11 @@ private:
 		}
 		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
+		}
+		for (const auto& body : bodies) {
+			if (body.preset_3d == 8U) {
+				return false;
+			}
 		}
 		if (precision_mode_.load(std::memory_order_relaxed) != PrecisionMode::NativeFloat64) {
 			return false;
@@ -443,7 +449,7 @@ public:
 				std::lock_guard<std::mutex> lock(mutex_);
 				actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			}
-			clamp_workload_budget(actual_constants);
+			clamp_workload_budget(actual_constants, bodies.size());
 
 			bool rendered_on_gpu = false;
 			bool bodies_patched_on_top = false;
@@ -498,7 +504,7 @@ public:
 			}
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
-			clamp_workload_budget(pending_constants_);
+			clamp_workload_budget(pending_constants_, bodies.size());
 			pending_bodies_.assign(bodies.begin(), bodies.end());
 			pending_total_enabled_bodies_.store(total_enabled_bodies, std::memory_order_relaxed);
 			request_pending_.store(true, std::memory_order_release);

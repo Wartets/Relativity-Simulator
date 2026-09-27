@@ -3,6 +3,7 @@
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/optics/sky_panorama_image.hpp"
+#include "relativistic/core/engine_log.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
@@ -414,6 +415,7 @@ private:
 		submit_info.commandBufferCount = 1;
 		submit_info.pCommandBuffers = &command_buffer_;
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
+			Core::log_error("GPU sky panorama upload submission failed; falling back to the procedural sky.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;
@@ -421,6 +423,7 @@ private:
 		constexpr uint64_t kPanoramaUploadTimeoutNs = 1500000000ULL;
 		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
 		if (panorama_fence_result != VK_SUCCESS) {
+			Core::log_error("GPU sky panorama upload timed out or the device was lost; falling back to the procedural sky.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;
@@ -946,6 +949,7 @@ public:
 		submit_info.pCommandBuffers = &command_buffer_;
 
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
+			Core::log_error("GPU compute queue submission failed; falling back to the CPU renderer for subsequent frames.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;
@@ -954,6 +958,7 @@ public:
 		constexpr uint64_t kComputeDispatchTimeoutNs = 1500000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
+			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;

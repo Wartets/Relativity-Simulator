@@ -47,7 +47,9 @@ public:
 			}
 		}
 		const char* prefix = (level == LogLevel::Error) ? "[ERROR] " : (level == LogLevel::Warning) ? "[WARN] " : "[INFO] ";
-		std::fprintf(level == LogLevel::Error ? stderr : stdout, "%s%s\n", prefix, std::string(message).c_str());
+		FILE* stream = (level == LogLevel::Error) ? stderr : stdout;
+		std::fprintf(stream, "%s%s\n", prefix, std::string(message).c_str());
+		std::fflush(stream);
 	}
 
 	[[nodiscard]] std::deque<LogEntry> snapshot() const {

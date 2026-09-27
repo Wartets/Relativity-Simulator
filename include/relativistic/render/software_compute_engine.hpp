@@ -1922,6 +1922,10 @@ public:
 		if (use_exact_metric_path) {
 			effective_max_steps = std::max(effective_max_steps / 2U, 256U);
 		}
+		if (!subsidiary_sources.empty()) {
+			const uint32_t subsidiary_divisor = static_cast<uint32_t>(std::min<size_t>(subsidiary_sources.size() + 1, 8));
+			effective_max_steps = std::max(effective_max_steps / subsidiary_divisor, 256U);
+		}
 
 		const double angular_pixel_size = params.field_of_view_rad / std::max(static_cast<double>(width), 1.0);
 		const double bh_angular_diameter = (2.0 * rh) / r_obs_frame;

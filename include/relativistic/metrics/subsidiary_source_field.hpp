@@ -125,6 +125,9 @@ public:
 		if (r_len < source.horizon_radius * 1.5) {
 			return ray_dir;
 		}
+		if (r_len > source.mass * 2000.0) {
+			return ray_dir;
+		}
 
 		const double proj = rx * ray_dir[0] + ry * ray_dir[1] + rz * ray_dir[2];
 		const double perp_x = rx - proj * ray_dir[0];

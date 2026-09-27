@@ -1203,6 +1203,7 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 		dvec3 rel = pos - bpos;
 		double r_len = length(rel);
 		if (r_len < rh * 1.5) continue;
+		if (r_len > m * 2000.0) continue;
 
 		double proj = dot(rel, dir);
 		dvec3 perp = rel - proj * dir;

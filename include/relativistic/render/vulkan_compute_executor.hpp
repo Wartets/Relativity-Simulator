@@ -70,6 +70,7 @@ private:
 	bool staging_is_coherent_{false};
 
 	bool ready_{false};
+	bool device_lost_{false};
 
 	[[nodiscard]] static std::optional<std::filesystem::path> find_spirv_path() {
 		static constexpr const char* candidates[] = {
@@ -413,11 +414,14 @@ private:
 		submit_info.commandBufferCount = 1;
 		submit_info.pCommandBuffers = &command_buffer_;
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
+			device_lost_ = true;
+			ready_ = false;
 			return false;
 		}
-		constexpr uint64_t kPanoramaUploadTimeoutNs = 4000000000ULL;
+		constexpr uint64_t kPanoramaUploadTimeoutNs = 1500000000ULL;
 		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
 		if (panorama_fence_result != VK_SUCCESS) {
+			device_lost_ = true;
 			ready_ = false;
 			return false;
 		}
@@ -743,7 +747,7 @@ public:
 	}
 
 	[[nodiscard]] bool is_ready() const noexcept {
-		return ready_;
+		return ready_ && !device_lost_;
 	}
 
 	void shutdown() noexcept {
@@ -751,7 +755,9 @@ public:
 			ready_ = false;
 			return;
 		}
-		vkDeviceWaitIdle(device_);
+		if (!device_lost_) {
+			vkDeviceWaitIdle(device_);
+		}
 
 		if (fence_ != VK_NULL_HANDLE) { vkDestroyFence(device_, fence_, nullptr); fence_ = VK_NULL_HANDLE; }
 		if (command_buffer_ != VK_NULL_HANDLE && command_pool_ != VK_NULL_HANDLE) {
@@ -834,7 +840,7 @@ public:
 	}
 
 	[[nodiscard]] bool dispatch_and_readback(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies = {}) {
-		if (!ready_) {
+		if (!is_ready()) {
 			return false;
 		}
 
@@ -940,12 +946,15 @@ public:
 		submit_info.pCommandBuffers = &command_buffer_;
 
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
+			device_lost_ = true;
+			ready_ = false;
 			return false;
 		}
 
-		constexpr uint64_t kComputeDispatchTimeoutNs = 4000000000ULL;
+		constexpr uint64_t kComputeDispatchTimeoutNs = 1500000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
+			device_lost_ = true;
 			ready_ = false;
 			return false;
 		}

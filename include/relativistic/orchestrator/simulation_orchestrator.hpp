@@ -1049,12 +1049,20 @@ public:
 			case ParameterType::IntegrationMaxStep:
 				params_.integration_max_step = val;
 				break;
-			case ParameterType::ResolutionScale:
+			case ParameterType::ResolutionScale: {
 				params_.resolution_scale = std::clamp(val, 0.1, 2.0);
+				constexpr double kMaxScaleStepProduct = 3600.0;
+				const double max_steps_for_scale = kMaxScaleStepProduct / std::max(params_.resolution_scale * params_.resolution_scale, 0.01);
+				params_.max_ray_steps = static_cast<uint32_t>(std::min(static_cast<double>(params_.max_ray_steps), std::clamp(max_steps_for_scale, 64.0, 16384.0)));
 				break;
-			case ParameterType::MaxRaySteps:
+			}
+			case ParameterType::MaxRaySteps: {
 				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(val, 64.0, 16384.0));
+				constexpr double kMaxScaleStepProduct = 3600.0;
+				const double max_scale_for_steps = std::sqrt(kMaxScaleStepProduct / std::max(static_cast<double>(params_.max_ray_steps), 1.0));
+				params_.resolution_scale = std::min(params_.resolution_scale, std::clamp(max_scale_for_steps, 0.1, 2.0));
 				break;
+			}
 			case ParameterType::PerformancePreset:
 				apply_performance_preset(static_cast<uint32_t>(val));
 				break;

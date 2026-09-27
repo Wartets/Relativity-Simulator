@@ -11,8 +11,53 @@
 #include <chrono>
 #include <exception>
 #include <cstdlib>
+#include <cstdio>
+#include <ctime>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+
+namespace {
+
+LONG WINAPI relativistic_crash_handler(EXCEPTION_POINTERS* info) noexcept {
+	if (info == nullptr || info->ExceptionRecord == nullptr) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	const DWORD code = info->ExceptionRecord->ExceptionCode;
+	if (code != EXCEPTION_ACCESS_VIOLATION &&
+	    code != EXCEPTION_STACK_OVERFLOW &&
+	    code != EXCEPTION_ILLEGAL_INSTRUCTION &&
+	    code != EXCEPTION_ARRAY_BOUNDS_EXCEEDED &&
+	    code != EXCEPTION_INT_DIVIDE_BY_ZERO) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	FILE* crash_file = std::fopen("crash_report.log", "a");
+	if (crash_file != nullptr) {
+		const std::time_t now = std::time(nullptr);
+		std::fprintf(
+			crash_file,
+			"[%ld] Native exception code=0x%08lX address=%p\n",
+			static_cast<long>(now),
+			static_cast<unsigned long>(code),
+			info->ExceptionRecord->ExceptionAddress
+		);
+		std::fflush(crash_file);
+		std::fclose(crash_file);
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+}
+#endif
 
 int main(int argc, char* argv[]) {
+#if defined(_WIN32)
+	AddVectoredExceptionHandler(1, relativistic_crash_handler);
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#endif
+
 	std::set_terminate([]() noexcept {
 		try {
 			if (const auto current_exception_ptr = std::current_exception()) {

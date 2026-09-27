@@ -388,6 +388,9 @@ public:
 
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
+			if (params.use_gpu_compute && !pipeline_.gpu_compute_available()) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, 0.0)));
+			}
 			pipeline_.set_gpu_compute_enabled(params.use_gpu_compute);
 
 			const auto& active_keybinds = camera_controller_.config().keybinds;

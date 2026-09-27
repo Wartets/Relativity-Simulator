@@ -94,6 +94,17 @@ private:
 		}
 	}
 
+	static void clamp_workload_budget(GpuCameraPushConstants& constants) noexcept {
+		constexpr uint64_t kMaxStepPixelBudget = 20000000000ULL;
+		const uint64_t pixel_count = static_cast<uint64_t>(constants.screen_width) * static_cast<uint64_t>(constants.screen_height);
+		if (pixel_count == 0ULL) {
+			return;
+		}
+		const uint64_t budgeted_steps = kMaxStepPixelBudget / pixel_count;
+		const uint32_t safe_steps = static_cast<uint32_t>(std::clamp<uint64_t>(budgeted_steps, 64ULL, 16384ULL));
+		constants.max_integration_steps = std::min(constants.max_integration_steps, safe_steps);
+	}
+
 	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyData> bodies) noexcept {
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
@@ -408,7 +419,8 @@ public:
 		return is_rendering_.load(std::memory_order_relaxed);
 	}
 
-	[[nodiscard]] const PipelineExecutionTelemetry& telemetry() const noexcept {
+	[[nodiscard]] PipelineExecutionTelemetry telemetry() const noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
 		return telemetry_;
 	}
 
@@ -431,6 +443,7 @@ public:
 				std::lock_guard<std::mutex> lock(mutex_);
 				actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			}
+			clamp_workload_budget(actual_constants);
 
 			bool rendered_on_gpu = false;
 			bool bodies_patched_on_top = false;
@@ -485,6 +498,7 @@ public:
 			}
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
+			clamp_workload_budget(pending_constants_);
 			pending_bodies_.assign(bodies.begin(), bodies.end());
 			pending_total_enabled_bodies_.store(total_enabled_bodies, std::memory_order_relaxed);
 			request_pending_.store(true, std::memory_order_release);

@@ -135,7 +135,12 @@ private:
 		for (const auto& body : bodies) {
 			gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
 		}
-		return gpu_executor_->dispatch_and_readback(params, output, gpu_bodies_layout);
+		const bool dispatched = gpu_executor_->dispatch_and_readback(params, output, gpu_bodies_layout);
+		if (!dispatched && !gpu_executor_->is_ready()) {
+			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
+			use_gpu_compute_.store(false, std::memory_order_relaxed);
+		}
+		return dispatched;
 	}
 
 	void worker_loop(std::stop_token st) noexcept {

@@ -15,8 +15,12 @@
 #include <ctime>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <Windows.h>
 
 namespace {
@@ -53,6 +57,8 @@ LONG WINAPI relativistic_crash_handler(EXCEPTION_POINTERS* info) noexcept {
 #endif
 
 int main(int argc, char* argv[]) {
+	std::setvbuf(stdout, nullptr, _IONBF, 0);
+	std::setvbuf(stderr, nullptr, _IONBF, 0);
 #if defined(_WIN32)
 	AddVectoredExceptionHandler(1, relativistic_crash_handler);
 	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);

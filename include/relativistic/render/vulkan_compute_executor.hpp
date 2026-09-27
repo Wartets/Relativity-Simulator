@@ -420,7 +420,7 @@ private:
 			ready_ = false;
 			return false;
 		}
-		constexpr uint64_t kPanoramaUploadTimeoutNs = 1500000000ULL;
+		constexpr uint64_t kPanoramaUploadTimeoutNs = 800000000ULL;
 		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
 		if (panorama_fence_result != VK_SUCCESS) {
 			Core::log_error("GPU sky panorama upload timed out or the device was lost; falling back to the procedural sky.");
@@ -955,7 +955,7 @@ public:
 			return false;
 		}
 
-		constexpr uint64_t kComputeDispatchTimeoutNs = 1500000000ULL;
+		constexpr uint64_t kComputeDispatchTimeoutNs = 800000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
 			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");

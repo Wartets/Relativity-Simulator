@@ -879,8 +879,20 @@ private:
 	std::mutex mutex_{};
 	std::array<Slot, kSlotCount> slots_{};
 	uint64_t stamp_counter_{0};
+	std::vector<std::jthread> decode_threads_{};
 
 	SkyPanoramaLoader() = default;
+
+	~SkyPanoramaLoader() {
+		std::vector<std::jthread> threads_to_join;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			threads_to_join = std::move(decode_threads_);
+		}
+		for (auto& t : threads_to_join) {
+			if (t.joinable()) t.join();
+		}
+	}
 
 	[[nodiscard]] static uint32_t make_key(SkyPanoramaId id, SkyPanoramaQuality quality) noexcept {
 		const uint32_t id_value = std::min(static_cast<uint32_t>(id), static_cast<uint32_t>(SkyPanoramaId::Eso0932a));
@@ -960,7 +972,9 @@ public:
 					target->ready = true;
 					target->decoding = false;
 				});
-				decode_thread.detach();
+				std::lock_guard<std::mutex> lock(mutex_);
+				std::erase_if(decode_threads_, [](std::jthread& t) noexcept { return !t.joinable(); });
+				decode_threads_.push_back(std::move(decode_thread));
 			} catch (const std::exception&) {
 				std::lock_guard<std::mutex> lock(mutex_);
 				target->decoding = false;

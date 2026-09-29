@@ -64,7 +64,11 @@ private:
 		std::vector<VkPhysicalDevice> devices(device_count);
 		vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
 
+		int best_score = -1;
 		for (VkPhysicalDevice candidate : devices) {
+			VkPhysicalDeviceProperties properties{};
+			vkGetPhysicalDeviceProperties(candidate, &properties);
+
 			VkPhysicalDeviceVulkan12Features supported_12{};
 			supported_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 
@@ -97,14 +101,29 @@ private:
 				continue;
 			}
 
-			physical_device_ = candidate;
-			compute_queue_family_index_ = *compute_family;
-			break;
+			int score = 0;
+			if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+				score += 10000;
+			} else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+				score += 100;
+			}
+			if (supported_features.features.shaderFloat64 == VK_TRUE) {
+				score += 1000;
+			}
+
+			if (score > best_score) {
+				best_score = score;
+				physical_device_ = candidate;
+				compute_queue_family_index_ = *compute_family;
+			}
 		}
 
 		if (physical_device_ == VK_NULL_HANDLE) {
 			return false;
 		}
+
+		VkPhysicalDeviceFeatures supported_device_features{};
+		vkGetPhysicalDeviceFeatures(physical_device_, &supported_device_features);
 
 		const float queue_priority = 1.0f;
 		VkDeviceQueueCreateInfo queue_info{};
@@ -114,8 +133,8 @@ private:
 		queue_info.pQueuePriorities = &queue_priority;
 
 		VkPhysicalDeviceFeatures enabled_features{};
-		enabled_features.shaderFloat64 = prefer_fp64 ? VK_TRUE : VK_FALSE;
-		enabled_features.shaderInt64 = VK_TRUE;
+		enabled_features.shaderFloat64 = (prefer_fp64 && supported_device_features.shaderFloat64 == VK_TRUE) ? VK_TRUE : VK_FALSE;
+		enabled_features.shaderInt64 = supported_device_features.shaderInt64;
 
 		VkPhysicalDeviceVulkan12Features enabled_12{};
 		enabled_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;

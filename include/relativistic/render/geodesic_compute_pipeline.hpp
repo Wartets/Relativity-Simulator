@@ -113,11 +113,6 @@ private:
 		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params)) {
 			return false;
 		}
-		for (const auto& body : bodies) {
-			if (body.preset_3d == 8U) {
-				return false;
-			}
-		}
 		if (precision_mode_.load(std::memory_order_relaxed) != PrecisionMode::NativeFloat64) {
 			return false;
 		}
@@ -487,6 +482,22 @@ public:
 				new_frame_ready_.store(true, std::memory_order_release);
 				return;
 			}
+			uint64_t absorbed = 0;
+			uint64_t celestial = 0;
+			uint64_t disk_hits = 0;
+			uint64_t saturated = 0;
+			for (const auto& px : front_buffer_) {
+				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
+				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+				if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
+				if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
+			}
+
+			telemetry_.total_pixels_processed = front_buffer_.size();
+			telemetry_.horizon_pixels_absorbed = absorbed;
+			telemetry_.celestial_pixels_hit = celestial;
+			telemetry_.accretion_disk_pixels_hit = disk_hits;
+			telemetry_.saturated_ray_pixels = saturated;
 			telemetry_.used_gpu_path = rendered_on_gpu;
 			telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;
 			telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !bodies.empty();

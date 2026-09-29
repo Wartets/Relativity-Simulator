@@ -420,7 +420,7 @@ private:
 			ready_ = false;
 			return false;
 		}
-		constexpr uint64_t kPanoramaUploadTimeoutNs = 800000000ULL;
+		constexpr uint64_t kPanoramaUploadTimeoutNs = 3000000000ULL;
 		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
 		if (panorama_fence_result != VK_SUCCESS) {
 			Core::log_error("GPU sky panorama upload timed out or the device was lost; falling back to the procedural sky.");
@@ -742,8 +742,7 @@ public:
 		panorama_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 		panorama_sampler_info.maxLod = 0.0f;
 		panorama_sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-		panorama_supported_ = (vkCreateSampler(device_, &panorama_sampler_info, nullptr, &panorama_sampler_) == VK_SUCCESS)
-			&& ensure_panorama_placeholder();
+		panorama_supported_ = (vkCreateSampler(device_, &panorama_sampler_info, nullptr, &panorama_sampler_) == VK_SUCCESS);
 
 		ready_ = true;
 		return true;
@@ -909,7 +908,7 @@ public:
 		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
 		const uint32_t tiles_y = (params.screen_height + 15U) / 16U;
 		const uint32_t total_tiles = tiles_x * tiles_y;
-		const uint32_t persistent_group_count = std::clamp(total_tiles, 64U, 4096U);
+		const uint32_t persistent_group_count = std::clamp(total_tiles, 16U, 1024U);
 		vkCmdDispatch(command_buffer_, persistent_group_count, 1, 1);
 
 		VkBufferMemoryBarrier barrier{};
@@ -955,7 +954,7 @@ public:
 			return false;
 		}
 
-		constexpr uint64_t kComputeDispatchTimeoutNs = 800000000ULL;
+		constexpr uint64_t kComputeDispatchTimeoutNs = 5000000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
 			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");

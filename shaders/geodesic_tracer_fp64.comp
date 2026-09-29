@@ -1287,10 +1287,7 @@ void main() {
 		uint px = tile_x + (gl_LocalInvocationIndex % 16u);
 		uint py = tile_y + (gl_LocalInvocationIndex / 16u);
 
-		if (px >= pc.screen_width || py >= pc.screen_height) {
-			continue;
-		}
-
+		if (px < pc.screen_width && py < pc.screen_height) {
 		uint pixel_index = py * pc.screen_width + px;
 
 		double aspect = double(pc.screen_width) / double(pc.screen_height);
@@ -1659,5 +1656,6 @@ void main() {
 		pixels[pixel_index].affine_parameter = float(iters) * 0.05;
 		pixels[pixel_index].status_flags = status;
 		pixels[pixel_index].iterations_used = iters;
+		}
 	}
 }

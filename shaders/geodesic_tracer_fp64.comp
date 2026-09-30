@@ -1309,6 +1309,7 @@ void main() {
 		if (bodies[sbi].preset_3d == 8u) { subsidiary_sources_present = true; break; }
 	}
 
+	bool early_done = false;
 	{
 		double obs_r0 = pc.observer_position.y;
 		double obs_th0 = pc.observer_position.z;
@@ -1326,11 +1327,11 @@ void main() {
 				pixels[pixel_index].affine_parameter = 0.0;
 				pixels[pixel_index].status_flags = body_status;
 				pixels[pixel_index].iterations_used = 0u;
-				continue;
+				early_done = true;
 			}
 		}
 
-		if ((pc.render_flags & (1u << 17)) != 0u) {
+		if (!early_done && (pc.render_flags & (1u << 17)) != 0u) {
 			vec3 sky_only = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
 			vec3 mapped_sky = apply_tonemapping(sky_only, pc.tonemapping_mode, pc.camera_exposure);
 			pixels[pixel_index].rgba = vec4(mapped_sky, 1.0);
@@ -1338,324 +1339,329 @@ void main() {
 			pixels[pixel_index].affine_parameter = 0.0;
 			pixels[pixel_index].status_flags = 2u;
 			pixels[pixel_index].iterations_used = 0u;
-			continue;
+			early_done = true;
 		}
 	}
 
-	double m = (pc.metric_type == 0u) ? 0.0 : max(pc.metric_mass, 1e-4);
-	double raw_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
-	double a_spin = (pc.metric_type == 4u) ? 0.0 : raw_spin;
-	double kn_charge_sq = (pc.metric_type == 4u || pc.metric_type == 5u) ? (pc.metric_charge * pc.metric_charge) : 0.0;
-	double rs = 2.0 * m;
-	double rh = (abs(a_spin) > 1e-12 || kn_charge_sq > 1e-12) ? (m + sqrt(max(m * m - a_spin * a_spin - kn_charge_sq, 0.0))) : rs;
+	if (!early_done) {
+		double m = (pc.metric_type == 0u) ? 0.0 : max(pc.metric_mass, 1e-4);
+		double raw_spin = clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
+		double a_spin = (pc.metric_type == 4u) ? 0.0 : raw_spin;
+		double kn_charge_sq = (pc.metric_type == 4u || pc.metric_type == 5u) ? (pc.metric_charge * pc.metric_charge) : 0.0;
+		double rs = 2.0 * m;
+		double rh = (abs(a_spin) > 1e-12 || kn_charge_sq > 1e-12) ? (m + sqrt(max(m * m - a_spin * a_spin - kn_charge_sq, 0.0))) : rs;
 
-	uint status = 0u;
-	uint iters = 0u;
-	dvec3 accum = dvec3(0.0);
-	double redshift_rec = 1.0;
+		uint status = 0u;
+		uint iters = 0u;
+		dvec3 accum = dvec3(0.0);
+		double redshift_rec = 1.0;
 
-	bool needs_ray_march = (pc.metric_type != 0u) || (subsidiary_sources_present && (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u);
+		bool needs_ray_march = (pc.metric_type != 0u) || (subsidiary_sources_present && (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u);
 
-	if (!needs_ray_march) {
-		iters = 1u;
-		vec3 sky = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
-		accum = dvec3(sky);
-	} else {
-		bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
-		bool use_kerr_newman_metric = (pc.metric_type == 2u || pc.metric_type == 4u || pc.metric_type == 5u) && (abs(a_spin) > 1e-9 * m || kn_charge_sq > 1e-18 * m * m);
-		double isco = use_kerr_newman_metric ? kerr_isco_radius_prograde_retrograde(m, a_spin) : ((abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m));
-		double disk_outer = 24.0 * m;
-
-		double r_obs = max(pc.observer_position.y, rh * 1.02);
-		double theta_obs = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
-		double phi_obs = pc.observer_position.w;
-
-		double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
-		double bh_angular_diameter = (2.0 * rh) / r_obs;
-		double turbulence_aa_factor = clamp(bh_angular_diameter / max(angular_pixel_size * 24.0, 1e-9), 0.0, 1.0);
-
-		float phi_obs_f = float(phi_obs);
-		dvec2 sincos_theta_obs = precise_sincos(theta_obs);
-		double sin_to = sincos_theta_obs.x;
-		double cos_to = sincos_theta_obs.y;
-		double sin_po = double(sin(phi_obs_f));
-		double cos_po = double(cos(phi_obs_f));
-
-		dvec3 er = dvec3(sin_to * cos_po, sin_to * sin_po, cos_to);
-		dvec3 eth = dvec3(cos_to * cos_po, cos_to * sin_po, -sin_to);
-		dvec3 eph = dvec3(-sin_po, cos_po, 0.0);
-
-		double n_r = dot(ray_dir, er);
-		double n_th = dot(ray_dir, eth);
-		double n_ph = dot(ray_dir, eph);
-
-		double ray_r = r_obs;
-		double ray_th = theta_obs;
-		double ray_phi = phi_obs;
-		double ray_pr;
-		double ray_pth;
-		double ray_pphi;
-		double ray_p0 = 1.0;
-		double E_cons = 1.0;
-		double Lz_cons = 0.0;
-
-		if (use_kerr_newman_metric) {
-			double g00, g03, g11, g22, g33;
-			double e0_t, e0_phi, e1_r, e2_th, e3_phi;
-			kerr_newman_zamo_frame(r_obs, theta_obs, m, a_spin, kn_charge_sq, g00, g03, g11, g22, g33, e0_t, e0_phi, e1_r, e2_th, e3_phi);
-			ray_p0 = e0_t;
-			ray_pr = -n_r * e1_r;
-			ray_pth = -n_th * e2_th;
-			ray_pphi = e0_phi - n_ph * e3_phi;
-			E_cons = -(g00 * ray_p0 + g03 * ray_pphi);
-			Lz_cons = g03 * ray_p0 + g33 * ray_pphi;
+		if (!needs_ray_march) {
+			iters = 1u;
+			vec3 sky = compute_sky_radiance(ray_dir, pc.sky_rotation_rad);
+			accum = dvec3(sky);
+			status |= 2u;
 		} else {
-			double factor_obs = max(1.0 - rs / r_obs, 1e-6);
-			double sqrt_factor_obs = sqrt(factor_obs);
-			ray_pr = -n_r;
-			ray_pth = -n_th / (r_obs * sqrt_factor_obs);
-			ray_pphi = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
-			Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
-		}
+			bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
+			bool use_kerr_newman_metric = (pc.metric_type == 2u || pc.metric_type == 4u || pc.metric_type == 5u) && (abs(a_spin) > 1e-9 * m || kn_charge_sq > 1e-18 * m * m);
+			double isco = use_kerr_newman_metric ? kerr_isco_radius_prograde_retrograde(m, a_spin) : ((abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m));
+			double disk_outer = 24.0 * m;
 
-		double throughput = 1.0;
+			double r_obs = max(pc.observer_position.y, rh * 1.02);
+			double theta_obs = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
+			double phi_obs = pc.observer_position.w;
 
-		bool bodies_traced = (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u;
-		dvec3 curr_body_cart_pos = bodies_traced ? spherical_to_cartesian(ray_r, ray_th, ray_phi) : dvec3(0.0);
+			double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
+			double bh_angular_diameter = (2.0 * rh) / r_obs;
+			double turbulence_aa_factor = clamp(bh_angular_diameter / max(angular_pixel_size * 24.0, 1e-9), 0.0, 1.0);
 
-		uint effective_max_steps = pc.max_integration_steps;
-		if ((pc.render_flags & (1u << 9)) != 0u && pc.lod_distance_threshold > 0.0 && r_obs > pc.lod_distance_threshold) {
-			effective_max_steps = min(pc.max_integration_steps, pc.lod_reduced_steps);
-		}
+			float phi_obs_f = float(phi_obs);
+			dvec2 sincos_theta_obs = precise_sincos(theta_obs);
+			double sin_to = sincos_theta_obs.x;
+			double cos_to = sincos_theta_obs.y;
+			double sin_po = double(sin(phi_obs_f));
+			double cos_po = double(cos(phi_obs_f));
 
-		for (uint step = 0u; step < effective_max_steps && throughput > 0.01; ++step) {
-			iters = step + 1u;
+			dvec3 er = dvec3(sin_to * cos_po, sin_to * sin_po, cos_to);
+			dvec3 eth = dvec3(cos_to * cos_po, cos_to * sin_po, -sin_to);
+			dvec3 eph = dvec3(-sin_po, cos_po, 0.0);
 
-			double delta_kn = kerr_newman_delta(ray_r, m, a_spin, kn_charge_sq);
-			if (ray_r <= rh * 1.0001 || delta_kn <= 0.0) {
-				status = 1u;
-				throughput = 0.0;
-				break;
-			}
-			if (ray_r >= pc.escape_radius) {
-				status = 2u;
-				break;
-			}
+			double n_r = dot(ray_dir, er);
+			double n_th = dot(ray_dir, eth);
+			double n_ph = dot(ray_dir, eph);
 
-			if (!use_kerr_newman_metric && (pc.render_flags & (1u << 10)) != 0u) {
-				double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
-				if (ray_r > effective_skip_r) {
-					dvec3 skip_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
-					if (attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
-						if (bodies_traced) {
-							dvec3 skip_vector = spherical_to_cartesian(ray_r, ray_th, ray_phi) - skip_origin;
-							double skip_length = length(skip_vector);
-							vec3 skip_color;
-							uint skip_status;
-							double skip_dist;
-							if (skip_length > 1e-12 && intersect_bodies(skip_origin, skip_vector / skip_length, skip_length, skip_color, skip_status, skip_dist)) {
-								accum += throughput * dvec3(skip_color);
-								status |= 16u;
-								throughput = 0.0;
-								break;
-							}
-							curr_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
-						}
-						continue;
-					}
-				}
-			}
-
-			double r_scale = max(ray_r - rh, 0.02 * m);
-			dvec2 sincos_ray_th = precise_sincos(ray_th);
-			double sin_t = sincos_ray_th.x;
-			double cos_t = sincos_ray_th.y;
-			double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
-			double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
-			double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
-
-			double prev_r = ray_r;
-			double prev_th = ray_th;
-			double prev_phi = ray_phi;
-			double prev_pphi = ray_pphi;
+			double ray_r = r_obs;
+			double ray_th = theta_obs;
+			double ray_phi = phi_obs;
+			double ray_pr;
+			double ray_pth;
+			double ray_pphi;
+			double ray_p0 = 1.0;
+			double E_cons = 1.0;
+			double Lz_cons = 0.0;
 
 			if (use_kerr_newman_metric) {
-				dvec4 u_state = dvec4(ray_p0, ray_pr, ray_pth, ray_pphi);
-				dvec4 du_state = kerr_newman_geodesic_derivative(u_state, ray_r, ray_th, m, a_spin, kn_charge_sq);
-
-				ray_r += dt * ray_pr;
-				ray_th += dt * ray_pth;
-				ray_phi += dt * ray_pphi;
-				ray_p0 += dt * du_state.x;
-				ray_pr += dt * du_state.y;
-				ray_pth += dt * du_state.z;
-				ray_pphi += dt * du_state.w;
+				double g00, g03, g11, g22, g33;
+				double e0_t, e0_phi, e1_r, e2_th, e3_phi;
+				kerr_newman_zamo_frame(r_obs, theta_obs, m, a_spin, kn_charge_sq, g00, g03, g11, g22, g33, e0_t, e0_phi, e1_r, e2_th, e3_phi);
+				ray_p0 = e0_t;
+				ray_pr = -n_r * e1_r;
+				ray_pth = -n_th * e2_th;
+				ray_pphi = e0_phi - n_ph * e3_phi;
+				E_cons = -(g00 * ray_p0 + g03 * ray_pphi);
+				Lz_cons = g03 * ray_p0 + g33 * ray_pphi;
 			} else {
-				double inv_r = 1.0 / ray_r;
-				double inv_r2 = inv_r * inv_r;
-				double f = max(1.0 - rs * inv_r, 1e-6);
-				double inv_f = 1.0 / f;
-				double p_t = E_cons * inv_f;
-				double sin2_t = max(sin_t * sin_t, 1e-10);
-				double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-
-				double half_rs_inv_r2 = 0.5 * rs * inv_r2;
-				double g100 = half_rs_inv_r2 * f;
-				double g111 = -half_rs_inv_r2 * inv_f;
-				double rf = ray_r * f;
-				double g122 = -rf;
-				double g133 = -rf * sin2_t;
-
-				double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
-				double d_pth = -(2.0 * inv_r * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-				double d_pphi = -2.0 * (inv_r * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
-
-				ray_r += dt * ray_pr;
-				ray_th += dt * ray_pth;
-				ray_phi += dt * ray_pphi;
-				ray_pr += dt * d_pr;
-				ray_pth += dt * d_pth;
-				ray_pphi += dt * d_pphi;
+				double factor_obs = max(1.0 - rs / r_obs, 1e-6);
+				double sqrt_factor_obs = sqrt(factor_obs);
+				ray_pr = -n_r;
+				ray_pth = -n_th / (r_obs * sqrt_factor_obs);
+				ray_pphi = -n_ph / (r_obs * sin_to * sqrt_factor_obs);
+				Lz_cons = ray_pphi * (r_obs * r_obs * sin_to * sin_to);
 			}
 
-			if (bodies_traced) {
-				apply_subsidiary_deflection(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt);
+			double throughput = 1.0;
+
+			bool bodies_traced = (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u;
+			dvec3 curr_body_cart_pos = bodies_traced ? spherical_to_cartesian(ray_r, ray_th, ray_phi) : dvec3(0.0);
+
+			uint effective_max_steps = pc.max_integration_steps;
+			if ((pc.render_flags & (1u << 9)) != 0u && pc.lod_distance_threshold > 0.0 && r_obs > pc.lod_distance_threshold) {
+				effective_max_steps = min(pc.max_integration_steps, pc.lod_reduced_steps);
 			}
 
-			if (ray_th < 0.0) {
-				ray_th = -ray_th;
-				ray_phi += PI_D;
-				ray_pth = -ray_pth;
-			} else if (ray_th > PI_D) {
-				ray_th = 2.0 * PI_D - ray_th;
-				ray_phi += PI_D;
-				ray_pth = -ray_pth;
-			}
+			for (uint step = 0u; step < effective_max_steps && throughput > 0.01; ++step) {
+				iters = step + 1u;
 
-			vec3 body_segment_color = vec3(0.0);
-			bool body_segment_hit = false;
-			if (bodies_traced) {
-				dvec3 next_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
-				dvec3 segment_vector = next_body_cart_pos - curr_body_cart_pos;
-				double segment_length = length(segment_vector);
-				if (segment_length > 1e-12) {
-					uint segment_status;
-					double segment_dist;
-					body_segment_hit = intersect_bodies(curr_body_cart_pos, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
+				double delta_kn = kerr_newman_delta(ray_r, m, a_spin, kn_charge_sq);
+				if (ray_r <= rh * 1.0001 || delta_kn <= 0.0) {
+					status = 1u;
+					throughput = 0.0;
+					break;
+				}
+				if (ray_r >= pc.escape_radius) {
+					status = 2u;
+					break;
 				}
 
-				vec3 subsidiary_color;
-				double subsidiary_opacity;
-				bool subsidiary_absorbed;
-				if (intersect_subsidiary_sources(curr_body_cart_pos, next_body_cart_pos, subsidiary_color, subsidiary_opacity, subsidiary_absorbed)) {
-					if (subsidiary_absorbed) {
-						status = 1u;
-						throughput = 0.0;
-						break;
+				if (!use_kerr_newman_metric && (pc.render_flags & (1u << 10)) != 0u) {
+					double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
+					if (ray_r > effective_skip_r) {
+						dvec3 skip_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+						if (attempt_analytic_space_skip(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, effective_skip_r, pc.escape_radius, m)) {
+							if (bodies_traced) {
+								dvec3 skip_vector = spherical_to_cartesian(ray_r, ray_th, ray_phi) - skip_origin;
+								double skip_length = length(skip_vector);
+								vec3 skip_color;
+								uint skip_status;
+								double skip_dist;
+								if (skip_length > 1e-12 && intersect_bodies(skip_origin, skip_vector / skip_length, skip_length, skip_color, skip_status, skip_dist)) {
+									accum += throughput * dvec3(skip_color);
+									status |= 16u;
+									throughput = 0.0;
+									break;
+								}
+								curr_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+							}
+							continue;
+						}
 					}
-					accum += throughput * dvec3(subsidiary_color);
-					throughput *= (1.0 - subsidiary_opacity);
 				}
 
-				curr_body_cart_pos = next_body_cart_pos;
-			}
+				double r_scale = max(ray_r - rh, 0.02 * m);
+				dvec2 sincos_ray_th = precise_sincos(ray_th);
+				double sin_t = sincos_ray_th.x;
+				double cos_t = sincos_ray_th.y;
+				double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
+				double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+				double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
+				double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
 
-			double mid_plane = PI_D * 0.5;
-			if (has_accretion_disk && (prev_th - mid_plane) * (ray_th - mid_plane) <= 0.0) {
-				double d_th_span = abs(ray_th - prev_th);
-				double s_cross = (d_th_span > 1e-12) ? clamp(abs(prev_th - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
-				double r_cross = prev_r + s_cross * (ray_r - prev_r);
-				double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
-				double pphi_cross = prev_pphi + s_cross * (ray_pphi - prev_pphi);
+				double prev_r = ray_r;
+				double prev_th = ray_th;
+				double prev_phi = ray_phi;
+				double prev_pphi = ray_pphi;
 
-				if (r_cross >= isco && r_cross <= disk_outer) {
-					status |= 4u;
+				if (use_kerr_newman_metric) {
+					dvec4 u_state = dvec4(ray_p0, ray_pr, ray_pth, ray_pphi);
+					dvec4 du_state = kerr_newman_geodesic_derivative(u_state, ray_r, ray_th, m, a_spin, kn_charge_sq);
 
-					double lz_at_cross = use_kerr_newman_metric ? (pphi_cross * r_cross * r_cross) : Lz_cons;
-					double v_orb = sqrt(m / r_cross);
-					double omega_orb = v_orb / r_cross;
-					double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
-					double l_over_e = lz_at_cross / max(abs(E_cons), 1e-12);
-					double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
-					double g_doppler = (abs(denom_g) > 1e-12) ? (sqrt(max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
-					redshift_rec = g_doppler;
+					ray_r += dt * ray_pr;
+					ray_th += dt * ray_pth;
+					ray_phi += dt * ray_pphi;
+					ray_p0 += dt * du_state.x;
+					ray_pr += dt * du_state.y;
+					ray_pth += dt * du_state.z;
+					ray_pphi += dt * du_state.w;
+				} else {
+					double inv_r = 1.0 / ray_r;
+					double inv_r2 = inv_r * inv_r;
+					double f = max(1.0 - rs * inv_r, 1e-6);
+					double inv_f = 1.0 / f;
+					double p_t = E_cons * inv_f;
+					double sin2_t = max(sin_t * sin_t, 1e-10);
+					double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
 
-					double q_ratio = isco / r_cross;
-					double q_quarter = sqrt(sqrt(q_ratio));
-					double q_three_quarter = q_quarter * q_quarter * q_quarter;
-					double sqrt_q_ratio = sqrt(q_ratio);
-					double w_ratio = max(1.0 - sqrt_q_ratio, 0.0);
-					double w_quarter = sqrt(sqrt(w_ratio));
-					double t_norm = q_three_quarter * w_quarter;
-					double t_eff_k = pc.disk_temperature_scale_k * t_norm + pc.disk_temperature_floor_k;
-					double t_obs = t_eff_k * g_doppler;
+					double half_rs_inv_r2 = 0.5 * rs * inv_r2;
+					double g100 = half_rs_inv_r2 * f;
+					double g111 = -half_rs_inv_r2 * inv_f;
+					double rf = ray_r * f;
+					double g122 = -rf;
+					double g133 = -rf * sin2_t;
 
-					double g4 = double(pow(float(g_doppler), float(pc.disk_doppler_beaming_exponent)));
-					double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-					double log_ratio = double(log(float(r_cross / isco)));
-					double turbulence_phase = 8.0 * phi_cross - 4.0 * log_ratio;
-					double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * double(sin(float(turbulence_phase)));
-					double flux_intensity = max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
+					double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
+					double d_pth = -(2.0 * inv_r * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
+					double d_pphi = -2.0 * (inv_r * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
 
-					dvec3 disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, pc.disk_color_saturation);
-					double alpha_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
-
-					accum += throughput * disk_rgb;
-					throughput *= (1.0 - alpha_opacity);
+					ray_r += dt * ray_pr;
+					ray_th += dt * ray_pth;
+					ray_phi += dt * ray_pphi;
+					ray_pr += dt * d_pr;
+					ray_pth += dt * d_pth;
+					ray_pphi += dt * d_pphi;
 				}
-			}
-			if (body_segment_hit && throughput > 0.01) {
-				accum += throughput * dvec3(body_segment_color);
-				status |= 16u;
-				throughput = 0.0;
-				break;
-			}
-		}
 
-		if ((status & 2u) != 0u || throughput > 0.01) {
-			float ray_phi_f2 = float(ray_phi);
-			dvec2 sincos_exit_th = precise_sincos(ray_th);
-			double sin_t = sincos_exit_th.x;
-			double cos_t = sincos_exit_th.y;
-			double sin_p = double(sin(ray_phi_f2));
-			double cos_p = double(cos(ray_phi_f2));
+				if (bodies_traced) {
+					apply_subsidiary_deflection(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt);
+				}
 
-			double exit_radial = ray_pr / sqrt(max(1.0 - rs / ray_r, 1e-6));
-			double pxr = -(exit_radial * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p);
-			double pyr = -(exit_radial * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p);
-			double pzr = -(exit_radial * cos_t - ray_r * ray_pth * sin_t);
+				if (ray_th < 0.0) {
+					ray_th = -ray_th;
+					ray_phi += PI_D;
+					ray_pth = -ray_pth;
+				} else if (ray_th > PI_D) {
+					ray_th = 2.0 * PI_D - ray_th;
+					ray_phi += PI_D;
+					ray_pth = -ray_pth;
+				}
 
-			double p_len = sqrt(pxr * pxr + pyr * pyr + pzr * pzr);
-			double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
-			dvec3 dir_out = dvec3(pxr * inv_plen, pyr * inv_plen, pzr * inv_plen);
+				vec3 body_segment_color = vec3(0.0);
+				bool body_segment_hit = false;
+				if (bodies_traced) {
+					dvec3 next_body_cart_pos = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+					dvec3 segment_vector = next_body_cart_pos - curr_body_cart_pos;
+					double segment_length = length(segment_vector);
+					if (segment_length > 1e-12) {
+						uint segment_status;
+						double segment_dist;
+						body_segment_hit = intersect_bodies(curr_body_cart_pos, segment_vector / segment_length, segment_length, body_segment_color, segment_status, segment_dist);
+					}
 
-			bool exit_body_hit = false;
-			if (bodies_traced) {
-				vec3 exit_color;
-				uint exit_status;
-				double exit_dist;
-				dvec3 exit_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
-				exit_body_hit = intersect_bodies(exit_origin, dir_out, 1e30, exit_color, exit_status, exit_dist);
-				if (exit_body_hit) {
-					accum += throughput * dvec3(exit_color);
+					vec3 subsidiary_color;
+					double subsidiary_opacity;
+					bool subsidiary_absorbed;
+					if (intersect_subsidiary_sources(curr_body_cart_pos, next_body_cart_pos, subsidiary_color, subsidiary_opacity, subsidiary_absorbed)) {
+						if (subsidiary_absorbed) {
+							status = 1u;
+							throughput = 0.0;
+							break;
+						}
+						accum += throughput * dvec3(subsidiary_color);
+						throughput *= (1.0 - subsidiary_opacity);
+					}
+
+					curr_body_cart_pos = next_body_cart_pos;
+				}
+
+				double mid_plane = PI_D * 0.5;
+				if (has_accretion_disk && (prev_th - mid_plane) * (ray_th - mid_plane) <= 0.0) {
+					double d_th_span = abs(ray_th - prev_th);
+					double s_cross = (d_th_span > 1e-12) ? clamp(abs(prev_th - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
+					double r_cross = prev_r + s_cross * (ray_r - prev_r);
+					double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
+					double pphi_cross = prev_pphi + s_cross * (ray_pphi - prev_pphi);
+
+					if (r_cross >= isco && r_cross <= disk_outer) {
+						status |= 4u;
+
+						double lz_at_cross = use_kerr_newman_metric ? (pphi_cross * r_cross * r_cross) : Lz_cons;
+						double v_orb = sqrt(m / r_cross);
+						double omega_orb = v_orb / r_cross;
+						double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
+						double l_over_e = lz_at_cross / max(abs(E_cons), 1e-12);
+						double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
+						double g_doppler = (abs(denom_g) > 1e-12) ? (sqrt(max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+						redshift_rec = g_doppler;
+
+						double q_ratio = isco / r_cross;
+						double q_quarter = sqrt(sqrt(q_ratio));
+						double q_three_quarter = q_quarter * q_quarter * q_quarter;
+						double sqrt_q_ratio = sqrt(q_ratio);
+						double w_ratio = max(1.0 - sqrt_q_ratio, 0.0);
+						double w_quarter = sqrt(sqrt(w_ratio));
+						double t_norm = q_three_quarter * w_quarter;
+						double t_eff_k = pc.disk_temperature_scale_k * t_norm + pc.disk_temperature_floor_k;
+						double t_obs = t_eff_k * g_doppler;
+
+						double g4 = double(pow(float(g_doppler), float(pc.disk_doppler_beaming_exponent)));
+						double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
+						double log_ratio = double(log(float(r_cross / isco)));
+						double turbulence_phase = 8.0 * phi_cross - 4.0 * log_ratio;
+						double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * double(sin(float(turbulence_phase)));
+						double flux_intensity = max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
+
+						dvec3 disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, pc.disk_color_saturation);
+						double alpha_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
+
+						accum += throughput * disk_rgb;
+						throughput *= (1.0 - alpha_opacity);
+					}
+				}
+				if (body_segment_hit && throughput > 0.01) {
+					accum += throughput * dvec3(body_segment_color);
 					status |= 16u;
+					throughput = 0.0;
+					break;
 				}
 			}
-			if (!exit_body_hit) {
-				vec3 sky = compute_sky_radiance(dir_out, pc.sky_rotation_rad);
-				accum += throughput * dvec3(sky);
+
+			if ((status & 2u) != 0u || throughput > 0.01) {
+				float ray_phi_f2 = float(ray_phi);
+				dvec2 sincos_exit_th = precise_sincos(ray_th);
+				double sin_t = sincos_exit_th.x;
+				double cos_t = sincos_exit_th.y;
+				double sin_p = double(sin(ray_phi_f2));
+				double cos_p = double(cos(ray_phi_f2));
+
+				double exit_radial = ray_pr / sqrt(max(1.0 - rs / ray_r, 1e-6));
+				double pxr = -(exit_radial * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p);
+				double pyr = -(exit_radial * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p);
+				double pzr = -(exit_radial * cos_t - ray_r * ray_pth * sin_t);
+
+				double p_len = sqrt(pxr * pxr + pyr * pyr + pzr * pzr);
+				double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
+				dvec3 dir_out = dvec3(pxr * inv_plen, pyr * inv_plen, pzr * inv_plen);
+
+				bool exit_body_hit = false;
+				if (bodies_traced) {
+					vec3 exit_color;
+					uint exit_status;
+					double exit_dist;
+					dvec3 exit_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+					exit_body_hit = intersect_bodies(exit_origin, dir_out, 1e30, exit_color, exit_status, exit_dist);
+					if (exit_body_hit) {
+						accum += throughput * dvec3(exit_color);
+						status |= 16u;
+					}
+				}
+				if (!exit_body_hit) {
+					vec3 sky = compute_sky_radiance(dir_out, pc.sky_rotation_rad);
+					accum += throughput * dvec3(sky);
+					status |= 2u;
+				}
 			}
 		}
-	}
 
-	vec3 mapped = apply_tonemapping(vec3(accum), pc.tonemapping_mode, pc.camera_exposure);
+		vec3 mapped = apply_tonemapping(vec3(accum), pc.tonemapping_mode, pc.camera_exposure);
 
 		pixels[pixel_index].rgba = vec4(mapped, 1.0);
 		pixels[pixel_index].redshift = float(redshift_rec);
 		pixels[pixel_index].affine_parameter = float(iters) * 0.05;
 		pixels[pixel_index].status_flags = status;
 		pixels[pixel_index].iterations_used = iters;
-		}
+	}
+	}
 	}
 }
+

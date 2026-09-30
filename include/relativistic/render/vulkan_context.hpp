@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/core/engine_log.hpp"
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <cstddef>
@@ -103,12 +104,15 @@ private:
 
 			int score = 0;
 			if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-				score += 10000;
+				score += 50000;
 			} else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
 				score += 100;
 			}
+			if (properties.vendorID == 0x10DE) {
+				score += 20000;
+			}
 			if (supported_features.features.shaderFloat64 == VK_TRUE) {
-				score += 1000;
+				score += 5000;
 			}
 
 			if (score > best_score) {

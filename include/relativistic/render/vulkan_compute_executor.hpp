@@ -744,6 +744,10 @@ public:
 		panorama_sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 		panorama_supported_ = (vkCreateSampler(device_, &panorama_sampler_info, nullptr, &panorama_sampler_) == VK_SUCCESS);
 
+		if (panorama_supported_) {
+			(void)ensure_panorama_placeholder();
+		}
+
 		ready_ = true;
 		return true;
 	}
@@ -908,7 +912,7 @@ public:
 		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
 		const uint32_t tiles_y = (params.screen_height + 15U) / 16U;
 		const uint32_t total_tiles = tiles_x * tiles_y;
-		const uint32_t persistent_group_count = std::clamp(total_tiles, 16U, 1024U);
+		const uint32_t persistent_group_count = std::clamp(total_tiles, 16U, 64U);
 		vkCmdDispatch(command_buffer_, persistent_group_count, 1, 1);
 
 		VkBufferMemoryBarrier barrier{};

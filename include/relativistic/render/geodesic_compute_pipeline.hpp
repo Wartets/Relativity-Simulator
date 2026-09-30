@@ -343,6 +343,7 @@ public:
 				auto candidate_executor = std::make_unique<VulkanComputeExecutor>();
 				if (candidate_executor->initialize(context_)) {
 					gpu_executor_ = std::move(candidate_executor);
+					use_gpu_compute_.store(true, std::memory_order_relaxed);
 				} else {
 					Core::log_warning("Vulkan compute device detected but pipeline initialization failed; falling back to CPU rendering.");
 				}
@@ -487,8 +488,8 @@ public:
 			uint64_t disk_hits = 0;
 			uint64_t saturated = 0;
 			for (const auto& px : front_buffer_) {
-				if (px.status_flags == PixelFlags::HORIZON_ABSORBED) ++absorbed;
-				else if (px.status_flags == PixelFlags::CELESTIAL_HIT) ++celestial;
+				if ((px.status_flags & PixelFlags::HORIZON_ABSORBED) != 0U) ++absorbed;
+				else if ((px.status_flags & PixelFlags::CELESTIAL_HIT) != 0U) ++celestial;
 				if ((px.status_flags & PixelFlags::ACCRETION_DISK_HIT) != 0U) ++disk_hits;
 				if ((px.status_flags & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U) ++saturated;
 			}

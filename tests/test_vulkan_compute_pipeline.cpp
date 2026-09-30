@@ -19,7 +19,8 @@ int main() {
 		.field_of_view_deg = 60.0,
 		.max_steps = 1024,
 		.initial_step = -0.05,
-		.headless = true
+		.headless = true,
+		.projection_mode = ProjectionMode::Equirectangular360
 	};
 
 	GeodesicComputePipeline pipeline(config);
@@ -49,6 +50,10 @@ int main() {
 
 	pipeline.dispatch(constants);
 	const auto fb_fp64 = pipeline.framebuffer();
+	std::cout << "Telemetry: processed=" << pipeline.telemetry().total_pixels_processed
+	          << ", horizon=" << pipeline.telemetry().horizon_pixels_absorbed
+	          << ", celestial=" << pipeline.telemetry().celestial_pixels_hit
+	          << ", used_gpu=" << (pipeline.telemetry().used_gpu_path ? "true" : "false") << "\n";
 	assert(pipeline.telemetry().total_pixels_processed == 64 * 64);
 	assert(pipeline.telemetry().horizon_pixels_absorbed > 0);
 	assert(pipeline.telemetry().celestial_pixels_hit > 0);

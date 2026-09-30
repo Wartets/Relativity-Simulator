@@ -2,6 +2,8 @@
 
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/io/image_codecs.hpp"
+#include "relativistic/io/image_format.hpp"
+#include "relativistic/io/image_stream_writers.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <vector>
@@ -16,14 +18,6 @@
 #include <algorithm>
 
 namespace Relativistic::IO {
-
-enum class ScreenshotFormat : uint32_t {
-	PPM = 0,
-	BMP = 1,
-	PNG = 2,
-	TGA = 3,
-	HDR = 4
-};
 
 enum class ScreenshotOverwritePolicy : uint32_t {
 	AutoIncrement = 0,
@@ -63,14 +57,7 @@ public:
 	}
 
 	[[nodiscard]] static std::string extension_for_format(ScreenshotFormat format) noexcept {
-		switch (format) {
-			case ScreenshotFormat::BMP: return ".bmp";
-			case ScreenshotFormat::PNG: return ".png";
-			case ScreenshotFormat::TGA: return ".tga";
-			case ScreenshotFormat::HDR: return ".hdr";
-			case ScreenshotFormat::PPM:
-			default: return ".ppm";
-		}
+		return std::string(".") + std::string(image_format_descriptor(format).extension);
 	}
 
 private:
@@ -113,6 +100,13 @@ private:
 				break;
 			case ScreenshotFormat::HDR:
 				write_hdr(out_path, pixels, width, height, comment_text);
+				break;
+			case ScreenshotFormat::PNG16:
+			case ScreenshotFormat::QOI:
+			case ScreenshotFormat::PFM:
+			case ScreenshotFormat::TIFF:
+			case ScreenshotFormat::PAM:
+				static_cast<void>(write_image_file(out_path, pixels, width, height, format, comment_text));
 				break;
 			case ScreenshotFormat::PPM:
 			default:

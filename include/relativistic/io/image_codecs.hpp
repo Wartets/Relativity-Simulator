@@ -89,6 +89,34 @@ private:
 	}
 
 public:
+	[[nodiscard]] static uint32_t crc32_extend(uint32_t crc, const uint8_t* data, size_t len) noexcept {
+		static constexpr auto table = build_crc_table();
+		uint32_t c = crc ^ 0xFFFFFFFFU;
+		for (size_t i = 0; i < len; ++i) {
+			c = table[(c ^ data[i]) & 0xFFU] ^ (c >> 8);
+		}
+		return c ^ 0xFFFFFFFFU;
+	}
+
+	[[nodiscard]] static uint32_t adler32_extend(uint32_t adler, const uint8_t* data, size_t len) noexcept {
+		constexpr uint32_t mod_adler = 65521U;
+		constexpr size_t max_block = 5552;
+		uint32_t a = adler & 0xFFFFU;
+		uint32_t b = (adler >> 16) & 0xFFFFU;
+		size_t offset = 0;
+		while (offset < len) {
+			const size_t chunk = std::min(max_block, len - offset);
+			for (size_t i = 0; i < chunk; ++i) {
+				a += data[offset + i];
+				b += a;
+			}
+			a %= mod_adler;
+			b %= mod_adler;
+			offset += chunk;
+		}
+		return (b << 16) | a;
+	}
+
 	[[nodiscard]] static std::vector<uint8_t> encode_tga_bgr(
 		const std::vector<std::array<uint8_t, 3>>& rgb_pixels,
 		uint32_t width,

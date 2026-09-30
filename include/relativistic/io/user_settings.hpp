@@ -53,9 +53,6 @@ struct UserSettings {
 	std::string screenshot_output_directory{"./screenshots"};
 	std::string screenshot_filename_pattern{"relativistic_%metric%_%Y%m%d_%H%M%S"};
 	uint32_t screenshot_format{0};
-	float screenshot_resolution_scale{2.0f};
-	uint32_t screenshot_max_ray_steps{8192};
-	float screenshot_step_refinement{2.0f};
 	bool screenshot_watermark_enabled{false};
 	std::string screenshot_watermark_text{"Relativistic Engine"};
 	uint32_t screenshot_overwrite_policy{1};
@@ -210,9 +207,6 @@ struct UserSettings {
 		result.screenshot_output_directory = get_str("screenshot_output_directory", result.screenshot_output_directory);
 		result.screenshot_filename_pattern = get_str("screenshot_filename_pattern", result.screenshot_filename_pattern);
 		result.screenshot_format = get_u32("screenshot_format", result.screenshot_format);
-		result.screenshot_resolution_scale = static_cast<float>(get_dbl("screenshot_resolution_scale", result.screenshot_resolution_scale));
-		result.screenshot_max_ray_steps = std::clamp<uint32_t>(get_u32("screenshot_max_ray_steps", result.screenshot_max_ray_steps), 256U, 65536U);
-		result.screenshot_step_refinement = std::clamp(static_cast<float>(get_dbl("screenshot_step_refinement", result.screenshot_step_refinement)), 1.0f, 16.0f);
 		result.screenshot_watermark_enabled = get_bool("screenshot_watermark_enabled", result.screenshot_watermark_enabled);
 		result.screenshot_watermark_text = get_str("screenshot_watermark_text", result.screenshot_watermark_text);
 		result.screenshot_overwrite_policy = get_u32("screenshot_overwrite_policy", result.screenshot_overwrite_policy);
@@ -400,9 +394,6 @@ struct UserSettings {
 		out << "screenshot_output_directory=" << screenshot_output_directory << "\n";
 		out << "screenshot_filename_pattern=" << screenshot_filename_pattern << "\n";
 		out << "screenshot_format=" << screenshot_format << "\n";
-		out << "screenshot_resolution_scale=" << screenshot_resolution_scale << "\n";
-		out << "screenshot_max_ray_steps=" << screenshot_max_ray_steps << "\n";
-		out << "screenshot_step_refinement=" << screenshot_step_refinement << "\n";
 		out << "screenshot_watermark_enabled=" << (screenshot_watermark_enabled ? 1 : 0) << "\n";
 		out << "screenshot_watermark_text=" << screenshot_watermark_text << "\n";
 		out << "screenshot_overwrite_policy=" << screenshot_overwrite_policy << "\n";

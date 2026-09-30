@@ -24,6 +24,7 @@
 #include "relativistic/ui/input_actions.hpp"
 #include "relativistic/ui/log_console_window.hpp"
 #include "relativistic/ui/secondary_viewport_manager.hpp"
+#include "relativistic/ui/capture_studio_window.hpp"
 #include "relativistic/core/system_console.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 
@@ -64,6 +65,7 @@ private:
 	ActionEdgeTracker global_action_tracker_{};
 
 	std::unique_ptr<ViewportPrimaryWindow> viewport_window_;
+	std::unique_ptr<CaptureStudioWindow> capture_studio_window_;
 	std::unique_ptr<ScenarioSelectorWindow> scenario_window_;
 	TelemetryWindow telemetry_window_;
 	SpectrographWindow spectrograph_window_;
@@ -80,18 +82,9 @@ private:
 	bool show_viewport_{true};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
-	bool pending_screenshot_popup_open_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
-	char screenshot_dir_buffer_[256]{};
-	char screenshot_pattern_buffer_[128]{};
-	bool screenshot_buffers_synced_{false};
-	int screenshot_capture_mode_{0};
-	IO::VideoSequenceSettings sequence_settings_{};
-	int sequence_frame_count_{300};
-	char screenshot_watermark_buffer_[128]{};
-	bool screenshot_watermark_buffer_synced_{false};
 
 public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
@@ -177,9 +170,9 @@ public:
 		ImGui_ImplOpenGL3_Init("#version 330");
 
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
-		viewport_window_->set_screenshot_callback([this]() { trigger_screenshot_capture(); });
+		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
-		viewport_window_->set_open_screenshot_settings_callback([this]() { pending_screenshot_popup_open_ = true; });
+		viewport_window_->set_open_screenshot_settings_callback([this]() { open_capture_studio(); });
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, user_settings_, &camera_controller_);
 		scenario_window_->set_settings_persist_callback([this]() {
 			export_runtime_settings();
@@ -275,21 +268,28 @@ public:
 	}
 
 	void trigger_screenshot_capture() noexcept {
-		if (viewport_window_) {
-			viewport_window_->request_screenshot(
-				user_settings_.screenshot_output_directory,
-				user_settings_.screenshot_filename_pattern,
-				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
-				user_settings_.screenshot_resolution_scale,
-				static_cast<IO::ScreenshotOverwritePolicy>(user_settings_.screenshot_overwrite_policy),
-				user_settings_.screenshot_watermark_enabled ? user_settings_.screenshot_watermark_text : std::string{},
-				user_settings_.screenshot_max_ray_steps,
-				user_settings_.screenshot_step_refinement
-			);
+		if (!capture_studio_window_) {
+			return;
+		}
+		try {
+			capture_studio_window_->capture_screenshot_now();
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Quick screenshot failed: ") + ex.what());
+		} catch (...) {
+			Core::log_error("Quick screenshot failed with an unknown error.");
+		}
+	}
+
+	void open_capture_studio() noexcept {
+		if (capture_studio_window_) {
+			capture_studio_window_->open_state() = true;
 		}
 	}
 
 	void export_runtime_settings() noexcept {
+		if (capture_studio_window_) {
+			capture_studio_window_->save_settings();
+		}
 		user_settings_.camera_controls = camera_controller_.config();
 		user_settings_.unit_preferences = orchestrator_.unit_preferences();
 		user_settings_.multi_window_mode = multi_window_mode_;
@@ -401,7 +401,6 @@ public:
 		ImGui::NewFrame();
 
 		render_main_menu_bar();
-		render_screenshot_settings_popup();
 
 		if (!multi_window_mode_) {
 			ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(0U, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -422,6 +421,10 @@ public:
 			} catch (...) {
 				Core::log_error("Viewport render frame failed with an unknown error and was skipped.");
 			}
+		}
+
+		if (viewport_window_) {
+			viewport_window_->capture_coordinator().update(dt);
 		}
 
 		if (scenario_window_ && scenario_window_->open_state()) {
@@ -468,6 +471,10 @@ public:
 			log_console_window_.render();
 		}
 
+		if (capture_studio_window_) {
+			capture_studio_window_->render();
+		}
+
 		if (secondary_viewport_manager_) {
 			secondary_viewport_manager_->render_all();
 			secondary_viewport_manager_->render_management_panel(secondary_viewport_manager_panel_open_);
@@ -500,6 +507,7 @@ public:
 
 	void shutdown() noexcept {
 		if (main_window_) {
+			capture_studio_window_.reset();
 			viewport_window_.reset();
 			scenario_window_.reset();
 
@@ -592,7 +600,7 @@ private:
 			diagnostics_window_.open_state() = !diagnostics_window_.open_state();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CaptureScreenshot, main_window_)) {
-			pending_screenshot_popup_open_ = true;
+			open_capture_studio();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleHudManager, main_window_)) {
 			user_settings_.hud_layout.master_enabled = !user_settings_.hud_layout.master_enabled;
@@ -800,214 +808,14 @@ private:
 		}
 	}
 
-	void render_screenshot_settings_popup() noexcept {
-		if (!screenshot_buffers_synced_) {
-			std::strncpy(screenshot_dir_buffer_, user_settings_.screenshot_output_directory.c_str(), sizeof(screenshot_dir_buffer_) - 1);
-			std::strncpy(screenshot_pattern_buffer_, user_settings_.screenshot_filename_pattern.c_str(), sizeof(screenshot_pattern_buffer_) - 1);
-			screenshot_buffers_synced_ = true;
-		}
-		if (!screenshot_watermark_buffer_synced_) {
-			std::strncpy(screenshot_watermark_buffer_, user_settings_.screenshot_watermark_text.c_str(), sizeof(screenshot_watermark_buffer_) - 1);
-			screenshot_watermark_buffer_synced_ = true;
-		}
-
-		if (pending_screenshot_popup_open_) {
-			ImGui::OpenPopup("Capture Studio");
-			pending_screenshot_popup_open_ = false;
-		}
-
-		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_FirstUseEver);
-		if (ImGui::BeginPopupModal("Capture Studio", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-			ImGui::TextWrapped("Configure where and how captured frames are saved. Available filename tokens: %%metric%%, %%mass%%, %%spin%%, %%width%%, %%height%%, %%tick%%, plus any strftime token such as %%Y %%m %%d %%H %%M %%S.");
-			ImGui::Separator();
-
-			if (ImGui::InputText("Output Directory", screenshot_dir_buffer_, sizeof(screenshot_dir_buffer_))) {
-				user_settings_.screenshot_output_directory = screenshot_dir_buffer_;
-			}
-			render_setting_tooltip("Destination folder where captured screenshots and video sequences are written.");
-			if (ImGui::InputText("Filename Pattern", screenshot_pattern_buffer_, sizeof(screenshot_pattern_buffer_))) {
-				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
-			}
-			render_setting_tooltip("Formatting template with metadata tags (%metric%, %mass%, %spin%, %tick%, %Y%m%d_%H%M%S).");
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Smart Name")) {
-				static constexpr const char* kSmartPattern = "%metric%_M%mass%_a%spin%_%width%x%height%_%Y%m%d_%H%M%S";
-				std::strncpy(screenshot_pattern_buffer_, kSmartPattern, sizeof(screenshot_pattern_buffer_) - 1);
-				screenshot_pattern_buffer_[sizeof(screenshot_pattern_buffer_) - 1] = '\0';
-				user_settings_.screenshot_filename_pattern = screenshot_pattern_buffer_;
-			}
-			render_setting_tooltip("Applies recommended scientific naming pattern containing metric parameters and date.");
-
-			const char* format_names[] = {
-				"PPM (Lossless, Fast)",
-				"BMP (Lossless, Windows-Compatible)",
-				"PNG (Lossless, Compressed, Metadata)",
-				"TGA (Lossless, Uncompressed)",
-				"HDR (Radiance, Linear Float)"
-			};
-			int format_idx = static_cast<int>(std::min<uint32_t>(user_settings_.screenshot_format, 4U));
-			if (ImGui::Combo("File Format", &format_idx, format_names, IM_ARRAYSIZE(format_names))) {
-				user_settings_.screenshot_format = static_cast<uint32_t>(format_idx);
-			}
-			render_setting_tooltip("PNG embeds an optional comment/watermark string directly in the file as metadata. HDR stores approximate linear radiance values and is intended for compositing rather than direct viewing.");
-
-			const char* overwrite_names[] = {"Auto-Increment Filename", "Overwrite Existing File", "Skip If File Exists"};
-			int overwrite_idx = static_cast<int>(std::min<uint32_t>(user_settings_.screenshot_overwrite_policy, 2U));
-			if (ImGui::Combo("If File Exists", &overwrite_idx, overwrite_names, IM_ARRAYSIZE(overwrite_names))) {
-				user_settings_.screenshot_overwrite_policy = static_cast<uint32_t>(overwrite_idx);
-			}
-			render_setting_tooltip("Collision resolution rule when saving a file whose target path already exists on disk.");
-
-			ImGui::Checkbox("Embed Watermark / Comment", &user_settings_.screenshot_watermark_enabled);
-			render_setting_tooltip("Toggles embedding custom textual metadata into supported export formats.");
-			if (user_settings_.screenshot_watermark_enabled) {
-				if (ImGui::InputText("Watermark Text", screenshot_watermark_buffer_, sizeof(screenshot_watermark_buffer_))) {
-					user_settings_.screenshot_watermark_text = screenshot_watermark_buffer_;
-				}
-				render_setting_tooltip("Written as a PNG tEXt chunk or an HDR comment line depending on the selected format. Formats without a metadata field ignore this setting.");
-			}
-
-			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
-			render_setting_tooltip("Off-screen super-resolution factor applied during high-fidelity capture generation.");
-
-			int capture_steps = static_cast<int>(user_settings_.screenshot_max_ray_steps);
-			if (ImGui::SliderInt("Capture Integration Steps", &capture_steps, 256, 65536, "%d", ImGuiSliderFlags_Logarithmic)) {
-				user_settings_.screenshot_max_ray_steps = static_cast<uint32_t>(capture_steps);
-			}
-			render_setting_tooltip("Maximum geodesic integration steps per ray used only for captures, independent of the live viewport budget.");
-			ImGui::SliderFloat("Capture Step Refinement", &user_settings_.screenshot_step_refinement, 1.0f, 16.0f, "%.1fx");
-			render_setting_tooltip("Divides the integration step size and its limits during capture, trading render time for accuracy near the photon sphere and the horizon.");
-			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale. Capturing now runs in the background and never freezes the interface.");
-
-			IO::ScreenshotCaptureContext preview_ctx;
-			preview_ctx.metric_name = orchestrator_.active_metric_name();
-			preview_ctx.mass = orchestrator_.parameters().mass;
-			preview_ctx.spin = orchestrator_.parameters().spin;
-			preview_ctx.width = 1920;
-			preview_ctx.height = 1080;
-			preview_ctx.tick_index = orchestrator_.scheduler().snapshot().tick_index;
-			const std::string preview_name = IO::ScreenshotFilenameBuilder::build(user_settings_.screenshot_filename_pattern, preview_ctx);
-			ImGui::Text("Preview filename: %s", preview_name.c_str());
-
-			ImGui::Separator();
-			ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Capture Mode");
-			const char* capture_modes[] = {"Single Screenshot", "Image Sequence (For Video Encoding)"};
-			ImGui::Combo("Mode", &screenshot_capture_mode_, capture_modes, IM_ARRAYSIZE(capture_modes));
-			render_setting_tooltip("Single Screenshot captures one frame using the settings above. Image Sequence periodically writes numbered frames to disk, which can be assembled into a video afterward with the generated ffmpeg command.");
-
-			if (screenshot_capture_mode_ == 0) {
-				if (viewport_window_ && viewport_window_->is_high_res_capture_pending()) {
-					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "A high-resolution capture is currently rendering in the background...");
-				}
-				if (ImGui::Button("Capture Now", ImVec2(140.0f, 26.0f))) {
-					trigger_screenshot_capture();
-				}
-				render_setting_tooltip("Triggers immediate asynchronous capture of the current simulation frame.");
-			} else {
-				ImGui::Separator();
-				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Sequence & Video Assembly");
-
-				if (ImGui::SliderFloat("Sequence Frame Rate", &sequence_settings_.frames_per_second, 1.0f, 120.0f, "%.0f fps")) {
-				}
-				render_setting_tooltip("Temporal frame sampling frequency for the recorded image sequence.");
-				if (ImGui::SliderFloat("Internal Resolution Scale", &sequence_settings_.resolution_scale, 0.1f, 2.0f, "%.2fx")) {
-				}
-				render_setting_tooltip("Applied on top of the live viewport resolution scale for every captured sequence frame, independent of the single-screenshot multiplier above.");
-
-				const char* trigger_names[] = {"Manual (Stop Button)", "Fixed Duration", "Fixed Frame Count", "Continuous Until Stopped"};
-				int trigger_idx = static_cast<int>(sequence_settings_.trigger);
-				if (ImGui::Combo("Stop Condition", &trigger_idx, trigger_names, IM_ARRAYSIZE(trigger_names))) {
-					sequence_settings_.trigger = static_cast<IO::SequenceCaptureTrigger>(trigger_idx);
-				}
-				render_setting_tooltip("Defines termination condition for sequence recording.");
-
-				if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedDuration) {
-					if (ImGui::SliderFloat("Sequence Duration", &sequence_settings_.duration_seconds, 0.5f, 600.0f, "%.1f s")) {
-					}
-					render_setting_tooltip("Total recording duration in physical simulation seconds.");
-					const float estimated_frames = sequence_settings_.frames_per_second * sequence_settings_.duration_seconds;
-					ImGui::TextDisabled("Approximately %.0f frames will be written.", static_cast<double>(estimated_frames));
-				} else if (sequence_settings_.trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
-					if (ImGui::SliderInt("Frame Count", &sequence_frame_count_, 1, 100000)) {
-					}
-					render_setting_tooltip("Exact total frame count to write before stopping.");
-				}
-
-				ImGui::Checkbox("Pause Simulation While Capturing", &sequence_settings_.pause_simulation_during_capture);
-				render_setting_tooltip("Pauses the simulation clock for the duration of the sequence capture so every frame advances by exactly one render step, avoiding motion judder from real-time playback speed variance.");
-				ImGui::Checkbox("Loop Output Video", &sequence_settings_.loop_output);
-				render_setting_tooltip("Adds loop flags to the generated ffmpeg assembly command.");
-
-				ImGui::Separator();
-				ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.3f, 1.0f), "Video Encoding Preset (External ffmpeg)");
-				const char* codec_names[] = {"H.264 (libx264)", "H.265 / HEVC (libx265)", "VP9 (WebM)", "ProRes (Editing)", "PNG Sequence Only (No Encode)"};
-				int codec_idx = static_cast<int>(sequence_settings_.codec);
-				if (ImGui::Combo("Video Codec", &codec_idx, codec_names, IM_ARRAYSIZE(codec_names))) {
-					sequence_settings_.codec = static_cast<IO::VideoCodecPreset>(codec_idx);
-				}
-				render_setting_tooltip("Target video compression standard used in the generated ffmpeg script.");
-				const char* container_names[] = {"MP4", "MKV", "MOV", "WebM"};
-				int container_idx = static_cast<int>(sequence_settings_.container);
-				if (ImGui::Combo("Container", &container_idx, container_names, IM_ARRAYSIZE(container_names))) {
-					sequence_settings_.container = static_cast<IO::VideoContainer>(container_idx);
-				}
-				render_setting_tooltip("Media container encapsulation format.");
-				if (sequence_settings_.codec != IO::VideoCodecPreset::PngSequence) {
-					int crf_val = static_cast<int>(sequence_settings_.crf);
-					if (ImGui::SliderInt("Quality (CRF, Lower = Better)", &crf_val, 0, 51)) {
-						sequence_settings_.crf = static_cast<uint32_t>(crf_val);
-					}
-					render_setting_tooltip("Constant Rate Factor determining compression quality (0 is lossless, 18-23 is visually lossless).");
-				}
-
-				const std::string extension_for_ffmpeg = (user_settings_.screenshot_format == 2U) ? "png" : (user_settings_.screenshot_format == 3U) ? "tga" : (user_settings_.screenshot_format == 4U) ? "hdr" : (user_settings_.screenshot_format == 1U) ? "bmp" : "ppm";
-				const std::string ffmpeg_cmd = sequence_settings_.build_ffmpeg_command(
-					user_settings_.screenshot_output_directory,
-					extension_for_ffmpeg,
-					user_settings_.screenshot_output_directory + "/assembled_video"
-				);
-				ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Suggested Assembly Command (run externally with ffmpeg after capture):");
-				char ffmpeg_cmd_buf[768]{};
-				std::strncpy(ffmpeg_cmd_buf, ffmpeg_cmd.c_str(), sizeof(ffmpeg_cmd_buf) - 1);
-				ImGui::InputText("##FfmpegCommand", ffmpeg_cmd_buf, sizeof(ffmpeg_cmd_buf), ImGuiInputTextFlags_ReadOnly);
-
-				if (viewport_window_ && viewport_window_->is_sequence_capture_active()) {
-					ImGui::ProgressBar(static_cast<float>(viewport_window_->sequence_capture_progress()), ImVec2(-1, 0));
-					if (ImGui::Button("Stop Sequence Capture", ImVec2(180.0f, 26.0f))) {
-						viewport_window_->stop_sequence_capture();
-					}
-					render_setting_tooltip("Terminates ongoing frame sequence recording.");
-				} else if (viewport_window_) {
-					if (ImGui::Button("Start Sequence Capture", ImVec2(200.0f, 26.0f))) {
-						viewport_window_->start_sequence_capture(
-							user_settings_.screenshot_output_directory,
-							user_settings_.screenshot_filename_pattern,
-							static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
-							static_cast<double>(sequence_settings_.frames_per_second),
-							static_cast<double>(sequence_settings_.duration_seconds),
-							sequence_settings_.trigger,
-							static_cast<uint64_t>(sequence_frame_count_),
-							sequence_settings_.pause_simulation_during_capture
-						);
-					}
-					render_setting_tooltip("Begins recording periodic rendered frames to the output directory.");
-				}
-			}
-
-			ImGui::SameLine();
-			if (ImGui::Button("Close", ImVec2(100.0f, 26.0f))) {
-				ImGui::CloseCurrentPopup();
-			}
-			render_setting_tooltip("Closes the Capture Studio configuration window.");
-			ImGui::EndPopup();
-		}
-	}
-
 	void render_main_menu_bar() noexcept {
 		if (ImGui::BeginMainMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
-				if (ImGui::MenuItem("Screenshot Capture Settings...")) {
-					ImGui::OpenPopup("Screenshot Capture Settings");
+				if (ImGui::MenuItem("Capture Studio...", key_hint(InputAction::CaptureScreenshot).c_str())) {
+					open_capture_studio();
+				}
+				if (ImGui::MenuItem("Quick Screenshot (Current Studio Settings)")) {
+					trigger_screenshot_capture();
 				}
 				if (ImGui::MenuItem("Save Snapshot Scenario...")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_save_scenario("scenarios/snapshot.yaml")));
@@ -1087,6 +895,9 @@ private:
 				ImGui::MenuItem("Physical Constants Engine", key_hint(InputAction::ToggleConstantsWindow).c_str(), &constants_window_.open_state());
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
 				ImGui::MenuItem("Engine Log Console", nullptr, &log_console_window_.open_state());
+				if (capture_studio_window_) {
+					ImGui::MenuItem("Capture Studio", key_hint(InputAction::CaptureScreenshot).c_str(), &capture_studio_window_->open_state());
+				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {
 					show_all_panels();

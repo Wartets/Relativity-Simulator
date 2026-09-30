@@ -485,6 +485,52 @@ public:
 		return false;
 	}
 
+	[[nodiscard]] bool render_capture_band(
+		const GpuCameraPushConstants& camera_constants,
+		std::span<const GpuBodyData> bodies,
+		uint32_t first_row,
+		uint32_t row_count,
+		std::vector<GpuPixelOutput>& output,
+		const std::atomic<bool>* cancel
+	) {
+		const uint32_t width = camera_constants.screen_width;
+		const uint32_t height = camera_constants.screen_height;
+		if (width == 0U || height == 0U || row_count == 0U || first_row >= height) {
+			return false;
+		}
+		const uint32_t rows = std::min(row_count, height - first_row);
+		const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(rows);
+
+		try {
+			output.resize(pixel_count);
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Capture band allocation failed: ") + ex.what());
+			return false;
+		}
+
+		GpuCameraPushConstants band_constants = camera_constants;
+		band_constants.dispatch_row_offset = first_row;
+		band_constants.dispatch_row_count = rows;
+
+		try {
+			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
+				if (try_gpu_dispatch(band_constants, output, bodies, cancel) && output.size() == pixel_count) {
+					return true;
+				}
+				if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
+					return false;
+				}
+			}
+			dispatch_software(band_constants, output, bodies, nullptr, cancel, nullptr);
+			return cancel == nullptr || !cancel->load(std::memory_order_relaxed);
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Capture band render failed: ") + ex.what());
+		} catch (...) {
+			Core::log_error("Capture band render failed with an unknown error.");
+		}
+		return false;
+	}
+
 	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;

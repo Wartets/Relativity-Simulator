@@ -16,6 +16,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <optional>
 
 namespace Relativistic::IO {
 
@@ -60,6 +61,33 @@ public:
 		return std::string(".") + std::string(image_format_descriptor(format).extension);
 	}
 
+	[[nodiscard]] static std::optional<std::filesystem::path> resolve_output_path(
+		const std::string& output_directory,
+		const std::string& filename_stem,
+		ScreenshotFormat format,
+		ScreenshotOverwritePolicy overwrite_policy
+	) {
+		std::error_code ec;
+		std::filesystem::create_directories(output_directory, ec);
+		if (ec) {
+			return std::nullopt;
+		}
+
+		const std::string extension = extension_for_format(format);
+		std::filesystem::path out_path = std::filesystem::path(output_directory) / (filename_stem + extension);
+
+		if (overwrite_policy == ScreenshotOverwritePolicy::AutoIncrement) {
+			size_t suffix = 1;
+			while (std::filesystem::exists(out_path, ec)) {
+				out_path = std::filesystem::path(output_directory) / (filename_stem + "_" + std::to_string(suffix) + extension);
+				++suffix;
+			}
+		} else if (overwrite_policy == ScreenshotOverwritePolicy::SkipIfExists && std::filesystem::exists(out_path, ec)) {
+			return std::nullopt;
+		}
+		return out_path;
+	}
+
 private:
 	static void write_to_disk(
 		const std::vector<Render::GpuPixelOutput>& pixels,
@@ -71,22 +99,9 @@ private:
 		ScreenshotOverwritePolicy overwrite_policy = ScreenshotOverwritePolicy::AutoIncrement,
 		const std::string& comment_text = {}
 	) {
-		std::error_code ec;
-		std::filesystem::create_directories(output_directory, ec);
-		if (ec) return;
-
-		const std::string extension = extension_for_format(format);
-		std::filesystem::path out_path = std::filesystem::path(output_directory) / (filename_stem + extension);
-
-		if (overwrite_policy == ScreenshotOverwritePolicy::AutoIncrement) {
-			size_t suffix = 1;
-			while (std::filesystem::exists(out_path)) {
-				out_path = std::filesystem::path(output_directory) / (filename_stem + "_" + std::to_string(suffix) + extension);
-				++suffix;
-			}
-		} else if (overwrite_policy == ScreenshotOverwritePolicy::SkipIfExists && std::filesystem::exists(out_path)) {
-			return;
-		}
+		const auto resolved = resolve_output_path(output_directory, filename_stem, format, overwrite_policy);
+		if (!resolved.has_value()) return;
+		const std::filesystem::path& out_path = *resolved;
 
 		switch (format) {
 			case ScreenshotFormat::BMP:

@@ -15,6 +15,7 @@
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
+#include "relativistic/capture/capture_coordinator.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
@@ -81,25 +82,13 @@ private:
 	double current_frame_time_ms_{0.0};
 	double rolling_average_time_ms_{0.0};
 	bool has_sufficient_rolling_frames_{false};
-	std::function<void()> screenshot_callback_{};
 	std::function<void()> fullscreen_toggle_callback_{};
 	std::function<void()> open_screenshot_settings_callback_{};
-	std::atomic<uint32_t> high_res_capture_pending_{0};
-
-	struct SequenceCaptureState {
-		bool active{false};
-		std::string output_directory{};
-		std::string filename_pattern{};
-		IO::ScreenshotFormat format{IO::ScreenshotFormat::PPM};
-		double frame_interval_seconds{1.0 / 30.0};
-		double elapsed_since_last_frame{0.0};
-		uint64_t frame_index{0};
-		uint64_t target_frame_count{0};
-		IO::SequenceCaptureTrigger trigger{IO::SequenceCaptureTrigger::FixedDuration};
-		bool pause_simulation{false};
-		bool paused_by_capture{false};
-	};
-	SequenceCaptureState sequence_capture_{};
+	std::unique_ptr<Capture::CaptureCoordinator> capture_coordinator_{};
+	bool capture_constants_valid_{false};
+	ImVec2 viewport_content_size_{0.0f, 0.0f};
+	ImVec2 viewport_window_origin_{0.0f, 0.0f};
+	ImVec2 viewport_window_extent_{0.0f, 0.0f};
 
 	struct DynamicLookAtTarget {
 		std::string label;
@@ -212,12 +201,15 @@ public:
 	        .projection_mode = Observer::ProjectionMode::Equirectangular360
 	    }) {
 		init_gl_texture();
+		capture_coordinator_ = std::make_unique<Capture::CaptureCoordinator>(orchestrator_, pipeline_);
+		capture_coordinator_->bind_frame_sources(
+			[this]() -> std::optional<Render::GpuCameraPushConstants> { return build_capture_constants(); },
+			[this]() -> std::vector<Render::GpuBodyData> { return collect_capture_bodies(); }
+		);
 	}
 
 	~ViewportPrimaryWindow() {
-		while (high_res_capture_pending_.load(std::memory_order_relaxed) > 0U) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(20));
-		}
+		capture_coordinator_.reset();
 		if (gl_texture_id_ != 0) {
 			glDeleteTextures(1, &gl_texture_id_);
 			gl_texture_id_ = 0;
@@ -226,10 +218,6 @@ public:
 
 	void request_rerender() noexcept {
 		force_rerender_ = true;
-	}
-
-	void set_screenshot_callback(std::function<void()> callback) noexcept {
-		screenshot_callback_ = std::move(callback);
 	}
 
 	void set_fullscreen_toggle_callback(std::function<void()> callback) noexcept {
@@ -245,143 +233,85 @@ public:
 		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
 	}
 
-	void request_screenshot(
-		const std::string& output_directory,
-		const std::string& filename_pattern,
-		IO::ScreenshotFormat format,
-		float resolution_scale = 1.0f,
-		IO::ScreenshotOverwritePolicy overwrite_policy = IO::ScreenshotOverwritePolicy::AutoIncrement,
-		std::string watermark_comment = {},
-		uint32_t capture_max_steps = 0U,
-		float step_refinement = 1.0f
-	) {
-		const auto snap = orchestrator_.scheduler().snapshot();
-		IO::ScreenshotCaptureContext ctx;
-		ctx.metric_name = orchestrator_.active_metric_name();
-		ctx.mass = orchestrator_.parameters().mass;
-		ctx.spin = orchestrator_.parameters().spin;
-		ctx.tick_index = snap.tick_index;
+	[[nodiscard]] Capture::CaptureCoordinator& capture_coordinator() noexcept {
+		return *capture_coordinator_;
+	}
 
-		if (current_width_ > 0 && current_height_ > 0) {
-			Render::GpuCameraPushConstants capture_consts = last_camera_constants_;
-			const float safe_scale = std::clamp(resolution_scale, 0.25f, 8.0f);
-			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * safe_scale), 64u, 7680u);
-			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * safe_scale), 64u, 4320u);
-			capture_consts.interlace_mode = 0U;
-			capture_consts.interlace_phase = 0U;
-			capture_consts.render_flags &= ~(Render::RenderFlags::USE_LOD_SYSTEM | Render::RenderFlags::ADAPTIVE_TILE_PREPASS);
-			if (capture_max_steps > 0U) {
-				capture_consts.max_integration_steps = std::clamp(capture_max_steps, 64u, 65536u);
+	[[nodiscard]] const Capture::CaptureCoordinator& capture_coordinator() const noexcept {
+		return *capture_coordinator_;
+	}
+
+	[[nodiscard]] ImVec2 content_size() const noexcept {
+		if (viewport_content_size_.x < 1.0f || viewport_content_size_.y < 1.0f) {
+			return ImVec2(1280.0f, 720.0f);
+		}
+		return viewport_content_size_;
+	}
+
+	[[nodiscard]] ImVec2 window_center() const noexcept {
+		if (viewport_window_extent_.x < 1.0f || viewport_window_extent_.y < 1.0f) {
+			return ImGui::GetMainViewport()->GetCenter();
+		}
+		return ImVec2(viewport_window_origin_.x + viewport_window_extent_.x * 0.5f, viewport_window_origin_.y + viewport_window_extent_.y * 0.5f);
+	}
+
+	[[nodiscard]] std::optional<Render::GpuCameraPushConstants> build_capture_constants() const {
+		if (!capture_constants_valid_) {
+			return std::nullopt;
+		}
+		Render::GpuCameraPushConstants constants = last_camera_constants_;
+		const auto& params = orchestrator_.parameters();
+		const auto& cam = orchestrator_.camera();
+		const auto obs_sph = cam.spherical_coordinates();
+		const auto orientation = cam.orientation_basis();
+
+		constants.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
+		constants.tetrad_e1 = {0.0, orientation.forward[0], orientation.forward[1], orientation.forward[2]};
+		constants.tetrad_e2 = {0.0, orientation.right[0], orientation.right[1], orientation.right[2]};
+		constants.tetrad_e3 = {0.0, orientation.up[0], orientation.up[1], orientation.up[2]};
+		constants.field_of_view_rad = cam.fov_deg * (std::numbers::pi / 180.0);
+		constants.camera_exposure = params.camera_exposure;
+		constants.metric_mass = params.mass;
+		constants.metric_spin = params.spin;
+		constants.metric_charge = params.charge;
+		constants.horizon_radius = 2.0 * params.mass;
+		constants.time = orchestrator_.scheduler().snapshot().logical_time;
+
+		constexpr double kUnboundedRenderDistance = 1.0e7;
+		const double configured_distance = (params.render_distance_scale > 0.0) ? (params.render_distance_scale * params.mass) : kUnboundedRenderDistance;
+		constants.escape_radius = std::max(configured_distance, obs_sph[0] * 2.0);
+		return constants;
+	}
+
+	[[nodiscard]] std::vector<Render::GpuBodyData> collect_capture_bodies() const {
+		std::vector<Render::GpuBodyData> bodies;
+		if ((orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) == 0U) {
+			return bodies;
+		}
+		std::lock_guard<std::recursive_mutex> body_lock(orchestrator_.nbody_system().bodies_mutex());
+		const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+		bodies.reserve(nbody_sys.size());
+		for (const auto& b : nbody_sys) {
+			if (b.enabled) {
+				bodies.push_back(orchestrator_.make_gpu_body_data(b));
 			}
-			const double refinement = std::clamp(static_cast<double>(step_refinement), 1.0, 32.0);
-			capture_consts.step_size_factor /= refinement;
-			capture_consts.min_step_size /= refinement;
-			capture_consts.max_step_size /= refinement;
-
-			std::vector<Render::GpuBodyData> capture_bodies;
-			if ((capture_consts.render_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
-				std::lock_guard<std::recursive_mutex> body_lock(orchestrator_.nbody_system().bodies_mutex());
-				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
-				capture_bodies.reserve(nbody_sys.size());
-				for (const auto& b : nbody_sys) {
-					if (b.enabled) capture_bodies.push_back(orchestrator_.make_gpu_body_data(b));
-				}
-			}
-
-			high_res_capture_pending_.fetch_add(1, std::memory_order_relaxed);
-			try {
-				std::jthread([this, capture_consts, capture_bodies = std::move(capture_bodies), ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
-					try {
-						std::vector<Render::GpuPixelOutput> fb;
-						if (pipeline_.render_capture(capture_consts, capture_bodies, fb)) {
-							ctx.width = capture_consts.screen_width;
-							ctx.height = capture_consts.screen_height;
-							const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
-							IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format, overwrite_policy, watermark_comment);
-						} else {
-							Core::log_error("Screenshot capture could not be rendered and was discarded.");
-						}
-					} catch (const std::exception& ex) {
-						Core::log_error(std::string("Screenshot capture failed: ") + ex.what());
-					} catch (...) {
-						Core::log_error("Screenshot capture failed with an unknown error.");
-					}
-					high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
-				}).detach();
-			} catch (...) {
-				high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
-				Core::log_error("Screenshot capture thread could not be started.");
-			}
-			return;
 		}
-
-		std::vector<Render::GpuPixelOutput> fb;
-		uint32_t fb_w = 0, fb_h = 0;
-		pipeline_.copy_framebuffer(fb, fb_w, fb_h);
-		if (fb_w == 0 || fb_h == 0 || fb.empty()) {
-			return;
-		}
-
-		ctx.width = fb_w;
-		ctx.height = fb_h;
-		const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
-		IO::ScreenshotExporter::export_async(std::move(fb), fb_w, fb_h, output_directory, stem, format, overwrite_policy, watermark_comment);
+		return bodies;
 	}
 
-	[[nodiscard]] bool is_high_res_capture_pending() const noexcept {
-		return high_res_capture_pending_.load(std::memory_order_relaxed) > 0;
-	}
-
-	void start_sequence_capture(
-		const std::string& output_directory,
-		const std::string& filename_pattern,
-		IO::ScreenshotFormat format,
-		double frames_per_second,
-		double duration_seconds,
-		IO::SequenceCaptureTrigger trigger = IO::SequenceCaptureTrigger::FixedDuration,
-		uint64_t explicit_frame_count = 0,
-		bool pause_simulation = false
-	) noexcept {
-		sequence_capture_.active = true;
-		sequence_capture_.output_directory = output_directory;
-		sequence_capture_.filename_pattern = filename_pattern;
-		sequence_capture_.format = format;
-		sequence_capture_.frame_interval_seconds = (frames_per_second > 0.0) ? (1.0 / frames_per_second) : (1.0 / 30.0);
-		sequence_capture_.elapsed_since_last_frame = 0.0;
-		sequence_capture_.frame_index = 0;
-		sequence_capture_.trigger = trigger;
-		sequence_capture_.pause_simulation = pause_simulation;
-		sequence_capture_.paused_by_capture = false;
-		if (trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
-			sequence_capture_.target_frame_count = explicit_frame_count;
-		} else if (trigger == IO::SequenceCaptureTrigger::Continuous) {
-			sequence_capture_.target_frame_count = 0;
-		} else {
-			sequence_capture_.target_frame_count = static_cast<uint64_t>(std::max(duration_seconds, 0.0) * std::max(frames_per_second, 1.0));
-		}
-		if (pause_simulation && !orchestrator_.scheduler().is_paused()) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
-			sequence_capture_.paused_by_capture = true;
-		}
-	}
-
-	void stop_sequence_capture() noexcept {
-		sequence_capture_.active = false;
-		if (sequence_capture_.paused_by_capture) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
-			sequence_capture_.paused_by_capture = false;
-		}
-	}
-
-	[[nodiscard]] bool is_sequence_capture_active() const noexcept {
-		return sequence_capture_.active;
-	}
-
-	[[nodiscard]] double sequence_capture_progress() const noexcept {
-		if (!sequence_capture_.active || sequence_capture_.target_frame_count == 0) {
-			return 0.0;
-		}
-		return std::clamp(static_cast<double>(sequence_capture_.frame_index) / static_cast<double>(sequence_capture_.target_frame_count), 0.0, 1.0);
+	void render_capture_overlay(const ImVec2& avail) noexcept {
+		const auto& progress = capture_coordinator_->progress();
+		const float panel_w = std::min(360.0f, std::max(avail.x - 40.0f, 120.0f));
+		const float panel_h = 22.0f;
+		const ImVec2 window_pos = ImGui::GetWindowPos();
+		const ImVec2 top_left(window_pos.x + (avail.x - panel_w) * 0.5f, window_pos.y + avail.y - panel_h - 16.0f);
+		const float fraction = std::clamp(static_cast<float>(progress.fraction()), 0.0f, 1.0f);
+		ImDrawList* draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(top_left, ImVec2(top_left.x + panel_w, top_left.y + panel_h), IM_COL32(15, 15, 25, 210), 5.0f);
+		draw_list->AddRectFilled(top_left, ImVec2(top_left.x + panel_w * fraction, top_left.y + panel_h), IM_COL32(60, 170, 255, 200), 5.0f);
+		char text[96];
+		std::snprintf(text, sizeof(text), "%s  %.0f%%", Capture::capture_phase_name(progress.phase()), static_cast<double>(fraction) * 100.0);
+		draw_list->AddText(ImVec2(top_left.x + 8.0f, top_left.y + 3.0f), IM_COL32(235, 245, 255, 255), text);
 	}
 
 	[[nodiscard]] bool is_hovered() const noexcept {
@@ -419,6 +349,8 @@ public:
 
 		is_hovered_ = ImGui::IsWindowHovered();
 		is_focused_ = ImGui::IsWindowFocused();
+		viewport_window_origin_ = ImGui::GetWindowPos();
+		viewport_window_extent_ = ImGui::GetWindowSize();
 
 			const auto& params = orchestrator_.parameters();
 			resolution_scale_ = static_cast<float>(params.resolution_scale);
@@ -465,8 +397,12 @@ public:
 				dynamic_resolution_multiplier_ = 1.0f;
 			}
 			active_scale = std::clamp(active_scale * dynamic_resolution_multiplier_, 0.1f, 2.0f);
+			if (capture_coordinator_->locks_live_resolution()) {
+				active_scale = std::clamp(resolution_scale_ * capture_coordinator_->live_resolution_multiplier(), 0.1f, 4.0f);
+			}
 
 			const ImVec2 avail = ImGui::GetContentRegionAvail();
+			viewport_content_size_ = avail;
 			const uint32_t target_w = std::clamp(static_cast<uint32_t>(avail.x * active_scale), 64u, 3840u);
 			const uint32_t target_h = std::clamp(static_cast<uint32_t>(avail.y * active_scale), 64u, 2160u);
 
@@ -479,7 +415,7 @@ public:
 				force_rerender_ = true;
 			}
 
-			if (is_hovered_ || is_focused_) {
+			if ((is_hovered_ || is_focused_) && !capture_coordinator_->drives_camera()) {
 				const auto camera_update_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraUpdate);
 				camera_controller_.update(window, dt, is_hovered_);
 			}
@@ -655,11 +591,12 @@ public:
 			const bool params_changed = !(cam_consts == last_camera_constants_);
 			const bool is_dirty = force_rerender_ || params_changed || precision_changed || (is_time_progressing && time_changed);
 
-			if (is_dirty) {
+			if (is_dirty && !capture_coordinator_->suppresses_live_render()) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);
 				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
 				pipeline_.dispatch(cam_consts, gpu_bodies, total_enabled_bodies_this_frame);
 				last_camera_constants_ = cam_consts;
+				capture_constants_valid_ = true;
 				last_logical_time_ = snap.logical_time;
 				last_precision_selector_ = precision_selector;
 				force_rerender_ = false;
@@ -867,32 +804,8 @@ public:
 				orchestrator_.profiler().record_frame(frame_input);
 			}
 
-			if (sequence_capture_.active) {
-				sequence_capture_.elapsed_since_last_frame += dt;
-				if (sequence_capture_.elapsed_since_last_frame >= sequence_capture_.frame_interval_seconds) {
-					sequence_capture_.elapsed_since_last_frame = 0.0;
-					std::vector<Render::GpuPixelOutput> seq_fb;
-					uint32_t seq_w = 0, seq_h = 0;
-					pipeline_.copy_framebuffer(seq_fb, seq_w, seq_h);
-					if (seq_w > 0 && seq_h > 0 && !seq_fb.empty()) {
-						IO::ScreenshotCaptureContext seq_ctx;
-						seq_ctx.metric_name = orchestrator_.active_metric_name();
-						seq_ctx.mass = orchestrator_.parameters().mass;
-						seq_ctx.spin = orchestrator_.parameters().spin;
-						seq_ctx.width = seq_w;
-						seq_ctx.height = seq_h;
-						seq_ctx.tick_index = orchestrator_.scheduler().snapshot().tick_index;
-						const std::string base_stem = IO::ScreenshotFilenameBuilder::build(sequence_capture_.filename_pattern, seq_ctx);
-						char frame_suffix[32];
-						std::snprintf(frame_suffix, sizeof(frame_suffix), "_frame%06llu", static_cast<unsigned long long>(sequence_capture_.frame_index));
-						const std::string stem = base_stem + frame_suffix;
-						IO::ScreenshotExporter::export_async(std::move(seq_fb), seq_w, seq_h, sequence_capture_.output_directory, stem, sequence_capture_.format);
-						++sequence_capture_.frame_index;
-					}
-				}
-				if (sequence_capture_.trigger != IO::SequenceCaptureTrigger::Continuous && sequence_capture_.target_frame_count > 0 && sequence_capture_.frame_index >= sequence_capture_.target_frame_count) {
-					stop_sequence_capture();
-				}
+			if (capture_coordinator_->is_busy()) {
+				render_capture_overlay(avail);
 			}
 
 		ImGui::End();
@@ -1076,9 +989,9 @@ public:
 				open_screenshot_settings_callback_();
 			}
 			render_setting_tooltip("Opens the Capture Studio to configure and take high-resolution screenshots or video sequences.");
-			if (is_high_res_capture_pending()) {
+			if (capture_coordinator_->is_busy()) {
 				ImGui::SameLine();
-				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Capturing...");
+				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Capturing %.0f%%", capture_coordinator_->progress().fraction() * 100.0);
 			}
 		}
 

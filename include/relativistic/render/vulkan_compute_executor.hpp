@@ -867,32 +867,40 @@ public:
 			return false;
 		}
 
-		const size_t total_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
-		if (output.size() != total_pixels) {
-			output.resize(total_pixels);
+		const uint32_t window_first = std::min(params.dispatch_row_offset, height);
+		const uint32_t window_rows = (params.dispatch_row_count == 0U)
+			? (height - window_first)
+			: std::min(params.dispatch_row_count, height - window_first);
+		if (window_rows == 0U) {
+			return false;
+		}
+		const uint32_t window_end = window_first + window_rows;
+		const size_t window_pixels = static_cast<size_t>(width) * static_cast<size_t>(window_rows);
+		if (output.size() != window_pixels) {
+			output.resize(window_pixels);
 		}
 
 		const uint64_t rows_by_memory = std::max<uint64_t>(
 			kBandRowAlignment,
 			(kMaxBandBytes / sizeof(GpuPixelOutput) / width) / kBandRowAlignment * kBandRowAlignment
 		);
-		const uint32_t max_rows = static_cast<uint32_t>(std::min<uint64_t>(rows_by_memory, height));
+		const uint32_t max_rows = static_cast<uint32_t>(std::min<uint64_t>(rows_by_memory, window_rows));
 		const uint32_t min_rows = std::min(kBandRowAlignment, max_rows);
 
 		uint32_t rows = min_rows;
-		uint32_t row = 0;
-		while (row < height) {
+		uint32_t row = window_first;
+		while (row < window_end) {
 			if (cancel_flag != nullptr && cancel_flag->load(std::memory_order_relaxed)) {
 				return false;
 			}
 
-			const uint32_t band_rows = std::min(rows, height - row);
+			const uint32_t band_rows = std::min(rows, window_end - row);
 			GpuCameraPushConstants band_params = params;
 			band_params.dispatch_row_offset = row;
 			band_params.dispatch_row_count = band_rows;
 
 			const auto band_start = std::chrono::steady_clock::now();
-			if (!dispatch_band(band_params, output, bodies)) {
+			if (!dispatch_band(band_params, output, bodies, window_first)) {
 				return false;
 			}
 			const double band_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - band_start).count();
@@ -907,7 +915,7 @@ public:
 	}
 
 private:
-	[[nodiscard]] bool dispatch_band(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies) {
+	[[nodiscard]] bool dispatch_band(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies, uint32_t row_origin) {
 		if (!is_ready()) {
 			return false;
 		}
@@ -1033,7 +1041,7 @@ private:
 			vkInvalidateMappedMemoryRanges(device_, 1, &range);
 		}
 
-		const size_t first_pixel = static_cast<size_t>(params.dispatch_row_offset) * static_cast<size_t>(params.screen_width);
+		const size_t first_pixel = static_cast<size_t>(params.dispatch_row_offset - row_origin) * static_cast<size_t>(params.screen_width);
 		if (output.size() < first_pixel + pixel_count) {
 			return false;
 		}

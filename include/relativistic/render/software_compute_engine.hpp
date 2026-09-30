@@ -806,6 +806,22 @@ public:
 
 private:
 
+	struct RowWindow {
+		size_t first{0};
+		size_t last{0};
+		size_t count{0};
+	};
+
+	[[nodiscard]] static RowWindow resolve_row_window(const GpuCameraPushConstants& params) noexcept {
+		const size_t height = params.screen_height;
+		if (params.dispatch_row_count == 0U) {
+			return RowWindow{0, height, height};
+		}
+		const size_t first = std::min<size_t>(params.dispatch_row_offset, height);
+		const size_t last = std::min<size_t>(first + params.dispatch_row_count, height);
+		return RowWindow{first, last, last - first};
+	}
+
 	[[nodiscard]] static double kerr_isco_radius(double m, double a_spin) noexcept {
 		const double a_star = std::clamp(a_spin / std::max(m, 1e-12), -0.9999999, 0.9999999);
 		const double abs_a = std::abs(a_star);
@@ -1861,6 +1877,7 @@ private:
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
 		if (width == 0 || height == 0) return;
+		const RowWindow rows = resolve_row_window(params);
 		const double aspect = static_cast<double>(width) / static_cast<double>(height);
 		const auto proj_mode = static_cast<Observer::ProjectionMode>(params.projection_mode);
 		const double fov_rad = params.field_of_view_rad;
@@ -1871,6 +1888,7 @@ private:
 		auto render_slice = [&](size_t y_start, size_t y_end) noexcept {
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
+				if (y < rows.first || y >= rows.last) continue;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 				const bool is_allsky = (proj_mode == Observer::ProjectionMode::Equirectangular360 || proj_mode == Observer::ProjectionMode::HammerAitoff);
 				for (size_t x = 0; x < width; ++x) {
@@ -1883,7 +1901,7 @@ private:
 					const double dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 					const auto sky_rgb = compute_sky_radiance(dir_x, dir_y, dir_z, params);
 					const auto mapped = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
-					const size_t idx = y * width + x;
+					const size_t idx = (y - rows.first) * width + x;
 					if (idx < output_framebuffer.size()) {
 						output_framebuffer[idx] = GpuPixelOutput{.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f, .redshift = 1.0f, .affine_parameter = 0.0f, .status_flags = PixelFlags::CELESTIAL_HIT, .iterations_used = 0};
 					}
@@ -1920,7 +1938,8 @@ public:
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
-		const size_t total_pixels = width * height;
+		const RowWindow rows = resolve_row_window(params);
+		const size_t total_pixels = width * rows.count;
 
 		double min_body_r = 1e30;
 		double max_body_r = -1e30;
@@ -1991,9 +2010,10 @@ public:
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
+				if (y < rows.first || y >= rows.last) continue;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 				for (size_t x = x_start; x < x_end; ++x) {
-					const size_t pixel_idx = y * width + x;
+					const size_t pixel_idx = (y - rows.first) * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
 					if (!body_tile_mask.empty()) {
 						const size_t mask_tiles_x = (width + 31) / 32;
@@ -2417,7 +2437,8 @@ public:
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
-		const size_t total_pixels = width * height;
+		const RowWindow rows = resolve_row_window(params);
+		const size_t total_pixels = width * rows.count;
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
 			return;
@@ -2486,6 +2507,7 @@ public:
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
+				if (y < rows.first || y >= rows.last) continue;
 				const double v_norm = 1.0 - (static_cast<double>(y) + 0.5) / static_cast<double>(height) * 2.0;
 
 				for (size_t x = x_start; x < x_end; x += 4) {
@@ -2672,7 +2694,7 @@ public:
 							params.camera_exposure
 						);
 
-						const size_t out_idx = y * width + (x + l);
+						const size_t out_idx = (y - rows.first) * width + (x + l);
 						if (out_idx < output_framebuffer.size()) {
 							output_framebuffer[out_idx] = GpuPixelOutput{
 								.r = mapped_srgb[0],
@@ -2726,8 +2748,9 @@ public:
 
 		auto fill_tile_with_analytic_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept {
 			for (size_t y = y0; y < y1; ++y) {
+				if (y < rows.first || y >= rows.last) continue;
 				for (size_t x = x0; x < x1; ++x) {
-					const size_t idx = y * width + x;
+					const size_t idx = (y - rows.first) * width + x;
 					if (idx >= output_framebuffer.size()) continue;
 					const auto dir = compute_tile_ray_direction(x, y);
 					const auto sky_rgb = compute_sky_radiance(dir[0], dir[1], dir[2], params);
@@ -2835,7 +2858,8 @@ public:
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
-		const size_t total_pixels = width * height;
+		const RowWindow rows = resolve_row_window(params);
+		const size_t total_pixels = width * rows.count;
 
 		float min_body_r = 1e30f;
 		float max_body_r = -1e30f;
@@ -2898,9 +2922,10 @@ public:
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
+				if (y < rows.first || y >= rows.last) continue;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
 				for (size_t x = x_start; x < x_end; ++x) {
-					const size_t pixel_idx = y * width + x;
+					const size_t pixel_idx = (y - rows.first) * width + x;
 					if (pixel_idx >= output_framebuffer.size()) continue;
 					if (!body_tile_mask.empty()) {
 						const size_t mask_tiles_x = (width + 31) / 32;
@@ -3261,7 +3286,8 @@ public:
 	) noexcept {
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
-		const size_t total_pixels = width * height;
+		const RowWindow rows = resolve_row_window(params);
+		const size_t total_pixels = width * rows.count;
 
 		if (output_framebuffer.size() < total_pixels || width == 0 || height == 0) {
 			return;
@@ -3330,6 +3356,7 @@ public:
 			for (size_t y = y_start; y < y_end; ++y) {
 				if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) return;
 				if (params.interlace_mode != 0U && (y & size_t{1}) != static_cast<size_t>(params.interlace_phase & 1U)) continue;
+				if (y < rows.first || y >= rows.last) continue;
 				const float v_norm = 1.0f - (static_cast<float>(y) + 0.5f) / static_cast<float>(height) * 2.0f;
 
 				for (size_t x = x_start; x < x_end; x += 8) {
@@ -3508,7 +3535,7 @@ public:
 							params.camera_exposure
 						);
 
-						const size_t out_idx = y * width + (x + l);
+						const size_t out_idx = (y - rows.first) * width + (x + l);
 						if (out_idx < output_framebuffer.size()) {
 							output_framebuffer[out_idx] = GpuPixelOutput{
 								.r = mapped_srgb[0],

@@ -473,7 +473,7 @@ private:
 		uint32_t width = 0;
 		uint32_t height = 0;
 		pipeline_.copy_framebuffer(pixels, width, height);
-		if (width == 0U || height == 0U || pixels.empty()) {
+		if (width == 0U || height == 0U || pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height)) {
 			return;
 		}
 		if (!session_.dimensions_locked) {
@@ -688,6 +688,7 @@ public:
 	[[nodiscard]] bool is_manual_stepping() const noexcept { return session_.active && !session_.realtime && session_.request.manual_stepping; }
 	[[nodiscard]] uint32_t manual_frames_pending() const noexcept { return session_.manual_requests; }
 	[[nodiscard]] bool locks_live_resolution() const noexcept { return session_.active && session_.realtime; }
+	[[nodiscard]] bool drives_camera() const noexcept { return session_.active && session_.request.use_path; }
 	[[nodiscard]] bool suppresses_live_render() const noexcept { return session_.active && !session_.realtime && !session_.request.settings.preview_in_viewport; }
 
 	[[nodiscard]] float live_resolution_multiplier() const noexcept {
@@ -788,7 +789,7 @@ public:
 				break;
 			case IO::SequenceCaptureTrigger::PathDuration:
 				if (request.use_path) {
-					total_frames = static_cast<uint64_t>(std::max(std::round(request.path.effective_duration() * settings.frames_per_second), 1.0));
+					total_frames = static_cast<uint64_t>(std::max(std::round(request.path.effective_duration() * static_cast<double>(settings.frames_per_second)), 1.0));
 				} else {
 					total_frames = static_cast<uint64_t>(std::max(std::round(settings.duration_seconds * settings.frames_per_second), 1.0f));
 				}

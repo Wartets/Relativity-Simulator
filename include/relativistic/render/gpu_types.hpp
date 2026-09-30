@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <array>
+#include <algorithm>
 
 namespace Relativistic::Render {
 
@@ -169,6 +170,61 @@ namespace RenderFlags {
 	static constexpr uint32_t ENABLE_BODY_DISK_OCCLUSION = 1U << 18;
 }
 
+inline constexpr size_t kMaxSurfaceLayers = 4;
+
+enum class SurfaceLayerPattern : uint32_t {
+	Noise = 0,
+	Ridged = 1,
+	Billow = 2,
+	Bands = 3,
+	Meridians = 4,
+	Speckle = 5,
+	Craters = 6,
+	Cracks = 7,
+	Swirl = 8,
+	Clouds = 9
+};
+
+enum class SurfaceLayerBlend : uint32_t {
+	Mix = 0,
+	Add = 1,
+	Multiply = 2,
+	Screen = 3,
+	Overlay = 4
+};
+
+enum class SurfaceLayerMask : uint32_t {
+	Global = 0,
+	PolarCaps = 1,
+	EquatorialBand = 2,
+	NorthernHemisphere = 3,
+	SouthernHemisphere = 4,
+	DaySide = 5,
+	NightSide = 6
+};
+
+struct alignas(16) GpuSurfaceLayer {
+	std::array<float, 4> color{1.0f, 1.0f, 1.0f, 1.0f};
+	float opacity{0.0f};
+	float scale{6.0f};
+	float contrast{1.0f};
+	float threshold{0.35f};
+	float softness{0.3f};
+	float mask_width{0.35f};
+	float rotation_factor{0.0f};
+	float emission{0.0f};
+	uint32_t pattern{0};
+	uint32_t blend{0};
+	uint32_t mask{0};
+	uint32_t seed{1};
+	uint32_t enabled{0};
+	uint32_t octaves{3};
+	uint32_t reserved0{0};
+	uint32_t reserved1{0};
+};
+
+static_assert(sizeof(GpuSurfaceLayer) == 80);
+
 struct alignas(16) GpuBodyData {
 	std::array<double, 4> position{0.0, 0.0, 0.0, 0.0};
 	std::array<double, 4> velocity{0.0, 0.0, 0.0, 0.0};
@@ -202,6 +258,9 @@ struct alignas(16) GpuBodyData {
 	double polar_cap_strength{0.0};
 	double ring_system_enabled{0.0};
 	double night_side_light_intensity{0.0};
+
+	uint32_t surface_layer_count{0};
+	std::array<GpuSurfaceLayer, kMaxSurfaceLayers> surface_layers{};
 };
 
 struct alignas(16) GpuBodyGpuLayout {
@@ -233,6 +292,18 @@ struct alignas(16) GpuBodyGpuLayout {
 	uint32_t atmosphere_mode{0};
 	uint32_t preset_3d{0};
 	uint32_t pad0{0};
+	double color_tertiary_r{0.9};
+	double color_tertiary_g{0.85};
+	double color_tertiary_b{0.6};
+	double texture_detail_scale{1.0};
+	double polar_cap_strength{0.0};
+	double ring_system_enabled{0.0};
+	double night_side_light_intensity{0.0};
+	uint32_t surface_layer_count{0};
+	uint32_t layer_pad0{0};
+	uint32_t layer_pad1{0};
+	uint32_t layer_pad2{0};
+	GpuSurfaceLayer surface_layers[kMaxSurfaceLayers]{};
 
 	[[nodiscard]] static GpuBodyGpuLayout from(const GpuBodyData& b) noexcept {
 		GpuBodyGpuLayout g{};
@@ -268,6 +339,6 @@ struct alignas(16) GpuBodyGpuLayout {
 	}
 };
 
-static_assert(sizeof(GpuBodyGpuLayout) == 288);
+static_assert(sizeof(GpuBodyGpuLayout) == 672);
 
 }

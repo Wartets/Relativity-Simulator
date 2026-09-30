@@ -10,6 +10,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
+#include "relativistic/dynamics/body_surface_layers.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include <array>
@@ -206,6 +207,7 @@ private:
 	std::string active_scenario_path_{};
 	CameraState home_camera_{};
 	Dynamics::PostNewtonianSystem nbody_system_{};
+	Dynamics::BodySurfaceLayerRegistry surface_layers_{};
 	PerformanceProfiler profiler_{};
 	Core::ConstantsEngine constants_engine_{};
 	Dynamics::InteractionConfig interaction_config_{};
@@ -849,6 +851,7 @@ public:
 		}
 
 		nbody_system_.clear_bodies();
+		surface_layers_.clear();
 		for (const auto& b : s.bodies) {
 			Dynamics::PostNewtonianBody body(
 				b.body_id, b.mass, b.radius,
@@ -1439,6 +1442,20 @@ public:
 
 	[[nodiscard]] constexpr CameraState& camera() noexcept {
 		return camera_;
+	}
+
+	[[nodiscard]] Dynamics::BodySurfaceLayerRegistry& surface_layers() noexcept {
+		return surface_layers_;
+	}
+
+	[[nodiscard]] const Dynamics::BodySurfaceLayerRegistry& surface_layers() const noexcept {
+		return surface_layers_;
+	}
+
+	[[nodiscard]] Relativistic::Render::GpuBodyData make_gpu_body_data(const Dynamics::PostNewtonianBody& body) const {
+		Relativistic::Render::GpuBodyData data = body.to_gpu_body_data();
+		surface_layers_.apply_to(body.id, data);
+		return data;
 	}
 
 	[[nodiscard]] Dynamics::PostNewtonianSystem& nbody_system() noexcept {

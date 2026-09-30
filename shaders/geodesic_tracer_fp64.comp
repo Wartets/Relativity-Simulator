@@ -109,6 +109,14 @@ layout(std430, binding = 1) buffer OutputBuffer {
 	PixelOutput pixels[];
 };
 
+struct SurfaceLayer {
+	vec4 color;
+	vec4 params_a;
+	vec4 params_b;
+	uvec4 ids_a;
+	uvec4 ids_b;
+};
+
 struct GpuBody {
 	dvec2 position_xy;
 	dvec2 position_zw;
@@ -138,6 +146,18 @@ struct GpuBody {
 	uint atmosphere_mode;
 	uint preset_3d;
 	uint pad0;
+	double color_tertiary_r;
+	double color_tertiary_g;
+	double color_tertiary_b;
+	double texture_detail_scale;
+	double polar_cap_strength;
+	double ring_system_enabled;
+	double night_side_light_intensity;
+	uint surface_layer_count;
+	uint layer_pad0;
+	uint layer_pad1;
+	uint layer_pad2;
+	SurfaceLayer surface_layers[4];
 };
 
 layout(std430, binding = 2) readonly buffer BodyBuffer {
@@ -839,6 +859,194 @@ double body_fbm(dvec3 p_d, uint octaves, double roughness) {
 	return double(total / max(max_val, 1e-5));
 }
 
+float surface_fbm(vec3 p, uint octaves, float roughness) {
+	return float(body_fbm(dvec3(p), octaves, double(roughness)));
+}
+
+float surface_pattern_value(uint pattern, vec3 p, float theta, float phi, float scale, uint octaves, uint seed) {
+	vec3 q = p * scale + vec3(float(seed % 977u) * 0.731, -float(seed % 613u) * 0.417, float(seed % 389u) * 0.293);
+	if (pattern == 1u) {
+		float r = 1.0 - abs(surface_fbm(q, octaves, 0.5));
+		return r * r;
+	}
+	if (pattern == 2u) return abs(surface_fbm(q, octaves, 0.5));
+	if (pattern == 3u) return 0.5 + 0.5 * sin(theta * scale * 2.0 + surface_fbm(q, octaves, 0.5) * 2.0);
+	if (pattern == 4u) return 0.5 + 0.5 * sin(phi * scale + surface_fbm(q, octaves, 0.5) * 2.0);
+	if (pattern == 5u) {
+		float n = 0.5 + 0.5 * surface_fbm(q * 4.0, 2u, 0.5);
+		return smoothstep(0.55, 1.0, n);
+	}
+	if (pattern == 6u) {
+		float c = 0.5 + 0.5 * surface_fbm(q, octaves, 0.5);
+		return clamp(smoothstep(0.55, 0.62, c) - 0.6 * smoothstep(0.62, 0.85, c), 0.0, 1.0);
+	}
+	if (pattern == 7u) {
+		float n = surface_fbm(q, octaves, 0.5);
+		return pow(clamp(1.0 - abs(n) * 2.2, 0.0, 1.0), 6.0);
+	}
+	if (pattern == 8u) return 0.5 + 0.5 * sin((phi + theta) * scale * 0.5 + surface_fbm(q, octaves, 0.5) * 6.0);
+	if (pattern == 9u) {
+		float warp = surface_fbm(q * 0.5, 2u, 0.5);
+		return 0.5 + 0.5 * surface_fbm(q + vec3(warp * 1.5), octaves, 0.55);
+	}
+	return 0.5 + 0.5 * surface_fbm(q, octaves, 0.5);
+}
+
+float surface_mask_value(uint mask, float cos_t, float sun, float width) {
+	if (mask == 1u) return smoothstep(1.0 - width, 1.0, abs(cos_t));
+	if (mask == 2u) return 1.0 - smoothstep(0.0, width, abs(cos_t));
+	if (mask == 3u) return smoothstep(-0.5 * width, 0.5 * width, cos_t);
+	if (mask == 4u) return 1.0 - smoothstep(-0.5 * width, 0.5 * width, cos_t);
+	if (mask == 5u) return smoothstep(-0.5 * width, 0.5 * width, sun);
+	if (mask == 6u) return 1.0 - smoothstep(-0.5 * width, 0.5 * width, sun);
+	return 1.0;
+}
+
+vec3 surface_apply_blend(uint blend, vec3 base, vec3 layer_color, float a) {
+	if (blend == 1u) return base + layer_color * a;
+	if (blend == 2u) return mix(base, base * layer_color, a);
+	if (blend == 3u) return mix(base, vec3(1.0) - (vec3(1.0) - base) * (vec3(1.0) - layer_color), a);
+	if (blend == 4u) {
+		vec3 lo = 2.0 * base * layer_color;
+		vec3 hi = vec3(1.0) - 2.0 * (vec3(1.0) - base) * (vec3(1.0) - layer_color);
+		return mix(base, mix(hi, lo, lessThan(base, vec3(0.5))), a);
+	}
+	return mix(base, layer_color, a);
+}
+
+vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n, out vec3 emissive, out float city_speckle) {
+	emissive = vec3(0.0);
+	city_speckle = 0.0;
+	vec3 c1 = vec3(bodies[bi].color_primary_xy.x, bodies[bi].color_primary_xy.y, bodies[bi].color_primary_zw.x);
+	vec3 c2 = vec3(bodies[bi].color_secondary_xy.x, bodies[bi].color_secondary_xy.y, bodies[bi].color_secondary_zw.x);
+	vec3 c3 = vec3(bodies[bi].color_tertiary_r, bodies[bi].color_tertiary_g, bodies[bi].color_tertiary_b);
+	float detail = float(max(bodies[bi].texture_detail_scale, 0.1));
+	float noise_scale = float(max(bodies[bi].noise_scale, 0.1)) * detail;
+	float roughness = float(clamp(bodies[bi].noise_roughness, 0.05, 1.0));
+	uint octaves = clamp(pc.body_noise_octaves, 1u, 6u);
+	float cos_t = float(clamp(nrm.z, -1.0, 1.0));
+	float theta = acos(cos_t);
+	float sin_th = sin(theta);
+	float phi = atan(float(nrm.y), float(nrm.x)) + float(bodies[bi].rotation_speed * pc.time);
+	vec3 sph = vec3(sin_th * cos(phi), sin_th * sin(phi), cos_t);
+	vec3 sp = sph * noise_scale;
+	float n_val = surface_fbm(sp, octaves, roughness);
+	float n_sec = surface_fbm(sp * 2.3 + vec3(11.0, -7.0, 3.0), octaves, roughness);
+	float vdn = float(view_dot_n);
+	float sun = float(sun_facing);
+	uint mode = bodies[bi].surface_texture_mode;
+	float emission_base = float(bodies[bi].emission_intensity);
+	vec3 col = c1;
+
+	if (mode == 0u) {
+		if (n_val < 0.0) {
+			float t = clamp((n_val + 1.0) * 0.5, 0.0, 1.0);
+			col = vec3(0.02 + 0.05 * t, 0.15 + 0.25 * t, 0.5 + 0.4 * t);
+			col += pow(vdn, 32.0) * vec3(0.8, 0.8, 0.9);
+		} else {
+			col = mix(c1, c2, clamp(n_val * 2.0, 0.0, 1.0));
+		}
+	} else if (mode == 1u) {
+		col = c1;
+	} else if (mode == 2u) {
+		float t = clamp((n_val + 1.0) * 0.5, 0.0, 1.0);
+		vec3 mid = (c1 + c2) * 0.5;
+		col = (t < 0.5) ? mix(c1, mid, t * 2.0) : mix(mid, c2, (t - 0.5) * 2.0);
+	} else if (mode == 3u) {
+		float band = sin(theta * 16.0 + n_val * 4.0);
+		col = mix(c1, c2, clamp((band + 1.0) * 0.5, 0.0, 1.0));
+	} else if (mode == 4u) {
+		float crater = (n_val > 0.25) ? 0.65 : 1.0;
+		float rim = (n_val > 0.2 && n_val < 0.3) ? 1.25 : 1.0;
+		col = c1 * crater * rim;
+		float speckle_t = clamp((n_sec + 1.0) * 0.35, 0.0, 1.0);
+		col = mix(col, c2, speckle_t * 0.3);
+	} else if (mode == 5u) {
+		float gran = pow(abs(n_val), 0.6);
+		float limb = 0.4 + 0.6 * vdn;
+		float em = max(emission_base, 1.5);
+		col = (c1 * gran + vec3(0.25, 0.18, 0.08)) * limb * em;
+	} else if (mode == 6u) {
+		float flow = sin(phi * 6.0 + n_val * 5.0 + n_sec * 3.0);
+		float streak = clamp(flow * 0.5 + 0.5, 0.0, 1.0);
+		float heat = clamp(abs(n_sec) * 1.4, 0.0, 1.0);
+		float em = max(emission_base, 1.0);
+		col = vec3((0.95 + 0.35 * heat) * (0.55 + 0.45 * streak), (0.55 + 0.25 * heat) * (0.55 + 0.45 * streak), (0.20 + 0.10 * heat) * (0.35 + 0.25 * streak)) * em;
+	} else if (mode == 7u) {
+		float vein = sin((sp.x + sp.y + sp.z) * 3.0 + n_val * 8.0 * detail);
+		float vein_sharp = pow(abs(vein), 0.15);
+		float base_t = clamp((n_sec + 1.0) * 0.5, 0.0, 1.0);
+		col = mix(c1, c2, base_t) * vein_sharp + c3 * (1.0 - vein_sharp);
+	} else if (mode == 8u) {
+		float band_freq = 10.0 + detail * 6.0;
+		float band = sin(theta * band_freq + n_val * 2.5);
+		col = mix(c1, c2, clamp((band + 1.0) * 0.5, 0.0, 1.0));
+		float polar = pow(abs(cos_t), 3.0) * float(clamp(bodies[bi].polar_cap_strength, 0.0, 1.0));
+		col = mix(col, c3, polar);
+		if (bodies[bi].ring_system_enabled > 0.5) {
+			float eq = pow(clamp(1.0 - abs(theta - 1.5707963) * 3.5, 0.0, 1.0), 2.0) * 0.35;
+			col *= (1.0 - eq);
+		}
+	} else if (mode == 9u) {
+		float crack = pow(clamp(1.0 - abs(n_val) * 2.2, 0.0, 1.0), 6.0);
+		col = mix(c1, c2, crack);
+		float shimmer = clamp((n_sec + 1.0) * 0.25, 0.0, 0.5);
+		col = mix(col, c3, shimmer);
+	} else if (mode == 10u) {
+		float crack_glow = pow(clamp(1.0 - abs(n_val) * 1.8, 0.0, 1.0), 4.0);
+		col = mix(c1, c3 * 2.2, crack_glow);
+		float patchiness = clamp((n_sec + 1.0) * 0.5, 0.0, 1.0);
+		col = mix(col, c2, patchiness * 0.3);
+	} else if (mode == 11u) {
+		col = mix(c1, c2, clamp((n_val + 1.0) * 0.5, 0.0, 1.0));
+		city_speckle = clamp((n_sec + 1.0) * 0.5, 0.0, 1.0);
+	} else if (mode == 12u) {
+		float w1 = surface_fbm(sp * 0.5, 3u, 0.6);
+		float w2 = surface_fbm(sp * 1.7 + vec3(5.0, 0.0, -5.0), 3u, 0.6);
+		float t1 = clamp((w1 + 1.0) * 0.5, 0.0, 1.0);
+		float t2 = clamp((w2 + 1.0) * 0.5, 0.0, 1.0);
+		col = c1 * (1.0 - t1) * (1.0 - t2) + c2 * t1 * (1.0 - t2) + c3 * t2;
+	} else {
+		col = mix(c1, c2, clamp((n_val + 1.0) * 0.5, 0.0, 1.0));
+	}
+
+	if (mode != 8u) {
+		float polar_strength = float(clamp(bodies[bi].polar_cap_strength, 0.0, 1.0));
+		if (polar_strength > 0.0) {
+			col = mix(col, c3, pow(abs(cos_t), 3.0) * polar_strength);
+		}
+		if (bodies[bi].ring_system_enabled > 0.5) {
+			float eq = pow(clamp(1.0 - abs(theta - 1.5707963) * 3.5, 0.0, 1.0), 2.0) * 0.35;
+			col *= (1.0 - eq);
+		}
+	}
+	if (mode != 11u && bodies[bi].night_side_light_intensity > 0.0) {
+		city_speckle = clamp((n_sec + 1.0) * 0.5, 0.0, 1.0);
+	}
+
+	uint layer_total = min(bodies[bi].surface_layer_count, 4u);
+	for (uint li = 0u; li < layer_total; ++li) {
+		if (bodies[bi].surface_layers[li].ids_b.x == 0u) continue;
+		vec4 lc = bodies[bi].surface_layers[li].color;
+		vec4 pa = bodies[bi].surface_layers[li].params_a;
+		vec4 pb = bodies[bi].surface_layers[li].params_b;
+		uvec4 ia = bodies[bi].surface_layers[li].ids_a;
+		uint layer_octaves = clamp(bodies[bi].surface_layers[li].ids_b.y, 1u, 6u);
+		if (pa.x <= 0.0) continue;
+		float layer_phi = phi + pb.z * float(pc.time);
+		vec3 lp = vec3(sin_th * cos(layer_phi), sin_th * sin(layer_phi), cos_t);
+		float v = surface_pattern_value(ia.x, lp, theta, layer_phi, pa.y, layer_octaves, ia.w);
+		v = clamp((v - 0.5) * pa.z + 0.5, 0.0, 1.0);
+		v = smoothstep(pa.w, pa.w + max(pb.x, 0.001), v);
+		float m = surface_mask_value(ia.z, cos_t, sun, pb.y);
+		float a = clamp(pa.x * m * v, 0.0, 1.0);
+		col = surface_apply_blend(ia.y, col, lc.rgb, a);
+		emissive += lc.rgb * (a * pb.w);
+	}
+
+	return col;
+}
+
 bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_color, out double out_opacity, out bool out_absorbed) {
 	out_color = vec3(0.0);
 	out_opacity = 0.0;
@@ -848,6 +1056,7 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 	if (seg_len_sq <= 1e-18) return false;
 
 	bool any_hit = false;
+	vec3 rim_total = vec3(0.0);
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
 		if (bodies[bi].preset_3d != 8u) continue;
 		double m = max(bodies[bi].mass, 1e-9);
@@ -868,6 +1077,16 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 				out_absorbed = true;
 				return true;
 			}
+		}
+
+		double rim_seg_len = sqrt(seg_len_sq);
+		double rim_t = clamp(-dot(o, seg_vec) / seg_len_sq, 0.0, 1.0);
+		double rim_d = length(o + rim_t * seg_vec);
+		double rim_band = 0.12 * rh;
+		if (rim_d > rh && rim_d < rh + rim_band) {
+			double rim_ring = 1.0 - (rim_d - rh) / rim_band;
+			double rim_i = rim_ring * rim_ring * min(rim_seg_len / rim_band, 1.0) * 0.35;
+			rim_total += vec3(1.0, 0.75, 0.45) * float(rim_i);
 		}
 
 		double prev_z_rel = seg_start.z - bpos.z;
@@ -898,6 +1117,10 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 				any_hit = true;
 			}
 		}
+	}
+	if (rim_total.x + rim_total.y + rim_total.z > 0.0) {
+		out_color += rim_total;
+		any_hit = true;
 	}
 	return any_hit;
 }
@@ -972,13 +1195,13 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 
 		vec3 surf = vec3(bodies[bi].color_primary_xy.x, bodies[bi].color_primary_xy.y, bodies[bi].color_primary_zw.x);
 
+		vec3 surface_emissive = vec3(0.0);
+		float surface_city_speckle = 0.0;
+		double surface_view_dot_n = max(0.0, dot(-ray_dir, nrm));
+		double hit_origin_len = length(hit_pos);
+		double surface_sun_facing = (hit_origin_len > 1e-9) ? dot(nrm, -hit_pos / hit_origin_len) : surface_view_dot_n;
 		if (!is_simple_lod) {
-			double noise_scale = max(bodies[bi].noise_scale, 0.1);
-			double roughness = clamp(bodies[bi].noise_roughness, 0.05, 1.0);
-			double n_val = body_fbm(nrm * noise_scale, clamp(pc.body_noise_octaves, 1u, 6u), roughness);
-			vec3 secondary = vec3(bodies[bi].color_secondary_xy.x, bodies[bi].color_secondary_xy.y, bodies[bi].color_secondary_zw.x);
-			double mix_t = clamp((n_val + 1.0) * 0.5, 0.0, 1.0);
-			surf = mix(surf, secondary, float(mix_t));
+			surf = shade_body_surface(bi, nrm, surface_sun_facing, surface_view_dot_n, surface_emissive, surface_city_speckle);
 		}
 
 		double view_dot_n = max(0.0, dot(-ray_dir, nrm));
@@ -996,6 +1219,12 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 			light_factor += float(bodies[bi].emission_intensity);
 		}
 		surf *= light_factor;
+		if (!is_point_lod) {
+			double night_gain = clamp(1.0 - max(0.0, surface_sun_facing) * 5.0, 0.0, 1.0);
+			float city_glow = float(night_gain * bodies[bi].night_side_light_intensity) * surface_city_speckle;
+			surf += vec3(1.1, 0.95, 0.6) * city_glow;
+		}
+		surf += surface_emissive;
 
 		if ((pc.render_flags & (1u << 13)) != 0u) {
 			dvec3 vel = dvec3(bodies[bi].velocity_xy.x, bodies[bi].velocity_xy.y, bodies[bi].velocity_zw.x);

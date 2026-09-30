@@ -265,7 +265,7 @@ public:
 			const auto& nbody_sys = orchestrator_.nbody_system().bodies();
 			capture_bodies.reserve(nbody_sys.size());
 			for (const auto& b : nbody_sys) {
-				if (b.enabled) capture_bodies.push_back(b.to_gpu_body_data());
+				if (b.enabled) capture_bodies.push_back(orchestrator_.make_gpu_body_data(b));
 			}
 			if (!capture_bodies.empty()) capture_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
 
@@ -599,7 +599,7 @@ public:
 						const double angular_radius = std::asin(std::clamp(b.radius / dist, 0.0, 1.0));
 						if (std::acos(cos_angle) > frustum_half_angle + angular_radius) continue;
 					}
-					gpu_bodies.push_back(b.to_gpu_body_data());
+					gpu_bodies.push_back(orchestrator_.make_gpu_body_data(b));
 				}
 			}
 			cam_consts.body_count = static_cast<uint32_t>(gpu_bodies.size());

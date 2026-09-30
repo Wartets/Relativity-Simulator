@@ -2,6 +2,7 @@
 
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
+#include "relativistic/render/body_surface_shading.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
 #include "relativistic/optics/spectrum.hpp"
 #include "relativistic/optics/cie_observer.hpp"
@@ -222,11 +223,12 @@ private:
 			float r_surf = static_cast<float>(body.color_primary[0]);
 			float g_surf = static_cast<float>(body.color_primary[1]);
 			float b_surf = static_cast<float>(body.color_primary[2]);
+			const uint32_t active_texture_mode = body.surface_texture_mode;
 			bool city_lights_mode = false;
 			float city_lights_speckle = 0.0f;
 
 			if (!lod_simple) {
-				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1));
+				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1) * std::max(body.texture_detail_scale, 0.1));
 				const float roughness_f = static_cast<float>(std::clamp(body.noise_roughness, 0.05, 1.0));
 				const float sample_x = static_cast<float>(std::sin(theta) * std::cos(phi)) * noise_scale_f;
 				const float sample_y = static_cast<float>(std::sin(theta) * std::sin(phi)) * noise_scale_f;
@@ -240,20 +242,7 @@ private:
 
 				const float n_val_secondary = FastNoise3D::fbm(sample_x * 2.3f + 11.0f, sample_y * 2.3f - 7.0f, sample_z * 2.3f + 3.0f, static_cast<int>(std::clamp(params.body_noise_octaves, 1U, 6U)), roughness_f);
 
-				uint32_t mode = body.surface_texture_mode;
-				const uint32_t preset = body.preset_3d;
-				switch (preset) {
-					case 0U: mode = 5U; break;
-					case 1U: mode = 0U; break;
-					case 2U: mode = 8U; break;
-					case 3U: mode = 9U; break;
-					case 4U: mode = 4U; break;
-					case 5U: mode = 4U; break;
-					case 6U: mode = 5U; break;
-					case 7U: mode = 5U; break;
-					case 8U: mode = 1U; break;
-					default: break;
-				}
+				const uint32_t mode = body.surface_texture_mode;
 
 				if (mode == 0U) {
 					if (n_val < 0.0f) {
@@ -402,6 +391,25 @@ private:
 				}
 			}
 
+			std::array<float, 3> body_emissive{0.0f, 0.0f, 0.0f};
+			if (!lod_simple) {
+				const double origin_distance = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
+				const float sun_facing = (origin_distance > 1e-9)
+					? static_cast<float>(-(nx * hit_x + ny * hit_y + nz * hit_z) / origin_distance)
+					: static_cast<float>(view_dot_n);
+				SurfaceShadingState shading_state;
+				shading_state.color = {r_surf, g_surf, b_surf};
+				shading_state.city_lights = city_lights_mode;
+				shading_state.city_speckle = city_lights_speckle;
+				BodySurfaceShading::apply<FastNoise3D>(body, active_texture_mode, static_cast<float>(theta), static_cast<float>(phi), static_cast<float>(params.time), sun_facing, shading_state);
+				r_surf = shading_state.color[0];
+				g_surf = shading_state.color[1];
+				b_surf = shading_state.color[2];
+				city_lights_mode = shading_state.city_lights;
+				city_lights_speckle = shading_state.city_speckle;
+				body_emissive = shading_state.emissive;
+			}
+
 			const double to_light_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
 			double light_dir_x = 0.0, light_dir_y = 0.0, light_dir_z = 1.0;
 			const bool has_light_source = to_light_len > 1e-9;
@@ -472,6 +480,10 @@ private:
 			r_surf = r_surf * light_factor + static_cast<float>(specular_term) * 0.9f;
 			g_surf = g_surf * light_factor + static_cast<float>(specular_term) * 0.95f;
 			b_surf = b_surf * light_factor + static_cast<float>(specular_term);
+
+			r_surf += body_emissive[0];
+			g_surf += body_emissive[1];
+			b_surf += body_emissive[2];
 
 			if (city_lights_mode && body.night_side_light_intensity > 0.0 && !lod_point) {
 				const float night_mask = static_cast<float>(std::clamp(1.0 - diffuse_term * 5.0, 0.0, 1.0));
@@ -563,8 +575,15 @@ private:
 
 	[[nodiscard]] static BodyTileCullResult compute_body_screen_tiles(
 		const GpuCameraPushConstants& params,
-		std::span<const GpuBodyData> bodies
+		std::span<const GpuBodyData> source_bodies
 	) noexcept {
+		std::vector<GpuBodyData> culling_storage(source_bodies.begin(), source_bodies.end());
+		for (auto& culling_body : culling_storage) {
+			if (culling_body.preset_3d == 8U) {
+				culling_body.radius = std::max(culling_body.radius, 24.0 * std::max(culling_body.mass, 1e-6));
+			}
+		}
+		const std::span<const GpuBodyData> bodies(culling_storage);
 		BodyTileCullResult result;
 		const size_t width = params.screen_width;
 		const size_t height = params.screen_height;
@@ -1703,6 +1722,7 @@ private:
 		bool disk_hit{false};
 		std::array<float, 3> color{0.0f, 0.0f, 0.0f};
 		double opacity{0.0};
+		std::array<float, 3> rim_color{0.0f, 0.0f, 0.0f};
 	};
 
 	[[nodiscard]] static std::vector<Metrics::SubsidiarySourceParams> collect_subsidiary_sources(
@@ -1779,6 +1799,29 @@ private:
 			if (Metrics::SubsidiarySourceField::segment_crosses_horizon(seg_start, seg_end, source)) {
 				result.absorbed = true;
 				return result;
+			}
+
+			const double seg_dx = seg_end[0] - seg_start[0];
+			const double seg_dy = seg_end[1] - seg_start[1];
+			const double seg_dz = seg_end[2] - seg_start[2];
+			const double seg_len_sq = seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz;
+			if (seg_len_sq > 1e-24 && source.horizon_radius > 0.0) {
+				const double rel_x = seg_start[0] - source.position[0];
+				const double rel_y = seg_start[1] - source.position[1];
+				const double rel_z = seg_start[2] - source.position[2];
+				const double t_closest = std::clamp(-(rel_x * seg_dx + rel_y * seg_dy + rel_z * seg_dz) / seg_len_sq, 0.0, 1.0);
+				const double cx = rel_x + t_closest * seg_dx;
+				const double cy = rel_y + t_closest * seg_dy;
+				const double cz = rel_z + t_closest * seg_dz;
+				const double d_closest = std::sqrt(cx * cx + cy * cy + cz * cz);
+				const double rim_band = 0.12 * source.horizon_radius;
+				if (d_closest > source.horizon_radius && d_closest < source.horizon_radius + rim_band) {
+					const double ring = 1.0 - (d_closest - source.horizon_radius) / rim_band;
+					const double rim_intensity = ring * ring * std::min(std::sqrt(seg_len_sq) / rim_band, 1.0) * 0.35;
+					result.rim_color[0] += static_cast<float>(rim_intensity);
+					result.rim_color[1] += static_cast<float>(rim_intensity * 0.75);
+					result.rim_color[2] += static_cast<float>(rim_intensity * 0.45);
+				}
 			}
 
 			const auto crossing = Metrics::SubsidiarySourceField::segment_crosses_disk(seg_start, seg_end, source);
@@ -2224,6 +2267,9 @@ public:
 									status |= PixelFlags::HORIZON_ABSORBED;
 									break;
 								}
+								accumulated_r += throughput * static_cast<double>(subsidiary_hit.rim_color[0]);
+								accumulated_g += throughput * static_cast<double>(subsidiary_hit.rim_color[1]);
+								accumulated_b += throughput * static_cast<double>(subsidiary_hit.rim_color[2]);
 								if (subsidiary_hit.disk_hit) {
 									accumulated_r += throughput * static_cast<double>(subsidiary_hit.color[0]);
 									accumulated_g += throughput * static_cast<double>(subsidiary_hit.color[1]);

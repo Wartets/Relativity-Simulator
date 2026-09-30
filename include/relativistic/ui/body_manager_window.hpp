@@ -9,6 +9,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 #include "relativistic/dynamics/interaction_compatibility.hpp"
+#include "relativistic/dynamics/body_surface_layers.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/io/user_settings.hpp"
@@ -101,6 +102,9 @@ private:
 	bool selected_radius_log_mode_{true};
 	bool selected_r_ref_log_mode_{true};
 	std::mt19937_64 creation_rng_{std::random_device{}()};
+	Dynamics::BodySurfaceLayerSet new_body_layers_{};
+	int new_body_texture_choice_{0};
+	int new_layer_template_choice_{0};
 
 	char search_filter_[64]{};
 	int sort_mode_{static_cast<int>(BodyCatalogSortMode::CreationOrder)};
@@ -184,6 +188,7 @@ public:
 		render_setting_tooltip("Total number of orbiting bodies currently tracked by the post-Newtonian N-body integrator, excluding the central spacetime source itself.");
 		ImGui::SameLine();
 		if (ImGui::Button("Clear All Bodies")) {
+			orchestrator_.surface_layers().clear();
 			sys.clear_bodies();
 			selected_body_index_ = -1;
 			orchestrator_.notify_state_changed();
@@ -592,6 +597,8 @@ private:
 		new_body_ring_system_enabled_ = (archetype == 3) && (random_int(0, 1) == 0);
 
 		creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
+		new_body_layers_ = Dynamics::BodySurfaceLayerSet{};
+		new_body_texture_choice_ = 0;
 		new_body_mass_log_mode_ = true;
 		new_body_radius_log_mode_ = true;
 		new_body_r_ref_log_mode_ = true;
@@ -1092,8 +1099,8 @@ private:
 			if (unit_aware_slider_double("Temperature", &temperature_disp, 0.0, 50000.0, UnitCategory::Temperature, orchestrator_.unit_preferences(), "%.2f")) { b.temperature = std::max(0.0, temperature_disp); changed = true; }
 			float heat_capacity = static_cast<float>(b.heat_capacity);
 			if (slider_float_with_input("Heat Capacity", &heat_capacity, 1e-6f, 1.0e9f, "%.4e", &selected_heat_capacity_log_mode_, 1e-6f, 1e12f)) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
-			ImGui::ColorEdit4("Primary Color", b.color.data());
-			ImGui::ColorEdit4("Secondary Color", b.color_secondary.data());
+			if (ImGui::ColorEdit4("Primary Color", b.color.data())) changed = true;
+			if (ImGui::ColorEdit4("Secondary Color", b.color_secondary.data())) changed = true;
 			char composition[32]{};
 			std::memcpy(composition, b.composition.data(), b.composition.size() - 1);
 			if (ImGui::InputText("Composition", composition, sizeof(composition))) { b.set_composition(composition); changed = true; }
@@ -1129,6 +1136,7 @@ private:
 			}
 
 			const char* atmos_modes[] = {"Rayleigh Limb Shell (Rim Glow)", "Volumetric Scattering", "Off"};
+			ImGui::TextDisabled("%s", texture_mode_description(static_cast<uint32_t>(b.surface_texture_mode)));
 			int atmos_idx = static_cast<int>(b.atmosphere_mode);
 			if (ImGui::Combo("Atmosphere Scattering Mode", &atmos_idx, atmos_modes, IM_ARRAYSIZE(atmos_modes))) {
 				b.atmosphere_mode = static_cast<Dynamics::Body3DAtmosphereMode>(atmos_idx);
@@ -1155,6 +1163,14 @@ private:
 		}
 
 		ImGui::Spacing();
+		if (ImGui::CollapsingHeader("Surface Texture Layers")) {
+			auto layer_set = orchestrator_.surface_layers().get(b.id);
+			if (render_surface_layer_editor(layer_set, "SelectedBodyLayers")) {
+				orchestrator_.surface_layers().set(b.id, layer_set);
+				changed = true;
+			}
+		}
+
 		const auto& prefs = orchestrator_.unit_preferences();
 		ImGui::Text("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * body_speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(b.kinetic_energy(), prefs.energy).c_str());
 
@@ -1171,12 +1187,16 @@ private:
 			clone.set_name(unique_name(display_name(b)));
 			clone.position[0] += clone.radius * 4.0;
 			sys.add_body(clone);
+			if (!sys.bodies().empty()) {
+				orchestrator_.surface_layers().set(sys.bodies().back().id, orchestrator_.surface_layers().get(b.id));
+			}
 			changed = true;
 		}
 		render_setting_tooltip("Creates a copy of this body offset along X, keeping all physical parameters and the name.");
 
 		ImGui::SameLine();
 		if (ImGui::Button("Delete Body")) {
+			const uint32_t removed_body_id = b.id;
 			std::vector<Dynamics::PostNewtonianBody> updated;
 			for (size_t k = 0; k < n; ++k) {
 				if (k != index) {
@@ -1185,6 +1205,7 @@ private:
 			}
 			sys.clear_bodies();
 			for (auto& ub : updated) sys.add_body(ub);
+			orchestrator_.surface_layers().erase(removed_body_id);
 			selected_body_index_ = -1;
 			changed = true;
 		}
@@ -1195,6 +1216,149 @@ private:
 			orchestrator_.notify_state_changed();
 		}
 	}
+
+    [[nodiscard]] static const char* texture_mode_description(uint32_t mode) noexcept {
+        switch (mode) {
+            case 0U: return "Procedural noise: oceans below the noise threshold, land blended from primary to secondary color. Uses Noise Scale, Roughness and Texture Detail Scale.";
+            case 1U: return "Solid color: flat primary color. Layers, polar caps, city lights and ring band still apply on top.";
+            case 2U: return "Palette blend: smooth gradient primary, midpoint, secondary driven by noise. Uses Noise Scale and Texture Detail Scale.";
+            case 3U: return "Banded gas giant: latitude bands warped by noise between primary and secondary colors.";
+            case 4U: return "Cratered terrain: crater darkening and rims with secondary color speckle.";
+            case 5U: return "Stellar granulation: limb-darkened granular surface, strongly driven by Emission Intensity.";
+            case 6U: return "Accretion flow: hot streaks along longitude, driven by Emission Intensity and Noise Scale.";
+            case 7U: return "Marbled stone: primary/secondary base with tertiary color veins scaled by Texture Detail Scale.";
+            case 8U: return "Ringed gas giant: bands, tertiary polar caps and equatorial ring shadow driven by Polar Cap Strength and Ring System.";
+            case 9U: return "Icy cracked surface: secondary color cracks with tertiary color shimmer.";
+            case 10U: return "Volcanic magma: tertiary color glowing cracks over primary crust with secondary patches.";
+            case 11U: return "City lights: primary/secondary land with a speckled night side driven by Night Side City Lights.";
+            case 12U: return "Nebulous cloud: three-color wisps mixing primary, secondary and tertiary colors.";
+            default: return "Unknown texture mode.";
+        }
+    }
+
+    [[nodiscard]] static Dynamics::Body3DSurfaceTextureMode default_texture_mode_for_preset(Dynamics::Body3DPreset preset) noexcept {
+        uint32_t mode = 0U;
+        switch (preset) {
+            case Dynamics::Body3DPreset::Star: mode = 5U; break;
+            case Dynamics::Body3DPreset::TerrestrialPlanet: mode = 0U; break;
+            case Dynamics::Body3DPreset::GasGiant: mode = 8U; break;
+            case Dynamics::Body3DPreset::IceGiant: mode = 9U; break;
+            case Dynamics::Body3DPreset::Metallic: mode = 4U; break;
+            case Dynamics::Body3DPreset::Asteroid: mode = 4U; break;
+            case Dynamics::Body3DPreset::NeutronStar: mode = 5U; break;
+            case Dynamics::Body3DPreset::Pulsar: mode = 5U; break;
+            case Dynamics::Body3DPreset::BlackHole: mode = 1U; break;
+            default: mode = 0U; break;
+        }
+        return static_cast<Dynamics::Body3DSurfaceTextureMode>(mode);
+    }
+
+    [[nodiscard]] Dynamics::Body3DSurfaceTextureMode resolve_creation_texture_mode() const noexcept {
+        if (new_body_texture_choice_ <= 0) {
+            return default_texture_mode_for_preset(new_body_preset_3d_);
+        }
+        return static_cast<Dynamics::Body3DSurfaceTextureMode>(static_cast<uint32_t>(new_body_texture_choice_ - 1));
+    }
+
+    void render_creation_texture_mode_selector() noexcept {
+        static constexpr std::array<const char*, 14> options{
+            "Follow Surface Preset",
+            "Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
+            "Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
+            "Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
+            "City Lights (Night Side)", "Nebulous Gas Cloud"
+        };
+        ImGui::Combo("Surface Texture Mode", &new_body_texture_choice_, options.data(), static_cast<int>(options.size()));
+        render_setting_tooltip("Chooses the base procedural texture of the new body. Follow Surface Preset picks the texture matching the selected surface preset.");
+        const uint32_t effective_mode = (new_body_texture_choice_ <= 0)
+            ? static_cast<uint32_t>(default_texture_mode_for_preset(new_body_preset_3d_))
+            : static_cast<uint32_t>(new_body_texture_choice_ - 1);
+        ImGui::TextDisabled("%s", texture_mode_description(effective_mode));
+    }
+
+    [[nodiscard]] bool render_surface_layer_editor(Dynamics::BodySurfaceLayerSet& set, const char* scope) noexcept {
+        bool edited = false;
+        const bool full = set.count >= Render::kMaxSurfaceLayers;
+        ImGui::PushID(scope);
+        ImGui::TextDisabled("Layers: %u / %zu (drawn first to last, on top of the base texture)", set.count, Render::kMaxSurfaceLayers);
+        ImGui::SetNextItemWidth(220.0f);
+        ImGui::Combo("Template", &new_layer_template_choice_, Dynamics::kSurfaceLayerTemplateNames.data(), static_cast<int>(Dynamics::kSurfaceLayerTemplateNames.size()));
+        if (full) ImGui::BeginDisabled(true);
+        if (ImGui::Button("Add Template Layer", ImVec2(160.0f, 24.0f))) {
+            edited = set.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(new_layer_template_choice_))) || edited;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Add Blank Layer", ImVec2(140.0f, 24.0f))) {
+            edited = set.add(Dynamics::SurfaceLayerDefinition{}) || edited;
+        }
+        if (full) ImGui::EndDisabled();
+        render_setting_tooltip("Adds a procedural texture layer blended over the base surface. Each layer has its own pattern, blend mode, region mask, color, scale, drift and emission.");
+
+        int remove_index = -1;
+        int move_index = -1;
+        int move_delta = 0;
+        for (uint32_t i = 0; i < set.count; ++i) {
+            auto& layer = set.layers[i];
+            ImGui::PushID(static_cast<int>(i));
+            const std::string header = std::to_string(i + 1U) + ". " + Dynamics::kSurfaceLayerPatternNames[static_cast<size_t>(layer.pattern)] + " - " + Dynamics::kSurfaceLayerMaskNames[static_cast<size_t>(layer.mask)] + "###surface_layer_header";
+            if (ImGui::CollapsingHeader(header.c_str())) {
+                if (ImGui::Checkbox("Enabled", &layer.enabled)) edited = true;
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Move Up")) { move_index = static_cast<int>(i); move_delta = -1; }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Move Down")) { move_index = static_cast<int>(i); move_delta = 1; }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) { remove_index = static_cast<int>(i); }
+
+                int pattern_idx = static_cast<int>(layer.pattern);
+                if (ImGui::Combo("Pattern", &pattern_idx, Dynamics::kSurfaceLayerPatternNames.data(), static_cast<int>(Dynamics::kSurfaceLayerPatternNames.size()))) {
+                    layer.pattern = static_cast<Render::SurfaceLayerPattern>(pattern_idx);
+                    edited = true;
+                }
+                int blend_idx = static_cast<int>(layer.blend);
+                if (ImGui::Combo("Blend Mode", &blend_idx, Dynamics::kSurfaceLayerBlendNames.data(), static_cast<int>(Dynamics::kSurfaceLayerBlendNames.size()))) {
+                    layer.blend = static_cast<Render::SurfaceLayerBlend>(blend_idx);
+                    edited = true;
+                }
+                int mask_idx = static_cast<int>(layer.mask);
+                if (ImGui::Combo("Region Mask", &mask_idx, Dynamics::kSurfaceLayerMaskNames.data(), static_cast<int>(Dynamics::kSurfaceLayerMaskNames.size()))) {
+                    layer.mask = static_cast<Render::SurfaceLayerMask>(mask_idx);
+                    edited = true;
+                }
+                if (ImGui::ColorEdit3("Layer Color", layer.color.data())) edited = true;
+                if (ImGui::SliderFloat("Opacity", &layer.opacity, 0.0f, 1.0f, "%.2f")) edited = true;
+                if (ImGui::SliderFloat("Pattern Scale", &layer.scale, 0.5f, 30.0f, "%.2f")) edited = true;
+                if (ImGui::SliderFloat("Contrast", &layer.contrast, 0.2f, 4.0f, "%.2f")) edited = true;
+                if (ImGui::SliderFloat("Threshold", &layer.threshold, 0.0f, 0.95f, "%.2f")) edited = true;
+                if (ImGui::SliderFloat("Edge Softness", &layer.softness, 0.01f, 1.0f, "%.2f")) edited = true;
+                if (layer.mask != Render::SurfaceLayerMask::Global) {
+                    if (ImGui::SliderFloat("Mask Width", &layer.mask_width, 0.05f, 1.0f, "%.2f")) edited = true;
+                }
+                if (ImGui::SliderFloat("Drift Speed", &layer.rotation_factor, -2.0f, 2.0f, "%.2f")) edited = true;
+                if (ImGui::SliderFloat("Emission", &layer.emission, 0.0f, 4.0f, "%.2f")) edited = true;
+                int octave_value = static_cast<int>(layer.octaves);
+                if (ImGui::SliderInt("Detail Octaves", &octave_value, 1, 6)) {
+                    layer.octaves = static_cast<uint32_t>(octave_value);
+                    edited = true;
+                }
+                int seed_value = static_cast<int>(layer.seed);
+                if (ImGui::InputInt("Seed", &seed_value)) {
+                    layer.seed = static_cast<uint32_t>(std::max(seed_value, 0));
+                    edited = true;
+                }
+            }
+            ImGui::PopID();
+        }
+
+        if (move_index >= 0) {
+            edited = set.move(static_cast<uint32_t>(move_index), move_delta) || edited;
+        }
+        if (remove_index >= 0) {
+            edited = set.remove(static_cast<uint32_t>(remove_index)) || edited;
+        }
+        ImGui::PopID();
+        return edited;
+    }
 
     void render_creation_tab() noexcept {
         if (ImGui::CollapsingHeader("Body Blueprint & Initial State", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1290,6 +1454,7 @@ private:
 
         if (ImGui::CollapsingHeader("Procedural Surface Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::TextWrapped("Controls the detailed colors and shader parameters used by the 3D ray-tracing pipeline.");
+            render_creation_texture_mode_selector();
             ImGui::ColorEdit4("Primary Surface Color", new_body_color_);
             ImGui::ColorEdit4("Secondary Surface Color", new_body_color_secondary_);
             ImGui::SliderFloat("Surface Noise Scale", &new_body_noise_scale_, 0.5f, 20.0f, "%.2f");
@@ -1306,6 +1471,13 @@ private:
             render_setting_tooltip("Adds a speckled glow on the unlit hemisphere, only visible with the City Lights (Night Side) texture mode.");
             ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &new_body_ring_system_enabled_);
             render_setting_tooltip("Darkens a thin equatorial band on the Ringed Gas Giant texture mode to suggest a shadow cast by an orbiting ring plane.");
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("Surface Texture Layers", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Stack extra procedural layers over the base texture. Layers can target polar caps, bands, hemispheres or the day and night sides.");
+            static_cast<void>(render_surface_layer_editor(new_body_layers_, "CreationBodyLayers"));
         }
 
         ImGui::Spacing();
@@ -1356,6 +1528,7 @@ private:
             );
             body.set_name(unique_name(std::string_view(new_body_name_)));
             body.preset_3d = new_body_preset_3d_;
+            body.surface_texture_mode = resolve_creation_texture_mode();
             body.atmosphere_mode = new_body_atmosphere_mode_;
             body.color = {new_body_color_[0], new_body_color_[1], new_body_color_[2], new_body_color_[3]};
             body.color_secondary = {new_body_color_secondary_[0], new_body_color_secondary_[1], new_body_color_secondary_[2], new_body_color_secondary_[3]};
@@ -1376,6 +1549,9 @@ private:
 
             sys.add_body(body);
             sys.update_accelerations();
+            if (!sys.bodies().empty()) {
+                orchestrator_.surface_layers().set(sys.bodies().back().id, new_body_layers_);
+            }
             selected_body_index_ = static_cast<int>(sys.body_count() - 1);
             orchestrator_.notify_state_changed();
             randomize_creation_defaults();

@@ -128,6 +128,14 @@ public:
 		return bodies_mutex_;
 	}
 
+	bool remove_body(uint32_t id) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		const auto it = std::find_if(bodies_.begin(), bodies_.end(), [id](const PostNewtonianBody& b) { return b.id == id; });
+		if (it == bodies_.end()) return false;
+		bodies_.erase(it);
+		return true;
+	}
+
 	uint32_t next_body_id() noexcept { return allocate_id(); }
 
 	void clear_bodies() noexcept {

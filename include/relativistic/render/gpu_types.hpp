@@ -335,6 +335,17 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.atmosphere_mode = b.atmosphere_mode;
 		g.preset_3d = b.preset_3d;
 		g.pad0 = 0U;
+		g.color_tertiary_r = b.color_tertiary[0];
+		g.color_tertiary_g = b.color_tertiary[1];
+		g.color_tertiary_b = b.color_tertiary[2];
+		g.texture_detail_scale = b.texture_detail_scale;
+		g.polar_cap_strength = b.polar_cap_strength;
+		g.ring_system_enabled = b.ring_system_enabled;
+		g.night_side_light_intensity = b.night_side_light_intensity;
+		g.surface_layer_count = std::min<uint32_t>(b.surface_layer_count, static_cast<uint32_t>(kMaxSurfaceLayers));
+		for (size_t i = 0; i < kMaxSurfaceLayers; ++i) {
+			g.surface_layers[i] = b.surface_layers[i];
+		}
 		return g;
 	}
 };

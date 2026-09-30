@@ -1761,24 +1761,8 @@ public:
 		layouts.reserve(bodies.size());
 
 		for (const auto& b : bodies) {
-			Relativistic::Render::GpuBodyData data{};
-			data.position = {0.0, b.position[0], b.position[1], b.position[2]};
-			data.velocity = {0.0, b.velocity[0], b.velocity[1], b.velocity[2]};
-			data.color_primary = {static_cast<double>(b.color[0]), static_cast<double>(b.color[1]), static_cast<double>(b.color[2]), static_cast<double>(b.color[3])};
-			data.color_secondary = {static_cast<double>(b.color_secondary[0]), static_cast<double>(b.color_secondary[1]), static_cast<double>(b.color_secondary[2]), static_cast<double>(b.color_secondary[3])};
-			data.atmosphere_color = {0.3, 0.6, 1.0, 0.4};
-			data.radius = b.radius;
-			data.mass = b.mass;
-			data.charge = b.charge;
-			data.temperature = b.temperature;
-			data.rotation_speed = b.rotation_speed;
-			data.body_id = static_cast<uint32_t>(b.id);
-			data.noise_scale = 4.0;
-			data.noise_roughness = 0.5;
-			data.atmosphere_thickness = 0.15;
-			data.specular_roughness = 0.3;
-			data.oblateness_ratio = 1.0;
-			layouts.push_back(Relativistic::Render::GpuBodyGpuLayout::from(data));
+			if (!b.enabled) continue;
+			layouts.push_back(Relativistic::Render::GpuBodyGpuLayout::from(make_gpu_body_data(b)));
 		}
 		return layouts;
 	}

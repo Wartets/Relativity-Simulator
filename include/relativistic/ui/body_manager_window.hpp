@@ -17,7 +17,9 @@
 #include <string>
 #include <string_view>
 #include <array>
+#include <span>
 #include <cmath>
+#include <cctype>
 #include <numbers>
 #include <algorithm>
 #include <cstring>
@@ -49,6 +51,164 @@ enum class BodyCatalogSortMode : uint32_t {
 	Speed = 4
 };
 
+namespace BodyEditorSection {
+	inline constexpr uint32_t Identity = 1U << 0;
+	inline constexpr uint32_t SourceToggle = 1U << 1;
+	inline constexpr uint32_t Physical = 1U << 2;
+	inline constexpr uint32_t Multipoles = 1U << 3;
+	inline constexpr uint32_t Material = 1U << 4;
+	inline constexpr uint32_t Surface = 1U << 5;
+	inline constexpr uint32_t Complete = Identity | SourceToggle | Physical | Multipoles | Material | Surface;
+	inline constexpr uint32_t SpacetimeSource = Identity | Physical | Multipoles;
+}
+
+struct BodyEditorViewState {
+	bool mass_log_mode{true};
+	bool radius_log_mode{true};
+	bool reference_radius_log_mode{true};
+	bool magnetic_moment_log_mode{false};
+	bool rotation_speed_log_mode{false};
+	bool lifetime_log_mode{false};
+	bool heat_capacity_log_mode{false};
+	bool youngs_modulus_log_mode{true};
+	bool resistance_log_mode{false};
+	int layer_template_choice{0};
+};
+
+struct BodyEditResult {
+	bool body_changed{false};
+	bool layers_changed{false};
+};
+
+struct BodyTemplateSpec {
+	std::string_view name;
+	bool native_units;
+	double mass;
+	double radius;
+	double j2;
+	double j4;
+	double temperature_kelvin;
+	Dynamics::Body3DPreset preset;
+	std::array<float, 4> color;
+	std::array<float, 4> color_secondary;
+	std::array<float, 4> color_tertiary;
+	float noise_scale;
+	float surface_roughness;
+	float atmosphere_thickness;
+	float emission_intensity;
+	float rotation_speed;
+	float polar_cap_strength;
+	float night_side_light_intensity;
+	bool ring_system;
+	int layer_template_first;
+	int layer_template_second;
+};
+
+inline constexpr std::array<BodyTemplateSpec, 9> kBodyTemplateSpecs{{
+	BodyTemplateSpec{"Sun", false, 1.98847e30, 6.9634e8, 2.2e-7, 0.0, 5772.0, Dynamics::Body3DPreset::Star,
+		{1.0f, 0.85f, 0.5f, 1.0f}, {1.0f, 0.55f, 0.15f, 1.0f}, {1.0f, 0.95f, 0.7f, 1.0f},
+		8.0f, 0.6f, 0.0f, 2.5f, 0.05f, 0.0f, 0.0f, false, -1, -1},
+	BodyTemplateSpec{"Earth", false, 5.9722e24, 6.378137e6, 1.08263e-3, 0.0, 288.0, Dynamics::Body3DPreset::TerrestrialPlanet,
+		{0.10f, 0.35f, 0.65f, 1.0f}, {0.20f, 0.50f, 0.22f, 1.0f}, {0.95f, 0.95f, 0.98f, 1.0f},
+		5.0f, 0.45f, 0.18f, 0.0f, 0.12f, 0.45f, 0.4f, false, 2, -1},
+	BodyTemplateSpec{"Moon", false, 7.342e22, 1.7374e6, 2.0335e-4, 0.0, 250.0, Dynamics::Body3DPreset::Metallic,
+		{0.55f, 0.55f, 0.58f, 1.0f}, {0.32f, 0.32f, 0.35f, 1.0f}, {0.75f, 0.75f, 0.78f, 1.0f},
+		7.0f, 0.75f, 0.0f, 0.0f, 0.03f, 0.0f, 0.0f, false, 3, -1},
+	BodyTemplateSpec{"Jupiter", false, 1.89813e27, 7.1492e7, 1.469657e-2, -5.86609e-4, 165.0, Dynamics::Body3DPreset::GasGiant,
+		{0.82f, 0.65f, 0.45f, 1.0f}, {0.62f, 0.40f, 0.24f, 1.0f}, {0.92f, 0.85f, 0.75f, 1.0f},
+		3.5f, 0.3f, 0.32f, 0.0f, 0.35f, 0.2f, 0.0f, true, 5, -1},
+	BodyTemplateSpec{"Mars", false, 6.4171e23, 3.3895e6, 1.96045e-3, 0.0, 210.0, Dynamics::Body3DPreset::TerrestrialPlanet,
+		{0.72f, 0.35f, 0.20f, 1.0f}, {0.48f, 0.24f, 0.15f, 1.0f}, {0.95f, 0.95f, 0.98f, 1.0f},
+		6.0f, 0.65f, 0.05f, 0.0f, 0.11f, 0.0f, 0.0f, false, 0, 6},
+	BodyTemplateSpec{"Neutron Star", false, 2.8e30, 12000.0, 0.0, 0.0, 1.0e6, Dynamics::Body3DPreset::NeutronStar,
+		{0.85f, 0.90f, 1.0f, 1.0f}, {0.55f, 0.72f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f},
+		1.5f, 0.15f, 0.0f, 3.0f, 1.8f, 0.0f, 0.0f, false, -1, -1},
+	BodyTemplateSpec{"Supermassive BH", false, 8.0e36, 1.2e10, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
+		{0.02f, 0.02f, 0.03f, 1.0f}, {0.06f, 0.05f, 0.08f, 1.0f}, {0.04f, 0.04f, 0.03f, 1.0f},
+		1.0f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, -1, -1},
+	BodyTemplateSpec{"Stellar Black Hole", false, 2.0e31, 30000.0, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
+		{0.02f, 0.02f, 0.03f, 1.0f}, {0.06f, 0.05f, 0.08f, 1.0f}, {0.04f, 0.04f, 0.03f, 1.0f},
+		1.0f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, -1, -1},
+	BodyTemplateSpec{"Test Particle", true, 0.0, 1.0, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::Asteroid,
+		{1.0f, 1.0f, 1.0f, 1.0f}, {0.7f, 0.7f, 0.7f, 1.0f}, {0.85f, 0.85f, 0.85f, 1.0f},
+		4.0f, 0.5f, 0.0f, 0.0f, 0.1f, 0.0f, 0.0f, false, -1, -1}
+}};
+
+struct BodyCreationArchetype {
+	std::string_view label;
+	double mass_min;
+	double mass_max;
+	double radius_min;
+	double radius_max;
+	double orbit_min;
+	double orbit_max;
+	double spin_scale;
+	double quadrupole_min;
+	double quadrupole_max;
+	double j2_min;
+	double j2_max;
+	double j3_min;
+	double j3_max;
+	double j4_min;
+	double j4_max;
+	Dynamics::Body3DPreset preset;
+	double hue_center;
+	double hue_spread;
+	double saturation;
+	double value;
+	double noise_min;
+	double noise_max;
+	double roughness_min;
+	double roughness_max;
+	double atmosphere_min;
+	double atmosphere_max;
+	double emission_min;
+	double emission_max;
+	double rotation_min;
+	double rotation_max;
+};
+
+inline constexpr std::array<BodyCreationArchetype, 6> kCreationArchetypes{{
+	BodyCreationArchetype{"Probe", 1e-8, 1e-3, 1e-3, 5e-2, 12.0, 120.0, 1e-4, 1e-12, 1e-8, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
+		Dynamics::Body3DPreset::Asteroid, 0.55, 0.08, 0.10, 0.75, 6.0, 14.0, 0.6, 0.95, 0.0, 0.0, 0.0, 0.0, 0.05, 0.4},
+	BodyCreationArchetype{"Shard", 1e-4, 1.0, 5e-2, 1.5, 16.0, 220.0, 1e-3, 1e-10, 1e-6, 1e-8, 1e-4, 1e-10, 1e-5, 1e-10, 1e-5,
+		Dynamics::Body3DPreset::Metallic, 0.08, 0.06, 0.30, 0.55, 4.0, 10.0, 0.5, 0.85, 0.0, 0.0, 0.0, 0.0, 0.05, 0.35},
+	BodyCreationArchetype{"World", 1.0, 50.0, 0.8, 6.0, 30.0, 350.0, 5e-3, 1e-9, 1e-5, 1e-6, 1e-3, 1e-8, 1e-5, 1e-9, 1e-5,
+		Dynamics::Body3DPreset::TerrestrialPlanet, 0.42, 0.14, 0.55, 0.75, 3.0, 8.0, 0.3, 0.6, 0.08, 0.3, 0.0, 0.0, 0.05, 0.2},
+	BodyCreationArchetype{"Giant", 10.0, 1e4, 4.0, 20.0, 60.0, 900.0, 8e-3, 1e-8, 1e-4, 1e-4, 2e-2, 1e-7, 1e-4, 1e-7, 1e-4,
+		Dynamics::Body3DPreset::GasGiant, 0.10, 0.16, 0.45, 0.85, 2.0, 6.0, 0.2, 0.5, 0.2, 0.4, 0.0, 0.0, 0.1, 0.5},
+	BodyCreationArchetype{"Compact", 1.0, 1e6, 1e-4, 0.5, 40.0, 400.0, 2e-2, 1e-12, 1e-7, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
+		Dynamics::Body3DPreset::NeutronStar, 0.58, 0.05, 0.08, 0.9, 1.5, 5.0, 0.15, 0.4, 0.0, 0.0, 0.5, 2.5, 0.5, 2.0},
+	BodyCreationArchetype{"Astral", 1e2, 1e8, 5.0, 100.0, 80.0, 1000.0, 1e-2, 1e-8, 1e-3, 1e-5, 5e-2, 1e-7, 1e-4, 1e-7, 1e-4,
+		Dynamics::Body3DPreset::Star, 0.13, 0.10, 0.35, 1.0, 3.0, 12.0, 0.4, 0.85, 0.0, 0.0, 1.5, 3.5, 0.02, 0.2}
+}};
+
+inline constexpr std::array<const char*, 10> kBodyTemplateNames{
+	"Custom Body", "Sun (Solar Mass & Radius)", "Earth (Terrestrial Planet)", "Moon (Natural Satellite)",
+	"Jupiter (Gas Giant)", "Mars (Telluric Planet)", "Neutron Star (Compact)", "Supermassive Black Hole",
+	"Stellar Mass Black Hole", "Test Particle (Zero Mass)"
+};
+
+inline constexpr std::array<const char*, 4> kBodyGeometryNames{
+	"Oblate Spheroid (Spin/J2 Deformed)", "Rigid Sphere", "Prolate Spheroid", "Triaxial Ellipsoid"
+};
+
+inline constexpr std::array<const char*, 10> kBodySurfacePresetNames{
+	"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon",
+	"Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"
+};
+
+inline constexpr std::array<const char*, 13> kBodyTextureModeNames{
+	"Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
+	"Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
+	"Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
+	"City Lights (Night Side)", "Nebulous Gas Cloud"
+};
+
+inline constexpr std::array<const char*, 6> kBodyAtmosphereModeNames{
+	"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"
+};
+
 class BodyManagerWindow {
 private:
 	static constexpr int kCentralObjectIndex = -2;
@@ -60,58 +220,20 @@ private:
 	int selected_body_index_{-1};
 	int creation_preset_{0};
 	bool request_focus_creation_tab_{false};
-
-	char new_body_name_[32]{"New Body"};
-	float new_body_mass_{1.0f};
-	float new_body_radius_{1.0f};
-	float new_body_pos_[3]{10.0f, 0.0f, 0.0f};
-	float new_body_vel_[3]{0.0f, 0.3f, 0.0f};
-	float new_body_spin_[3]{0.0f, 0.0f, 0.0f};
-	float new_body_j2_{0.0f};
-	float new_body_j3_{0.0f};
-	float new_body_j4_{0.0f};
-	float new_body_r_ref_{1.0f};
-	float new_body_quadrupole_{0.0f};
-	Dynamics::Body3DPreset new_body_preset_3d_{Dynamics::Body3DPreset::Terrestrial};
-	Dynamics::Body3DAtmosphereMode new_body_atmosphere_mode_{Dynamics::Body3DAtmosphereMode::Off};
-	float new_body_color_[4]{0.62f, 0.75f, 1.0f, 1.0f};
-	float new_body_color_secondary_[4]{0.18f, 0.30f, 0.75f, 1.0f};
-	float new_body_color_tertiary_[4]{0.9f, 0.85f, 0.6f, 1.0f};
-	float new_body_noise_scale_{4.0f};
-	float new_body_surface_roughness_{0.5f};
-	float new_body_atmosphere_thickness_{0.15f};
-	float new_body_emission_intensity_{0.0f};
-	float new_body_rotation_speed_3d_{0.1f};
-	float new_body_texture_detail_scale_{1.0f};
-	float new_body_polar_cap_strength_{0.0f};
-	float new_body_night_side_light_intensity_{0.0f};
-	bool new_body_ring_system_enabled_{false};
-	bool new_body_is_spacetime_source_{false};
-	char new_bh_name_[32]{"New Black Hole"};
-	float new_bh_mass_{50.0f};
-	float new_bh_spin_[3]{0.0f, 0.0f, 0.0f};
-	float new_bh_charge_{0.0f};
-	float new_bh_pos_[3]{40.0f, 0.0f, 0.0f};
-	float new_bh_vel_[3]{0.0f, 0.0f, 0.0f};
-	bool new_bh_mass_log_mode_{true};
-	bool new_body_mass_log_mode_{true};
-	bool new_body_radius_log_mode_{true};
-	bool new_body_r_ref_log_mode_{true};
+	bool randomize_after_spawn_{true};
+	Dynamics::PostNewtonianBody creation_draft_{};
+	Dynamics::BodySurfaceLayerSet creation_layers_{};
+	Dynamics::PostNewtonianBody black_hole_draft_{};
+	BodyEditorViewState selected_view_{};
+	BodyEditorViewState creation_view_{};
+	BodyEditorViewState source_view_{};
 	bool central_mass_log_mode_{true};
-	bool selected_mass_log_mode_{true};
-	bool selected_radius_log_mode_{true};
-	bool selected_r_ref_log_mode_{true};
 	std::mt19937_64 creation_rng_{std::random_device{}()};
-	Dynamics::BodySurfaceLayerSet new_body_layers_{};
-	int new_body_texture_choice_{0};
-	int new_layer_template_choice_{0};
 
 	char search_filter_[64]{};
 	int sort_mode_{static_cast<int>(BodyCatalogSortMode::CreationOrder)};
 	bool sort_descending_{false};
 	float list_pane_width_{230.0f};
-	char rename_buffer_[32]{};
-	int rename_target_id_{-1};
 	int tracked_body_id_{-1};
 	bool tracking_enabled_{false};
 	float global_velocity_[3]{0.0f, 0.0f, 0.0f};
@@ -126,16 +248,12 @@ private:
 	bool fragmentation_min_mass_log_mode_{true};
 	bool fragmentation_energy_integrity_log_mode_{true};
 	bool fragmentation_tidal_integrity_log_mode_{true};
-	bool thermodynamics_coupling_log_mode_{false};
-	bool selected_magnetic_moment_log_mode_{false};
-	bool selected_rotation_speed_log_mode_{false};
-	bool selected_lifetime_log_mode_{false};
-	bool selected_heat_capacity_log_mode_{false};
 
 public:
 	explicit BodyManagerWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator) {
 		randomize_creation_defaults();
+		reset_black_hole_draft();
 	}
 
 	void attach_persisted_settings(IO::UserSettings& settings) noexcept {
@@ -146,8 +264,8 @@ public:
 		search_filter_[sizeof(search_filter_) - 1] = '\0';
 		list_pane_width_ = settings.body_manager_list_pane_width;
 		bulk_parameter_index_ = static_cast<int>(settings.body_manager_bulk_parameter_index);
-		new_body_mass_log_mode_ = settings.body_manager_new_body_mass_log_mode;
-		new_body_radius_log_mode_ = settings.body_manager_new_body_radius_log_mode;
+		creation_view_.mass_log_mode = settings.body_manager_new_body_mass_log_mode;
+		creation_view_.radius_log_mode = settings.body_manager_new_body_radius_log_mode;
 	}
 
 	void sync_persisted_settings() noexcept {
@@ -157,8 +275,8 @@ public:
 		persisted_settings_->body_manager_search_filter = search_filter_;
 		persisted_settings_->body_manager_list_pane_width = list_pane_width_;
 		persisted_settings_->body_manager_bulk_parameter_index = static_cast<uint32_t>(bulk_parameter_index_);
-		persisted_settings_->body_manager_new_body_mass_log_mode = new_body_mass_log_mode_;
-		persisted_settings_->body_manager_new_body_radius_log_mode = new_body_radius_log_mode_;
+		persisted_settings_->body_manager_new_body_mass_log_mode = creation_view_.mass_log_mode;
+		persisted_settings_->body_manager_new_body_radius_log_mode = creation_view_.radius_log_mode;
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {
@@ -198,13 +316,12 @@ public:
 		ImGui::Separator();
 
 		if (ImGui::BeginTabBar("BodyManagerTabs")) {
-			ImGuiTabItemFlags catalog_flags = ImGuiTabItemFlags_None;
 			ImGuiTabItemFlags creation_flags = ImGuiTabItemFlags_None;
 			if (request_focus_creation_tab_) {
 				creation_flags |= ImGuiTabItemFlags_SetSelected;
 				request_focus_creation_tab_ = false;
 			}
-			if (ImGui::BeginTabItem("Body Catalog", nullptr, catalog_flags)) {
+			if (ImGui::BeginTabItem("Body Catalog")) {
 				render_body_list_tab();
 				ImGui::EndTabItem();
 			}
@@ -248,6 +365,14 @@ private:
 		} else {
 			return 299792458.0;
 		}
+	}
+
+	[[nodiscard]] double mass_scale() const noexcept {
+		return std::max(orchestrator_.constants_engine().mass_scale(), 1e-300);
+	}
+
+	[[nodiscard]] double length_scale() const noexcept {
+		return std::max(orchestrator_.constants_engine().length_scale(), 1e-300);
 	}
 
 	void look_at(const std::array<double, 3>& target) noexcept {
@@ -307,6 +432,7 @@ private:
 		}
 		return original;
 	}
+
 	[[nodiscard]] static std::string display_name(const Dynamics::PostNewtonianBody& body) {
 		if (body.has_name()) {
 			return std::string(body.name_view());
@@ -336,7 +462,7 @@ private:
 	}
 
 	[[nodiscard]] double random_real(double min_val, double max_val) noexcept {
-		std::uniform_real_distribution<double> dist(min_val, max_val);
+		std::uniform_real_distribution<double> dist(min_val, std::max(min_val, max_val));
 		return dist(creation_rng_);
 	}
 
@@ -368,18 +494,7 @@ private:
 		return {r + m, g + m, b + m};
 	}
 
-	[[nodiscard]] static std::string_view archetype_label(uint32_t archetype) noexcept {
-		switch (archetype) {
-			case 0: return "Probe";
-			case 1: return "Shard";
-			case 2: return "World";
-			case 3: return "Giant";
-			case 4: return "Compact";
-			default: return "Astral";
-		}
-	}
-
-	[[nodiscard]] std::string synthesize_creation_name(uint32_t archetype, double mass, double radius, double orbit_radius) {
+	[[nodiscard]] std::string synthesize_creation_name(std::string_view label, double mass, double radius, double orbit_radius) {
 		static constexpr std::array<std::string_view, 28> prefixes{
 			"Astra", "Boreal", "Cinder", "Drift", "Echo", "Eon", "Flux", "Halo",
 			"Ion", "Kestrel", "Lumen", "Nova", "Nyx", "Orbit", "Quasar", "Rift",
@@ -394,7 +509,7 @@ private:
 		const std::string_view accent = accents[static_cast<size_t>(random_int(0, static_cast<int>(accents.size() - 1)))];
 		const uint32_t suffix = static_cast<uint32_t>(random_int(10, 999));
 
-		std::string name = std::string(prefix) + " " + std::string(archetype_label(archetype));
+		std::string name = std::string(prefix) + " " + std::string(label);
 		if (mass > 0.0 && radius > 0.0) {
 			if (orbit_radius > radius * 100.0) {
 				name += " Deep";
@@ -409,199 +524,126 @@ private:
 		return name;
 	}
 
+	void reset_creation_view() noexcept {
+		creation_view_.mass_log_mode = true;
+		creation_view_.radius_log_mode = true;
+		creation_view_.reference_radius_log_mode = true;
+	}
+
 	void randomize_creation_defaults() noexcept {
-		static constexpr std::array<uint32_t, 6> archetypes{0, 1, 2, 3, 4, 5};
-		const uint32_t archetype = archetypes[static_cast<size_t>(random_int(0, static_cast<int>(archetypes.size() - 1)))];
+		const auto& profile = kCreationArchetypes[static_cast<size_t>(random_int(0, static_cast<int>(kCreationArchetypes.size()) - 1))];
 		const double central_mass = std::max(orchestrator_.parameters().mass, 1e-12);
-		double orbit_radius = 10.0;
-		double spin_scale = 1e-3;
+		auto& d = creation_draft_;
+		d = Dynamics::PostNewtonianBody{};
+		apply_body_preset_defaults(d, profile.preset);
 
-		switch (archetype) {
-			case 0: // Probe
-				new_body_mass_ = static_cast<float>(sample_log_uniform(1e-8, 1e-3));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(1e-3, 5e-2));
-				orbit_radius = sample_log_uniform(12.0, 120.0);
-				spin_scale = 1e-4;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-8));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Asteroid;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				break;
-			case 1: // Shard
-				new_body_mass_ = static_cast<float>(sample_log_uniform(1e-4, 1.0));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(5e-2, 1.5));
-				orbit_radius = sample_log_uniform(16.0, 220.0);
-				spin_scale = 1e-3;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-4));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-5));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Metallic;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				break;
-			case 2: // World
-				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 50.0));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(0.8, 6.0));
-				orbit_radius = sample_log_uniform(30.0, 350.0);
-				spin_scale = 5e-3;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-9, 1e-5));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-6, 1e-3));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-5));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-9, 1e-5));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
-				break;
-			case 3: // Giant
-				new_body_mass_ = static_cast<float>(sample_log_uniform(10.0, 1e4));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(4.0, 20.0));
-				orbit_radius = sample_log_uniform(60.0, 900.0);
-				spin_scale = 8e-3;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-4));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-4, 2e-2));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::GasGiant;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
-				break;
-			case 4: // Compact
-				new_body_mass_ = static_cast<float>(sample_log_uniform(1.0, 1e6));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(1e-4, 0.5));
-				orbit_radius = sample_log_uniform(40.0, 400.0);
-				spin_scale = 2e-2;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-10, 1e-6));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-12, 1e-7));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::NeutronStar;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				break;
-			case 5:
-			default: // Astral
-				new_body_mass_ = static_cast<float>(sample_log_uniform(1e2, 1e8));
-				new_body_radius_ = static_cast<float>(sample_log_uniform(5.0, 100.0));
-				orbit_radius = sample_log_uniform(80.0, 1000.0);
-				spin_scale = 1e-2;
-				new_body_quadrupole_ = static_cast<float>(sample_signed_uniform(1e-8, 1e-3));
-				new_body_j2_ = static_cast<float>(sample_signed_uniform(1e-5, 5e-2));
-				new_body_j3_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
-				new_body_j4_ = static_cast<float>(sample_signed_uniform(1e-7, 1e-4));
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Star;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::GlowingCorona;
-				break;
-		}
+		d.mass = sample_log_uniform(profile.mass_min, profile.mass_max);
+		d.radius = sample_log_uniform(profile.radius_min, profile.radius_max);
+		d.reference_radius = std::max(d.radius * random_real(0.85, 1.25), 1e-6);
+		d.quadrupole_moment = sample_signed_uniform(profile.quadrupole_min, profile.quadrupole_max);
+		d.j2 = sample_signed_uniform(profile.j2_min, profile.j2_max);
+		d.j3 = sample_signed_uniform(profile.j3_min, profile.j3_max);
+		d.j4 = sample_signed_uniform(profile.j4_min, profile.j4_max);
 
+		const double orbit_radius = sample_log_uniform(profile.orbit_min, profile.orbit_max);
 		const double theta = std::acos(std::clamp(random_real(-1.0, 1.0), -1.0, 1.0));
 		const double phi = random_real(0.0, 2.0 * std::numbers::pi);
 		const double sin_theta = std::sin(theta);
-		new_body_pos_[0] = static_cast<float>(orbit_radius * sin_theta * std::cos(phi));
-		new_body_pos_[1] = static_cast<float>(orbit_radius * sin_theta * std::sin(phi));
-		new_body_pos_[2] = static_cast<float>(orbit_radius * std::cos(theta));
+		d.position = {orbit_radius * sin_theta * std::cos(phi), orbit_radius * sin_theta * std::sin(phi), orbit_radius * std::cos(theta)};
 
-		auto velocity = compute_circular_orbit_velocity({static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])}, central_mass);
-		const double speed_scale = random_real(0.82, 1.18);
+		auto velocity = compute_circular_orbit_velocity(d.position, central_mass);
 		if (std::abs(velocity[0]) < 1e-12 && std::abs(velocity[1]) < 1e-12 && std::abs(velocity[2]) < 1e-12) {
-			velocity = std::array<double, 3>{0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
+			velocity = {0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
 		}
-		new_body_vel_[0] = static_cast<float>(velocity[0] * speed_scale);
-		new_body_vel_[1] = static_cast<float>(velocity[1] * speed_scale);
-		new_body_vel_[2] = static_cast<float>(velocity[2] * speed_scale);
+		const double speed_scale = random_real(0.82, 1.18);
+		d.velocity = {velocity[0] * speed_scale, velocity[1] * speed_scale, velocity[2] * speed_scale};
+		d.spin = {
+			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale),
+			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale),
+			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale)
+		};
 
-		new_body_spin_[0] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
-		new_body_spin_[1] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
-		new_body_spin_[2] = static_cast<float>(sample_signed_uniform(spin_scale * 0.2, spin_scale));
-		new_body_r_ref_ = static_cast<float>(std::max(static_cast<double>(new_body_radius_) * random_real(0.85, 1.25), 1e-6));
-
-		double hue_center = 0.13, hue_spread = 0.10, sat = 0.35, val = 1.0;
-		switch (archetype) {
-			case 0:
-				hue_center = 0.55; hue_spread = 0.08; sat = 0.10; val = 0.75;
-				new_body_noise_scale_ = static_cast<float>(random_real(6.0, 14.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.6, 0.95));
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.4));
-				break;
-			case 1:
-				hue_center = 0.08; hue_spread = 0.06; sat = 0.30; val = 0.55;
-				new_body_noise_scale_ = static_cast<float>(random_real(4.0, 10.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.5, 0.85));
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.35));
-				break;
-			case 2:
-				hue_center = 0.42; hue_spread = 0.14; sat = 0.55; val = 0.75;
-				new_body_noise_scale_ = static_cast<float>(random_real(3.0, 8.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.3, 0.6));
-				new_body_atmosphere_thickness_ = static_cast<float>(random_real(0.08, 0.3));
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.05, 0.2));
-				break;
-			case 3:
-				hue_center = 0.10; hue_spread = 0.16; sat = 0.45; val = 0.85;
-				new_body_noise_scale_ = static_cast<float>(random_real(2.0, 6.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.2, 0.5));
-				new_body_atmosphere_thickness_ = static_cast<float>(random_real(0.2, 0.4));
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.1, 0.5));
-				break;
-			case 4:
-				hue_center = 0.58; hue_spread = 0.05; sat = 0.08; val = 0.9;
-				new_body_noise_scale_ = static_cast<float>(random_real(1.5, 5.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.15, 0.4));
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = static_cast<float>(random_real(0.5, 2.5));
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.5, 2.0));
-				break;
-			case 5:
-			default:
-				hue_center = 0.13; hue_spread = 0.10; sat = 0.35; val = 1.0;
-				new_body_noise_scale_ = static_cast<float>(random_real(3.0, 12.0));
-				new_body_surface_roughness_ = static_cast<float>(random_real(0.4, 0.85));
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = static_cast<float>(random_real(1.5, 3.5));
-				new_body_rotation_speed_3d_ = static_cast<float>(random_real(0.02, 0.2));
-				break;
-		}
-
-		const float primary_hue = static_cast<float>(std::fmod(hue_center + random_real(-hue_spread, hue_spread) + 1.0, 1.0));
-		const auto primary_rgb = hsv_to_rgb(primary_hue, static_cast<float>(sat), static_cast<float>(val));
-		new_body_color_[0] = primary_rgb[0];
-		new_body_color_[1] = primary_rgb[1];
-		new_body_color_[2] = primary_rgb[2];
-		new_body_color_[3] = 1.0f;
-
+		const float primary_hue = static_cast<float>(std::fmod(profile.hue_center + random_real(-profile.hue_spread, profile.hue_spread) + 1.0, 1.0));
+		const auto primary_rgb = hsv_to_rgb(primary_hue, static_cast<float>(profile.saturation), static_cast<float>(profile.value));
+		d.color = {primary_rgb[0], primary_rgb[1], primary_rgb[2], 1.0f};
 		const float secondary_hue = std::fmod(primary_hue + static_cast<float>(random_real(0.03, 0.12)) + 1.0f, 1.0f);
-		const auto secondary_rgb = hsv_to_rgb(secondary_hue, static_cast<float>(std::clamp(sat * 1.2, 0.0, 1.0)), static_cast<float>(std::clamp(val * 0.7, 0.0, 1.0)));
-		new_body_color_secondary_[0] = secondary_rgb[0];
-		new_body_color_secondary_[1] = secondary_rgb[1];
-		new_body_color_secondary_[2] = secondary_rgb[2];
-		new_body_color_secondary_[3] = 1.0f;
-
-		std::string generated = synthesize_creation_name(archetype, new_body_mass_, new_body_radius_, orbit_radius);
-		const std::string unique = unique_name(generated);
-		std::strncpy(new_body_name_, unique.c_str(), sizeof(new_body_name_) - 1);
-		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-
+		const auto secondary_rgb = hsv_to_rgb(secondary_hue, static_cast<float>(std::clamp(profile.saturation * 1.2, 0.0, 1.0)), static_cast<float>(std::clamp(profile.value * 0.7, 0.0, 1.0)));
+		d.color_secondary = {secondary_rgb[0], secondary_rgb[1], secondary_rgb[2], 1.0f};
 		const float tertiary_hue = std::fmod(primary_hue + static_cast<float>(random_real(0.25, 0.55)) + 1.0f, 1.0f);
-		const auto tertiary_rgb = hsv_to_rgb(tertiary_hue, static_cast<float>(std::clamp(sat * 0.6, 0.0, 1.0)), static_cast<float>(std::clamp(val * 1.1, 0.0, 1.0)));
-		new_body_color_tertiary_[0] = tertiary_rgb[0];
-		new_body_color_tertiary_[1] = tertiary_rgb[1];
-		new_body_color_tertiary_[2] = tertiary_rgb[2];
-		new_body_color_tertiary_[3] = 1.0f;
-		new_body_texture_detail_scale_ = static_cast<float>(random_real(0.6, 2.2));
-		new_body_polar_cap_strength_ = (archetype == 2 || archetype == 3) ? static_cast<float>(random_real(0.1, 0.5)) : 0.0f;
-		new_body_night_side_light_intensity_ = (archetype == 2) ? static_cast<float>(random_real(0.0, 0.6)) : 0.0f;
-		new_body_ring_system_enabled_ = (archetype == 3) && (random_int(0, 1) == 0);
+		const auto tertiary_rgb = hsv_to_rgb(tertiary_hue, static_cast<float>(std::clamp(profile.saturation * 0.6, 0.0, 1.0)), static_cast<float>(std::clamp(profile.value * 1.1, 0.0, 1.0)));
+		d.color_tertiary = {tertiary_rgb[0], tertiary_rgb[1], tertiary_rgb[2], 1.0f};
 
+		d.surface_noise_scale = static_cast<float>(random_real(profile.noise_min, profile.noise_max));
+		d.surface_roughness = static_cast<float>(random_real(profile.roughness_min, profile.roughness_max));
+		d.atmosphere_thickness = static_cast<float>(random_real(profile.atmosphere_min, profile.atmosphere_max));
+		d.emission_intensity = static_cast<float>(random_real(profile.emission_min, profile.emission_max));
+		d.rotation_speed_3d = static_cast<float>(random_real(profile.rotation_min, profile.rotation_max));
+		d.texture_detail_scale = static_cast<float>(random_real(0.6, 2.2));
+		const bool is_world = profile.preset == Dynamics::Body3DPreset::TerrestrialPlanet;
+		const bool is_giant = profile.preset == Dynamics::Body3DPreset::GasGiant;
+		d.polar_cap_strength = (is_world || is_giant) ? static_cast<float>(random_real(0.1, 0.5)) : 0.0f;
+		d.night_side_light_intensity = is_world ? static_cast<float>(random_real(0.0, 0.6)) : 0.0f;
+		d.ring_system_enabled = is_giant && (random_int(0, 1) == 0);
+
+		d.set_name(unique_name(synthesize_creation_name(profile.label, d.mass, d.radius, orbit_radius)));
+		creation_layers_ = Dynamics::BodySurfaceLayerSet{};
 		creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
-		new_body_layers_ = Dynamics::BodySurfaceLayerSet{};
-		new_body_texture_choice_ = 0;
-		new_body_mass_log_mode_ = true;
-		new_body_radius_log_mode_ = true;
-		new_body_r_ref_log_mode_ = true;
+		reset_creation_view();
+	}
+
+	void reset_black_hole_draft() noexcept {
+		auto& d = black_hole_draft_;
+		d = Dynamics::PostNewtonianBody{};
+		d.mass = 50.0;
+		d.radius = 100.0;
+		d.reference_radius = d.radius;
+		d.position = {40.0, 0.0, 0.0};
+		d.is_spacetime_source = true;
+		apply_body_preset_defaults(d, Dynamics::Body3DPreset::BlackHole);
+		d.set_name(unique_name("New Black Hole"));
+	}
+
+	void apply_template_preset(BodyPresetTemplate preset) noexcept {
+		if (preset == BodyPresetTemplate::Custom) {
+			randomize_creation_defaults();
+			return;
+		}
+		const size_t index = static_cast<size_t>(preset) - 1U;
+		if (index >= kBodyTemplateSpecs.size()) return;
+		const auto& spec = kBodyTemplateSpecs[index];
+		auto& d = creation_draft_;
+		const std::array<double, 3> kept_position = d.position;
+		const std::array<double, 3> kept_velocity = d.velocity;
+		d = Dynamics::PostNewtonianBody{};
+		apply_body_preset_defaults(d, spec.preset);
+		d.position = kept_position;
+		d.velocity = kept_velocity;
+		d.mass = spec.native_units ? spec.mass : spec.mass / mass_scale();
+		d.radius = spec.native_units ? spec.radius : spec.radius / length_scale();
+		d.reference_radius = d.radius;
+		d.j2 = spec.j2;
+		d.j4 = spec.j4;
+		d.temperature = spec.temperature_kelvin;
+		d.color = spec.color;
+		d.color_secondary = spec.color_secondary;
+		d.color_tertiary = spec.color_tertiary;
+		d.surface_noise_scale = spec.noise_scale;
+		d.surface_roughness = spec.surface_roughness;
+		d.atmosphere_thickness = spec.atmosphere_thickness;
+		d.emission_intensity = spec.emission_intensity;
+		d.rotation_speed_3d = spec.rotation_speed;
+		d.polar_cap_strength = spec.polar_cap_strength;
+		d.night_side_light_intensity = spec.night_side_light_intensity;
+		d.ring_system_enabled = spec.ring_system;
+		d.set_name(unique_name(spec.name));
+
+		creation_layers_ = Dynamics::BodySurfaceLayerSet{};
+		for (const int layer_template : {spec.layer_template_first, spec.layer_template_second}) {
+			if (layer_template >= 0) {
+				static_cast<void>(creation_layers_.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(layer_template))));
+			}
+		}
+		reset_creation_view();
 	}
 
 	static void apply_body_preset_defaults(Dynamics::PostNewtonianBody& b, Dynamics::Body3DPreset preset) noexcept {
@@ -758,6 +800,430 @@ private:
 		b.preset_3d = preset;
 	}
 
+	[[nodiscard]] uint32_t spawn_body(Dynamics::PostNewtonianBody body, const Dynamics::BodySurfaceLayerSet& layers) noexcept {
+		auto& sys = orchestrator_.nbody_system();
+		body.id = 0;
+		body.acceleration = {0.0, 0.0, 0.0};
+		body.set_name(unique_name(body.has_name() ? body.name_view() : std::string_view("Body")));
+		if (body.is_spacetime_source) {
+			body.radius = std::max(body.kerr_outer_horizon_radius(), 1e-6);
+		}
+		const uint32_t id = sys.add_body(std::move(body));
+		orchestrator_.surface_layers().set(id, layers);
+		sys.update_accelerations();
+		orchestrator_.notify_state_changed();
+		return id;
+	}
+
+	void remove_body_by_id(uint32_t id) noexcept {
+		auto& sys = orchestrator_.nbody_system();
+		orchestrator_.surface_layers().erase(id);
+		if (sys.remove_body(id)) {
+			sys.update_accelerations();
+		}
+		if (tracked_body_id_ == static_cast<int>(id)) {
+			tracking_enabled_ = false;
+			tracked_body_id_ = -1;
+		}
+		if (selected_body_index_ == static_cast<int>(id)) {
+			selected_body_index_ = -1;
+		}
+		orchestrator_.notify_state_changed();
+	}
+
+	[[nodiscard]] static bool edit_double_slider(const char* label, double& value, float min_value, float max_value, const char* format, bool* log_mode = nullptr, float log_min = 0.0f, float log_max = 0.0f) noexcept {
+		float scratch = static_cast<float>(value);
+		const float effective_log_min = (log_min > 0.0f) ? log_min : min_value;
+		const float effective_log_max = (log_max > 0.0f) ? log_max : max_value;
+		if (slider_float_with_input(label, &scratch, min_value, max_value, format, log_mode, effective_log_min, effective_log_max)) {
+			value = static_cast<double>(scratch);
+			return true;
+		}
+		return false;
+	}
+
+	[[nodiscard]] static const char* texture_mode_description(uint32_t mode) noexcept {
+		switch (mode) {
+			case 0U: return "Procedural noise: oceans below the noise threshold, land blended from primary to secondary color. Uses Noise Scale, Roughness and Texture Detail Scale.";
+			case 1U: return "Solid color: flat primary color. Layers, polar caps, city lights and ring band still apply on top.";
+			case 2U: return "Palette blend: smooth gradient primary, midpoint, secondary driven by noise. Uses Noise Scale and Texture Detail Scale.";
+			case 3U: return "Banded gas giant: latitude bands warped by noise between primary and secondary colors.";
+			case 4U: return "Cratered terrain: crater darkening and rims with secondary color speckle.";
+			case 5U: return "Stellar granulation: limb-darkened granular surface, strongly driven by Emission Intensity.";
+			case 6U: return "Accretion flow: hot streaks along longitude, driven by Emission Intensity and Noise Scale.";
+			case 7U: return "Marbled stone: primary/secondary base with tertiary color veins scaled by Texture Detail Scale.";
+			case 8U: return "Ringed gas giant: bands, tertiary polar caps and equatorial ring shadow driven by Polar Cap Strength and Ring System.";
+			case 9U: return "Icy cracked surface: secondary color cracks with tertiary color shimmer.";
+			case 10U: return "Volcanic magma: tertiary color glowing cracks over primary crust with secondary patches.";
+			case 11U: return "City lights: primary/secondary land with a speckled night side driven by Night Side City Lights.";
+			case 12U: return "Nebulous cloud: three-color wisps mixing primary, secondary and tertiary colors.";
+			default: return "Unknown texture mode.";
+		}
+	}
+
+	[[nodiscard]] bool render_identity_section(Dynamics::PostNewtonianBody& b, bool allow_source_toggle) noexcept {
+		bool changed = false;
+		char name_buffer[32]{};
+		const std::string_view current_name = b.name_view();
+		std::memcpy(name_buffer, current_name.data(), std::min(current_name.size(), sizeof(name_buffer) - 1));
+		if (ImGui::InputTextWithHint("Name", "Unnamed", name_buffer, sizeof(name_buffer))) {
+			b.set_name(std::string_view(name_buffer));
+			changed = true;
+		}
+		render_setting_tooltip("Human-readable label shown in the catalog, tags and saved scenarios instead of the numeric identifier.");
+		if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
+		render_setting_tooltip("Disabled bodies remain in the catalog and scenario, but are excluded from rendering, prediction, gravity, integration, and horizon absorption.");
+		if (allow_source_toggle) {
+			bool is_source = b.is_spacetime_source;
+			if (ImGui::Checkbox("Spacetime Source (Independent Black Hole)", &is_source)) {
+				b.is_spacetime_source = is_source;
+				if (is_source) {
+					apply_body_preset_defaults(b, Dynamics::Body3DPreset::BlackHole);
+				} else if (b.preset_3d == Dynamics::Body3DPreset::BlackHole) {
+					apply_body_preset_defaults(b, Dynamics::Body3DPreset::Metallic);
+				}
+				changed = true;
+			}
+			render_setting_tooltip("Marks this body as its own gravitating compact object with a Kerr event horizon derived from its mass and spin. It participates fully in N-body dynamics, can absorb ordinary bodies crossing its horizon, and merges with other spacetime sources on contact. The rendered lensing still follows the primary central object only.");
+		}
+		if (b.is_spacetime_source) {
+			ImGui::TextDisabled("Dimensionless spin a/M = %.4f | Horizon radius = %.4f", b.kerr_spin_parameter(), b.kerr_outer_horizon_radius());
+		}
+		return changed;
+	}
+
+	[[nodiscard]] bool render_physical_section(Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
+		bool changed = false;
+		const auto& prefs = orchestrator_.unit_preferences();
+		const double mass_scale_kg = mass_scale();
+		const double length_scale_m = length_scale();
+		const double speed_scale_mps = get_speed_scale(orchestrator_.constants_engine());
+
+		double mass_kg = b.mass * mass_scale_kg;
+		if (unit_aware_slider_double("Mass", &mass_kg, 0.001 * mass_scale_kg, 1.0e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-12 * mass_scale_kg, 1e60 * mass_scale_kg)) {
+			b.mass = std::max(0.0, mass_kg / mass_scale_kg);
+			changed = true;
+		}
+		render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(prefs.mass)) + ".").c_str());
+
+		double radius_m = b.radius * length_scale_m;
+		if (unit_aware_slider_double("Physical Radius", &radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.radius_log_mode, 1e-6 * length_scale_m, 1e50 * length_scale_m)) {
+			b.radius = std::max(1e-6, radius_m / length_scale_m);
+			changed = true;
+		}
+		render_setting_tooltip(("Visual and collision radius, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ".").c_str());
+
+		double charge = b.charge;
+		if (unit_aware_slider_double("Charge", &charge, -10.0, 10.0, UnitCategory::Charge, prefs, "%.4e")) {
+			b.charge = charge;
+			changed = true;
+		}
+		render_setting_tooltip(("Net electric charge, displayed in " + std::string(Units::charge_unit_suffix(prefs.charge)) + ".").c_str());
+
+		double position_m[3] = {b.position[0] * length_scale_m, b.position[1] * length_scale_m, b.position[2] * length_scale_m};
+		if (unit_aware_input_double3("Position (x, y, z)", position_m, UnitCategory::Distance, prefs)) {
+			b.position = {position_m[0] / length_scale_m, position_m[1] / length_scale_m, position_m[2] / length_scale_m};
+			changed = true;
+		}
+		render_setting_tooltip(("Cartesian position relative to the central object, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ".").c_str());
+
+		double velocity_mps[3] = {b.velocity[0] * speed_scale_mps, b.velocity[1] * speed_scale_mps, b.velocity[2] * speed_scale_mps};
+		if (unit_aware_input_double3("Velocity (vx, vy, vz)", velocity_mps, UnitCategory::Velocity, prefs)) {
+			b.velocity = {velocity_mps[0] / speed_scale_mps, velocity_mps[1] / speed_scale_mps, velocity_mps[2] / speed_scale_mps};
+			changed = true;
+		}
+		render_setting_tooltip(("Instantaneous coordinate velocity of this body, displayed in " + std::string(Units::velocity_unit_suffix(prefs.velocity)) + ".").c_str());
+
+		if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
+			const double central_mass = orchestrator_.parameters().mass + (b.is_spacetime_source ? b.mass : 0.0);
+			b.velocity = compute_circular_orbit_velocity(b.position, central_mass);
+			changed = true;
+		}
+		render_setting_tooltip("Overwrites the velocity above with the Keplerian circular-orbit velocity for the current distance from the central mass. Independent black holes include their own mass in the effective central mass.");
+
+		if (ImGui::InputScalarN("Spin Vector", ImGuiDataType_Double, b.spin.data(), 3, nullptr, nullptr, "%.6g")) {
+			changed = true;
+		}
+		render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms and the Kerr parameter of spacetime sources.");
+
+		const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
+		ImGui::TextDisabled("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(kinetic_energy_joules, prefs.energy).c_str());
+		return changed;
+	}
+
+	[[nodiscard]] bool render_multipole_section(Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
+		bool changed = false;
+		changed = edit_double_slider("Quadrupole Moment (Q)", b.quadrupole_moment, -1e-2f, 1e-2f, "%.6e") || changed;
+		render_setting_tooltip("Quadrupole deformation parameter for tidal and multipolar force models.");
+		changed = edit_double_slider("Zonal J2 Moment", b.j2, -1e-2f, 1e-2f, "%.6e") || changed;
+		render_setting_tooltip("Dominant oblateness harmonic coefficient, also flattening the rendered spheroid and producing nodal precession on other bodies passing nearby.");
+		changed = edit_double_slider("Zonal J3 Moment", b.j3, -1e-3f, 1e-3f, "%.6e") || changed;
+		render_setting_tooltip("Third-degree zonal harmonic coefficient, primarily contributing a north-south asymmetric perturbation.");
+		changed = edit_double_slider("Zonal J4 Moment", b.j4, -1e-3f, 1e-3f, "%.6e") || changed;
+		render_setting_tooltip("Fourth-degree zonal harmonic coefficient, a smaller correction to the oblateness perturbation.");
+
+		const auto& prefs = orchestrator_.unit_preferences();
+		const double length_scale_m = length_scale();
+		double reference_radius_m = b.reference_radius * length_scale_m;
+		if (unit_aware_slider_double("Multipole Reference Radius", &reference_radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.reference_radius_log_mode, 1e-6 * length_scale_m, 1e50 * length_scale_m)) {
+			b.reference_radius = std::max(1e-6, reference_radius_m / length_scale_m);
+			changed = true;
+		}
+		render_setting_tooltip(("Reference radius, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ", at which the zonal harmonic coefficients are defined, typically the body's equatorial radius.").c_str());
+		return changed;
+	}
+
+	[[nodiscard]] bool render_material_section(Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
+		bool changed = false;
+		const auto& prefs = orchestrator_.unit_preferences();
+
+		changed = edit_double_slider("Magnetic Moment", b.magnetic_moment, 1e-6f, 1.0e6f, "%.4e", &view.magnetic_moment_log_mode, 1e-9f, 1e9f) || changed;
+		render_setting_tooltip("Magnetic dipole moment used by the dipole-dipole force when magnetism is enabled.");
+
+		if (unit_aware_slider_double("Rotation Speed", &b.rotation_speed, 1e-6, 1.0e6, UnitCategory::AngularVelocity, prefs, "%.4e", &view.rotation_speed_log_mode, 1e-9, 1e9)) {
+			changed = true;
+		}
+		render_setting_tooltip("Physical spin rate used by collision friction torque, independent from the visual 3D rotation speed.");
+
+		changed = edit_double_slider("Friction Coefficient", b.friction_coefficient, 0.0f, 1.0f, "%.3f") || changed;
+		changed = edit_double_slider("Restitution", b.restitution, 0.0f, 1.0f, "%.3f") || changed;
+		changed = edit_double_slider("Elasticity", b.elasticity, 0.0f, 1.0f, "%.3f") || changed;
+		changed = edit_double_slider("Integrity", b.integrity, 0.0f, 1.0f, "%.3f") || changed;
+		b.integrity = std::max(0.0, b.integrity);
+		render_setting_tooltip("Structural integrity reserve. Collision impacts and tidal stress erode it, and the body fragments once it reaches zero.");
+
+		if (unit_aware_slider_double("Lifetime", &b.lifetime, 1e-6, 1.0e9, UnitCategory::Time, prefs, "%.4e", &view.lifetime_log_mode, 1e-6, 1e12)) {
+			b.lifetime = std::max(0.0, b.lifetime);
+			changed = true;
+		}
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Thermal Properties");
+		if (unit_aware_slider_double("Temperature", &b.temperature, 0.0, 50000.0, UnitCategory::Temperature, prefs, "%.2f")) {
+			b.temperature = std::max(0.0, b.temperature);
+			changed = true;
+		}
+		changed = edit_double_slider("Heat Capacity", b.heat_capacity, 1e-6f, 1.0e9f, "%.4e", &view.heat_capacity_log_mode, 1e-6f, 1e12f) || changed;
+		b.heat_capacity = std::max(0.0, b.heat_capacity);
+		changed = edit_double_slider("Absorption Factor", b.absorption_factor, 0.0f, 1.0f, "%.3f") || changed;
+		render_setting_tooltip("Fraction of incident radiative energy absorbed by the body, scaling the Stefan-Boltzmann exchange with the ambient temperature.");
+		changed = edit_double_slider("Transmission Factor", b.transmission_factor, 0.0f, 1.0f, "%.3f") || changed;
+		if (unit_aware_slider_double("Critical Temperature", &b.critical_temperature, 0.0, 50000.0, UnitCategory::Temperature, prefs, "%.2f")) {
+			b.critical_temperature = std::max(0.0, b.critical_temperature);
+			changed = true;
+		}
+		render_setting_tooltip("Temperature above which the hot Young's modulus applies instead of the cold one. Zero disables the transition.");
+		changed = edit_double_slider("Cold Resistance", b.cold_resistance, 0.0f, 1.0e6f, "%.4e", &view.resistance_log_mode, 1e-6f, 1e9f) || changed;
+		changed = edit_double_slider("Hot Resistance", b.hot_resistance, 0.0f, 1.0e6f, "%.4e", &view.resistance_log_mode, 1e-6f, 1e9f) || changed;
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Mechanical Stiffness");
+		changed = edit_double_slider("Young's Modulus (Cold)", b.youngs_modulus_cold, 0.0f, 1.0e12f, "%.4e", &view.youngs_modulus_log_mode, 1e-3f, 1e15f) || changed;
+		changed = edit_double_slider("Young's Modulus (Hot)", b.youngs_modulus_hot, 0.0f, 1.0e12f, "%.4e", &view.youngs_modulus_log_mode, 1e-3f, 1e15f) || changed;
+		render_setting_tooltip("Material stiffness driving the Hertzian contact repulsion when collisions are enabled. A value of zero disables stiffness pushback for the body.");
+
+		char composition[32]{};
+		std::memcpy(composition, b.composition.data(), b.composition.size() - 1);
+		if (ImGui::InputText("Composition", composition, sizeof(composition))) {
+			b.set_composition(composition);
+			changed = true;
+		}
+		render_setting_tooltip("Free-form material tag used by the physical intelligence color coding.");
+		return changed;
+	}
+
+	[[nodiscard]] bool render_base_surface_tab(Dynamics::PostNewtonianBody& b) noexcept {
+		bool changed = false;
+
+		int geometry_idx = std::min(static_cast<int>(b.geometry_model), static_cast<int>(kBodyGeometryNames.size()) - 1);
+		if (ImGui::Combo("3D Geometry Model", &geometry_idx, kBodyGeometryNames.data(), static_cast<int>(kBodyGeometryNames.size()))) {
+			b.geometry_model = static_cast<Dynamics::Body3DGeometryModel>(geometry_idx);
+			changed = true;
+		}
+		render_setting_tooltip("Defines the ray-traced 3D shape. Oblate and prolate spheroids deform from the J2 moment, and the triaxial ellipsoid adds a flattened second axis.");
+
+		int preset_idx = std::min(static_cast<int>(b.preset_3d), static_cast<int>(kBodySurfacePresetNames.size()) - 1);
+		if (ImGui::Combo("Surface Preset", &preset_idx, kBodySurfacePresetNames.data(), static_cast<int>(kBodySurfacePresetNames.size()))) {
+			apply_body_preset_defaults(b, static_cast<Dynamics::Body3DPreset>(preset_idx));
+			changed = true;
+		}
+		render_setting_tooltip("Applies a matched base texture, palette, roughness, emission and atmosphere profile for the chosen body family. Surface texture layers are preserved.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Reapply")) {
+			apply_body_preset_defaults(b, b.preset_3d);
+			changed = true;
+		}
+		render_setting_tooltip("Restores the base appearance parameters of the current preset without touching texture layers.");
+
+		int texture_idx = std::min(static_cast<int>(b.surface_texture_mode), static_cast<int>(kBodyTextureModeNames.size()) - 1);
+		if (ImGui::Combo("Base Texture Mode", &texture_idx, kBodyTextureModeNames.data(), static_cast<int>(kBodyTextureModeNames.size()))) {
+			b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(texture_idx);
+			changed = true;
+		}
+		render_wrapped_colored_text(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), texture_mode_description(static_cast<uint32_t>(texture_idx)));
+
+		if (ImGui::ColorEdit4("Primary Color", b.color.data())) changed = true;
+		if (ImGui::ColorEdit4("Secondary Color", b.color_secondary.data())) changed = true;
+		if (ImGui::ColorEdit4("Tertiary Color", b.color_tertiary.data())) changed = true;
+		render_setting_tooltip("Third accent color used by Marbled, Ringed, Icy, Volcanic and Nebulous modes and by polar caps.");
+		if (ImGui::SliderFloat("Surface Noise Scale", &b.surface_noise_scale, 0.5f, 20.0f, "%.2f")) changed = true;
+		if (ImGui::SliderFloat("Surface Roughness", &b.surface_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
+		if (ImGui::SliderFloat("Texture Detail Scale", &b.texture_detail_scale, 0.1f, 5.0f, "%.2fx")) changed = true;
+		render_setting_tooltip("Multiplies the frequency of secondary surface patterns such as marble veining or gas giant banding.");
+		if (ImGui::SliderFloat("Polar Cap Strength", &b.polar_cap_strength, 0.0f, 1.0f, "%.2f")) changed = true;
+		render_setting_tooltip("Blends the tertiary color over the poles to depict ice caps or polar storm bands.");
+		if (ImGui::SliderFloat("Night Side City Lights", &b.night_side_light_intensity, 0.0f, 2.0f, "%.2f")) changed = true;
+		render_setting_tooltip("Adds a speckled glow on the unlit hemisphere.");
+		if (ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &b.ring_system_enabled)) changed = true;
+		render_setting_tooltip("Darkens a thin equatorial band to suggest a shadow cast by an orbiting ring plane.");
+		return changed;
+	}
+
+	[[nodiscard]] bool render_atmosphere_lighting_tab(Dynamics::PostNewtonianBody& b) noexcept {
+		bool changed = false;
+		int atmosphere_idx = std::min(static_cast<int>(b.atmosphere_mode), static_cast<int>(kBodyAtmosphereModeNames.size()) - 1);
+		if (ImGui::Combo("Atmosphere Mode", &atmosphere_idx, kBodyAtmosphereModeNames.data(), static_cast<int>(kBodyAtmosphereModeNames.size()))) {
+			b.atmosphere_mode = static_cast<Dynamics::Body3DAtmosphereMode>(atmosphere_idx);
+			changed = true;
+		}
+		render_setting_tooltip("Selects the rim-lit atmospheric glow drawn around the silhouette. Off disables the effect entirely.");
+		if (ImGui::SliderFloat("Atmosphere Thickness", &b.atmosphere_thickness, 0.0f, 0.5f, "%.3f")) changed = true;
+		if (ImGui::ColorEdit4("Atmosphere Color", b.atmosphere_color.data())) changed = true;
+		if (ImGui::SliderFloat("Emission Intensity", &b.emission_intensity, 0.0f, 5.0f, "%.2f")) changed = true;
+		render_setting_tooltip("Self-illumination added on top of the lit surface, required for stars and compact remnants.");
+		if (ImGui::SliderFloat("Specular Roughness", &b.specular_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
+		if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, 0.0f, 2.0f, "%.3f rad/s")) changed = true;
+		render_setting_tooltip("Visual rotation rate of the surface texture and layer drift.");
+		return changed;
+	}
+
+	[[nodiscard]] bool render_surface_layer_editor(Dynamics::BodySurfaceLayerSet& set, BodyEditorViewState& view) noexcept {
+		bool edited = false;
+		const bool full = set.count >= Render::kMaxSurfaceLayers;
+		ImGui::TextDisabled("Layers: %u / %zu (drawn first to last, on top of the base texture)", set.count, Render::kMaxSurfaceLayers);
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::Combo("Template", &view.layer_template_choice, Dynamics::kSurfaceLayerTemplateNames.data(), static_cast<int>(Dynamics::kSurfaceLayerTemplateNames.size()));
+		if (full) ImGui::BeginDisabled(true);
+		if (ImGui::Button("Add Template Layer", ImVec2(160.0f, 24.0f))) {
+			edited = set.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(view.layer_template_choice))) || edited;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Add Blank Layer", ImVec2(140.0f, 24.0f))) {
+			edited = set.add(Dynamics::SurfaceLayerDefinition{}) || edited;
+		}
+		if (full) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Clear All Layers", ImVec2(130.0f, 24.0f)) && set.count > 0U) {
+			set = Dynamics::BodySurfaceLayerSet{};
+			edited = true;
+		}
+		render_setting_tooltip("Adds a procedural texture layer blended over the base surface. Each layer has its own pattern, blend mode, region mask, color, scale, drift and emission.");
+
+		int remove_index = -1;
+		int move_index = -1;
+		int move_delta = 0;
+		for (uint32_t i = 0; i < set.count; ++i) {
+			auto& layer = set.layers[i];
+			ImGui::PushID(static_cast<int>(i));
+			const std::string header = std::to_string(i + 1U) + ". " + Dynamics::kSurfaceLayerPatternNames[static_cast<size_t>(layer.pattern)] + " - " + Dynamics::kSurfaceLayerMaskNames[static_cast<size_t>(layer.mask)] + "###surface_layer_header";
+			if (ImGui::CollapsingHeader(header.c_str())) {
+				if (ImGui::Checkbox("Enabled", &layer.enabled)) edited = true;
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Move Up")) { move_index = static_cast<int>(i); move_delta = -1; }
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Move Down")) { move_index = static_cast<int>(i); move_delta = 1; }
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove")) { remove_index = static_cast<int>(i); }
+
+				int pattern_idx = static_cast<int>(layer.pattern);
+				if (ImGui::Combo("Pattern", &pattern_idx, Dynamics::kSurfaceLayerPatternNames.data(), static_cast<int>(Dynamics::kSurfaceLayerPatternNames.size()))) {
+					layer.pattern = static_cast<Render::SurfaceLayerPattern>(pattern_idx);
+					edited = true;
+				}
+				int blend_idx = static_cast<int>(layer.blend);
+				if (ImGui::Combo("Blend Mode", &blend_idx, Dynamics::kSurfaceLayerBlendNames.data(), static_cast<int>(Dynamics::kSurfaceLayerBlendNames.size()))) {
+					layer.blend = static_cast<Render::SurfaceLayerBlend>(blend_idx);
+					edited = true;
+				}
+				int mask_idx = static_cast<int>(layer.mask);
+				if (ImGui::Combo("Region Mask", &mask_idx, Dynamics::kSurfaceLayerMaskNames.data(), static_cast<int>(Dynamics::kSurfaceLayerMaskNames.size()))) {
+					layer.mask = static_cast<Render::SurfaceLayerMask>(mask_idx);
+					edited = true;
+				}
+				if (ImGui::ColorEdit3("Layer Color", layer.color.data())) edited = true;
+				if (ImGui::SliderFloat("Opacity", &layer.opacity, 0.0f, 1.0f, "%.2f")) edited = true;
+				if (ImGui::SliderFloat("Pattern Scale", &layer.scale, 0.5f, 30.0f, "%.2f")) edited = true;
+				if (ImGui::SliderFloat("Contrast", &layer.contrast, 0.2f, 4.0f, "%.2f")) edited = true;
+				if (ImGui::SliderFloat("Threshold", &layer.threshold, 0.0f, 0.95f, "%.2f")) edited = true;
+				if (ImGui::SliderFloat("Edge Softness", &layer.softness, 0.01f, 1.0f, "%.2f")) edited = true;
+				if (layer.mask != Render::SurfaceLayerMask::Global) {
+					if (ImGui::SliderFloat("Mask Width", &layer.mask_width, 0.05f, 1.0f, "%.2f")) edited = true;
+				}
+				if (ImGui::SliderFloat("Drift Speed", &layer.rotation_factor, -2.0f, 2.0f, "%.2f")) edited = true;
+				if (ImGui::SliderFloat("Emission", &layer.emission, 0.0f, 4.0f, "%.2f")) edited = true;
+				int octave_value = static_cast<int>(layer.octaves);
+				if (ImGui::SliderInt("Detail Octaves", &octave_value, 1, 6)) {
+					layer.octaves = static_cast<uint32_t>(octave_value);
+					edited = true;
+				}
+				int seed_value = static_cast<int>(layer.seed);
+				if (ImGui::InputInt("Seed", &seed_value)) {
+					layer.seed = static_cast<uint32_t>(std::max(seed_value, 0));
+					edited = true;
+				}
+			}
+			ImGui::PopID();
+		}
+
+		if (move_index >= 0) {
+			edited = set.move(static_cast<uint32_t>(move_index), move_delta) || edited;
+		}
+		if (remove_index >= 0) {
+			edited = set.remove(static_cast<uint32_t>(remove_index)) || edited;
+		}
+		return edited;
+	}
+
+	void render_surface_section(Dynamics::PostNewtonianBody& b, Dynamics::BodySurfaceLayerSet& layers, BodyEditorViewState& view, BodyEditResult& result) noexcept {
+		const size_t texture_idx = std::min(static_cast<size_t>(b.surface_texture_mode), kBodyTextureModeNames.size() - 1);
+		ImGui::TextDisabled("Composition: %s, then %u layer(s), atmosphere and relativistic effects", kBodyTextureModeNames[texture_idx], layers.count);
+		if (ImGui::BeginTabBar("SurfaceEditorTabs")) {
+			if (ImGui::BeginTabItem("Base Surface")) {
+				result.body_changed = render_base_surface_tab(b) || result.body_changed;
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Atmosphere & Lighting")) {
+				result.body_changed = render_atmosphere_lighting_tab(b) || result.body_changed;
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Texture Layers")) {
+				result.layers_changed = render_surface_layer_editor(layers, view) || result.layers_changed;
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
+		}
+	}
+
+	[[nodiscard]] BodyEditResult render_body_editor(Dynamics::PostNewtonianBody& b, Dynamics::BodySurfaceLayerSet* layers, BodyEditorViewState& view, uint32_t sections) noexcept {
+		BodyEditResult result;
+		if ((sections & BodyEditorSection::Identity) != 0U && ImGui::CollapsingHeader("Identity & State", ImGuiTreeNodeFlags_DefaultOpen)) {
+			result.body_changed = render_identity_section(b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
+		}
+		if ((sections & BodyEditorSection::Physical) != 0U && ImGui::CollapsingHeader("Physical State & Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
+			result.body_changed = render_physical_section(b, view) || result.body_changed;
+		}
+		if ((sections & BodyEditorSection::Multipoles) != 0U && ImGui::CollapsingHeader("Gravitational Multipoles")) {
+			result.body_changed = render_multipole_section(b, view) || result.body_changed;
+		}
+		if ((sections & BodyEditorSection::Material) != 0U && ImGui::CollapsingHeader("Material, Thermal & Electromagnetic")) {
+			result.body_changed = render_material_section(b, view) || result.body_changed;
+		}
+		if ((sections & BodyEditorSection::Surface) != 0U && layers != nullptr && ImGui::CollapsingHeader("Surface Appearance & Layers")) {
+			render_surface_section(b, *layers, view, result);
+		}
+		return result;
+	}
+
 	void render_body_list_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
 		std::lock_guard<std::recursive_mutex> body_list_lock(sys.bodies_mutex());
@@ -847,7 +1313,7 @@ private:
 			if (ImGui::Button("Spawn Solar System Archetype", ImVec2(-1.0f, 26.0f))) {
 				populate_solar_system_archetype();
 			}
-			render_setting_tooltip("Populates the system with a simplified Sun-and-two-planets configuration to quickly exercise N-body dynamics.");
+			render_setting_tooltip("Populates the system with a simplified two-planet configuration to quickly exercise N-body dynamics.");
 		} else if (visible_indices.empty()) {
 			ImGui::TextDisabled("No bodies match the current filter.");
 		} else {
@@ -857,7 +1323,6 @@ private:
 				const std::string label = display_name(bodies[i]) + "  (M=" + std::to_string(bodies[i].mass).substr(0, 4) + ", r=" + std::to_string(dist).substr(0, 5) + ")";
 				if (ImGui::Selectable(label.c_str(), is_selected)) {
 					selected_body_index_ = static_cast<int>(bodies[i].id);
-					rename_target_id_ = -1;
 				}
 				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
 					ImGui::BeginTooltip();
@@ -893,7 +1358,7 @@ private:
 				}
 			}
 			if (resolved_index < n) {
-				render_selected_nbody_panel(sys, bodies, n, resolved_index);
+				render_selected_nbody_panel(sys, bodies, resolved_index);
 			} else {
 				ImGui::TextDisabled("Select a body from the catalog to inspect or edit its parameters.");
 			}
@@ -909,9 +1374,9 @@ private:
 		ImGui::Separator();
 
 		{
-			const double central_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+			const double central_mass_scale_kg = mass_scale();
 			double central_mass_kg = static_cast<double>(params.mass) * central_mass_scale_kg;
-			if (unit_aware_slider_double("Central Mass (M)", &central_mass_kg, 0.001 * central_mass_scale_kg, 1.0e6 * central_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &central_mass_log_mode_, 1e-12 * central_mass_scale_kg, 1e36 * central_mass_scale_kg)) {
+			if (unit_aware_slider_double("Central Mass (M)", &central_mass_kg, 0.001 * central_mass_scale_kg, 1.0e6 * central_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &central_mass_log_mode_, 1e-12 * central_mass_scale_kg, 1e60 * central_mass_scale_kg)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, std::max(0.01, central_mass_kg / central_mass_scale_kg))));
 			}
 		}
@@ -944,620 +1409,115 @@ private:
 		}
 	}
 
-	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, auto bodies, size_t n, size_t index) noexcept {
+	void render_selected_nbody_panel(Dynamics::PostNewtonianSystem& sys, std::span<Dynamics::PostNewtonianBody> bodies, size_t index) noexcept {
 		auto& b = bodies[index];
-		bool changed = false;
+		const uint32_t body_id = b.id;
+		bool duplicate_requested = false;
+		bool remove_requested = false;
 
-		const double body_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
-		const double body_length_scale_m = orchestrator_.constants_engine().length_scale();
-		const double body_speed_scale_mps = get_speed_scale(orchestrator_.constants_engine());
-
+		ImGui::PushID(static_cast<int>(body_id));
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", display_name(b).c_str());
-		ImGui::TextDisabled("Identifier: #%u", b.id);
-		if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
-		render_setting_tooltip("Disabled bodies remain in the catalog and scenario, but are excluded from rendering, prediction, gravity, integration, and horizon absorption.");
-		ImGui::SameLine();
-		bool tracking_this = tracking_enabled_ && tracked_body_id_ == static_cast<int>(b.id);
-		if (ImGui::Checkbox("Track", &tracking_this)) {
-			tracking_enabled_ = tracking_this;
-			tracked_body_id_ = tracking_this ? static_cast<int>(b.id) : -1;
-		}
-		bool is_spacetime_source = b.is_spacetime_source;
-		if (ImGui::Checkbox("Spacetime Source (Independent Black Hole)", &is_spacetime_source)) {
-			b.is_spacetime_source = is_spacetime_source;
-			if (is_spacetime_source) {
-				apply_body_preset_defaults(b, Dynamics::Body3DPreset::BlackHole);
-			}
-			changed = true;
-		}
-		render_setting_tooltip("Marks this body as its own gravitating compact object with a Kerr event horizon derived from its mass and spin. It participates fully in N-body gravitational dynamics, can absorb ordinary bodies crossing its horizon, and merges with other spacetime sources on contact. The rendered lensing still follows the primary central object only.");
-		if (b.is_spacetime_source) {
-			ImGui::TextDisabled("Dimensionless spin a/M = %.4f | Horizon radius = %.4f", b.kerr_spin_parameter(), b.kerr_outer_horizon_radius());
-		}
-		ImGui::Separator();
+		ImGui::TextDisabled("Identifier: #%u", body_id);
 
-		if (rename_target_id_ != static_cast<int>(b.id)) {
-			rename_target_id_ = static_cast<int>(b.id);
-			std::memset(rename_buffer_, 0, sizeof(rename_buffer_));
-			if (b.has_name()) {
-				const auto view = b.name_view();
-				std::memcpy(rename_buffer_, view.data(), std::min(view.size(), sizeof(rename_buffer_) - 1));
-			}
-		}
-		ImGui::SetNextItemWidth(-90.0f);
-		ImGui::InputTextWithHint("##RenameField", "Unnamed", rename_buffer_, sizeof(rename_buffer_));
-		ImGui::SameLine();
-		if (ImGui::Button("Rename", ImVec2(80.0f, 0.0f))) {
-			b.set_name(std::string_view(rename_buffer_));
-		}
-		render_setting_tooltip("Assigns a human-readable label to this body, shown throughout the catalog, tags, and saved scenarios instead of its numeric identifier.");
-
-		{
-			double body_mass_kg = b.mass * body_mass_scale_kg;
-			const double body_mass_min_kg = 0.001 * body_mass_scale_kg;
-			const double body_mass_max_kg = 1.0e6 * body_mass_scale_kg;
-			if (unit_aware_slider_double("Mass", &body_mass_kg, body_mass_min_kg, body_mass_max_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &selected_mass_log_mode_, 1e-12 * body_mass_scale_kg, 1e36 * body_mass_scale_kg)) {
-				b.mass = std::max(0.0, body_mass_kg / body_mass_scale_kg);
-				changed = true;
-			}
-		}
-		render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) + ".").c_str());
-
-		{
-			double body_radius_m = b.radius * body_length_scale_m;
-			const double body_radius_min_m = 0.001 * body_length_scale_m;
-			const double body_radius_max_m = 1.0e5 * body_length_scale_m;
-			if (unit_aware_slider_double("Physical Radius", &body_radius_m, body_radius_min_m, body_radius_max_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &selected_radius_log_mode_, 1e-6 * body_length_scale_m, 1e12 * body_length_scale_m)) {
-				b.radius = std::max(1e-6, body_radius_m / body_length_scale_m);
-				changed = true;
-			}
-		}
-		render_setting_tooltip(("Visual and collision radius, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ", used for rendering and default multipole reference radius.").c_str());
-
-		double pos_m[3] = {b.position[0] * body_length_scale_m, b.position[1] * body_length_scale_m, b.position[2] * body_length_scale_m};
-		if (unit_aware_input_double3("Position (x, y, z)", pos_m, UnitCategory::Distance, orchestrator_.unit_preferences())) {
-			b.position = std::array<double, 3>{pos_m[0] / body_length_scale_m, pos_m[1] / body_length_scale_m, pos_m[2] / body_length_scale_m};
-			changed = true;
-		}
-		render_setting_tooltip(("Cartesian position relative to the central object, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ".").c_str());
-
-		double vel_mps[3] = {b.velocity[0] * body_speed_scale_mps, b.velocity[1] * body_speed_scale_mps, b.velocity[2] * body_speed_scale_mps};
-		if (unit_aware_input_double3("Velocity (vx, vy, vz)", vel_mps, UnitCategory::Velocity, orchestrator_.unit_preferences())) {
-			b.velocity = std::array<double, 3>{vel_mps[0] / body_speed_scale_mps, vel_mps[1] / body_speed_scale_mps, vel_mps[2] / body_speed_scale_mps};
-			changed = true;
-		}
-		render_setting_tooltip(("Instantaneous coordinate velocity of this body, displayed in " + std::string(Units::velocity_unit_suffix(orchestrator_.unit_preferences().velocity)) + ".").c_str());
-
-		if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-			b.velocity = compute_circular_orbit_velocity(b.position, orchestrator_.parameters().mass);
-			changed = true;
-		}
-		render_setting_tooltip("Overwrites the velocity above with the Keplerian circular-orbit velocity for this body's current distance from the central mass.");
-
-		float spin[3] = {static_cast<float>(b.spin[0]), static_cast<float>(b.spin[1]), static_cast<float>(b.spin[2])};
-		if (ImGui::InputFloat3("Spin Vector", spin)) {
-			b.spin = std::array<double, 3>{static_cast<double>(spin[0]), static_cast<double>(spin[1]), static_cast<double>(spin[2])};
-			changed = true;
-		}
-		render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms.");
-
-		float quad = static_cast<float>(b.quadrupole_moment);
-		if (slider_float_with_input("Quadrupole Moment (Q)", &quad, -1e-2f, 1e-2f, "%.6e")) {
-			b.quadrupole_moment = static_cast<double>(quad);
-			changed = true;
-		}
-		render_setting_tooltip("Reserved quadrupole deformation parameter for future tidal and multipolar force models.");
-
-		float j2 = static_cast<float>(b.j2);
-		if (slider_float_with_input("Zonal J2 Moment", &j2, -1e-2f, 1e-2f, "%.6e")) {
-			b.j2 = static_cast<double>(j2);
-			changed = true;
-		}
-		render_setting_tooltip("Dominant oblateness harmonic coefficient, producing nodal precession on other bodies passing nearby.");
-
-		float j3 = static_cast<float>(b.j3);
-		if (slider_float_with_input("Zonal J3 Moment", &j3, -1e-3f, 1e-3f, "%.6e")) {
-			b.j3 = static_cast<double>(j3);
-			changed = true;
-		}
-		render_setting_tooltip("Third-degree zonal harmonic coefficient, primarily contributing a north-south asymmetric perturbation.");
-
-		float j4 = static_cast<float>(b.j4);
-		if (slider_float_with_input("Zonal J4 Moment", &j4, -1e-3f, 1e-3f, "%.6e")) {
-			b.j4 = static_cast<double>(j4);
-			changed = true;
-		}
-		render_setting_tooltip("Fourth-degree zonal harmonic coefficient, a smaller correction to the oblateness perturbation.");
-
-		{
-			const double body_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
-			double r_ref_m = b.reference_radius * body_r_ref_scale_m;
-			if (unit_aware_slider_double("Multipole Reference Radius", &r_ref_m, 0.001 * body_r_ref_scale_m, 1.0e5 * body_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &selected_r_ref_log_mode_, 1e-6 * body_r_ref_scale_m, 1e12 * body_r_ref_scale_m)) {
-				b.reference_radius = std::max(1e-6, r_ref_m / body_r_ref_scale_m);
-				changed = true;
-			}
-		}
-		render_setting_tooltip(("Reference radius, displayed in " + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ", at which the zonal harmonic coefficients above are defined, typically the body's equatorial radius.").c_str());
-
-		if (ImGui::CollapsingHeader("Material, Thermal & Electromagnetic Properties")) {
-			double charge_disp = static_cast<double>(b.charge);
-			if (unit_aware_slider_double("Charge", &charge_disp, -10.0, 10.0, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.4e")) { b.charge = static_cast<float>(charge_disp); changed = true; }
-			render_setting_tooltip(("Charge, displayed in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) + ".").c_str());
-			float magnetic = static_cast<float>(b.magnetic_moment);
-			if (slider_float_with_input("Magnetic Moment", &magnetic, 1e-6f, 1.0e6f, "%.4e", &selected_magnetic_moment_log_mode_, 1e-9f, 1e9f)) { b.magnetic_moment = magnetic; changed = true; }
-			double rotation_disp = static_cast<double>(b.rotation_speed);
-			if (unit_aware_slider_double("Rotation Speed", &rotation_disp, 1e-6, 1.0e6, UnitCategory::AngularVelocity, orchestrator_.unit_preferences(), "%.4e", &selected_rotation_speed_log_mode_, 1e-9, 1e9)) { b.rotation_speed = static_cast<float>(rotation_disp); changed = true; }
-			float friction = static_cast<float>(b.friction_coefficient);
-			if (slider_float_with_input("Friction Coefficient", &friction, 0.0f, 1.0f, "%.3f")) { b.friction_coefficient = friction; changed = true; }
-			float restitution = static_cast<float>(b.restitution);
-			if (slider_float_with_input("Restitution", &restitution, 0.0f, 1.0f, "%.3f")) { b.restitution = restitution; changed = true; }
-			float integrity = static_cast<float>(b.integrity);
-			if (slider_float_with_input("Integrity", &integrity, 0.0f, 1.0f, "%.3f")) { b.integrity = std::max(0.0, static_cast<double>(integrity)); changed = true; }
-			double lifetime_disp = static_cast<double>(b.lifetime);
-			if (unit_aware_slider_double("Lifetime", &lifetime_disp, 1e-6, 1.0e9, UnitCategory::Time, orchestrator_.unit_preferences(), "%.4e", &selected_lifetime_log_mode_, 1e-6, 1e12)) { b.lifetime = std::max(0.0, lifetime_disp); changed = true; }
-			double temperature_disp = static_cast<double>(b.temperature);
-			if (unit_aware_slider_double("Temperature", &temperature_disp, 0.0, 50000.0, UnitCategory::Temperature, orchestrator_.unit_preferences(), "%.2f")) { b.temperature = std::max(0.0, temperature_disp); changed = true; }
-			float heat_capacity = static_cast<float>(b.heat_capacity);
-			if (slider_float_with_input("Heat Capacity", &heat_capacity, 1e-6f, 1.0e9f, "%.4e", &selected_heat_capacity_log_mode_, 1e-6f, 1e12f)) { b.heat_capacity = std::max(0.0, static_cast<double>(heat_capacity)); changed = true; }
-			if (ImGui::ColorEdit4("Primary Color", b.color.data())) changed = true;
-			if (ImGui::ColorEdit4("Secondary Color", b.color_secondary.data())) changed = true;
-			char composition[32]{};
-			std::memcpy(composition, b.composition.data(), b.composition.size() - 1);
-			if (ImGui::InputText("Composition", composition, sizeof(composition))) { b.set_composition(composition); changed = true; }
-		}
-
-		if (ImGui::CollapsingHeader("3D Surface & Physics Rendering (Projection-Aware)")) {
-			const char* geom_models[] = {"Oblate Spheroid (Spin/J2 Deformed)", "Rigid Sphere"};
-			int geom_idx = static_cast<int>(b.geometry_model);
-			if (ImGui::Combo("3D Geometry Model", &geom_idx, geom_models, IM_ARRAYSIZE(geom_models))) {
-				b.geometry_model = static_cast<Dynamics::Body3DGeometryModel>(geom_idx);
-				changed = true;
-			}
-			render_setting_tooltip("Defines 3D geometry shape: Oblate Spheroid deforms dynamically based on spin and J2 quadrupole moment.");
-
-			const char* preset_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
-			int preset_idx = static_cast<int>(b.preset_3d);
-			if (ImGui::Combo("3D Surface Shader Preset", &preset_idx, preset_names, IM_ARRAYSIZE(preset_names))) {
-				apply_body_preset_defaults(b, static_cast<Dynamics::Body3DPreset>(preset_idx));
-				changed = true;
-			}
-			render_setting_tooltip("Selects the procedural 3D surface shader model applied during physical ray-tracing, and instantly applies a matched color palette, roughness, emission, and atmosphere profile for that body type.");
-
-			const char* tex_modes[] = {
-				"Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
-				"Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
-				"Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
-				"City Lights (Night Side)", "Nebulous Gas Cloud"
-			};
-			int tex_idx = static_cast<int>(b.surface_texture_mode);
-			if (ImGui::Combo("Surface Texture Mode", &tex_idx, tex_modes, IM_ARRAYSIZE(tex_modes))) {
-				b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(tex_idx);
-				changed = true;
-			}
-
-			const char* atmos_modes[] = {"Rayleigh Limb Shell (Rim Glow)", "Volumetric Scattering", "Off"};
-			ImGui::TextDisabled("%s", texture_mode_description(static_cast<uint32_t>(b.surface_texture_mode)));
-			int atmos_idx = static_cast<int>(b.atmosphere_mode);
-			if (ImGui::Combo("Atmosphere Scattering Mode", &atmos_idx, atmos_modes, IM_ARRAYSIZE(atmos_modes))) {
-				b.atmosphere_mode = static_cast<Dynamics::Body3DAtmosphereMode>(atmos_idx);
-				changed = true;
-			}
-
-			if (ImGui::SliderFloat("Surface Noise Scale", &b.surface_noise_scale, 0.5f, 20.0f, "%.2f")) changed = true;
-			if (ImGui::SliderFloat("Surface Roughness", &b.surface_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
-			if (ImGui::SliderFloat("Atmosphere Thickness", &b.atmosphere_thickness, 0.01f, 0.5f, "%.3f")) changed = true;
-			if (ImGui::ColorEdit4("Atmosphere Color", b.atmosphere_color.data())) changed = true;
-			if (ImGui::SliderFloat("Specular Roughness", &b.specular_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
-			if (ImGui::SliderFloat("Emission Intensity", &b.emission_intensity, 0.0f, 5.0f, "%.2f")) changed = true;
-			if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, 0.0f, 2.0f, "%.3f rad/s")) changed = true;
-			if (ImGui::ColorEdit4("Tertiary Surface Color", b.color_tertiary.data())) changed = true;
-			render_setting_tooltip("Third accent color used by Marbled, Ringed, Icy, Volcanic, and Nebulous texture modes for veins, polar caps, glow cracks, or cloud wisps.");
-			if (ImGui::SliderFloat("Texture Detail Scale", &b.texture_detail_scale, 0.1f, 5.0f, "%.2fx")) changed = true;
-			render_setting_tooltip("Multiplies the frequency of secondary surface patterns such as marble veining or gas giant banding.");
-			if (ImGui::SliderFloat("Polar Cap Strength", &b.polar_cap_strength, 0.0f, 1.0f, "%.2f")) changed = true;
-			render_setting_tooltip("Blends the tertiary color over the poles, used by Terrestrial and Ringed Gas Giant texture modes to depict ice caps or polar storm bands.");
-			if (ImGui::SliderFloat("Night Side City Lights", &b.night_side_light_intensity, 0.0f, 2.0f, "%.2f")) changed = true;
-			render_setting_tooltip("Adds a speckled glow on the unlit hemisphere, only visible with the City Lights (Night Side) texture mode.");
-			if (ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &b.ring_system_enabled)) changed = true;
-			render_setting_tooltip("Darkens a thin equatorial band on the Ringed Gas Giant texture mode to suggest a shadow cast by an orbiting ring plane.");
-		}
-
-		ImGui::Spacing();
-		if (ImGui::CollapsingHeader("Surface Texture Layers")) {
-			auto layer_set = orchestrator_.surface_layers().get(b.id);
-			if (render_surface_layer_editor(layer_set, "SelectedBodyLayers")) {
-				orchestrator_.surface_layers().set(b.id, layer_set);
-				changed = true;
-			}
-		}
-
-		const auto& prefs = orchestrator_.unit_preferences();
-		ImGui::Text("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * body_speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(b.kinetic_energy(), prefs.energy).c_str());
-
-		ImGui::Spacing();
-		if (ImGui::Button("Look At This Body", ImVec2(150.0f, 24.0f))) {
+		if (ImGui::Button("Look At", ImVec2(70.0f, 24.0f))) {
 			look_at(b.position);
 		}
 		render_setting_tooltip("Rotates the camera to face this body without moving the camera position.");
-
 		ImGui::SameLine();
-		if (ImGui::Button("Duplicate Body")) {
-			Dynamics::PostNewtonianBody clone = b;
-			clone.id = 0;
-			clone.set_name(unique_name(display_name(b)));
-			clone.position[0] += clone.radius * 4.0;
-			sys.add_body(clone);
-			if (!sys.bodies().empty()) {
-				orchestrator_.surface_layers().set(sys.bodies().back().id, orchestrator_.surface_layers().get(b.id));
-			}
-			changed = true;
+		bool tracking_this = tracking_enabled_ && tracked_body_id_ == static_cast<int>(body_id);
+		if (ImGui::Checkbox("Track", &tracking_this)) {
+			tracking_enabled_ = tracking_this;
+			tracked_body_id_ = tracking_this ? static_cast<int>(body_id) : -1;
 		}
-		render_setting_tooltip("Creates a copy of this body offset along X, keeping all physical parameters and the name.");
-
 		ImGui::SameLine();
-		if (ImGui::Button("Delete Body")) {
-			const uint32_t removed_body_id = b.id;
-			std::vector<Dynamics::PostNewtonianBody> updated;
-			for (size_t k = 0; k < n; ++k) {
-				if (k != index) {
-					updated.push_back(bodies[k]);
-				}
-			}
-			sys.clear_bodies();
-			for (auto& ub : updated) sys.add_body(ub);
-			orchestrator_.surface_layers().erase(removed_body_id);
-			selected_body_index_ = -1;
-			changed = true;
+		if (ImGui::Button("Duplicate", ImVec2(80.0f, 24.0f))) {
+			duplicate_requested = true;
+		}
+		render_setting_tooltip("Creates a copy of this body offset along X, keeping every physical parameter, the appearance and all texture layers.");
+		ImGui::SameLine();
+		if (ImGui::Button("Delete", ImVec2(70.0f, 24.0f))) {
+			remove_requested = true;
 		}
 		render_setting_tooltip("Permanently removes this body from the N-body system.");
+		ImGui::Separator();
 
-		if (changed) {
+		Dynamics::BodySurfaceLayerSet layers = orchestrator_.surface_layers().get(body_id);
+		const BodyEditResult result = render_body_editor(b, &layers, selected_view_, BodyEditorSection::Complete);
+		if (result.layers_changed) {
+			orchestrator_.surface_layers().set(body_id, layers);
+		}
+		if (result.body_changed || result.layers_changed) {
 			sys.update_accelerations();
 			orchestrator_.notify_state_changed();
 		}
+
+		if (duplicate_requested) {
+			Dynamics::PostNewtonianBody clone = b;
+			clone.position[0] += std::max(clone.radius, 1e-6) * 4.0;
+			selected_body_index_ = static_cast<int>(spawn_body(clone, layers));
+		} else if (remove_requested) {
+			remove_body_by_id(body_id);
+		}
+		ImGui::PopID();
 	}
 
-    [[nodiscard]] static const char* texture_mode_description(uint32_t mode) noexcept {
-        switch (mode) {
-            case 0U: return "Procedural noise: oceans below the noise threshold, land blended from primary to secondary color. Uses Noise Scale, Roughness and Texture Detail Scale.";
-            case 1U: return "Solid color: flat primary color. Layers, polar caps, city lights and ring band still apply on top.";
-            case 2U: return "Palette blend: smooth gradient primary, midpoint, secondary driven by noise. Uses Noise Scale and Texture Detail Scale.";
-            case 3U: return "Banded gas giant: latitude bands warped by noise between primary and secondary colors.";
-            case 4U: return "Cratered terrain: crater darkening and rims with secondary color speckle.";
-            case 5U: return "Stellar granulation: limb-darkened granular surface, strongly driven by Emission Intensity.";
-            case 6U: return "Accretion flow: hot streaks along longitude, driven by Emission Intensity and Noise Scale.";
-            case 7U: return "Marbled stone: primary/secondary base with tertiary color veins scaled by Texture Detail Scale.";
-            case 8U: return "Ringed gas giant: bands, tertiary polar caps and equatorial ring shadow driven by Polar Cap Strength and Ring System.";
-            case 9U: return "Icy cracked surface: secondary color cracks with tertiary color shimmer.";
-            case 10U: return "Volcanic magma: tertiary color glowing cracks over primary crust with secondary patches.";
-            case 11U: return "City lights: primary/secondary land with a speckled night side driven by Night Side City Lights.";
-            case 12U: return "Nebulous cloud: three-color wisps mixing primary, secondary and tertiary colors.";
-            default: return "Unknown texture mode.";
-        }
-    }
+	void render_creation_tab() noexcept {
+		ImGui::TextWrapped("Every property of a body is configured here with the same editor used for existing bodies, then spawned into the running system.");
 
-    [[nodiscard]] static Dynamics::Body3DSurfaceTextureMode default_texture_mode_for_preset(Dynamics::Body3DPreset preset) noexcept {
-        uint32_t mode = 0U;
-        switch (preset) {
-            case Dynamics::Body3DPreset::Star: mode = 5U; break;
-            case Dynamics::Body3DPreset::TerrestrialPlanet: mode = 0U; break;
-            case Dynamics::Body3DPreset::GasGiant: mode = 8U; break;
-            case Dynamics::Body3DPreset::IceGiant: mode = 9U; break;
-            case Dynamics::Body3DPreset::Metallic: mode = 4U; break;
-            case Dynamics::Body3DPreset::Asteroid: mode = 4U; break;
-            case Dynamics::Body3DPreset::NeutronStar: mode = 5U; break;
-            case Dynamics::Body3DPreset::Pulsar: mode = 5U; break;
-            case Dynamics::Body3DPreset::BlackHole: mode = 1U; break;
-            default: mode = 0U; break;
-        }
-        return static_cast<Dynamics::Body3DSurfaceTextureMode>(mode);
-    }
+		int template_idx = creation_preset_;
+		if (ImGui::Combo("Template Preset", &template_idx, kBodyTemplateNames.data(), static_cast<int>(kBodyTemplateNames.size()))) {
+			creation_preset_ = template_idx;
+			apply_template_preset(static_cast<BodyPresetTemplate>(creation_preset_));
+		}
+		render_setting_tooltip("Fills the draft with realistic physical values, appearance and texture layers for a known body type. Real-world values are converted to the active simulation units. Position and velocity are kept.");
 
-    [[nodiscard]] Dynamics::Body3DSurfaceTextureMode resolve_creation_texture_mode() const noexcept {
-        if (new_body_texture_choice_ <= 0) {
-            return default_texture_mode_for_preset(new_body_preset_3d_);
-        }
-        return static_cast<Dynamics::Body3DSurfaceTextureMode>(static_cast<uint32_t>(new_body_texture_choice_ - 1));
-    }
+		if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
+			randomize_creation_defaults();
+		}
+		render_setting_tooltip("Generates a coherent body profile by sampling correlated mass, radius, orbit, spin, multipoles, appearance and name.");
 
-    void render_creation_texture_mode_selector() noexcept {
-        static constexpr std::array<const char*, 14> options{
-            "Follow Surface Preset",
-            "Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
-            "Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
-            "Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
-            "City Lights (Night Side)", "Nebulous Gas Cloud"
-        };
-        ImGui::Combo("Surface Texture Mode", &new_body_texture_choice_, options.data(), static_cast<int>(options.size()));
-        render_setting_tooltip("Chooses the base procedural texture of the new body. Follow Surface Preset picks the texture matching the selected surface preset.");
-        const uint32_t effective_mode = (new_body_texture_choice_ <= 0)
-            ? static_cast<uint32_t>(default_texture_mode_for_preset(new_body_preset_3d_))
-            : static_cast<uint32_t>(new_body_texture_choice_ - 1);
-        ImGui::TextDisabled("%s", texture_mode_description(effective_mode));
-    }
+		{
+			auto& sys = orchestrator_.nbody_system();
+			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+			const Dynamics::PostNewtonianBody* selected = nullptr;
+			for (const auto& body : sys.bodies()) {
+				if (static_cast<int>(body.id) == selected_body_index_) {
+					selected = &body;
+					break;
+				}
+			}
+			ImGui::BeginDisabled(selected == nullptr);
+			if (ImGui::Button("Copy Settings From Selected Body", ImVec2(-1.0f, 24.0f)) && selected != nullptr) {
+				creation_layers_ = orchestrator_.surface_layers().get(selected->id);
+				creation_draft_ = *selected;
+				creation_draft_.id = 0;
+				creation_draft_.acceleration = {0.0, 0.0, 0.0};
+				creation_draft_.set_name(unique_name(display_name(*selected)));
+				creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
+			}
+			ImGui::EndDisabled();
+			render_setting_tooltip("Loads every property, the appearance and all texture layers of the body selected in the catalog into the draft.");
+		}
 
-    [[nodiscard]] bool render_surface_layer_editor(Dynamics::BodySurfaceLayerSet& set, const char* scope) noexcept {
-        bool edited = false;
-        const bool full = set.count >= Render::kMaxSurfaceLayers;
-        ImGui::PushID(scope);
-        ImGui::TextDisabled("Layers: %u / %zu (drawn first to last, on top of the base texture)", set.count, Render::kMaxSurfaceLayers);
-        ImGui::SetNextItemWidth(220.0f);
-        ImGui::Combo("Template", &new_layer_template_choice_, Dynamics::kSurfaceLayerTemplateNames.data(), static_cast<int>(Dynamics::kSurfaceLayerTemplateNames.size()));
-        if (full) ImGui::BeginDisabled(true);
-        if (ImGui::Button("Add Template Layer", ImVec2(160.0f, 24.0f))) {
-            edited = set.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(new_layer_template_choice_))) || edited;
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Add Blank Layer", ImVec2(140.0f, 24.0f))) {
-            edited = set.add(Dynamics::SurfaceLayerDefinition{}) || edited;
-        }
-        if (full) ImGui::EndDisabled();
-        render_setting_tooltip("Adds a procedural texture layer blended over the base surface. Each layer has its own pattern, blend mode, region mask, color, scale, drift and emission.");
+		ImGui::Separator();
+		ImGui::PushID("BodyCreationEditor");
+		static_cast<void>(render_body_editor(creation_draft_, &creation_layers_, creation_view_, BodyEditorSection::Complete));
+		ImGui::PopID();
 
-        int remove_index = -1;
-        int move_index = -1;
-        int move_delta = 0;
-        for (uint32_t i = 0; i < set.count; ++i) {
-            auto& layer = set.layers[i];
-            ImGui::PushID(static_cast<int>(i));
-            const std::string header = std::to_string(i + 1U) + ". " + Dynamics::kSurfaceLayerPatternNames[static_cast<size_t>(layer.pattern)] + " - " + Dynamics::kSurfaceLayerMaskNames[static_cast<size_t>(layer.mask)] + "###surface_layer_header";
-            if (ImGui::CollapsingHeader(header.c_str())) {
-                if (ImGui::Checkbox("Enabled", &layer.enabled)) edited = true;
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Move Up")) { move_index = static_cast<int>(i); move_delta = -1; }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Move Down")) { move_index = static_cast<int>(i); move_delta = 1; }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Remove")) { remove_index = static_cast<int>(i); }
-
-                int pattern_idx = static_cast<int>(layer.pattern);
-                if (ImGui::Combo("Pattern", &pattern_idx, Dynamics::kSurfaceLayerPatternNames.data(), static_cast<int>(Dynamics::kSurfaceLayerPatternNames.size()))) {
-                    layer.pattern = static_cast<Render::SurfaceLayerPattern>(pattern_idx);
-                    edited = true;
-                }
-                int blend_idx = static_cast<int>(layer.blend);
-                if (ImGui::Combo("Blend Mode", &blend_idx, Dynamics::kSurfaceLayerBlendNames.data(), static_cast<int>(Dynamics::kSurfaceLayerBlendNames.size()))) {
-                    layer.blend = static_cast<Render::SurfaceLayerBlend>(blend_idx);
-                    edited = true;
-                }
-                int mask_idx = static_cast<int>(layer.mask);
-                if (ImGui::Combo("Region Mask", &mask_idx, Dynamics::kSurfaceLayerMaskNames.data(), static_cast<int>(Dynamics::kSurfaceLayerMaskNames.size()))) {
-                    layer.mask = static_cast<Render::SurfaceLayerMask>(mask_idx);
-                    edited = true;
-                }
-                if (ImGui::ColorEdit3("Layer Color", layer.color.data())) edited = true;
-                if (ImGui::SliderFloat("Opacity", &layer.opacity, 0.0f, 1.0f, "%.2f")) edited = true;
-                if (ImGui::SliderFloat("Pattern Scale", &layer.scale, 0.5f, 30.0f, "%.2f")) edited = true;
-                if (ImGui::SliderFloat("Contrast", &layer.contrast, 0.2f, 4.0f, "%.2f")) edited = true;
-                if (ImGui::SliderFloat("Threshold", &layer.threshold, 0.0f, 0.95f, "%.2f")) edited = true;
-                if (ImGui::SliderFloat("Edge Softness", &layer.softness, 0.01f, 1.0f, "%.2f")) edited = true;
-                if (layer.mask != Render::SurfaceLayerMask::Global) {
-                    if (ImGui::SliderFloat("Mask Width", &layer.mask_width, 0.05f, 1.0f, "%.2f")) edited = true;
-                }
-                if (ImGui::SliderFloat("Drift Speed", &layer.rotation_factor, -2.0f, 2.0f, "%.2f")) edited = true;
-                if (ImGui::SliderFloat("Emission", &layer.emission, 0.0f, 4.0f, "%.2f")) edited = true;
-                int octave_value = static_cast<int>(layer.octaves);
-                if (ImGui::SliderInt("Detail Octaves", &octave_value, 1, 6)) {
-                    layer.octaves = static_cast<uint32_t>(octave_value);
-                    edited = true;
-                }
-                int seed_value = static_cast<int>(layer.seed);
-                if (ImGui::InputInt("Seed", &seed_value)) {
-                    layer.seed = static_cast<uint32_t>(std::max(seed_value, 0));
-                    edited = true;
-                }
-            }
-            ImGui::PopID();
-        }
-
-        if (move_index >= 0) {
-            edited = set.move(static_cast<uint32_t>(move_index), move_delta) || edited;
-        }
-        if (remove_index >= 0) {
-            edited = set.remove(static_cast<uint32_t>(remove_index)) || edited;
-        }
-        ImGui::PopID();
-        return edited;
-    }
-
-    void render_creation_tab() noexcept {
-        if (ImGui::CollapsingHeader("Body Blueprint & Initial State", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Defines the body's identity, mass scale, initial orbit, and starting motion. Presets remain unchanged; this only groups the existing inputs more clearly.");
-
-            const char* preset_names[] = {
-                "Custom Body",
-                "Sun (Solar Mass & Radius)",
-                "Earth (Terrestrial Planet)",
-                "Moon (Natural Satellite)",
-                "Jupiter (Gas Giant)",
-                "Mars (Telluric Planet)",
-                "Neutron Star (Compact)",
-                "Supermassive Black Hole",
-                "Stellar Mass Black Hole",
-                "Test Particle (Zero Mass)"
-            };
-
-            if (ImGui::Combo("Template Preset", &creation_preset_, preset_names, IM_ARRAYSIZE(preset_names))) {
-                apply_template_preset(static_cast<BodyPresetTemplate>(creation_preset_));
-            }
-            render_setting_tooltip("Fills the fields below with realistic physical parameters for a known body type. Position, velocity, and name are left for you to set.");
-
-            ImGui::Separator();
-            ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
-            render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
-
-            {
-                const double creation_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
-                double new_body_mass_kg = static_cast<double>(new_body_mass_) * creation_mass_scale_kg;
-                if (unit_aware_slider_double("Mass", &new_body_mass_kg, 0.001 * creation_mass_scale_kg, 1.0e6 * creation_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &new_body_mass_log_mode_, 1e-12 * creation_mass_scale_kg, 1e36 * creation_mass_scale_kg)) {
-                    new_body_mass_ = static_cast<float>(new_body_mass_kg / creation_mass_scale_kg);
-                    if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-                        const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-                        std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-                        new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-                    }
-                }
-            }
-            {
-                const double creation_length_scale_m = orchestrator_.constants_engine().length_scale();
-                double new_body_radius_m = static_cast<double>(new_body_radius_) * creation_length_scale_m;
-                if (unit_aware_slider_double("Physical Radius", &new_body_radius_m, 0.001 * creation_length_scale_m, 1.0e5 * creation_length_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_radius_log_mode_, 1e-6 * creation_length_scale_m, 1e12 * creation_length_scale_m)) {
-                    new_body_radius_ = static_cast<float>(new_body_radius_m / creation_length_scale_m);
-                    if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-                        const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-                        std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-                        new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-                    }
-                }
-            }
-
-            static_cast<void>(unit_aware_input_float3("Initial Position (x, y, z)", new_body_pos_, UnitCategory::Distance, orchestrator_.unit_preferences()));
-            static_cast<void>(unit_aware_input_float3("Initial Velocity (vx, vy, vz)", new_body_vel_, UnitCategory::Velocity, orchestrator_.unit_preferences()));
-            ImGui::InputFloat3("Initial Spin Vector", new_body_spin_);
-
-            if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
-                randomize_creation_defaults();
-            }
-            render_setting_tooltip("Generates a more varied body profile by sampling correlated mass, radius, orbit, spin, and multipole defaults. The name is refreshed with a more descriptive catalog-style label.");
-
-            if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-                const std::array<double, 3> pos{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])};
-                const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass);
-                new_body_vel_[0] = static_cast<float>(v[0]);
-                new_body_vel_[1] = static_cast<float>(v[1]);
-                new_body_vel_[2] = static_cast<float>(v[2]);
-            }
-            render_setting_tooltip("Computes the Keplerian circular-orbit velocity for the position entered above and writes it into the velocity fields.");
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::CollapsingHeader("3D Surface Preset & Atmosphere", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Selects the renderer-facing surface family and atmosphere model used once the body is spawned.");
-
-            const char* preset_3d_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
-            int preset_3d_idx = static_cast<int>(new_body_preset_3d_);
-            if (ImGui::Combo("Surface Preset", &preset_3d_idx, preset_3d_names, IM_ARRAYSIZE(preset_3d_names))) {
-                new_body_preset_3d_ = static_cast<Dynamics::Body3DPreset>(preset_3d_idx);
-            }
-            render_setting_tooltip("Determines the procedural surface shader family applied when this body is ray-traced: granulation and limb darkening for stars, continents and oceans for terrestrial worlds, latitude bands for gas giants, crater relief for metallic bodies, and polar emission caps for compact remnants.");
-
-            const char* atmosphere_mode_names[] = {"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"};
-            int atmosphere_mode_idx = static_cast<int>(new_body_atmosphere_mode_);
-            if (ImGui::Combo("Atmosphere Mode", &atmosphere_mode_idx, atmosphere_mode_names, IM_ARRAYSIZE(atmosphere_mode_names))) {
-                new_body_atmosphere_mode_ = static_cast<Dynamics::Body3DAtmosphereMode>(atmosphere_mode_idx);
-            }
-            render_setting_tooltip("Controls the rim-lit atmospheric glow drawn around this body's silhouette. Off disables the effect entirely; the other modes trade rendering cost for visual richness.");
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::CollapsingHeader("Procedural Surface Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Controls the detailed colors and shader parameters used by the 3D ray-tracing pipeline.");
-            render_creation_texture_mode_selector();
-            ImGui::ColorEdit4("Primary Surface Color", new_body_color_);
-            ImGui::ColorEdit4("Secondary Surface Color", new_body_color_secondary_);
-            ImGui::SliderFloat("Surface Noise Scale", &new_body_noise_scale_, 0.5f, 20.0f, "%.2f");
-            ImGui::SliderFloat("Surface Roughness", &new_body_surface_roughness_, 0.05f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Atmosphere Thickness", &new_body_atmosphere_thickness_, 0.0f, 0.5f, "%.3f");
-            ImGui::SliderFloat("Emission Intensity", &new_body_emission_intensity_, 0.0f, 5.0f, "%.2f");
-            ImGui::SliderFloat("3D Rotation Speed", &new_body_rotation_speed_3d_, 0.0f, 2.0f, "%.3f rad/s");
-            ImGui::ColorEdit4("Tertiary Surface Color", new_body_color_tertiary_);
-            ImGui::SliderFloat("Texture Detail Scale", &new_body_texture_detail_scale_, 0.1f, 5.0f, "%.2fx");
-            render_setting_tooltip("Multiplies the frequency of secondary surface patterns such as marble veining or gas giant banding.");
-            ImGui::SliderFloat("Polar Cap Strength", &new_body_polar_cap_strength_, 0.0f, 1.0f, "%.2f");
-            render_setting_tooltip("Blends the tertiary color over the poles, used by Terrestrial and Ringed Gas Giant texture modes to depict ice caps or polar storm bands.");
-            ImGui::SliderFloat("Night Side City Lights", &new_body_night_side_light_intensity_, 0.0f, 2.0f, "%.2f");
-            render_setting_tooltip("Adds a speckled glow on the unlit hemisphere, only visible with the City Lights (Night Side) texture mode.");
-            ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &new_body_ring_system_enabled_);
-            render_setting_tooltip("Darkens a thin equatorial band on the Ringed Gas Giant texture mode to suggest a shadow cast by an orbiting ring plane.");
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::CollapsingHeader("Surface Texture Layers", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Stack extra procedural layers over the base texture. Layers can target polar caps, bands, hemispheres or the day and night sides.");
-            static_cast<void>(render_surface_layer_editor(new_body_layers_, "CreationBodyLayers"));
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::CollapsingHeader("Gravitational Multipole Data", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Defines the higher-order gravitational moments used when this body perturbs other bodies.");
-
-            ImGui::TextDisabled("Gravitational Multipolar Moments:");
-            slider_float_with_input("Quadrupole Moment (Q)", &new_body_quadrupole_, -1e-2f, 1e-2f, "%.6e");
-            slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
-            slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
-            slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
-            {
-                const double creation_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
-                double new_body_r_ref_m = static_cast<double>(new_body_r_ref_) * creation_r_ref_scale_m;
-                if (unit_aware_slider_double("Reference Radius", &new_body_r_ref_m, 0.001 * creation_r_ref_scale_m, 1.0e5 * creation_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_r_ref_log_mode_, 1e-6 * creation_r_ref_scale_m, 1e12 * creation_r_ref_scale_m)) {
-                    new_body_r_ref_ = static_cast<float>(new_body_r_ref_m / creation_r_ref_scale_m);
-                }
-            }
-            render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::CollapsingHeader("Spacetime Source", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextWrapped("Enables spawning this body as an independent black hole that participates fully in N-body dynamics.");
-            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Spacetime Source:");
-            ImGui::Checkbox("Spawn As Independent Black Hole (Spacetime Source)", &new_body_is_spacetime_source_);
-            render_setting_tooltip("Creates this body as its own gravitating compact object with a Kerr-derived event horizon, participating fully in N-body dynamics alongside the primary central object. Multiple spacetime sources gravitationally interact, can merge with each other, and can absorb ordinary bodies that cross their horizon. Enabling this automatically applies the Black Hole surface preset.");
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
-            auto& sys = orchestrator_.nbody_system();
-            Dynamics::PostNewtonianBody body(
-                0,
-                static_cast<double>(new_body_mass_),
-                static_cast<double>(new_body_radius_),
-                {static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])},
-                {static_cast<double>(new_body_vel_[0]), static_cast<double>(new_body_vel_[1]), static_cast<double>(new_body_vel_[2])},
-                {static_cast<double>(new_body_spin_[0]), static_cast<double>(new_body_spin_[1]), static_cast<double>(new_body_spin_[2])},
-                static_cast<double>(new_body_quadrupole_),
-                static_cast<double>(new_body_j2_),
-                static_cast<double>(new_body_j3_),
-                static_cast<double>(new_body_j4_),
-                static_cast<double>(new_body_r_ref_)
-            );
-            body.set_name(unique_name(std::string_view(new_body_name_)));
-            body.preset_3d = new_body_preset_3d_;
-            body.surface_texture_mode = resolve_creation_texture_mode();
-            body.atmosphere_mode = new_body_atmosphere_mode_;
-            body.color = {new_body_color_[0], new_body_color_[1], new_body_color_[2], new_body_color_[3]};
-            body.color_secondary = {new_body_color_secondary_[0], new_body_color_secondary_[1], new_body_color_secondary_[2], new_body_color_secondary_[3]};
-            body.surface_noise_scale = new_body_noise_scale_;
-            body.surface_roughness = new_body_surface_roughness_;
-            body.atmosphere_thickness = new_body_atmosphere_thickness_;
-            body.emission_intensity = new_body_emission_intensity_;
-            body.rotation_speed_3d = new_body_rotation_speed_3d_;
-            body.color_tertiary = {new_body_color_tertiary_[0], new_body_color_tertiary_[1], new_body_color_tertiary_[2], new_body_color_tertiary_[3]};
-            body.texture_detail_scale = new_body_texture_detail_scale_;
-            body.polar_cap_strength = new_body_polar_cap_strength_;
-            body.night_side_light_intensity = new_body_night_side_light_intensity_;
-            body.ring_system_enabled = new_body_ring_system_enabled_;
-            body.is_spacetime_source = new_body_is_spacetime_source_;
-            if (new_body_is_spacetime_source_) {
-                apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
-            }
-
-            sys.add_body(body);
-            sys.update_accelerations();
-            if (!sys.bodies().empty()) {
-                orchestrator_.surface_layers().set(sys.bodies().back().id, new_body_layers_);
-            }
-            selected_body_index_ = static_cast<int>(sys.body_count() - 1);
-            orchestrator_.notify_state_changed();
-            randomize_creation_defaults();
-        }
-        render_setting_tooltip("Adds the configured body to the running N-body system and selects it in the catalog.");
-    }
+		ImGui::Separator();
+		ImGui::Checkbox("Randomize Draft After Spawn", &randomize_after_spawn_);
+		render_setting_tooltip("When enabled, a new random draft is generated after each spawn. When disabled, the draft is kept so several similar bodies can be spawned in a row.");
+		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
+			const uint32_t new_id = spawn_body(creation_draft_, creation_layers_);
+			selected_body_index_ = static_cast<int>(new_id);
+			if (randomize_after_spawn_) {
+				randomize_creation_defaults();
+			} else {
+				creation_draft_.set_name(unique_name(display_name(creation_draft_)));
+			}
+		}
+		render_setting_tooltip("Adds the configured body, with its full appearance and texture layers, to the running N-body system and selects it in the catalog.");
+	}
 
 	void render_spacetime_sources_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();
@@ -1581,30 +1541,15 @@ private:
 		ImGui::TextWrapped("Each entry below is a fully gravitating Kerr spacetime source participating in N-body dynamics: it attracts and is attracted by every other body, can orbit or drift freely, merges with other black holes on contact, and absorbs ordinary bodies crossing its horizon.");
 
 		bool any_source = false;
-		int source_to_delete = -1;
+		bool delete_requested = false;
+		uint32_t delete_id = 0;
 		for (auto& body : sys.bodies()) {
 			if (!body.is_spacetime_source) continue;
 			any_source = true;
 			ImGui::PushID(static_cast<int>(body.id) + 500000);
-			const std::string header = display_name(body) + " (#" + std::to_string(body.id) + ")";
+			const std::string header = display_name(body) + " (#" + std::to_string(body.id) + ")###source_header";
 			if (ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-				bool changed = false;
-				float mass = static_cast<float>(body.mass);
-				if (slider_float_with_input("Mass", &mass, 1e-6f, 1.0e8f, "%.4e")) { body.mass = std::max(0.0f, mass); changed = true; }
-				float spin_vec[3] = {static_cast<float>(body.spin[0]), static_cast<float>(body.spin[1]), static_cast<float>(body.spin[2])};
-				if (ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)", spin_vec)) { body.spin = {static_cast<double>(spin_vec[0]), static_cast<double>(spin_vec[1]), static_cast<double>(spin_vec[2])}; changed = true; }
-				ImGui::TextDisabled("Dimensionless spin a/M = %.4f | Outer Horizon r_h = %.4f", body.kerr_spin_parameter(), body.kerr_outer_horizon_radius());
-				float charge = static_cast<float>(body.charge);
-				if (slider_float_with_input("Charge", &charge, -10.0f, 10.0f, "%.4e")) { body.charge = static_cast<double>(charge); changed = true; }
-				float pos[3] = {static_cast<float>(body.position[0]), static_cast<float>(body.position[1]), static_cast<float>(body.position[2])};
-				if (ImGui::InputFloat3("Position (x, y, z)", pos)) { body.position = {static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2])}; changed = true; }
-				float vel[3] = {static_cast<float>(body.velocity[0]), static_cast<float>(body.velocity[1]), static_cast<float>(body.velocity[2])};
-				if (ImGui::InputFloat3("Velocity (vx, vy, vz)", vel)) { body.velocity = {static_cast<double>(vel[0]), static_cast<double>(vel[1]), static_cast<double>(vel[2])}; changed = true; }
-				if (ImGui::Button("Set Circular Orbit Velocity")) {
-					body.velocity = compute_circular_orbit_velocity(body.position, orchestrator_.parameters().mass);
-					changed = true;
-				}
-				ImGui::SameLine();
+				bool changed = render_body_editor(body, nullptr, source_view_, BodyEditorSection::SpacetimeSource).body_changed;
 				if (ImGui::Button("Look At")) {
 					look_at(body.position);
 				}
@@ -1614,6 +1559,7 @@ private:
 					tracking_enabled_ = tracking_this;
 					tracked_body_id_ = tracking_this ? static_cast<int>(body.id) : -1;
 				}
+				ImGui::SameLine();
 				if (ImGui::Button("Revert To Ordinary Body")) {
 					body.is_spacetime_source = false;
 					apply_body_preset_defaults(body, Dynamics::Body3DPreset::Metallic);
@@ -1622,9 +1568,11 @@ private:
 				render_setting_tooltip("Removes this body's gravitating-source status; it becomes an ordinary body without its own event horizon, no longer able to absorb or merge with other bodies.");
 				ImGui::SameLine();
 				if (ImGui::Button("Delete This Black Hole")) {
-					source_to_delete = static_cast<int>(body.id);
+					delete_requested = true;
+					delete_id = body.id;
 				}
 				if (changed) {
+					sys.update_accelerations();
 					orchestrator_.notify_state_changed();
 				}
 			}
@@ -1633,55 +1581,22 @@ private:
 		if (!any_source) {
 			ImGui::TextDisabled("No independent black holes yet. Create one below.");
 		}
-		if (source_to_delete >= 0) {
-			std::vector<Dynamics::PostNewtonianBody> survivors;
-			for (const auto& b : sys.bodies()) {
-				if (static_cast<int>(b.id) != source_to_delete) survivors.push_back(b);
-			}
-			sys.clear_bodies();
-			for (auto& b : survivors) sys.add_body(b);
-			sys.update_accelerations();
-			orchestrator_.notify_state_changed();
+		if (delete_requested) {
+			remove_body_by_id(delete_id);
 		}
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Create New Black Hole");
-		ImGui::InputText("Name", new_bh_name_, sizeof(new_bh_name_));
-		slider_float_with_input("Mass", &new_bh_mass_, 1e-3f, 1.0e8f, "%.4e", &new_bh_mass_log_mode_, 1e-9f, 1e12f);
-		ImGui::InputFloat3("Spin Vector (Sx, Sy, Sz)", new_bh_spin_);
-		slider_float_with_input("Charge", &new_bh_charge_, -10.0f, 10.0f, "%.4e");
-		ImGui::InputFloat3("Position (x, y, z)", new_bh_pos_);
-		ImGui::InputFloat3("Velocity (vx, vy, vz)", new_bh_vel_);
-		if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-			const std::array<double, 3> pos{static_cast<double>(new_bh_pos_[0]), static_cast<double>(new_bh_pos_[1]), static_cast<double>(new_bh_pos_[2])};
-			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass + static_cast<double>(new_bh_mass_));
-			new_bh_vel_[0] = static_cast<float>(v[0]);
-			new_bh_vel_[1] = static_cast<float>(v[1]);
-			new_bh_vel_[2] = static_cast<float>(v[2]);
-		}
-		render_setting_tooltip("Computes the Keplerian circular-orbit velocity for the position above, treating the combined primary and new black hole mass as the effective central mass.");
+		ImGui::PushID("BlackHoleCreationEditor");
+		static_cast<void>(render_body_editor(black_hole_draft_, nullptr, source_view_, BodyEditorSection::SpacetimeSource));
+		ImGui::PopID();
 		if (ImGui::Button("Spawn Black Hole", ImVec2(-1.0f, 30.0f))) {
-			Dynamics::PostNewtonianBody body(
-				0,
-				static_cast<double>(new_bh_mass_),
-				static_cast<double>(new_bh_mass_) * 2.0,
-				{static_cast<double>(new_bh_pos_[0]), static_cast<double>(new_bh_pos_[1]), static_cast<double>(new_bh_pos_[2])},
-				{static_cast<double>(new_bh_vel_[0]), static_cast<double>(new_bh_vel_[1]), static_cast<double>(new_bh_vel_[2])},
-				{static_cast<double>(new_bh_spin_[0]), static_cast<double>(new_bh_spin_[1]), static_cast<double>(new_bh_spin_[2])}
-			);
-			body.set_name(unique_name(std::string_view(new_bh_name_)));
-			body.charge = static_cast<double>(new_bh_charge_);
-			body.is_spacetime_source = true;
-			apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
-			sys.add_body(body);
-			sys.update_accelerations();
+			black_hole_draft_.is_spacetime_source = true;
+			static_cast<void>(spawn_body(black_hole_draft_, Dynamics::BodySurfaceLayerSet{}));
 			selected_body_index_ = -1;
-			orchestrator_.notify_state_changed();
-			const std::string refreshed_name = unique_name("New Black Hole");
-			std::strncpy(new_bh_name_, refreshed_name.c_str(), sizeof(new_bh_name_) - 1);
-			new_bh_name_[sizeof(new_bh_name_) - 1] = '\0';
+			reset_black_hole_draft();
 		}
-		render_setting_tooltip("Adds a fully N-body integrated independent black hole with its own Kerr event horizon to the running simulation, using the mass, spin, charge, position, and velocity configured above.");
+		render_setting_tooltip("Adds a fully N-body integrated independent black hole with its own Kerr event horizon to the running simulation, using the mass, spin, charge, position and velocity configured above.");
 
 		ImGui::Spacing();
 		if (ImGui::Button("Spawn Companion In Wide Circular Orbit (Randomized)", ImVec2(-1.0f, 26.0f))) {
@@ -1805,7 +1720,7 @@ private:
 				ImGui::PopID();
 			}
 			if (!any_source) {
-				ImGui::TextDisabled("No independent spacetime sources yet. Create one from the Create Body tab and enable 'Spawn As Independent Black Hole'.");
+				ImGui::TextDisabled("No independent spacetime sources yet. Create one from the Spacetime Sources tab or enable the Spacetime Source option on any body.");
 			}
 			render_setting_tooltip("Bodies flagged as spacetime sources are fully integrated N-body gravitating objects with their own Kerr event horizon. They attract and are attracted by every other body and each other, merge with each other on contact, and absorb ordinary bodies crossing their horizon, letting several black holes coexist and orbit within the same simulation.");
 
@@ -2015,177 +1930,7 @@ private:
 		}
 	}
 
-	void apply_template_preset(BodyPresetTemplate preset) noexcept {
-		new_body_color_tertiary_[0] = 0.9f; new_body_color_tertiary_[1] = 0.85f; new_body_color_tertiary_[2] = 0.6f; new_body_color_tertiary_[3] = 1.0f;
-		new_body_texture_detail_scale_ = 1.0f;
-		new_body_polar_cap_strength_ = 0.0f;
-		new_body_night_side_light_intensity_ = 0.0f;
-		new_body_ring_system_enabled_ = false;
-		switch (preset) {
-			case BodyPresetTemplate::Sun:
-				std::strncpy(new_body_name_, "Sun", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 1.98847e30f;
-				new_body_radius_ = 6.9634e8f;
-				new_body_j2_ = 2.2e-7f;
-				new_body_r_ref_ = 6.9634e8f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Star;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::GlowingCorona;
-				new_body_color_[0] = 1.0f; new_body_color_[1] = 0.85f; new_body_color_[2] = 0.5f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 1.0f; new_body_color_secondary_[1] = 0.55f; new_body_color_secondary_[2] = 0.15f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 8.0f;
-				new_body_surface_roughness_ = 0.6f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 2.5f;
-				new_body_rotation_speed_3d_ = 0.05f;
-				break;
-			case BodyPresetTemplate::Earth:
-				std::strncpy(new_body_name_, "Earth", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 5.9722e24f;
-				new_body_radius_ = 6.378137e6f;
-				new_body_j2_ = 1.08263e-3f;
-				new_body_r_ref_ = 6.378137e6f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
-				new_body_color_[0] = 0.10f; new_body_color_[1] = 0.35f; new_body_color_[2] = 0.65f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.20f; new_body_color_secondary_[1] = 0.50f; new_body_color_secondary_[2] = 0.22f; new_body_color_secondary_[3] = 1.0f;
-				new_body_color_tertiary_[0] = 0.95f; new_body_color_tertiary_[1] = 0.95f; new_body_color_tertiary_[2] = 0.98f; new_body_color_tertiary_[3] = 1.0f;
-				new_body_noise_scale_ = 5.0f;
-				new_body_surface_roughness_ = 0.45f;
-				new_body_atmosphere_thickness_ = 0.18f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.12f;
-				new_body_polar_cap_strength_ = 0.45f;
-				new_body_night_side_light_intensity_ = 0.4f;
-				break;
-			case BodyPresetTemplate::Moon:
-				std::strncpy(new_body_name_, "Moon", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 7.342e22f;
-				new_body_radius_ = 1.7374e6f;
-				new_body_j2_ = 2.0335e-4f;
-				new_body_r_ref_ = 1.7374e6f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Metallic;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				new_body_color_[0] = 0.55f; new_body_color_[1] = 0.55f; new_body_color_[2] = 0.58f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.32f; new_body_color_secondary_[1] = 0.32f; new_body_color_secondary_[2] = 0.35f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 7.0f;
-				new_body_surface_roughness_ = 0.75f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.03f;
-				break;
-			case BodyPresetTemplate::Jupiter:
-				std::strncpy(new_body_name_, "Jupiter", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 1.89813e27f;
-				new_body_radius_ = 7.1492e7f;
-				new_body_j2_ = 1.469657e-2f;
-				new_body_j4_ = -5.86609e-4f;
-				new_body_r_ref_ = 7.1492e7f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::GasGiant;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::ThickHaze;
-				new_body_color_[0] = 0.82f; new_body_color_[1] = 0.65f; new_body_color_[2] = 0.45f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.62f; new_body_color_secondary_[1] = 0.40f; new_body_color_secondary_[2] = 0.24f; new_body_color_secondary_[3] = 1.0f;
-				new_body_color_tertiary_[0] = 0.92f; new_body_color_tertiary_[1] = 0.85f; new_body_color_tertiary_[2] = 0.75f; new_body_color_tertiary_[3] = 1.0f;
-				new_body_noise_scale_ = 3.5f;
-				new_body_surface_roughness_ = 0.3f;
-				new_body_atmosphere_thickness_ = 0.32f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.35f;
-				new_body_polar_cap_strength_ = 0.2f;
-				new_body_ring_system_enabled_ = true;
-				break;
-			case BodyPresetTemplate::Mars:
-				std::strncpy(new_body_name_, "Mars", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 6.4171e23f;
-				new_body_radius_ = 3.3895e6f;
-				new_body_j2_ = 1.96045e-3f;
-				new_body_r_ref_ = 3.3895e6f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::TerrestrialPlanet;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::RayleighLimbShell;
-				new_body_color_[0] = 0.72f; new_body_color_[1] = 0.35f; new_body_color_[2] = 0.20f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.48f; new_body_color_secondary_[1] = 0.24f; new_body_color_secondary_[2] = 0.15f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 6.0f;
-				new_body_surface_roughness_ = 0.65f;
-				new_body_atmosphere_thickness_ = 0.05f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.11f;
-				break;
-			case BodyPresetTemplate::NeutronStar:
-				std::strncpy(new_body_name_, "Neutron Star", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 2.8e30f;
-				new_body_radius_ = 12000.0f;
-				new_body_j2_ = 0.0f;
-				new_body_r_ref_ = 12000.0f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::NeutronStar;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				new_body_color_[0] = 0.85f; new_body_color_[1] = 0.90f; new_body_color_[2] = 1.0f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.55f; new_body_color_secondary_[1] = 0.72f; new_body_color_secondary_[2] = 1.0f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 1.5f;
-				new_body_surface_roughness_ = 0.15f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 3.0f;
-				new_body_rotation_speed_3d_ = 1.8f;
-				break;
-			case BodyPresetTemplate::SupermassiveBlackHole:
-				std::strncpy(new_body_name_, "Supermassive BH", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 8.0e36f;
-				new_body_radius_ = 1.2e10f;
-				new_body_j2_ = 0.0f;
-				new_body_r_ref_ = 1.2e10f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				new_body_color_[0] = 0.02f; new_body_color_[1] = 0.02f; new_body_color_[2] = 0.03f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.06f; new_body_color_secondary_[1] = 0.05f; new_body_color_secondary_[2] = 0.08f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 1.0f;
-				new_body_surface_roughness_ = 0.1f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.0f;
-				break;
-			case BodyPresetTemplate::StellarBlackHole:
-				std::strncpy(new_body_name_, "Stellar Black Hole", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 2.0e31f;
-				new_body_radius_ = 30000.0f;
-				new_body_j2_ = 0.0f;
-				new_body_r_ref_ = 30000.0f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::BlackHole;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				new_body_color_[0] = 0.02f; new_body_color_[1] = 0.02f; new_body_color_[2] = 0.03f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.06f; new_body_color_secondary_[1] = 0.05f; new_body_color_secondary_[2] = 0.08f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 1.0f;
-				new_body_surface_roughness_ = 0.1f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.0f;
-				break;
-			case BodyPresetTemplate::TestParticle:
-				std::strncpy(new_body_name_, "Test Particle", sizeof(new_body_name_) - 1);
-				new_body_mass_ = 0.0f;
-				new_body_radius_ = 1.0f;
-				new_body_j2_ = 0.0f;
-				new_body_r_ref_ = 1.0f;
-				new_body_preset_3d_ = Dynamics::Body3DPreset::Asteroid;
-				new_body_atmosphere_mode_ = Dynamics::Body3DAtmosphereMode::Off;
-				new_body_color_[0] = 1.0f; new_body_color_[1] = 1.0f; new_body_color_[2] = 1.0f; new_body_color_[3] = 1.0f;
-				new_body_color_secondary_[0] = 0.7f; new_body_color_secondary_[1] = 0.7f; new_body_color_secondary_[2] = 0.7f; new_body_color_secondary_[3] = 1.0f;
-				new_body_noise_scale_ = 4.0f;
-				new_body_surface_roughness_ = 0.5f;
-				new_body_atmosphere_thickness_ = 0.0f;
-				new_body_emission_intensity_ = 0.0f;
-				new_body_rotation_speed_3d_ = 0.1f;
-				break;
-			case BodyPresetTemplate::Custom:
-			default:
-				randomize_creation_defaults();
-				break;
-		}
-		new_body_mass_log_mode_ = true;
-		new_body_radius_log_mode_ = true;
-		new_body_r_ref_log_mode_ = true;
-		new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-	}
-
 	void spawn_orbiting_spacetime_source() noexcept {
-		auto& sys = orchestrator_.nbody_system();
 		const double primary_mass = std::max(orchestrator_.parameters().mass, 1e-6);
 		const double companion_mass = primary_mass * 0.5;
 		const double orbit_radius = std::max(primary_mass * 40.0, 20.0);
@@ -2203,41 +1948,29 @@ private:
 			position, velocity,
 			{0.0, 0.0, companion_mass * 0.3}
 		);
-		body.set_name(unique_name("Companion Black Hole"));
+		body.set_name("Companion Black Hole");
 		body.is_spacetime_source = true;
 		apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
-		sys.add_body(body);
-		sys.update_accelerations();
 		selected_body_index_ = -1;
-		orchestrator_.notify_state_changed();
+		static_cast<void>(spawn_body(body, Dynamics::BodySurfaceLayerSet{}));
 	}
 
 	void populate_solar_system_archetype() noexcept {
 		auto& sys = orchestrator_.nbody_system();
+		orchestrator_.surface_layers().clear();
 		sys.clear_bodies();
 
 		const double central_mass = orchestrator_.parameters().mass;
-
-		Dynamics::PostNewtonianBody planet1(
-			0, 1e-4, 0.05,
-			{10.0, 0.0, 0.0},
-			compute_circular_orbit_velocity({10.0, 0.0, 0.0}, central_mass),
-			{0.0, 0.0, 0.0}
-		);
-		planet1.set_name(unique_name("Inner Planet"));
-
-		Dynamics::PostNewtonianBody planet2(
-			0, 3e-4, 0.08,
-			{25.0, 0.0, 0.0},
-			compute_circular_orbit_velocity({25.0, 0.0, 0.0}, central_mass),
-			{0.0, 0.0, 0.0}
-		);
-		planet2.set_name(unique_name("Outer Planet"));
-
-		sys.add_body(planet1);
-		sys.add_body(planet2);
-		sys.update_accelerations();
-		selected_body_index_ = 0;
+		const auto spawn_planet = [&](std::string_view name, double mass, double radius, double orbit_radius) noexcept {
+			const std::array<double, 3> position{orbit_radius, 0.0, 0.0};
+			Dynamics::PostNewtonianBody planet(0, mass, radius, position, compute_circular_orbit_velocity(position, central_mass), {0.0, 0.0, 0.0});
+			apply_body_preset_defaults(planet, Dynamics::Body3DPreset::TerrestrialPlanet);
+			planet.set_name(name);
+			static_cast<void>(spawn_body(planet, Dynamics::BodySurfaceLayerSet{}));
+		};
+		spawn_planet("Inner Planet", 1e-4, 0.05, 10.0);
+		spawn_planet("Outer Planet", 3e-4, 0.08, 25.0);
+		selected_body_index_ = -1;
 	}
 };
 

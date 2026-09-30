@@ -1196,163 +1196,192 @@ private:
 		}
 	}
 
-	void render_creation_tab() noexcept {
-		const char* preset_names[] = {
-			"Custom Body",
-			"Sun (Solar Mass & Radius)",
-			"Earth (Terrestrial Planet)",
-			"Moon (Natural Satellite)",
-			"Jupiter (Gas Giant)",
-			"Mars (Telluric Planet)",
-			"Neutron Star (Compact)",
-			"Supermassive Black Hole",
-			"Stellar Mass Black Hole",
-			"Test Particle (Zero Mass)"
-		};
+    void render_creation_tab() noexcept {
+        if (ImGui::CollapsingHeader("Body Blueprint & Initial State", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Defines the body's identity, mass scale, initial orbit, and starting motion. Presets remain unchanged; this only groups the existing inputs more clearly.");
 
-		if (ImGui::Combo("Template Preset", &creation_preset_, preset_names, IM_ARRAYSIZE(preset_names))) {
-			apply_template_preset(static_cast<BodyPresetTemplate>(creation_preset_));
-		}
-		render_setting_tooltip("Fills the fields below with realistic physical parameters for a known body type. Position, velocity, and name are left for you to set.");
+            const char* preset_names[] = {
+                "Custom Body",
+                "Sun (Solar Mass & Radius)",
+                "Earth (Terrestrial Planet)",
+                "Moon (Natural Satellite)",
+                "Jupiter (Gas Giant)",
+                "Mars (Telluric Planet)",
+                "Neutron Star (Compact)",
+                "Supermassive Black Hole",
+                "Stellar Mass Black Hole",
+                "Test Particle (Zero Mass)"
+            };
 
-		ImGui::Separator();
-		ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
-		render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
-		{
-			const double creation_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
-			double new_body_mass_kg = static_cast<double>(new_body_mass_) * creation_mass_scale_kg;
-			if (unit_aware_slider_double("Mass", &new_body_mass_kg, 0.001 * creation_mass_scale_kg, 1.0e6 * creation_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &new_body_mass_log_mode_, 1e-12 * creation_mass_scale_kg, 1e36 * creation_mass_scale_kg)) {
-				new_body_mass_ = static_cast<float>(new_body_mass_kg / creation_mass_scale_kg);
-				if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-					const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-					std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-					new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-				}
-			}
-		}
-		{
-			const double creation_length_scale_m = orchestrator_.constants_engine().length_scale();
-			double new_body_radius_m = static_cast<double>(new_body_radius_) * creation_length_scale_m;
-			if (unit_aware_slider_double("Physical Radius", &new_body_radius_m, 0.001 * creation_length_scale_m, 1.0e5 * creation_length_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_radius_log_mode_, 1e-6 * creation_length_scale_m, 1e12 * creation_length_scale_m)) {
-				new_body_radius_ = static_cast<float>(new_body_radius_m / creation_length_scale_m);
-				if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
-					const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
-					std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
-					new_body_name_[sizeof(new_body_name_) - 1] = '\0';
-				}
-			}
-		}
-		static_cast<void>(unit_aware_input_float3("Initial Position (x, y, z)", new_body_pos_, UnitCategory::Distance, orchestrator_.unit_preferences()));
-		static_cast<void>(unit_aware_input_float3("Initial Velocity (vx, vy, vz)", new_body_vel_, UnitCategory::Velocity, orchestrator_.unit_preferences()));
-		if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
-			randomize_creation_defaults();
-		}
-		render_setting_tooltip("Generates a more varied body profile by sampling correlated mass, radius, orbit, spin, and multipole defaults. The name is refreshed with a more descriptive catalog-style label.");
-		if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-			const std::array<double, 3> pos{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])};
-			const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass);
-			new_body_vel_[0] = static_cast<float>(v[0]);
-			new_body_vel_[1] = static_cast<float>(v[1]);
-			new_body_vel_[2] = static_cast<float>(v[2]);
-		}
-		render_setting_tooltip("Computes the Keplerian circular-orbit velocity for the position entered above and writes it into the velocity fields.");
-		ImGui::InputFloat3("Initial Spin Vector", new_body_spin_);
+            if (ImGui::Combo("Template Preset", &creation_preset_, preset_names, IM_ARRAYSIZE(preset_names))) {
+                apply_template_preset(static_cast<BodyPresetTemplate>(creation_preset_));
+            }
+            render_setting_tooltip("Fills the fields below with realistic physical parameters for a known body type. Position, velocity, and name are left for you to set.");
 
-		ImGui::Separator();
-		ImGui::TextDisabled("3D Ray-Traced Surface Appearance:");
-		ImGui::ColorEdit4("Primary Surface Color", new_body_color_);
-		ImGui::ColorEdit4("Secondary Surface Color", new_body_color_secondary_);
-		ImGui::SliderFloat("Surface Noise Scale", &new_body_noise_scale_, 0.5f, 20.0f, "%.2f");
-		ImGui::SliderFloat("Surface Roughness", &new_body_surface_roughness_, 0.05f, 1.0f, "%.2f");
-		ImGui::SliderFloat("Atmosphere Thickness", &new_body_atmosphere_thickness_, 0.0f, 0.5f, "%.3f");
-		ImGui::SliderFloat("Emission Intensity", &new_body_emission_intensity_, 0.0f, 5.0f, "%.2f");
-		ImGui::SliderFloat("3D Rotation Speed", &new_body_rotation_speed_3d_, 0.0f, 2.0f, "%.3f rad/s");
-		ImGui::ColorEdit4("Tertiary Surface Color", new_body_color_tertiary_);
-		ImGui::SliderFloat("Texture Detail Scale", &new_body_texture_detail_scale_, 0.1f, 5.0f, "%.2fx");
-		ImGui::SliderFloat("Polar Cap Strength", &new_body_polar_cap_strength_, 0.0f, 1.0f, "%.2f");
-		ImGui::SliderFloat("Night Side City Lights", &new_body_night_side_light_intensity_, 0.0f, 2.0f, "%.2f");
-		ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &new_body_ring_system_enabled_);
-		render_setting_tooltip("Controls the procedural surface shader appearance used by the 3D ray-tracing pipeline once this body is spawned. The Randomize button above regenerates these values in harmony with the sampled physical archetype instead of leaving every body with the same default look.");
+            ImGui::Separator();
+            ImGui::InputText("Body Name", new_body_name_, sizeof(new_body_name_));
+            render_setting_tooltip("Human-readable label shown in the catalog and in saved scenarios instead of a numeric identifier.");
 
-		ImGui::Separator();
-		ImGui::TextDisabled("Gravitational Multipolar Moments:");
-		slider_float_with_input("Quadrupole Moment (Q)", &new_body_quadrupole_, -1e-2f, 1e-2f, "%.6e");
-		slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
-		slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
-		slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
-		{
-			const double creation_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
-			double new_body_r_ref_m = static_cast<double>(new_body_r_ref_) * creation_r_ref_scale_m;
-			if (unit_aware_slider_double("Reference Radius", &new_body_r_ref_m, 0.001 * creation_r_ref_scale_m, 1.0e5 * creation_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_r_ref_log_mode_, 1e-6 * creation_r_ref_scale_m, 1e12 * creation_r_ref_scale_m)) {
-				new_body_r_ref_ = static_cast<float>(new_body_r_ref_m / creation_r_ref_scale_m);
-			}
-		}
-		render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
+            {
+                const double creation_mass_scale_kg = orchestrator_.constants_engine().mass_scale();
+                double new_body_mass_kg = static_cast<double>(new_body_mass_) * creation_mass_scale_kg;
+                if (unit_aware_slider_double("Mass", &new_body_mass_kg, 0.001 * creation_mass_scale_kg, 1.0e6 * creation_mass_scale_kg, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.4f", &new_body_mass_log_mode_, 1e-12 * creation_mass_scale_kg, 1e36 * creation_mass_scale_kg)) {
+                    new_body_mass_ = static_cast<float>(new_body_mass_kg / creation_mass_scale_kg);
+                    if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+                        const std::string proposed_name = unique_name(synthesize_creation_name(5, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+                        std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+                        new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+                    }
+                }
+            }
+            {
+                const double creation_length_scale_m = orchestrator_.constants_engine().length_scale();
+                double new_body_radius_m = static_cast<double>(new_body_radius_) * creation_length_scale_m;
+                if (unit_aware_slider_double("Physical Radius", &new_body_radius_m, 0.001 * creation_length_scale_m, 1.0e5 * creation_length_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_radius_log_mode_, 1e-6 * creation_length_scale_m, 1e12 * creation_length_scale_m)) {
+                    new_body_radius_ = static_cast<float>(new_body_radius_m / creation_length_scale_m);
+                    if (new_body_name_[0] == '\0' || std::strcmp(new_body_name_, "New Body") == 0) {
+                        const std::string proposed_name = unique_name(synthesize_creation_name(2, new_body_mass_, new_body_radius_, std::max(10.0f, static_cast<float>(new_body_radius_) * 10.0f)));
+                        std::strncpy(new_body_name_, proposed_name.c_str(), sizeof(new_body_name_) - 1);
+                        new_body_name_[sizeof(new_body_name_) - 1] = '\0';
+                    }
+                }
+            }
 
-		ImGui::Separator();
-		ImGui::TextDisabled("3D Ray-Traced Visual Style:");
-		const char* preset_3d_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
-		int preset_3d_idx = static_cast<int>(new_body_preset_3d_);
-		if (ImGui::Combo("Surface Preset", &preset_3d_idx, preset_3d_names, IM_ARRAYSIZE(preset_3d_names))) {
-			new_body_preset_3d_ = static_cast<Dynamics::Body3DPreset>(preset_3d_idx);
-		}
-		render_setting_tooltip("Determines the procedural surface shader family applied when this body is ray-traced: granulation and limb darkening for stars, continents and oceans for terrestrial worlds, latitude bands for gas giants, crater relief for metallic bodies, and polar emission caps for compact remnants.");
-		const char* atmosphere_mode_names[] = {"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"};
-		int atmosphere_mode_idx = static_cast<int>(new_body_atmosphere_mode_);
-		if (ImGui::Combo("Atmosphere Mode", &atmosphere_mode_idx, atmosphere_mode_names, IM_ARRAYSIZE(atmosphere_mode_names))) {
-			new_body_atmosphere_mode_ = static_cast<Dynamics::Body3DAtmosphereMode>(atmosphere_mode_idx);
-		}
-		render_setting_tooltip("Controls the rim-lit atmospheric glow drawn around this body's silhouette. Off disables the effect entirely; the other modes trade rendering cost for visual richness.");
+            static_cast<void>(unit_aware_input_float3("Initial Position (x, y, z)", new_body_pos_, UnitCategory::Distance, orchestrator_.unit_preferences()));
+            static_cast<void>(unit_aware_input_float3("Initial Velocity (vx, vy, vz)", new_body_vel_, UnitCategory::Velocity, orchestrator_.unit_preferences()));
+            ImGui::InputFloat3("Initial Spin Vector", new_body_spin_);
 
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Spacetime Source:");
-		ImGui::Checkbox("Spawn As Independent Black Hole (Spacetime Source)", &new_body_is_spacetime_source_);
-		render_setting_tooltip("Creates this body as its own gravitating compact object with a Kerr-derived event horizon, participating fully in N-body dynamics alongside the primary central object. Multiple spacetime sources gravitationally interact, can merge with each other, and can absorb ordinary bodies that cross their horizon. Enabling this automatically applies the Black Hole surface preset.");
+            if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
+                randomize_creation_defaults();
+            }
+            render_setting_tooltip("Generates a more varied body profile by sampling correlated mass, radius, orbit, spin, and multipole defaults. The name is refreshed with a more descriptive catalog-style label.");
 
-		ImGui::Spacing();
-		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
-			auto& sys = orchestrator_.nbody_system();
-			Dynamics::PostNewtonianBody body(
-				0,
-				static_cast<double>(new_body_mass_),
-				static_cast<double>(new_body_radius_),
-				{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])},
-				{static_cast<double>(new_body_vel_[0]), static_cast<double>(new_body_vel_[1]), static_cast<double>(new_body_vel_[2])},
-				{static_cast<double>(new_body_spin_[0]), static_cast<double>(new_body_spin_[1]), static_cast<double>(new_body_spin_[2])},
-				static_cast<double>(new_body_quadrupole_),
-				static_cast<double>(new_body_j2_),
-				static_cast<double>(new_body_j3_),
-				static_cast<double>(new_body_j4_),
-				static_cast<double>(new_body_r_ref_)
-			);
-			body.set_name(unique_name(std::string_view(new_body_name_)));
-			body.preset_3d = new_body_preset_3d_;
-			body.atmosphere_mode = new_body_atmosphere_mode_;
-			body.color = {new_body_color_[0], new_body_color_[1], new_body_color_[2], new_body_color_[3]};
-			body.color_secondary = {new_body_color_secondary_[0], new_body_color_secondary_[1], new_body_color_secondary_[2], new_body_color_secondary_[3]};
-			body.surface_noise_scale = new_body_noise_scale_;
-			body.surface_roughness = new_body_surface_roughness_;
-			body.atmosphere_thickness = new_body_atmosphere_thickness_;
-			body.emission_intensity = new_body_emission_intensity_;
-			body.rotation_speed_3d = new_body_rotation_speed_3d_;
-			body.color_tertiary = {new_body_color_tertiary_[0], new_body_color_tertiary_[1], new_body_color_tertiary_[2], new_body_color_tertiary_[3]};
-			body.texture_detail_scale = new_body_texture_detail_scale_;
-			body.polar_cap_strength = new_body_polar_cap_strength_;
-			body.night_side_light_intensity = new_body_night_side_light_intensity_;
-			body.ring_system_enabled = new_body_ring_system_enabled_;
-			body.is_spacetime_source = new_body_is_spacetime_source_;
-			if (new_body_is_spacetime_source_) {
-				apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
-			}
+            if (ImGui::Button("Auto-Fill Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
+                const std::array<double, 3> pos{static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])};
+                const auto v = compute_circular_orbit_velocity(pos, orchestrator_.parameters().mass);
+                new_body_vel_[0] = static_cast<float>(v[0]);
+                new_body_vel_[1] = static_cast<float>(v[1]);
+                new_body_vel_[2] = static_cast<float>(v[2]);
+            }
+            render_setting_tooltip("Computes the Keplerian circular-orbit velocity for the position entered above and writes it into the velocity fields.");
+        }
 
-			sys.add_body(body);
-			sys.update_accelerations();
-			selected_body_index_ = static_cast<int>(sys.body_count() - 1);
-			orchestrator_.notify_state_changed();
-			randomize_creation_defaults();
-		}
-		render_setting_tooltip("Adds the configured body to the running N-body system and selects it in the catalog.");
-	}
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("3D Surface Preset & Atmosphere", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Selects the renderer-facing surface family and atmosphere model used once the body is spawned.");
+
+            const char* preset_3d_names[] = {"Star", "Terrestrial Planet", "Gas Giant", "Ice Giant", "Metallic / Moon", "Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"};
+            int preset_3d_idx = static_cast<int>(new_body_preset_3d_);
+            if (ImGui::Combo("Surface Preset", &preset_3d_idx, preset_3d_names, IM_ARRAYSIZE(preset_3d_names))) {
+                new_body_preset_3d_ = static_cast<Dynamics::Body3DPreset>(preset_3d_idx);
+            }
+            render_setting_tooltip("Determines the procedural surface shader family applied when this body is ray-traced: granulation and limb darkening for stars, continents and oceans for terrestrial worlds, latitude bands for gas giants, crater relief for metallic bodies, and polar emission caps for compact remnants.");
+
+            const char* atmosphere_mode_names[] = {"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"};
+            int atmosphere_mode_idx = static_cast<int>(new_body_atmosphere_mode_);
+            if (ImGui::Combo("Atmosphere Mode", &atmosphere_mode_idx, atmosphere_mode_names, IM_ARRAYSIZE(atmosphere_mode_names))) {
+                new_body_atmosphere_mode_ = static_cast<Dynamics::Body3DAtmosphereMode>(atmosphere_mode_idx);
+            }
+            render_setting_tooltip("Controls the rim-lit atmospheric glow drawn around this body's silhouette. Off disables the effect entirely; the other modes trade rendering cost for visual richness.");
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("Procedural Surface Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Controls the detailed colors and shader parameters used by the 3D ray-tracing pipeline.");
+            ImGui::ColorEdit4("Primary Surface Color", new_body_color_);
+            ImGui::ColorEdit4("Secondary Surface Color", new_body_color_secondary_);
+            ImGui::SliderFloat("Surface Noise Scale", &new_body_noise_scale_, 0.5f, 20.0f, "%.2f");
+            ImGui::SliderFloat("Surface Roughness", &new_body_surface_roughness_, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Atmosphere Thickness", &new_body_atmosphere_thickness_, 0.0f, 0.5f, "%.3f");
+            ImGui::SliderFloat("Emission Intensity", &new_body_emission_intensity_, 0.0f, 5.0f, "%.2f");
+            ImGui::SliderFloat("3D Rotation Speed", &new_body_rotation_speed_3d_, 0.0f, 2.0f, "%.3f rad/s");
+            ImGui::ColorEdit4("Tertiary Surface Color", new_body_color_tertiary_);
+            ImGui::SliderFloat("Texture Detail Scale", &new_body_texture_detail_scale_, 0.1f, 5.0f, "%.2fx");
+            render_setting_tooltip("Multiplies the frequency of secondary surface patterns such as marble veining or gas giant banding.");
+            ImGui::SliderFloat("Polar Cap Strength", &new_body_polar_cap_strength_, 0.0f, 1.0f, "%.2f");
+            render_setting_tooltip("Blends the tertiary color over the poles, used by Terrestrial and Ringed Gas Giant texture modes to depict ice caps or polar storm bands.");
+            ImGui::SliderFloat("Night Side City Lights", &new_body_night_side_light_intensity_, 0.0f, 2.0f, "%.2f");
+            render_setting_tooltip("Adds a speckled glow on the unlit hemisphere, only visible with the City Lights (Night Side) texture mode.");
+            ImGui::Checkbox("Ring System (Equatorial Shadow Band)", &new_body_ring_system_enabled_);
+            render_setting_tooltip("Darkens a thin equatorial band on the Ringed Gas Giant texture mode to suggest a shadow cast by an orbiting ring plane.");
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("Gravitational Multipole Data", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Defines the higher-order gravitational moments used when this body perturbs other bodies.");
+
+            ImGui::TextDisabled("Gravitational Multipolar Moments:");
+            slider_float_with_input("Quadrupole Moment (Q)", &new_body_quadrupole_, -1e-2f, 1e-2f, "%.6e");
+            slider_float_with_input("Zonal J2", &new_body_j2_, -1e-2f, 1e-2f, "%.6e");
+            slider_float_with_input("Zonal J3", &new_body_j3_, -1e-3f, 1e-3f, "%.6e");
+            slider_float_with_input("Zonal J4", &new_body_j4_, -1e-3f, 1e-3f, "%.6e");
+            {
+                const double creation_r_ref_scale_m = orchestrator_.constants_engine().length_scale();
+                double new_body_r_ref_m = static_cast<double>(new_body_r_ref_) * creation_r_ref_scale_m;
+                if (unit_aware_slider_double("Reference Radius", &new_body_r_ref_m, 0.001 * creation_r_ref_scale_m, 1.0e5 * creation_r_ref_scale_m, UnitCategory::Distance, orchestrator_.unit_preferences(), "%.4f", &new_body_r_ref_log_mode_, 1e-6 * creation_r_ref_scale_m, 1e12 * creation_r_ref_scale_m)) {
+                    new_body_r_ref_ = static_cast<float>(new_body_r_ref_m / creation_r_ref_scale_m);
+                }
+            }
+            render_setting_tooltip("Zonal harmonic coefficients used only when this body exerts oblateness perturbations on other bodies.");
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::CollapsingHeader("Spacetime Source", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextWrapped("Enables spawning this body as an independent black hole that participates fully in N-body dynamics.");
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Spacetime Source:");
+            ImGui::Checkbox("Spawn As Independent Black Hole (Spacetime Source)", &new_body_is_spacetime_source_);
+            render_setting_tooltip("Creates this body as its own gravitating compact object with a Kerr-derived event horizon, participating fully in N-body dynamics alongside the primary central object. Multiple spacetime sources gravitationally interact, can merge with each other, and can absorb ordinary bodies that cross their horizon. Enabling this automatically applies the Black Hole surface preset.");
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
+            auto& sys = orchestrator_.nbody_system();
+            Dynamics::PostNewtonianBody body(
+                0,
+                static_cast<double>(new_body_mass_),
+                static_cast<double>(new_body_radius_),
+                {static_cast<double>(new_body_pos_[0]), static_cast<double>(new_body_pos_[1]), static_cast<double>(new_body_pos_[2])},
+                {static_cast<double>(new_body_vel_[0]), static_cast<double>(new_body_vel_[1]), static_cast<double>(new_body_vel_[2])},
+                {static_cast<double>(new_body_spin_[0]), static_cast<double>(new_body_spin_[1]), static_cast<double>(new_body_spin_[2])},
+                static_cast<double>(new_body_quadrupole_),
+                static_cast<double>(new_body_j2_),
+                static_cast<double>(new_body_j3_),
+                static_cast<double>(new_body_j4_),
+                static_cast<double>(new_body_r_ref_)
+            );
+            body.set_name(unique_name(std::string_view(new_body_name_)));
+            body.preset_3d = new_body_preset_3d_;
+            body.atmosphere_mode = new_body_atmosphere_mode_;
+            body.color = {new_body_color_[0], new_body_color_[1], new_body_color_[2], new_body_color_[3]};
+            body.color_secondary = {new_body_color_secondary_[0], new_body_color_secondary_[1], new_body_color_secondary_[2], new_body_color_secondary_[3]};
+            body.surface_noise_scale = new_body_noise_scale_;
+            body.surface_roughness = new_body_surface_roughness_;
+            body.atmosphere_thickness = new_body_atmosphere_thickness_;
+            body.emission_intensity = new_body_emission_intensity_;
+            body.rotation_speed_3d = new_body_rotation_speed_3d_;
+            body.color_tertiary = {new_body_color_tertiary_[0], new_body_color_tertiary_[1], new_body_color_tertiary_[2], new_body_color_tertiary_[3]};
+            body.texture_detail_scale = new_body_texture_detail_scale_;
+            body.polar_cap_strength = new_body_polar_cap_strength_;
+            body.night_side_light_intensity = new_body_night_side_light_intensity_;
+            body.ring_system_enabled = new_body_ring_system_enabled_;
+            body.is_spacetime_source = new_body_is_spacetime_source_;
+            if (new_body_is_spacetime_source_) {
+                apply_body_preset_defaults(body, Dynamics::Body3DPreset::BlackHole);
+            }
+
+            sys.add_body(body);
+            sys.update_accelerations();
+            selected_body_index_ = static_cast<int>(sys.body_count() - 1);
+            orchestrator_.notify_state_changed();
+            randomize_creation_defaults();
+        }
+        render_setting_tooltip("Adds the configured body to the running N-body system and selects it in the catalog.");
+    }
 
 	void render_spacetime_sources_tab() noexcept {
 		auto& sys = orchestrator_.nbody_system();

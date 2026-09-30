@@ -83,7 +83,7 @@ struct alignas(16) GpuCameraPushConstants {
 	double sky_cluster_size_scale{0.74};
 
 	double space_skip_radius_scale{140.0};
-	double pole_guard_precision_scale{0.15};
+	double pole_guard_precision_scale{0.68};
 	double far_field_step_scale{2.0};
 	double time{0.0};
 	double body_atmosphere_global_intensity{1.0};

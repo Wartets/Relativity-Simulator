@@ -96,7 +96,7 @@ struct PhysicalParameters {
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{140.0};
-	double pole_guard_precision_scale{0.15};
+	double pole_guard_precision_scale{0.63};
 	double far_field_step_scale{2.0};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{true};

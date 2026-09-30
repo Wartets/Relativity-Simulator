@@ -51,7 +51,7 @@ struct PhysicalParameters {
 	double integration_min_step{1e-8};
 	double integration_max_step{10.0};
 	double escape_radius{100.0};
-	double resolution_scale{0.75};
+	double resolution_scale{0.5};
 	uint32_t max_ray_steps{2048};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
@@ -88,18 +88,18 @@ struct PhysicalParameters {
 	uint32_t rolling_average_frame_count{10};
 	double render_distance_scale{470.0};
 	bool lod_enabled{false};
-	double lod_distance_scale{400.0};
+	double lod_distance_scale{1000.0};
 	uint32_t lod_reduced_ray_steps{256};
 	bool use_gpu_compute{true};
 	uint32_t motion_quality_mode{1};
 	double motion_quality_scale{0.65};
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
-	double space_skip_radius_scale{40.0};
+	double space_skip_radius_scale{140.0};
 	double pole_guard_precision_scale{0.15};
 	double far_field_step_scale{2.0};
 	bool schematic_mode_enabled{false};
-	bool schematic_allow_simulation{false};
+	bool schematic_allow_simulation{true};
 	double post_contrast{1.0};
 	double post_saturation{1.0};
 	double post_lift{0.0};
@@ -110,14 +110,14 @@ struct PhysicalParameters {
 	double post_shadows{0.0};
 	bool interlace_rendering_enabled{false};
 	bool dynamic_resolution_enabled{false};
-	double dynamic_resolution_target_fps{60.0};
+	double dynamic_resolution_target_fps{20.0};
 	bool adaptive_tile_prepass_enabled{false};
 	uint32_t body_render_lod_pixel_threshold{10};
-	bool body_shadows_enabled{false};
+	bool body_shadows_enabled{true};
 	double body_atmosphere_global_intensity{1.0};
 	bool body_render_low_power_mode{false};
 	bool bodies_only_render_mode{false};
-	bool body_disk_occlusion_enabled{false};
+	bool body_disk_occlusion_enabled{true};
 	uint32_t body_render_point_pixel_threshold{2};
 	uint32_t body_noise_octaves{4};
 	double disk_temperature_scale_k{23796.0};
@@ -682,8 +682,8 @@ public:
 				params_.body_render_low_power_mode = true;
 				break;
 			case 1:
-				params_.resolution_scale = 0.75;
-				params_.max_ray_steps = 1024;
+				params_.resolution_scale = 0.5;
+				params_.max_ray_steps = 2048;
 				params_.integration_rtol = 1e-8;
 				params_.integration_atol = 1e-12;
 				params_.body_render_lod_pixel_threshold = 16;
@@ -696,7 +696,7 @@ public:
 				break;
 			case 2:
 				params_.resolution_scale = 1.00;
-				params_.max_ray_steps = 2048;
+				params_.max_ray_steps = 4096;
 				params_.integration_rtol = 1e-9;
 				params_.integration_atol = 1e-13;
 				params_.body_render_lod_pixel_threshold = 10;
@@ -709,7 +709,7 @@ public:
 				break;
 			case 3:
 				params_.resolution_scale = 1.25;
-				params_.max_ray_steps = 4096;
+				params_.max_ray_steps = 16384;
 				params_.integration_rtol = 1e-10;
 				params_.integration_atol = 1e-14;
 				params_.body_render_lod_pixel_threshold = 6;

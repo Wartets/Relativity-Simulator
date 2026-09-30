@@ -35,8 +35,8 @@ private:
 	bool& hud_manager_open_;
 	bool& keybind_settings_open_;
 
-	float mass_{1.0f};
-	float spin_{0.0f};
+	float mass_{60.0f};
+	float spin_{0.2f};
 	float charge_{0.0f};
 	float lambda_{0.0f};
 	float throat_{1.0f};
@@ -50,11 +50,11 @@ private:
 	float camera_speed_{10.0f};
 	float camera_fov_{60.0f};
 	float camera_exposure_{0.0f};
-	int projection_mode_{0};
+	int projection_mode_{3};
 	int tonemapping_mode_{0};
 
 	int camera_coord_system_{0};
-	float manual_cartesian_position_[3]{0.0f, 32.0f, 0.0f};
+	float manual_cartesian_position_[3]{0.0f, 266.0f, 0.0f};
 	float manual_spherical_position_[3]{32.0f, 1.5707963267948966f, 1.5707963267948966f};
 	float manual_orientation_[3]{0.0f, 180.0f, 0.0f};
 	bool manual_placement_dirty_{false};
@@ -63,6 +63,10 @@ private:
 	int integrator_selection_{0};
 	bool integrator_rtol_log_mode_{true};
 	bool integrator_atol_log_mode_{true};
+	bool integrator_ray_steps_log_mode_{false};
+	bool integrator_step_factor_log_mode_{false};
+	bool integrator_min_step_log_mode_{false};
+	bool integrator_max_step_log_mode_{false};
 
 	float rocket_thrust_x_{0.0f};
 	float rocket_thrust_y_{0.0f};
@@ -70,28 +74,28 @@ private:
 	float rocket_throttle_{0.0f};
 	int timeflow_mode_{0};
 
-	float sky_star_density_{1.0f};
+	float sky_star_density_{0.78f};
 	float sky_star_brightness_{1.0f};
-	float sky_nebula_intensity_{1.0f};
+	float sky_nebula_intensity_{0.87f};
 	float sky_grid_opacity_{1.0f};
-	float sky_rotation_{0.0f};
-	float sky_hue_shift_{0.0f};
-	float sky_saturation_{1.0f};
+	float sky_rotation_{56.0f};
+	float sky_hue_shift_{-15.7f};
+	float sky_saturation_{0.84f};
 	float sky_background_[3]{0.0f, 0.0f, 0.0f};
-	float sky_star_brightness_variation_{0.5f};
-	float sky_star_size_variation_{0.5f};
-	float sky_star_color_variation_{1.0f};
-	float sky_star_temperature_bias_{0.0f};
+	float sky_star_brightness_variation_{0.67f};
+	float sky_star_size_variation_{0.54f};
+	float sky_star_color_variation_{1.11f};
+	float sky_star_temperature_bias_{0.39f};
 	int sky_procedural_seed_{12345};
-	float sky_galaxy_density_{0.0f};
-	float sky_galaxy_brightness_{1.0f};
-	float sky_galaxy_size_scale_{1.0f};
-	float sky_dust_density_{0.0f};
-	float sky_dust_intensity_{1.0f};
-	float sky_dust_scale_{1.0f};
-	float sky_cluster_density_{0.0f};
+	float sky_galaxy_density_{0.09f};
+	float sky_galaxy_brightness_{0.42f};
+	float sky_galaxy_size_scale_{0.2f};
+	float sky_dust_density_{3.05f};
+	float sky_dust_intensity_{2.13f};
+	float sky_dust_scale_{1.55f};
+	float sky_cluster_density_{1.06f};
 	float sky_cluster_brightness_{1.0f};
-	float sky_cluster_size_scale_{1.0f};
+	float sky_cluster_size_scale_{0.74f};
 	int sky_background_source_{0};
 	int sky_panorama_id_{0};
 	int sky_panorama_quality_{1};
@@ -1110,6 +1114,45 @@ private:
 		}
 		render_setting_tooltip("Relaxes absolute error floor by 10x.");
 		render_setting_tooltip("Absolute error floor safeguarding step regulation when coordinates approach zero.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Geodesic Ray Step Control:");
+
+		int ray_steps = static_cast<int>(orchestrator_.parameters().max_ray_steps);
+		if (slider_int_with_input("Max Geodesic Steps", &ray_steps, 64, 65536, &integrator_ray_steps_log_mode_)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps))));
+		}
+		render_setting_tooltip("Maximum integration steps per ray. Rays that do not reach the horizon or the escape radius within this budget are rendered black when close to the hole.");
+
+		float step_factor = static_cast<float>(orchestrator_.parameters().integration_step_factor);
+		if (slider_float_with_input("Step Size Factor", &step_factor, 0.002f, 0.5f, "%.4f", &integrator_step_factor_log_mode_, 0.002f, 0.5f)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationStepFactor, static_cast<double>(step_factor))));
+		}
+		render_setting_tooltip("Proportionality factor between the ray step and sqrt(r * (r - r_h)). Smaller values give more accurate lensing near the photon sphere at a proportional cost.");
+
+		float min_step = static_cast<float>(orchestrator_.parameters().integration_min_step);
+		if (slider_float_with_input("Minimum Step Size", &min_step, 1e-5f, 1.0f, "%.5f", &integrator_min_step_log_mode_, 1e-5f, 1.0f)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationMinStep, static_cast<double>(min_step))));
+		}
+		render_setting_tooltip("Lower bound of the ray step near the horizon.");
+
+		float max_step = static_cast<float>(orchestrator_.parameters().integration_max_step);
+		if (slider_float_with_input("Maximum Step Size", &max_step, 0.05f, 50.0f, "%.3f", &integrator_max_step_log_mode_, 0.05f, 50.0f)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::IntegrationMaxStep, static_cast<double>(max_step))));
+		}
+		render_setting_tooltip("Upper bound of the ray step in the weak-field region, before the far-field multiplier.");
+
+		float far_field = static_cast<float>(orchestrator_.parameters().far_field_step_scale);
+		if (slider_float_with_input("Far-Field Step Multiplier", &far_field, 1.0f, 8.0f, "%.2fx")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::FarFieldStepScale, static_cast<double>(far_field))));
+		}
+		render_setting_tooltip("Enlarges the step for rays far from the black hole where curvature is weak.");
+
+		float pole_damping = static_cast<float>(orchestrator_.parameters().pole_guard_precision_scale);
+		if (slider_float_with_input("Polar Step Damping (Rotating Metrics)", &pole_damping, 0.05f, 8.0f, "%.2f")) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, static_cast<double>(pole_damping))));
+		}
+		render_setting_tooltip("Step reduction near the coordinate axis. Only used by rotating and charged metrics, since the spherically symmetric tracer is integrated without a polar singularity.");
 	}
 
 	void render_rocket_tab() noexcept {

@@ -162,7 +162,8 @@ enum class ParameterType : uint32_t {
 	DiskColorSaturation = 119,
 	SkyBackgroundSource = 120,
 	SkyPanoramaId = 121,
-	SkyPanoramaQuality = 122
+	SkyPanoramaQuality = 122,
+	IntegrationStepFactor = 123
 };
 
 struct Command {
@@ -657,6 +658,7 @@ public:
 			else if (iequals_sv(token2, "atol")) ptype = ParameterType::IntegrationAtol;
 			else if (iequals_sv(token2, "min_step")) ptype = ParameterType::IntegrationMinStep;
 			else if (iequals_sv(token2, "max_step")) ptype = ParameterType::IntegrationMaxStep;
+			else if (iequals_sv(token2, "step_factor") || iequals_sv(token2, "step_scale")) ptype = ParameterType::IntegrationStepFactor;
 			else if (iequals_sv(token2, "render_scale") || iequals_sv(token2, "scale")) ptype = ParameterType::ResolutionScale;
 			else if (iequals_sv(token2, "ray_steps") || iequals_sv(token2, "steps_limit")) ptype = ParameterType::MaxRaySteps;
 			else if (iequals_sv(token2, "performance") || iequals_sv(token2, "perf")) ptype = ParameterType::PerformancePreset;

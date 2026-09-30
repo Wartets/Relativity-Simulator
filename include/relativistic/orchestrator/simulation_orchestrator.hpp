@@ -46,11 +46,12 @@ struct PhysicalParameters {
 	double camera_fov_deg{60.0};
 	double camera_exposure{0.0};
 	uint32_t tonemapping_mode{0};
-	double integration_rtol{1e-10};
-	double integration_atol{1e-14};
+	double integration_rtol{1e-01};
+	double integration_atol{1e-04};
 	double initial_step_size{-0.05};
-	double integration_min_step{1e-8};
-	double integration_max_step{10.0};
+	double integration_min_step{0.004};
+	double integration_max_step{3.5};
+	double integration_step_factor{0.45};
 	double escape_radius{100.0};
 	double resolution_scale{0.5};
 	uint32_t max_ray_steps{2048};
@@ -97,8 +98,8 @@ struct PhysicalParameters {
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{140.0};
-	double pole_guard_precision_scale{0.63};
-	double far_field_step_scale{2.0};
+	double pole_guard_precision_scale{4.0};
+	double far_field_step_scale{7.8};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{true};
 	double post_contrast{1.0};
@@ -582,7 +583,7 @@ public:
 				std::strncpy(res.message, "Resolution scale updated", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetRenderSteps:
-				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(cmd.step_count, uint64_t{64}, uint64_t{16384}));
+				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(cmd.step_count, uint64_t{64}, uint64_t{65536}));
 				std::strncpy(res.message, "Max ray steps limit updated", sizeof(res.message) - 1);
 				break;
 			case CommandType::SetPerformancePreset:
@@ -639,6 +640,7 @@ public:
 			case ParameterType::IntegrationAtol:
 			case ParameterType::IntegrationMinStep:
 			case ParameterType::IntegrationMaxStep:
+			case ParameterType::IntegrationStepFactor:
 			case ParameterType::UseGpuCompute:
 			case ParameterType::WorkDistributionMode:
 			case ParameterType::ForceTextureReallocation:
@@ -1047,25 +1049,20 @@ public:
 				params_.integration_atol = val;
 				break;
 			case ParameterType::IntegrationMinStep:
-				params_.integration_min_step = val;
+				params_.integration_min_step = std::clamp(val, 1e-6, 1.0);
 				break;
 			case ParameterType::IntegrationMaxStep:
-				params_.integration_max_step = val;
+				params_.integration_max_step = std::clamp(val, 0.01, 50.0);
 				break;
-			case ParameterType::ResolutionScale: {
+			case ParameterType::IntegrationStepFactor:
+				params_.integration_step_factor = std::clamp(val, 0.002, 0.5);
+				break;
+			case ParameterType::ResolutionScale:
 				params_.resolution_scale = std::clamp(val, 0.1, 2.0);
-				constexpr double kMaxScaleStepProduct = 3600.0;
-				const double max_steps_for_scale = kMaxScaleStepProduct / std::max(params_.resolution_scale * params_.resolution_scale, 0.01);
-				params_.max_ray_steps = static_cast<uint32_t>(std::min(static_cast<double>(params_.max_ray_steps), std::clamp(max_steps_for_scale, 64.0, 16384.0)));
 				break;
-			}
-			case ParameterType::MaxRaySteps: {
-				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(val, 64.0, 16384.0));
-				constexpr double kMaxScaleStepProduct = 3600.0;
-				const double max_scale_for_steps = std::sqrt(kMaxScaleStepProduct / std::max(static_cast<double>(params_.max_ray_steps), 1.0));
-				params_.resolution_scale = std::min(params_.resolution_scale, std::clamp(max_scale_for_steps, 0.1, 2.0));
+			case ParameterType::MaxRaySteps:
+				params_.max_ray_steps = static_cast<uint32_t>(std::clamp(val, 64.0, 65536.0));
 				break;
-			}
 			case ParameterType::PerformancePreset:
 				apply_performance_preset(static_cast<uint32_t>(val));
 				break;
@@ -1597,6 +1594,7 @@ public:
 		push.min_step_size = params_.integration_min_step;
 
 		push.max_step_size = params_.integration_max_step;
+		push.step_size_factor = params_.integration_step_factor;
 		const double r_g = params_.mass;
 		const double a = std::clamp(params_.spin, -0.9999 * params_.mass, 0.9999 * params_.mass);
 		push.horizon_radius = (params_.mass > 0.0) ? (r_g + std::sqrt(std::max(r_g * r_g - a * a, 0.0))) : 0.0;
@@ -1695,6 +1693,7 @@ public:
 		params_.initial_step_size = push.initial_step_size;
 		params_.integration_min_step = push.min_step_size;
 		params_.integration_max_step = push.max_step_size;
+		params_.integration_step_factor = push.step_size_factor;
 		params_.escape_radius = push.escape_radius;
 		params_.max_ray_steps = push.max_integration_steps;
 		params_.projection_mode = push.projection_mode;

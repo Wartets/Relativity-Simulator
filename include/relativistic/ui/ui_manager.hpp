@@ -282,7 +282,9 @@ public:
 				static_cast<IO::ScreenshotFormat>(user_settings_.screenshot_format),
 				user_settings_.screenshot_resolution_scale,
 				static_cast<IO::ScreenshotOverwritePolicy>(user_settings_.screenshot_overwrite_policy),
-				user_settings_.screenshot_watermark_enabled ? user_settings_.screenshot_watermark_text : std::string{}
+				user_settings_.screenshot_watermark_enabled ? user_settings_.screenshot_watermark_text : std::string{},
+				user_settings_.screenshot_max_ray_steps,
+				user_settings_.screenshot_step_refinement
 			);
 		}
 	}
@@ -867,6 +869,14 @@ private:
 
 			ImGui::SliderFloat("Capture Resolution Multiplier", &user_settings_.screenshot_resolution_scale, 1.0f, 4.0f, "%.2fx");
 			render_setting_tooltip("Off-screen super-resolution factor applied during high-fidelity capture generation.");
+
+			int capture_steps = static_cast<int>(user_settings_.screenshot_max_ray_steps);
+			if (ImGui::SliderInt("Capture Integration Steps", &capture_steps, 256, 65536, "%d", ImGuiSliderFlags_Logarithmic)) {
+				user_settings_.screenshot_max_ray_steps = static_cast<uint32_t>(capture_steps);
+			}
+			render_setting_tooltip("Maximum geodesic integration steps per ray used only for captures, independent of the live viewport budget.");
+			ImGui::SliderFloat("Capture Step Refinement", &user_settings_.screenshot_step_refinement, 1.0f, 16.0f, "%.1fx");
+			render_setting_tooltip("Divides the integration step size and its limits during capture, trading render time for accuracy near the photon sphere and the horizon.");
 			ImGui::TextDisabled("Values above 1x render a dedicated higher-resolution frame for the capture only, independent of the live viewport resolution scale. Capturing now runs in the background and never freezes the interface.");
 
 			IO::ScreenshotCaptureContext preview_ctx;

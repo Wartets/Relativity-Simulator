@@ -215,6 +215,9 @@ public:
 	}
 
 	~ViewportPrimaryWindow() {
+		while (high_res_capture_pending_.load(std::memory_order_relaxed) > 0U) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		}
 		if (gl_texture_id_ != 0) {
 			glDeleteTextures(1, &gl_texture_id_);
 			gl_texture_id_ = 0;
@@ -248,7 +251,9 @@ public:
 		IO::ScreenshotFormat format,
 		float resolution_scale = 1.0f,
 		IO::ScreenshotOverwritePolicy overwrite_policy = IO::ScreenshotOverwritePolicy::AutoIncrement,
-		std::string watermark_comment = {}
+		std::string watermark_comment = {},
+		uint32_t capture_max_steps = 0U,
+		float step_refinement = 1.0f
 	) {
 		const auto snap = orchestrator_.scheduler().snapshot();
 		IO::ScreenshotCaptureContext ctx;
@@ -257,27 +262,56 @@ public:
 		ctx.spin = orchestrator_.parameters().spin;
 		ctx.tick_index = snap.tick_index;
 
-		if (resolution_scale > 1.01f && current_width_ > 0 && current_height_ > 0) {
+		if (current_width_ > 0 && current_height_ > 0) {
 			Render::GpuCameraPushConstants capture_consts = last_camera_constants_;
-			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * resolution_scale), 64u, 7680u);
-			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * resolution_scale), 64u, 4320u);
-			std::vector<Render::GpuBodyData> capture_bodies;
-			const auto& nbody_sys = orchestrator_.nbody_system().bodies();
-			capture_bodies.reserve(nbody_sys.size());
-			for (const auto& b : nbody_sys) {
-				if (b.enabled) capture_bodies.push_back(orchestrator_.make_gpu_body_data(b));
+			const float safe_scale = std::clamp(resolution_scale, 0.25f, 8.0f);
+			capture_consts.screen_width = std::clamp(static_cast<uint32_t>(static_cast<float>(current_width_) * safe_scale), 64u, 7680u);
+			capture_consts.screen_height = std::clamp(static_cast<uint32_t>(static_cast<float>(current_height_) * safe_scale), 64u, 4320u);
+			capture_consts.interlace_mode = 0U;
+			capture_consts.interlace_phase = 0U;
+			capture_consts.render_flags &= ~(Render::RenderFlags::USE_LOD_SYSTEM | Render::RenderFlags::ADAPTIVE_TILE_PREPASS);
+			if (capture_max_steps > 0U) {
+				capture_consts.max_integration_steps = std::clamp(capture_max_steps, 64u, 65536u);
 			}
-			if (!capture_bodies.empty()) capture_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+			const double refinement = std::clamp(static_cast<double>(step_refinement), 1.0, 32.0);
+			capture_consts.step_size_factor /= refinement;
+			capture_consts.min_step_size /= refinement;
+			capture_consts.max_step_size /= refinement;
 
-			std::jthread([this, capture_consts, capture_bodies = std::move(capture_bodies), ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
-				std::vector<Render::GpuPixelOutput> fb(static_cast<size_t>(capture_consts.screen_width) * static_cast<size_t>(capture_consts.screen_height), Render::GpuPixelOutput{});
-				Render::SoftwareComputeEngine::dispatch_fp64(capture_consts, fb, capture_bodies, nullptr, nullptr);
-				ctx.width = capture_consts.screen_width;
-				ctx.height = capture_consts.screen_height;
-				const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
-				IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format, overwrite_policy, watermark_comment);
+			std::vector<Render::GpuBodyData> capture_bodies;
+			if ((capture_consts.render_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
+				std::lock_guard<std::recursive_mutex> body_lock(orchestrator_.nbody_system().bodies_mutex());
+				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
+				capture_bodies.reserve(nbody_sys.size());
+				for (const auto& b : nbody_sys) {
+					if (b.enabled) capture_bodies.push_back(orchestrator_.make_gpu_body_data(b));
+				}
+			}
+
+			high_res_capture_pending_.fetch_add(1, std::memory_order_relaxed);
+			try {
+				std::jthread([this, capture_consts, capture_bodies = std::move(capture_bodies), ctx, filename_pattern, output_directory, format, overwrite_policy, watermark_comment]() mutable {
+					try {
+						std::vector<Render::GpuPixelOutput> fb;
+						if (pipeline_.render_capture(capture_consts, capture_bodies, fb)) {
+							ctx.width = capture_consts.screen_width;
+							ctx.height = capture_consts.screen_height;
+							const std::string stem = IO::ScreenshotFilenameBuilder::build(filename_pattern, ctx);
+							IO::ScreenshotExporter::export_async(std::move(fb), capture_consts.screen_width, capture_consts.screen_height, output_directory, stem, format, overwrite_policy, watermark_comment);
+						} else {
+							Core::log_error("Screenshot capture could not be rendered and was discarded.");
+						}
+					} catch (const std::exception& ex) {
+						Core::log_error(std::string("Screenshot capture failed: ") + ex.what());
+					} catch (...) {
+						Core::log_error("Screenshot capture failed with an unknown error.");
+					}
+					high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
+				}).detach();
+			} catch (...) {
 				high_res_capture_pending_.fetch_sub(1, std::memory_order_relaxed);
-			}).detach();
+				Core::log_error("Screenshot capture thread could not be started.");
+			}
 			return;
 		}
 
@@ -502,6 +536,9 @@ public:
 			}
 			cam_consts.projection_mode = params.projection_mode;
 			cam_consts.max_integration_steps = params.max_ray_steps;
+			cam_consts.step_size_factor = params.integration_step_factor;
+			cam_consts.max_step_size = params.integration_max_step;
+			cam_consts.min_step_size = std::min(params.integration_min_step, params.integration_max_step);
 			cam_consts.render_flags = params.visual_overlays_flags;
 			if (params.lod_enabled) {
 				cam_consts.render_flags |= Render::RenderFlags::USE_LOD_SYSTEM;

@@ -68,6 +68,8 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double disk_doppler_beaming_exponent;
 	double disk_color_saturation;
 
+	double step_size_factor;
+
 	uint screen_width;
 	uint screen_height;
 	uint metric_type;
@@ -95,6 +97,9 @@ layout(scalar, binding = 0) uniform CameraParams {
 	uint body_count;
 	uint body_noise_octaves;
 	uint body_render_point_pixel_threshold;
+
+	uint dispatch_row_offset;
+	uint dispatch_row_count;
 } pc;
 
 struct PixelOutput {
@@ -1477,6 +1482,145 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 	ray_pphi = (-new_v.x * sin_p + new_v.y * cos_p) / max(ray_r * safe_sin_t, 1e-9);
 }
 
+dvec2 sincos_wide(double angle) {
+	double h = angle * 0.125;
+	double h2 = h * h;
+	double sin_h = h * (1.0 - h2 * (1.0 / 6.0 - h2 * (1.0 / 120.0 - h2 * (1.0 / 5040.0 - h2 * (1.0 / 362880.0 - h2 / 39916800.0)))));
+	double cos_h = 1.0 - h2 * (0.5 - h2 * (1.0 / 24.0 - h2 * (1.0 / 720.0 - h2 * (1.0 / 40320.0 - h2 * (1.0 / 3628800.0 - h2 / 479001600.0)))));
+	double sin_2h = 2.0 * sin_h * cos_h;
+	double cos_2h = 1.0 - 2.0 * sin_h * sin_h;
+	double sin_4h = 2.0 * sin_2h * cos_2h;
+	double cos_4h = 1.0 - 2.0 * sin_2h * sin_2h;
+	double sin_8h = 2.0 * sin_4h * cos_4h;
+	double cos_8h = 1.0 - 2.0 * sin_4h * sin_4h;
+	return dvec2(sin_8h, cos_8h);
+}
+
+double atan2_wide(double y, double x) {
+	if (abs(x) + abs(y) < 1e-300) {
+		return 0.0;
+	}
+	double angle = double(atan(float(y), float(x)));
+	for (int iteration = 0; iteration < 2; ++iteration) {
+		dvec2 sc = sincos_wide(angle);
+		double residual = x * sc.x - y * sc.y;
+		double slope = x * sc.y + y * sc.x;
+		if (abs(slope) > 1e-300) {
+			angle -= residual / slope;
+		}
+	}
+	return angle;
+}
+
+dvec3 schwarzschild_null_accel(dvec3 pos, double angular_momentum_sq, double rs) {
+	double r2 = max(dot(pos, pos), 1e-30);
+	double r = sqrt(r2);
+	return pos * (-1.5 * rs * angular_momentum_sq / (r2 * r2 * r));
+}
+
+void schwarzschild_null_step(inout double ray_r, inout double ray_th, inout double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double dt, double rs) {
+	const double two_pi = 6.283185307179586;
+	dvec2 sc_th = sincos_wide(ray_th);
+	double phi_reduced = ray_phi - two_pi * floor((ray_phi + PI_D) / two_pi);
+	dvec2 sc_ph = sincos_wide(phi_reduced);
+	double sin_t = sc_th.x;
+	double cos_t = sc_th.y;
+	double sin_p = sc_ph.x;
+	double cos_p = sc_ph.y;
+
+	dvec3 pos = ray_r * dvec3(sin_t * cos_p, sin_t * sin_p, cos_t);
+	dvec3 vel = dvec3(
+		ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p,
+		ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p,
+		ray_pr * cos_t - ray_r * ray_pth * sin_t
+	);
+
+	dvec3 angular = cross(pos, vel);
+	double h2 = dot(angular, angular);
+	double half_dt = 0.5 * dt;
+
+	dvec3 k1x = vel;
+	dvec3 k1v = schwarzschild_null_accel(pos, h2, rs);
+	dvec3 p1 = pos + half_dt * k1x;
+	dvec3 v1 = vel + half_dt * k1v;
+	dvec3 k2x = v1;
+	dvec3 k2v = schwarzschild_null_accel(p1, h2, rs);
+	dvec3 p2 = pos + half_dt * k2x;
+	dvec3 v2 = vel + half_dt * k2v;
+	dvec3 k3x = v2;
+	dvec3 k3v = schwarzschild_null_accel(p2, h2, rs);
+	dvec3 p3 = pos + dt * k3x;
+	dvec3 v3 = vel + dt * k3v;
+	dvec3 k4x = v3;
+	dvec3 k4v = schwarzschild_null_accel(p3, h2, rs);
+
+	double sixth = dt / 6.0;
+	pos += sixth * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+	vel += sixth * (k1v + 2.0 * k2v + 2.0 * k3v + k4v);
+
+	double rho2 = pos.x * pos.x + pos.y * pos.y;
+	double rho = sqrt(rho2);
+	double r_new = sqrt(rho2 + pos.z * pos.z);
+	if (r_new < 1e-30) {
+		return;
+	}
+
+	ray_r = r_new;
+	ray_th = atan2_wide(rho, pos.z);
+	ray_pr = dot(pos, vel) / r_new;
+	if (rho > 1e-13 * r_new) {
+		double phi_new = atan2_wide(pos.y, pos.x);
+		double delta = phi_new - ray_phi;
+		delta -= two_pi * floor(delta / two_pi + 0.5);
+		ray_phi += delta;
+		ray_pth = (pos.z * (pos.x * vel.x + pos.y * vel.y) - rho2 * vel.z) / (r_new * r_new * rho);
+		ray_pphi = (pos.x * vel.y - pos.y * vel.x) / rho2;
+	} else {
+		double lateral_speed = sqrt(vel.x * vel.x + vel.y * vel.y);
+		if (lateral_speed > 0.0) {
+			double phi_new = atan2_wide(vel.y, vel.x);
+			double delta = phi_new - ray_phi;
+			delta -= two_pi * floor(delta / two_pi + 0.5);
+			ray_phi += delta;
+		}
+		ray_pth = ((pos.z >= 0.0) ? lateral_speed : -lateral_speed) / r_new;
+		ray_pphi = 0.0;
+	}
+}
+
+void kerr_newman_rk4_step(inout double ray_r, inout double ray_th, inout double ray_phi, inout dvec4 u, double dt, double mass, double a, double rq2) {
+	double half_dt = 0.5 * dt;
+
+	dvec3 x0 = dvec3(ray_r, ray_th, ray_phi);
+	dvec4 u0 = u;
+
+	dvec3 k1x = dvec3(u0.y, u0.z, u0.w);
+	dvec4 k1u = kerr_newman_geodesic_derivative(u0, x0.x, x0.y, mass, a, rq2);
+
+	dvec3 x1 = x0 + half_dt * k1x;
+	dvec4 u1 = u0 + half_dt * k1u;
+	dvec3 k2x = dvec3(u1.y, u1.z, u1.w);
+	dvec4 k2u = kerr_newman_geodesic_derivative(u1, x1.x, x1.y, mass, a, rq2);
+
+	dvec3 x2 = x0 + half_dt * k2x;
+	dvec4 u2 = u0 + half_dt * k2u;
+	dvec3 k3x = dvec3(u2.y, u2.z, u2.w);
+	dvec4 k3u = kerr_newman_geodesic_derivative(u2, x2.x, x2.y, mass, a, rq2);
+
+	dvec3 x3 = x0 + dt * k3x;
+	dvec4 u3 = u0 + dt * k3u;
+	dvec3 k4x = dvec3(u3.y, u3.z, u3.w);
+	dvec4 k4u = kerr_newman_geodesic_derivative(u3, x3.x, x3.y, mass, a, rq2);
+
+	double sixth = dt / 6.0;
+	dvec3 x_new = x0 + sixth * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+	dvec4 u_new = u0 + sixth * (k1u + 2.0 * k2u + 2.0 * k3u + k4u);
+	ray_r = x_new.x;
+	ray_th = x_new.y;
+	ray_phi = x_new.z;
+	u = u_new;
+}
+
 double subsidiary_step_guard(dvec3 pos) {
 	if (pc.body_count == 0u) return 1.0;
 	double nearest_ratio = 1.0e30;
@@ -1498,10 +1642,11 @@ void main() {
 	uint tile_x = gl_WorkGroupID.x * 16u;
 	uint tile_y = gl_WorkGroupID.y * 16u;
 	uint px = tile_x + gl_LocalInvocationID.x;
-	uint py = tile_y + gl_LocalInvocationID.y;
+	uint local_row = tile_y + gl_LocalInvocationID.y;
+	uint py = pc.dispatch_row_offset + local_row;
 
-		if (px < pc.screen_width && py < pc.screen_height) {
-		uint pixel_index = py * pc.screen_width + px;
+		if (px < pc.screen_width && local_row < pc.dispatch_row_count && py < pc.screen_height) {
+		uint pixel_index = local_row * pc.screen_width + px;
 
 		double aspect = double(pc.screen_width) / double(pc.screen_height);
 		double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
@@ -1686,10 +1831,10 @@ void main() {
 				dvec2 sincos_ray_th = precise_sincos(ray_th);
 				double sin_t = sincos_ray_th.x;
 				double cos_t = sincos_ray_th.y;
-				double pole_guard = clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
+				double pole_guard = use_kerr_newman_metric ? clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0) : 1.0;
 				double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 				double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
-				double dt = -clamp(0.05 * sqrt(ray_r * r_scale) * far_field_factor, 0.004, 3.5 * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
+				double dt = -clamp(pc.step_size_factor * sqrt(ray_r * r_scale) * far_field_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
 
 				double prev_r = ray_r;
 				double prev_th = ray_th;
@@ -1698,41 +1843,13 @@ void main() {
 
 				if (use_kerr_newman_metric) {
 					dvec4 u_state = dvec4(ray_p0, ray_pr, ray_pth, ray_pphi);
-					dvec4 du_state = kerr_newman_geodesic_derivative(u_state, ray_r, ray_th, m, a_spin, kn_charge_sq);
-
-					ray_r += dt * ray_pr;
-					ray_th += dt * ray_pth;
-					ray_phi += dt * ray_pphi;
-					ray_p0 += dt * du_state.x;
-					ray_pr += dt * du_state.y;
-					ray_pth += dt * du_state.z;
-					ray_pphi += dt * du_state.w;
+					kerr_newman_rk4_step(ray_r, ray_th, ray_phi, u_state, dt, m, a_spin, kn_charge_sq);
+					ray_p0 = u_state.x;
+					ray_pr = u_state.y;
+					ray_pth = u_state.z;
+					ray_pphi = u_state.w;
 				} else {
-					double inv_r = 1.0 / ray_r;
-					double inv_r2 = inv_r * inv_r;
-					double f = max(1.0 - rs * inv_r, 1e-6);
-					double inv_f = 1.0 / f;
-					double p_t = E_cons * inv_f;
-					double sin2_t = max(sin_t * sin_t, 1e-10);
-					double safe_sin_t = (abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-
-					double half_rs_inv_r2 = 0.5 * rs * inv_r2;
-					double g100 = half_rs_inv_r2 * f;
-					double g111 = -half_rs_inv_r2 * inv_f;
-					double rf = ray_r * f;
-					double g122 = -rf;
-					double g133 = -rf * sin2_t;
-
-					double d_pr = -(g100 * p_t * p_t + g111 * ray_pr * ray_pr + g122 * ray_pth * ray_pth + g133 * ray_pphi * ray_pphi);
-					double d_pth = -(2.0 * inv_r * ray_pr * ray_pth - sin_t * cos_t * ray_pphi * ray_pphi);
-					double d_pphi = -2.0 * (inv_r * ray_pr * ray_pphi + (cos_t / safe_sin_t) * ray_pth * ray_pphi);
-
-					ray_r += dt * ray_pr;
-					ray_th += dt * ray_pth;
-					ray_phi += dt * ray_pphi;
-					ray_pr += dt * d_pr;
-					ray_pth += dt * d_pth;
-					ray_pphi += dt * d_pphi;
+					schwarzschild_null_step(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt, rs);
 				}
 
 				if (bodies_traced) {
@@ -1827,6 +1944,10 @@ void main() {
 					throughput = 0.0;
 					break;
 				}
+			}
+
+			if ((status & 3u) == 0u && ray_r < 3.0 * rs) {
+				throughput = 0.0;
 			}
 
 			if ((status & 2u) != 0u || throughput > 0.01) {

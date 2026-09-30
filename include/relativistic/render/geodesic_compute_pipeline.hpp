@@ -80,6 +80,7 @@ private:
 	std::unique_ptr<Core::ThreadPool, void(*)(Core::ThreadPool*)> thread_pool_{nullptr, [](Core::ThreadPool*) noexcept {}};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
+	std::mutex gpu_mutex_;
 	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
 	std::atomic<uint32_t> pending_total_enabled_bodies_{0};
 	std::jthread worker_thread_;
@@ -94,19 +95,22 @@ private:
 		}
 	}
 
-	static void clamp_workload_budget(GpuCameraPushConstants& constants, size_t body_count) noexcept {
-		constexpr uint64_t kMaxStepPixelBudget = 500000000ULL;
-		const uint64_t pixel_count = static_cast<uint64_t>(constants.screen_width) * static_cast<uint64_t>(constants.screen_height);
-		if (pixel_count == 0ULL) {
-			return;
+	void dispatch_software(
+		const GpuCameraPushConstants& constants,
+		std::vector<GpuPixelOutput>& output,
+		std::span<const GpuBodyData> bodies,
+		Core::ThreadPool* pool,
+		const std::atomic<bool>* cancel,
+		SoftwareComputeEngine::RenderStageStats* stats
+	) const {
+		if (precision_mode_.load(std::memory_order_relaxed) == PrecisionMode::NativeFloat64) {
+			SoftwareComputeEngine::dispatch_fp64(constants, output, bodies, pool, cancel, stats);
+		} else {
+			SoftwareComputeEngine::dispatch_double_single(constants, output, bodies, pool, cancel, stats);
 		}
-		const uint64_t body_divisor = std::max<uint64_t>(1ULL, static_cast<uint64_t>(body_count));
-		const uint64_t budgeted_steps = kMaxStepPixelBudget / (pixel_count * body_divisor);
-		const uint32_t safe_steps = static_cast<uint32_t>(std::clamp<uint64_t>(budgeted_steps, 64ULL, 16384ULL));
-		constants.max_integration_steps = std::min(constants.max_integration_steps, safe_steps);
 	}
 
-	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyData> bodies) noexcept {
+	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyData> bodies, const std::atomic<bool>* cancel = nullptr) noexcept {
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
 		}
@@ -125,13 +129,21 @@ private:
 		if (bodies.size() > kMaxGpuBackgroundBodies) {
 			return false;
 		}
+		std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
 		GpuCameraPushConstants gpu_params = params;
-		std::vector<GpuBodyGpuLayout> gpu_bodies_layout;
-		gpu_bodies_layout.reserve(bodies.size());
-		for (const auto& body : bodies) {
-			gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
+		bool dispatched = false;
+		try {
+			std::vector<GpuBodyGpuLayout> gpu_bodies_layout;
+			gpu_bodies_layout.reserve(bodies.size());
+			for (const auto& body : bodies) {
+				gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
+			}
+			dispatched = gpu_executor_->dispatch_and_readback(gpu_params, output, gpu_bodies_layout, cancel);
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("GPU dispatch threw an exception and was aborted: ") + ex.what());
+		} catch (...) {
+			Core::log_error("GPU dispatch threw an unknown exception and was aborted.");
 		}
-		const bool dispatched = gpu_executor_->dispatch_and_readback(gpu_params, output, gpu_bodies_layout);
 		if (!dispatched && !gpu_executor_->is_ready()) {
 			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
 			use_gpu_compute_.store(false, std::memory_order_relaxed);
@@ -190,7 +202,7 @@ private:
 			bool dispatch_failed = false;
 			try {
 				if (gpu_background_eligible) {
-					if (try_gpu_dispatch(current_job, back_buffer_, current_bodies) && back_buffer_.size() == req_pixels) {
+					if (try_gpu_dispatch(current_job, back_buffer_, current_bodies, &cancel_render_) && back_buffer_.size() == req_pixels) {
 						rendered_on_gpu = true;
 					}
 				}
@@ -444,6 +456,35 @@ public:
 		return gpu_executor_ != nullptr && gpu_executor_->is_ready();
 	}
 
+	[[nodiscard]] bool render_capture(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies, std::vector<GpuPixelOutput>& output) {
+		const size_t pixel_count = static_cast<size_t>(camera_constants.screen_width) * static_cast<size_t>(camera_constants.screen_height);
+		if (pixel_count == 0) {
+			return false;
+		}
+
+		try {
+			output.assign(pixel_count, GpuPixelOutput{});
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Capture frame buffer allocation failed: ") + ex.what());
+			return false;
+		}
+
+		try {
+			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
+				if (try_gpu_dispatch(camera_constants, output, bodies) && output.size() == pixel_count) {
+					return true;
+				}
+			}
+			dispatch_software(camera_constants, output, bodies, nullptr, nullptr, nullptr);
+			return true;
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Capture render failed: ") + ex.what());
+		} catch (...) {
+			Core::log_error("Capture render failed with an unknown error.");
+		}
+		return false;
+	}
+
 	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
@@ -451,7 +492,6 @@ public:
 				std::lock_guard<std::mutex> lock(mutex_);
 				actual_constants.projection_mode = static_cast<uint32_t>(config_.projection_mode);
 			}
-			clamp_workload_budget(actual_constants, bodies.size());
 
 			bool rendered_on_gpu = false;
 			bool bodies_patched_on_top = false;
@@ -522,7 +562,6 @@ public:
 			}
 			pending_constants_ = camera_constants;
 			pending_constants_.projection_mode = static_cast<uint32_t>(config_.projection_mode);
-			clamp_workload_budget(pending_constants_, bodies.size());
 			pending_bodies_.assign(bodies.begin(), bodies.end());
 			pending_total_enabled_bodies_.store(total_enabled_bodies, std::memory_order_relaxed);
 			request_pending_.store(true, std::memory_order_release);

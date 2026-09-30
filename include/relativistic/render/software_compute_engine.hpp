@@ -18,6 +18,7 @@
 #include "relativistic/core/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/geodesic_bundle.hpp"
+#include "relativistic/core/schwarzschild_null_integrator.hpp"
 #include "relativistic/observer/direction_projection.hpp"
 #include <vector>
 #include <span>
@@ -1109,7 +1110,7 @@ private:
 			const double r_scale = std::max(cur_r - rh, 0.02 * m);
 			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
 			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((cur_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			const double dt = -std::clamp(0.05 * std::sqrt(cur_r * r_scale) * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard;
+			const double dt = -std::clamp(params.step_size_factor * std::sqrt(cur_r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * pole_guard;
 
 			const double prev_r = x(1);
 			const double prev_theta = x(2);
@@ -1230,6 +1231,10 @@ private:
 					throughput *= (1.0 - alpha_opacity);
 				}
 			}
+		}
+
+		if ((status & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && x(1) < 3.0 * rs) {
+			throughput = 0.0;
 		}
 
 		if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01) {
@@ -2150,9 +2155,8 @@ public:
 						}
 
 						const double r_scale = std::max(ray_r - rh, 0.02 * m);
-						const double smooth_dt = 0.05 * std::sqrt(ray_r * r_scale);
+						const double smooth_dt = params.step_size_factor * std::sqrt(ray_r * r_scale);
 						const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-						const double pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
 						double subsidiary_horizon_guard = 1.0;
 						if (!subsidiary_sources.empty()) {
 							const auto ray_cartesian_pos = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
@@ -2166,73 +2170,20 @@ public:
 							}
 							subsidiary_horizon_guard = std::clamp(nearest_horizon_ratio / 8.0, 0.03, 1.0);
 						}
-						const double dt = -std::clamp(smooth_dt * far_field_factor, 0.004, 3.5 * params.far_field_step_scale) * pole_guard * subsidiary_horizon_guard;
+						const double dt = -std::clamp(smooth_dt * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * subsidiary_horizon_guard;
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;
 						const double prev_phi = ray_phi;
 
-						auto eval_acc = [&](double r_eval, double th_eval, double phi_eval,
-											double pr_eval, double pth_eval, double pphi_eval,
-											double& d_r, double& d_th, double& d_phi,
-											double& d_pr, double& d_pth, double& d_pphi) noexcept {
-							static_cast<void>(phi_eval);
-							const double r = std::max(r_eval, rh * 1.0001);
-							const double th = std::clamp(th_eval, 1e-5, std::numbers::pi_v<double> - 1e-5);
-							const double sin_t = std::sin(th);
-							const double cos_t = std::cos(th);
-							const double sin2_t = std::max(sin_t * sin_t, 1e-10);
-							const double r2 = r * r;
-							const double f = 1.0 - rs / r;
-							const double safe_f = std::max(f, 1e-6);
-
-							d_r = pr_eval;
-							d_th = pth_eval;
-							d_phi = pphi_eval;
-
-							const double p_t = E_cons / safe_f;
-							const double g001 = rs / (2.0 * r2 * safe_f);
-							const double g100 = (rs * safe_f) / (2.0 * r2);
-							const double g111 = -g001;
-							const double g122 = -r * safe_f;
-							const double g133 = -r * safe_f * sin2_t;
-							const double g212 = 1.0 / r;
-							const double g233 = -sin_t * cos_t;
-							const double g313 = 1.0 / r;
-							const double safe_sin_t = (std::abs(sin_t) > 1e-7) ? sin_t : ((sin_t >= 0.0) ? 1e-7 : -1e-7);
-							const double g323 = cos_t / safe_sin_t;
-
-							d_pr = -(g100 * p_t * p_t + g111 * pr_eval * pr_eval + g122 * pth_eval * pth_eval + g133 * pphi_eval * pphi_eval);
-							d_pth = -(2.0 * g212 * pr_eval * pth_eval + g233 * pphi_eval * pphi_eval);
-							d_pphi = -2.0 * (g313 * pr_eval * pphi_eval + g323 * pth_eval * pphi_eval);
-						};
-
-						double k1_r = 0.0, k1_th = 0.0, k1_phi = 0.0, k1_pr = 0.0, k1_pth = 0.0, k1_pphi = 0.0;
-						eval_acc(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, k1_r, k1_th, k1_phi, k1_pr, k1_pth, k1_pphi);
-
-						const double half_dt = 0.5 * dt;
-						double k2_r = 0.0, k2_th = 0.0, k2_phi = 0.0, k2_pr = 0.0, k2_pth = 0.0, k2_pphi = 0.0;
-						eval_acc(ray_r + half_dt * k1_r, ray_theta + half_dt * k1_th, ray_phi + half_dt * k1_phi,
-								 ray_pr + half_dt * k1_pr, ray_ptheta + half_dt * k1_pth, ray_pphi + half_dt * k1_pphi,
-								 k2_r, k2_th, k2_phi, k2_pr, k2_pth, k2_pphi);
-
-						double k3_r = 0.0, k3_th = 0.0, k3_phi = 0.0, k3_pr = 0.0, k3_pth = 0.0, k3_pphi = 0.0;
-						eval_acc(ray_r + half_dt * k2_r, ray_theta + half_dt * k2_th, ray_phi + half_dt * k2_phi,
-								 ray_pr + half_dt * k2_pr, ray_ptheta + half_dt * k2_pth, ray_pphi + half_dt * k2_pphi,
-								 k3_r, k3_th, k3_phi, k3_pr, k3_pth, k3_pphi);
-
-						double k4_r = 0.0, k4_th = 0.0, k4_phi = 0.0, k4_pr = 0.0, k4_pth = 0.0, k4_pphi = 0.0;
-						eval_acc(ray_r + dt * k3_r, ray_theta + dt * k3_th, ray_phi + dt * k3_phi,
-								 ray_pr + dt * k3_pr, ray_ptheta + dt * k3_pth, ray_pphi + dt * k3_pphi,
-								 k4_r, k4_th, k4_phi, k4_pr, k4_pth, k4_pphi);
-
-						const double sixth_dt = dt * (1.0 / 6.0);
-						ray_r += sixth_dt * (k1_r + 2.0 * k2_r + 2.0 * k3_r + k4_r);
-						ray_theta += sixth_dt * (k1_th + 2.0 * k2_th + 2.0 * k3_th + k4_th);
-						ray_phi += sixth_dt * (k1_phi + 2.0 * k2_phi + 2.0 * k3_phi + k4_phi);
-						ray_pr += sixth_dt * (k1_pr + 2.0 * k2_pr + 2.0 * k3_pr + k4_pr);
-						ray_ptheta += sixth_dt * (k1_pth + 2.0 * k2_pth + 2.0 * k3_pth + k4_pth);
-						ray_pphi += sixth_dt * (k1_pphi + 2.0 * k2_pphi + 2.0 * k3_pphi + k4_pphi);
+						Core::SphericalNullState<double> photon_state{ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi};
+						Core::step_schwarzschild_null_rk4<double>(photon_state, dt, rs);
+						ray_r = photon_state.r;
+						ray_theta = photon_state.theta;
+						ray_phi = photon_state.phi;
+						ray_pr = photon_state.dr;
+						ray_ptheta = photon_state.dtheta;
+						ray_pphi = photon_state.dphi;
 
 						if (bodies_need_curved_path && !subsidiary_sources.empty()) {
 							apply_subsidiary_deflection_step(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, dt, subsidiary_sources);
@@ -2344,6 +2295,10 @@ public:
 								}
 							}
 						}
+					}
+
+					if (has_event_horizon && (status & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && ray_r < 3.0 * rs) {
+						throughput = 0.0;
 					}
 
 					if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01) {
@@ -2624,10 +2579,9 @@ public:
 						for (size_t l = 0; l < 4; ++l) {
 							if (bundle.active_mask[l]) {
 								const double r_scale = std::max(bundle.x1[l] - rh, 0.02 * m);
-								const double smooth_dt = 0.05 * std::sqrt(bundle.x1[l] * r_scale);
+								const double smooth_dt = params.step_size_factor * std::sqrt(bundle.x1[l] * r_scale);
 								const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((bundle.x1[l] - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-								const double pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
-								bundle.step_size[l] = -std::clamp(smooth_dt * far_field_factor, 0.004, 4.0 * params.far_field_step_scale) * pole_guard;
+								bundle.step_size[l] = -std::clamp(smooth_dt * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
 							} else {
 								bundle.step_size[l] = -0.01;
 							}
@@ -2637,7 +2591,7 @@ public:
 						std::array<double, 4> prev_th{bundle.x2[0], bundle.x2[1], bundle.x2[2], bundle.x2[3]};
 						std::array<double, 4> prev_phi{bundle.x3[0], bundle.x3[1], bundle.x3[2], bundle.x3[3]};
 
-						bundle.step_rk4_schwarzschild(m, 1.0, 1.0);
+						bundle.step_schwarzschild_null(m, params.escape_radius, 1.0, 1.0);
 
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.horizon_mask[l]) {
@@ -2693,6 +2647,9 @@ public:
 					}
 
 					for (size_t l = 0; l < lanes; ++l) {
+						if (has_event_horizon && (status[l] & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && bundle.x1[l] < 3.0 * rs) {
+							throughput[l] = 0.0;
+						}
 						if (status[l] & PixelFlags::CELESTIAL_HIT || throughput[l] > 0.01) {
 							const auto exit_direction = schwarzschild_travel_direction(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], rs);
 							const double dir_x = exit_direction[0];
@@ -3096,9 +3053,8 @@ public:
 						}
 
 						const float r_scale = std::max(ray_r - rh, 0.02f * m);
-						const float smooth_dt = 0.05f * std::sqrt(ray_r * r_scale);
-						const float pole_guard = std::clamp(std::abs(std::sin(ray_theta)) * 12.0f * static_cast<float>(params.pole_guard_precision_scale), 0.02f, 1.0f);
-						const float dt = -std::clamp(smooth_dt, 0.004f, 3.5f) * pole_guard;
+						const float smooth_dt = static_cast<float>(params.step_size_factor) * std::sqrt(ray_r * r_scale);
+						const float dt = -std::clamp(smooth_dt, static_cast<float>(params.min_step_size), static_cast<float>(params.max_step_size));
 
 						const float prev_r = ray_r;
 						const float prev_theta = ray_theta;
@@ -3109,77 +3065,14 @@ public:
 							static_cast<double>(prev_r) * std::cos(static_cast<double>(prev_theta))
 						};
 
-						auto eval_acc = [&](float r_eval, float th_eval, float phi_eval,
-											float pr_eval, float pth_eval, float pphi_eval,
-											float& d_r, float& d_th, float& d_phi,
-											float& d_pr, float& d_pth, float& d_pphi) noexcept {
-							static_cast<void>(phi_eval);
-							const float r = std::max(r_eval, rh * 1.0001f);
-							const float th = std::clamp(th_eval, 1e-4f, pi_f - 1e-4f);
-							const float sin_t = std::sin(th);
-							const float cos_t = std::cos(th);
-							const float sin2_t = std::max(sin_t * sin_t, 1e-8f);
-							const float r2 = r * r;
-							const float f = 1.0f - rs / r;
-							const float safe_f = std::max(f, 1e-4f);
-
-							d_r = pr_eval;
-							d_th = pth_eval;
-							d_phi = pphi_eval;
-
-							const float p_t = E_cons / safe_f;
-							const float g001 = rs / (2.0f * r2 * safe_f);
-							const float g100 = (rs * safe_f) / (2.0f * r2);
-							const float g111 = -g001;
-							const float g122 = -r * safe_f;
-							const float g133 = -r * safe_f * sin2_t;
-							const float g212 = 1.0f / r;
-							const float g233 = -sin_t * cos_t;
-							const float g313 = 1.0f / r;
-							const float safe_sin_t = (std::abs(sin_t) > 1e-5f) ? sin_t : ((sin_t >= 0.0f) ? 1e-5f : -1e-5f);
-							const float g323 = cos_t / safe_sin_t;
-
-							d_pr = -(g100 * p_t * p_t + g111 * pr_eval * pr_eval + g122 * pth_eval * pth_eval + g133 * pphi_eval * pphi_eval);
-							d_pth = -(2.0f * g212 * pr_eval * pth_eval + g233 * pphi_eval * pphi_eval);
-							d_pphi = -2.0f * (g313 * pr_eval * pphi_eval + g323 * pth_eval * pphi_eval);
-						};
-
-						float k1_r = 0.0f, k1_th = 0.0f, k1_phi = 0.0f, k1_pr = 0.0f, k1_pth = 0.0f, k1_pphi = 0.0f;
-						eval_acc(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, k1_r, k1_th, k1_phi, k1_pr, k1_pth, k1_pphi);
-
-						const float half_dt = 0.5f * dt;
-						float k2_r = 0.0f, k2_th = 0.0f, k2_phi = 0.0f, k2_pr = 0.0f, k2_pth = 0.0f, k2_pphi = 0.0f;
-						eval_acc(ray_r + half_dt * k1_r, ray_theta + half_dt * k1_th, ray_phi + half_dt * k1_phi,
-								 ray_pr + half_dt * k1_pr, ray_ptheta + half_dt * k1_pth, ray_pphi + half_dt * k1_pphi,
-								 k2_r, k2_th, k2_phi, k2_pr, k2_pth, k2_pphi);
-
-						float k3_r = 0.0f, k3_th = 0.0f, k3_phi = 0.0f, k3_pr = 0.0f, k3_pth = 0.0f, k3_pphi = 0.0f;
-						eval_acc(ray_r + half_dt * k2_r, ray_theta + half_dt * k2_th, ray_phi + half_dt * k2_phi,
-								 ray_pr + half_dt * k2_pr, ray_ptheta + half_dt * k2_pth, ray_pphi + half_dt * k2_pphi,
-								 k3_r, k3_th, k3_phi, k3_pr, k3_pth, k3_pphi);
-
-						float k4_r = 0.0f, k4_th = 0.0f, k4_phi = 0.0f, k4_pr = 0.0f, k4_pth = 0.0f, k4_pphi = 0.0f;
-						eval_acc(ray_r + dt * k3_r, ray_theta + dt * k3_th, ray_phi + dt * k3_phi,
-								 ray_pr + dt * k3_pr, ray_ptheta + dt * k3_pth, ray_pphi + dt * k3_pphi,
-								 k4_r, k4_th, k4_phi, k4_pr, k4_pth, k4_pphi);
-
-						const float sixth_dt = dt * (1.0f / 6.0f);
-						ray_r += sixth_dt * (k1_r + 2.0f * k2_r + 2.0f * k3_r + k4_r);
-						ray_theta += sixth_dt * (k1_th + 2.0f * k2_th + 2.0f * k3_th + k4_th);
-						ray_phi += sixth_dt * (k1_phi + 2.0f * k2_phi + 2.0f * k3_phi + k4_phi);
-						ray_pr += sixth_dt * (k1_pr + 2.0f * k2_pr + 2.0f * k3_pr + k4_pr);
-						ray_ptheta += sixth_dt * (k1_pth + 2.0f * k2_pth + 2.0f * k3_pth + k4_pth);
-						ray_pphi += sixth_dt * (k1_pphi + 2.0f * k2_pphi + 2.0f * k3_pphi + k4_pphi);
-
-						if (ray_theta < 0.0f) {
-							ray_theta = -ray_theta;
-							ray_phi += pi_f;
-							ray_ptheta = -ray_ptheta;
-						} else if (ray_theta > pi_f) {
-							ray_theta = 2.0f * pi_f - ray_theta;
-							ray_phi += pi_f;
-							ray_ptheta = -ray_ptheta;
-						}
+						Core::SphericalNullState<float> photon_state{ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi};
+						Core::step_schwarzschild_null_rk4<float>(photon_state, dt, rs);
+						ray_r = photon_state.r;
+						ray_theta = photon_state.theta;
+						ray_phi = photon_state.phi;
+						ray_pr = photon_state.dr;
+						ray_ptheta = photon_state.dtheta;
+						ray_pphi = photon_state.dphi;
 
 						bool body_segment_hit_f32 = false;
 						Render::GpuPixelOutput body_segment_color_f32{};
@@ -3243,6 +3136,10 @@ public:
 							throughput = 0.0f;
 							break;
 						}
+					}
+
+					if (has_event_horizon && (status & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && ray_r < 3.0f * rs) {
+						throughput = 0.0f;
 					}
 
 					if (status & PixelFlags::CELESTIAL_HIT || throughput > 0.01f) {
@@ -3518,9 +3415,8 @@ public:
 						for (size_t l = 0; l < 8; ++l) {
 							if (bundle.active_mask[l]) {
 								const float r_scale = std::max(bundle.x1[l] - rh, 0.02f * m);
-								const float smooth_dt = 0.05f * std::sqrt(bundle.x1[l] * r_scale);
-								const float pole_guard = std::clamp(std::abs(std::sin(bundle.x2[l])) * 12.0f * static_cast<float>(params.pole_guard_precision_scale), 0.02f, 1.0f);
-								bundle.step_size[l] = -std::clamp(smooth_dt, 0.004f, 3.5f) * pole_guard;
+								const float smooth_dt = static_cast<float>(params.step_size_factor) * std::sqrt(bundle.x1[l] * r_scale);
+								bundle.step_size[l] = -std::clamp(smooth_dt, static_cast<float>(params.min_step_size), static_cast<float>(params.max_step_size));
 							} else {
 								bundle.step_size[l] = -0.01f;
 							}
@@ -3530,7 +3426,7 @@ public:
 						std::array<float, 8> prev_th{bundle.x2[0], bundle.x2[1], bundle.x2[2], bundle.x2[3], bundle.x2[4], bundle.x2[5], bundle.x2[6], bundle.x2[7]};
 						std::array<float, 8> prev_phi{bundle.x3[0], bundle.x3[1], bundle.x3[2], bundle.x3[3], bundle.x3[4], bundle.x3[5], bundle.x3[6], bundle.x3[7]};
 
-						bundle.step_rk4_schwarzschild(m, 1.0f, 1.0f);
+						bundle.step_schwarzschild_null(m, static_cast<float>(params.escape_radius), 1.0f, 1.0f);
 
 						for (size_t l = 0; l < lanes; ++l) {
 							if (bundle.horizon_mask[l]) {
@@ -3587,6 +3483,9 @@ public:
 					}
 
 					for (size_t l = 0; l < lanes; ++l) {
+						if (has_event_horizon && (status[l] & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && bundle.x1[l] < 3.0f * rs) {
+							throughput[l] = 0.0f;
+						}
 						if (status[l] & PixelFlags::CELESTIAL_HIT || throughput[l] > 0.01f) {
 							const auto exit_direction = schwarzschild_travel_direction(bundle.x1[l], bundle.x2[l], bundle.x3[l], bundle.p1[l], bundle.p2[l], bundle.p3[l], rs);
 							const float dir_x = exit_direction[0];

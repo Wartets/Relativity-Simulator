@@ -3,6 +3,7 @@
 #include "simd.hpp"
 #include "simd_math.hpp"
 #include "four_vector_bundle.hpp"
+#include "schwarzschild_null_integrator.hpp"
 #include <array>
 #include <cstddef>
 
@@ -148,6 +149,49 @@ struct alignas(64) GeodesicBundle {
 
 	constexpr void set_step_size_scalar(T dt) noexcept {
 		step_size = SimdVec<T, Width>(dt);
+	}
+
+	void step_schwarzschild_null(
+		T mass,
+		T escape_radius = static_cast<T>(0),
+		T speed_of_light = static_cast<T>(1),
+		T g_constant = static_cast<T>(1)
+	) noexcept {
+		const T r_s = static_cast<T>(2) * g_constant * mass / (speed_of_light * speed_of_light);
+		const T horizon_limit = r_s * static_cast<T>(1.0001);
+		const T escape_limit = (escape_radius > static_cast<T>(0)) ? escape_radius : static_cast<T>(50) * r_s;
+
+		for (size_t lane = 0; lane < Width; ++lane) {
+			if (!active_mask[lane]) {
+				continue;
+			}
+
+			SphericalNullState<T> state{x1[lane], x2[lane], x3[lane], p1[lane], p2[lane], p3[lane]};
+			step_schwarzschild_null_rk4<T>(state, step_size[lane], r_s);
+
+			if (!std::isfinite(state.r) || !std::isfinite(state.theta) || !std::isfinite(state.phi)
+				|| !std::isfinite(state.dr) || !std::isfinite(state.dtheta) || !std::isfinite(state.dphi)) {
+				horizon_mask[lane] = true;
+				active_mask[lane] = false;
+				continue;
+			}
+
+			x1[lane] = state.r;
+			x2[lane] = state.theta;
+			x3[lane] = state.phi;
+			p1[lane] = state.dr;
+			p2[lane] = state.dtheta;
+			p3[lane] = state.dphi;
+			affine_parameter[lane] += step_size[lane];
+
+			if (state.r <= horizon_limit) {
+				horizon_mask[lane] = true;
+				active_mask[lane] = false;
+			} else if (state.r >= escape_limit) {
+				celestial_mask[lane] = true;
+				active_mask[lane] = false;
+			}
+		}
 	}
 
 	void step_rk4_schwarzschild(

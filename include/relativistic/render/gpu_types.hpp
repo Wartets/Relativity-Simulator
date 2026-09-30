@@ -45,9 +45,9 @@ struct alignas(16) GpuCameraPushConstants {
 	double speed_of_light{1.0};
 	double gravitational_constant{1.0};
 	double initial_step_size{-0.05};
-	double min_step_size{1e-8};
+	double min_step_size{0.004};
 
-	double max_step_size{1.0};
+	double max_step_size{3.5};
 	double horizon_radius{2.0};
 	double escape_radius{100.0};
 	double cosmological_lambda{0.0};
@@ -84,8 +84,8 @@ struct alignas(16) GpuCameraPushConstants {
 	double sky_cluster_size_scale{0.74};
 
 	double space_skip_radius_scale{140.0};
-	double pole_guard_precision_scale{0.68};
-	double far_field_step_scale{2.0};
+	double pole_guard_precision_scale{4.0};
+	double far_field_step_scale{7.8};
 	double time{0.0};
 	double body_atmosphere_global_intensity{1.0};
 
@@ -93,6 +93,8 @@ struct alignas(16) GpuCameraPushConstants {
 	double disk_temperature_floor_k{1200.0};
 	double disk_doppler_beaming_exponent{5.32};
 	double disk_color_saturation{1.0};
+
+	double step_size_factor{0.5};
 
 	uint32_t screen_width{3840};
 	uint32_t screen_height{2160};
@@ -121,6 +123,9 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t body_count{0};
 	uint32_t body_noise_octaves{4};
 	uint32_t body_render_point_pixel_threshold{2};
+
+	uint32_t dispatch_row_offset{0};
+	uint32_t dispatch_row_count{0};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

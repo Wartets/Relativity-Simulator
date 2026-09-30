@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <algorithm>
 #include <span>
+#include <atomic>
+#include <chrono>
 
 namespace Relativistic::Render {
 
@@ -845,12 +847,72 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool dispatch_and_readback(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies = {}) {
+	static constexpr VkDeviceSize kMaxBandBytes = 64ULL * 1024ULL * 1024ULL;
+	static constexpr uint32_t kBandRowAlignment = 16U;
+	static constexpr double kBandTargetMs = 120.0;
+
+	[[nodiscard]] bool dispatch_and_readback(
+		const GpuCameraPushConstants& params,
+		std::vector<GpuPixelOutput>& output,
+		std::span<const GpuBodyGpuLayout> bodies = {},
+		const std::atomic<bool>* cancel_flag = nullptr
+	) {
 		if (!is_ready()) {
 			return false;
 		}
 
-		const size_t pixel_count = static_cast<size_t>(params.screen_width) * static_cast<size_t>(params.screen_height);
+		const uint32_t width = params.screen_width;
+		const uint32_t height = params.screen_height;
+		if (width == 0U || height == 0U) {
+			return false;
+		}
+
+		const size_t total_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+		if (output.size() != total_pixels) {
+			output.resize(total_pixels);
+		}
+
+		const uint64_t rows_by_memory = std::max<uint64_t>(
+			kBandRowAlignment,
+			(kMaxBandBytes / sizeof(GpuPixelOutput) / width) / kBandRowAlignment * kBandRowAlignment
+		);
+		const uint32_t max_rows = static_cast<uint32_t>(std::min<uint64_t>(rows_by_memory, height));
+		const uint32_t min_rows = std::min(kBandRowAlignment, max_rows);
+
+		uint32_t rows = min_rows;
+		uint32_t row = 0;
+		while (row < height) {
+			if (cancel_flag != nullptr && cancel_flag->load(std::memory_order_relaxed)) {
+				return false;
+			}
+
+			const uint32_t band_rows = std::min(rows, height - row);
+			GpuCameraPushConstants band_params = params;
+			band_params.dispatch_row_offset = row;
+			band_params.dispatch_row_count = band_rows;
+
+			const auto band_start = std::chrono::steady_clock::now();
+			if (!dispatch_band(band_params, output, bodies)) {
+				return false;
+			}
+			const double band_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - band_start).count();
+
+			row += band_rows;
+			const double scale = std::clamp(kBandTargetMs / std::max(band_ms, 1.0), 0.5, 2.0);
+			const uint32_t scaled = static_cast<uint32_t>(std::max(1.0, std::round(static_cast<double>(rows) * scale)));
+			const uint32_t aligned = ((scaled + kBandRowAlignment - 1U) / kBandRowAlignment) * kBandRowAlignment;
+			rows = std::clamp(aligned, min_rows, max_rows);
+		}
+		return true;
+	}
+
+private:
+	[[nodiscard]] bool dispatch_band(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyGpuLayout> bodies) {
+		if (!is_ready()) {
+			return false;
+		}
+
+		const size_t pixel_count = static_cast<size_t>(params.screen_width) * static_cast<size_t>(params.dispatch_row_count);
 		if (pixel_count == 0) {
 			return false;
 		}
@@ -907,7 +969,7 @@ public:
 		vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, 1, &descriptor_set_, 0, nullptr);
 
 		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
-		const uint32_t tiles_y = (params.screen_height + 15U) / 16U;
+		const uint32_t tiles_y = (params.dispatch_row_count + 15U) / 16U;
 		vkCmdDispatch(command_buffer_, tiles_x, tiles_y, 1);
 
 		VkBufferMemoryBarrier barrier{};
@@ -971,13 +1033,15 @@ public:
 			vkInvalidateMappedMemoryRanges(device_, 1, &range);
 		}
 
-		if (output.size() != pixel_count) {
-			output.resize(pixel_count);
+		const size_t first_pixel = static_cast<size_t>(params.dispatch_row_offset) * static_cast<size_t>(params.screen_width);
+		if (output.size() < first_pixel + pixel_count) {
+			return false;
 		}
-		std::memcpy(output.data(), staging_mapped_, static_cast<size_t>(copy_region.size));
+		std::memcpy(output.data() + first_pixel, staging_mapped_, static_cast<size_t>(copy_region.size));
 		return true;
 	}
 
+	public:
 	[[nodiscard]] static bool is_platform_supported() {
 		static const bool cached = [] {
 			VulkanContext probe_context;

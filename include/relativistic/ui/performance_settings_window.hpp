@@ -117,7 +117,7 @@ public:
 			}
 			render_setting_tooltip("Resolution scaling factor relative to the viewport window size. Lower values improve rendering framerates.");
 
-			if (slider_int_with_input("Max Geodesic Steps", &ray_steps_, 64, 16384, &ray_steps_log_mode_)) {
+			if (slider_int_with_input("Max Geodesic Steps", &ray_steps_, 64, 65536, &ray_steps_log_mode_)) {
 				preset_idx_ = 6;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_render_steps(static_cast<uint64_t>(ray_steps_))));
 			}
@@ -208,7 +208,7 @@ public:
 			if (slider_float_with_input("Polar Step Damping Strength", &pole_guard_precision_, 0.15f, 8.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, static_cast<double>(pole_guard_precision_))));
 			}
-			render_setting_tooltip("Strengthens the automatic step-size reduction applied near the coordinate poles (theta near 0 or pi) for both the CPU solver and the Vulkan GPU compute shader. Higher values suppress the thin bright artifact line sometimes visible through the poles of a black hole, at a small performance cost. The default is already set high enough to resolve this artifact under most conditions.");
+			render_setting_tooltip("Strengthens the automatic step-size reduction applied near the coordinate poles (theta near 0 or pi) for rotating and charged metrics on both the CPU solver and the Vulkan GPU compute shader. The spherically symmetric tracer is integrated without a polar coordinate singularity and does not need this reduction.");
 
 			ImGui::Spacing();
 			ImGui::Separator();

@@ -263,6 +263,7 @@ struct alignas(16) GpuBodyData {
 	double polar_cap_strength{0.0};
 	double ring_system_enabled{0.0};
 	double night_side_light_intensity{0.0};
+	std::array<double, 4> spin_axis{0.0, 0.0, 1.0, 0.0};
 
 	uint32_t surface_layer_count{0};
 	std::array<GpuSurfaceLayer, kMaxSurfaceLayers> surface_layers{};
@@ -304,6 +305,10 @@ struct alignas(16) GpuBodyGpuLayout {
 	double polar_cap_strength{0.0};
 	double ring_system_enabled{0.0};
 	double night_side_light_intensity{0.0};
+	double spin_axis_x{0.0};
+	double spin_axis_y{0.0};
+	double spin_axis_z{1.0};
+	double spin_axis_reserved{0.0};
 	uint32_t surface_layer_count{0};
 	uint32_t layer_pad0{0};
 	uint32_t layer_pad1{0};
@@ -347,6 +352,9 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.polar_cap_strength = b.polar_cap_strength;
 		g.ring_system_enabled = b.ring_system_enabled;
 		g.night_side_light_intensity = b.night_side_light_intensity;
+		g.spin_axis_x = b.spin_axis[0];
+		g.spin_axis_y = b.spin_axis[1];
+		g.spin_axis_z = b.spin_axis[2];
 		g.surface_layer_count = std::min<uint32_t>(b.surface_layer_count, static_cast<uint32_t>(kMaxSurfaceLayers));
 		for (size_t i = 0; i < kMaxSurfaceLayers; ++i) {
 			g.surface_layers[i] = b.surface_layers[i];
@@ -355,6 +363,6 @@ struct alignas(16) GpuBodyGpuLayout {
 	}
 };
 
-static_assert(sizeof(GpuBodyGpuLayout) == 672);
+static_assert(sizeof(GpuBodyGpuLayout) == 704);
 
 }

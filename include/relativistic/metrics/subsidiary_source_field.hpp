@@ -18,8 +18,12 @@ struct SubsidiarySourceParams {
 	double mass{0.0};
 	double spin{0.0};
 	double horizon_radius{0.0};
+	double equatorial_horizon_radius{0.0};
 	double isco_radius{0.0};
 	double disk_outer_radius{0.0};
+	std::array<double, 3> spin_axis{0.0, 0.0, 1.0};
+	std::array<double, 3> frame_x{1.0, 0.0, 0.0};
+	std::array<double, 3> frame_y{0.0, 1.0, 0.0};
 	KerrSchildMetric<double> metric{1.0, 0.0};
 
 	[[nodiscard]] static SubsidiarySourceParams from_gpu_body(const Render::GpuBodyData& body) noexcept {
@@ -31,16 +35,60 @@ struct SubsidiarySourceParams {
 		p.spin = a_star * p.mass;
 		p.metric = KerrSchildMetric<double>(p.mass, p.spin);
 		p.horizon_radius = p.metric.outer_horizon_radius();
+		p.equatorial_horizon_radius = std::sqrt(p.horizon_radius * p.horizon_radius + p.spin * p.spin);
+		p.assign_spin_axis({body.spin_axis[0], body.spin_axis[1], body.spin_axis[2]});
 		p.isco_radius = Optics::DiskThermalProfile::kerr_isco_radius(p.mass, p.spin);
 		p.disk_outer_radius = Optics::DiskThermalProfile::disk_outer_radius(p.mass);
 		return p;
 	}
 
+	void assign_spin_axis(const std::array<double, 3>& axis) noexcept {
+		const double length = std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+		spin_axis = (length > 1e-12)
+			? std::array<double, 3>{axis[0] / length, axis[1] / length, axis[2] / length}
+			: std::array<double, 3>{0.0, 0.0, 1.0};
+		const std::array<double, 3> helper = (std::abs(spin_axis[2]) < 0.9)
+			? std::array<double, 3>{0.0, 0.0, 1.0}
+			: std::array<double, 3>{1.0, 0.0, 0.0};
+		std::array<double, 3> x_axis{
+			helper[1] * spin_axis[2] - helper[2] * spin_axis[1],
+			helper[2] * spin_axis[0] - helper[0] * spin_axis[2],
+			helper[0] * spin_axis[1] - helper[1] * spin_axis[0]
+		};
+		const double x_length = std::sqrt(x_axis[0] * x_axis[0] + x_axis[1] * x_axis[1] + x_axis[2] * x_axis[2]);
+		frame_x = {x_axis[0] / x_length, x_axis[1] / x_length, x_axis[2] / x_length};
+		frame_y = {
+			spin_axis[1] * frame_x[2] - spin_axis[2] * frame_x[1],
+			spin_axis[2] * frame_x[0] - spin_axis[0] * frame_x[2],
+			spin_axis[0] * frame_x[1] - spin_axis[1] * frame_x[0]
+		};
+	}
+
+	[[nodiscard]] std::array<double, 3> to_local(const std::array<double, 3>& v) const noexcept {
+		return {
+			v[0] * frame_x[0] + v[1] * frame_x[1] + v[2] * frame_x[2],
+			v[0] * frame_y[0] + v[1] * frame_y[1] + v[2] * frame_y[2],
+			v[0] * spin_axis[0] + v[1] * spin_axis[1] + v[2] * spin_axis[2]
+		};
+	}
+
+	[[nodiscard]] std::array<double, 3> to_world(const std::array<double, 3>& l) const noexcept {
+		return {
+			frame_x[0] * l[0] + frame_y[0] * l[1] + spin_axis[0] * l[2],
+			frame_x[1] * l[0] + frame_y[1] * l[1] + spin_axis[1] * l[2],
+			frame_x[2] * l[0] + frame_y[2] * l[1] + spin_axis[2] * l[2]
+		};
+	}
+
+	[[nodiscard]] double horizon_ratio(const std::array<double, 3>& world_pos) const noexcept {
+		const auto local = to_local({world_pos[0] - position[0], world_pos[1] - position[1], world_pos[2] - position[2]});
+		const double equatorial = std::max(equatorial_horizon_radius, 1e-12);
+		const double polar = std::max(horizon_radius, 1e-12);
+		return std::sqrt((local[0] * local[0] + local[1] * local[1]) / (equatorial * equatorial) + (local[2] * local[2]) / (polar * polar));
+	}
+
 	[[nodiscard]] bool is_within_horizon(const std::array<double, 3>& world_pos) const noexcept {
-		const double dx = world_pos[0] - position[0];
-		const double dy = world_pos[1] - position[1];
-		const double dz = world_pos[2] - position[2];
-		return (dx * dx + dy * dy + dz * dz) <= (horizon_radius * horizon_radius);
+		return horizon_ratio(world_pos) <= 1.0;
 	}
 };
 
@@ -59,18 +107,24 @@ public:
 		const std::array<double, 3>& seg_end,
 		const SubsidiarySourceParams& source
 	) noexcept {
-		const double dx = seg_end[0] - seg_start[0];
-		const double dy = seg_end[1] - seg_start[1];
-		const double dz = seg_end[2] - seg_start[2];
-		const double a_coeff = dx * dx + dy * dy + dz * dz;
-		if (a_coeff <= 1e-18) {
-			return source.is_within_horizon(seg_start);
+		const auto start_local = source.to_local({seg_start[0] - source.position[0], seg_start[1] - source.position[1], seg_start[2] - source.position[2]});
+		const auto delta_local = source.to_local({seg_end[0] - seg_start[0], seg_end[1] - seg_start[1], seg_end[2] - seg_start[2]});
+		const double inverse_equatorial = 1.0 / std::max(source.equatorial_horizon_radius, 1e-12);
+		const double inverse_polar = 1.0 / std::max(source.horizon_radius, 1e-12);
+		const std::array<double, 3> s{start_local[0] * inverse_equatorial, start_local[1] * inverse_equatorial, start_local[2] * inverse_polar};
+		const std::array<double, 3> d{delta_local[0] * inverse_equatorial, delta_local[1] * inverse_equatorial, delta_local[2] * inverse_polar};
+		const double c_coeff = s[0] * s[0] + s[1] * s[1] + s[2] * s[2] - 1.0;
+		const double end_x = s[0] + d[0];
+		const double end_y = s[1] + d[1];
+		const double end_z = s[2] + d[2];
+		if (c_coeff <= 0.0 || (end_x * end_x + end_y * end_y + end_z * end_z) <= 1.0) {
+			return true;
 		}
-		const double ox = seg_start[0] - source.position[0];
-		const double oy = seg_start[1] - source.position[1];
-		const double oz = seg_start[2] - source.position[2];
-		const double b_coeff = 2.0 * (ox * dx + oy * dy + oz * dz);
-		const double c_coeff = ox * ox + oy * oy + oz * oz - source.horizon_radius * source.horizon_radius;
+		const double a_coeff = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+		if (a_coeff <= 1e-30) {
+			return false;
+		}
+		const double b_coeff = 2.0 * (s[0] * d[0] + s[1] * d[1] + s[2] * d[2]);
 		const double discriminant = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
 		if (discriminant < 0.0) return false;
 		const double sqrt_disc = std::sqrt(discriminant);
@@ -84,15 +138,17 @@ public:
 		const std::array<double, 3>& seg_end,
 		const SubsidiarySourceParams& source
 	) noexcept {
-		const double prev_z_rel = seg_start[2] - source.position[2];
-		const double curr_z_rel = seg_end[2] - source.position[2];
+		const auto start_local = source.to_local({seg_start[0] - source.position[0], seg_start[1] - source.position[1], seg_start[2] - source.position[2]});
+		const auto end_local = source.to_local({seg_end[0] - source.position[0], seg_end[1] - source.position[1], seg_end[2] - source.position[2]});
+		const double prev_z_rel = start_local[2];
+		const double curr_z_rel = end_local[2];
 		const double z_span = curr_z_rel - prev_z_rel;
 		if (prev_z_rel * curr_z_rel > 0.0 || std::abs(z_span) <= 1e-15) {
 			return std::nullopt;
 		}
 		const double s_cross = std::clamp(std::abs(prev_z_rel) / std::abs(z_span), 0.0, 1.0);
-		const double cross_x = seg_start[0] + s_cross * (seg_end[0] - seg_start[0]) - source.position[0];
-		const double cross_y = seg_start[1] + s_cross * (seg_end[1] - seg_start[1]) - source.position[1];
+		const double cross_x = start_local[0] + s_cross * (end_local[0] - start_local[0]);
+		const double cross_y = start_local[1] + s_cross * (end_local[1] - start_local[1]);
 		const double r_cross = std::sqrt(cross_x * cross_x + cross_y * cross_y);
 		if (r_cross < source.isco_radius || r_cross > source.disk_outer_radius) {
 			return std::nullopt;
@@ -122,7 +178,7 @@ public:
 		const double ry = ray_pos[1] - source.position[1];
 		const double rz = ray_pos[2] - source.position[2];
 		const double r_len = std::sqrt(rx * rx + ry * ry + rz * rz);
-		if (r_len < source.horizon_radius * 1.5) {
+		if (source.horizon_ratio(ray_pos) < 1.5) {
 			return ray_dir;
 		}
 		if (r_len > source.mass * 2000.0) {
@@ -151,9 +207,10 @@ public:
 		const double nz = cross_z / cross_norm;
 
 		const double schwarzschild_term = (4.0 * source.mass) / std::max(impact_param, source.mass * 1e-3);
-		const double gravitomagnetic_term = (4.0 * source.spin * source.mass) / std::max(impact_param * impact_param * impact_param, source.mass * source.mass * 1e-6);
+		const double spin_alignment = source.spin_axis[0] * nx + source.spin_axis[1] * ny + source.spin_axis[2] * nz;
+		const double gravitomagnetic_term = -(4.0 * source.spin * source.mass * spin_alignment) / std::max(impact_param * impact_param, source.mass * source.mass * 1e-6);
 		const double weight = std::exp(-r_len / (30.0 * std::max(source.mass, 1e-6)));
-		const double total_deflection = std::min((schwarzschild_term + gravitomagnetic_term) * weight * (step_length / std::max(r_len, source.mass)), 0.5);
+		const double total_deflection = std::min(std::max(schwarzschild_term + gravitomagnetic_term, 0.0) * weight * (step_length / std::max(r_len, source.mass)), 0.5);
 
 		const double wx = ny * ray_dir[2] - nz * ray_dir[1];
 		const double wy = nz * ray_dir[0] - nx * ray_dir[2];
@@ -260,13 +317,16 @@ public:
 		const double ry = ray_pos[1] - source.position[1];
 		const double rz = ray_pos[2] - source.position[2];
 		const double r_len = std::sqrt(rx * rx + ry * ry + rz * rz);
-		if (r_len < source.horizon_radius * 1.5) {
+		if (source.horizon_ratio(ray_pos) < 1.5) {
 			return ray_dir;
 		}
 
 		const double strong_field_radius = std::max(source.disk_outer_radius, source.horizon_radius * 40.0);
 		if (r_len < strong_field_radius) {
-			return integrate_local_geodesic_correction(rx, ry, rz, ray_dir, step_length, source.metric);
+			const auto local_position = source.to_local({rx, ry, rz});
+			const auto local_direction = source.to_local(ray_dir);
+			const auto local_corrected = integrate_local_geodesic_correction(local_position[0], local_position[1], local_position[2], local_direction, step_length, source.metric);
+			return source.to_world(local_corrected);
 		}
 		return compute_weak_field_deflection(ray_pos, ray_dir, step_length, source);
 	}

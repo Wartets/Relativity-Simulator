@@ -61,7 +61,7 @@ public:
 		if (!cfg.enabled || cfg.ambient_temperature_kelvin < 0.0 || dt <= 0.0) return;
 		constexpr double sigma = 5.670374419e-8;
 		for (auto& body : bodies) {
-			if (!body.enabled || body.heat_capacity <= 0.0) continue;
+			if (!body.enabled || body.is_spacetime_source || body.heat_capacity <= 0.0) continue;
 			const double t4 = body.temperature * body.temperature * body.temperature * body.temperature;
 			const double t_amb4 = cfg.ambient_temperature_kelvin * cfg.ambient_temperature_kelvin * cfg.ambient_temperature_kelvin * cfg.ambient_temperature_kelvin;
 			const double surface_area = 4.0 * std::numbers::pi_v<double> * std::max(body.radius, 1e-9) * std::max(body.radius, 1e-9);
@@ -89,6 +89,7 @@ public:
 			if (!bodies[i].enabled) continue;
 			for (size_t j = i + 1; j < bodies.size(); ++j) {
 				if (!bodies[j].enabled) continue;
+				if (bodies[i].is_spacetime_source || bodies[j].is_spacetime_source) continue;
 
 				const double contact_distance = bodies[i].radius + bodies[j].radius;
 				const auto r_vec = sub3(bodies[i].position, bodies[j].position);
@@ -192,7 +193,7 @@ public:
 	) noexcept {
 		if (!fragmentation_cfg.enabled || !fragmentation_cfg.enable_tidal_stress || dt <= 0.0 || central_mass <= 0.0) return;
 		for (auto& body : bodies) {
-			if (!body.enabled || body.radius <= 0.0) continue;
+			if (!body.enabled || body.is_spacetime_source || body.radius <= 0.0) continue;
 			const double r2 = dot3(body.position, body.position);
 			if (r2 <= 1e-12) continue;
 			const double r = std::sqrt(r2);

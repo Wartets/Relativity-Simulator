@@ -628,7 +628,7 @@ private:
 			const double cz = b.position[2] - obs_pos[2];
 			const double center_dist = std::sqrt(cx * cx + cy * cy + cz * cz);
 
-			if (center_dist <= bounding_radius * 1.05) {
+			if (center_dist <= bounding_radius * 1.05 || b.preset_3d == 8U) {
 				for (size_t t = 0; t < result.total_tile_count; ++t) {
 					if (result.tile_mask[t] == 0U) {
 						result.tile_mask[t] = 1U;
@@ -723,7 +723,7 @@ private:
 			const double cz = b.position[2] - obs_pos[2];
 			const double center_dist = std::sqrt(cx * cx + cy * cy + cz * cz);
 
-			if (center_dist <= bounding_radius * 1.05) {
+			if (center_dist <= bounding_radius * 1.05 || b.preset_3d == 8U) {
 				for (size_t t = 0; t < result.total_tile_count; ++t) {
 					result.candidate_pool[result.tile_offsets[t] + written[t]++] = static_cast<uint32_t>(bi);
 				}
@@ -1811,18 +1811,26 @@ private:
 			const double seg_dz = seg_end[2] - seg_start[2];
 			const double seg_len_sq = seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz;
 			if (seg_len_sq > 1e-24 && source.horizon_radius > 0.0) {
-				const double rel_x = seg_start[0] - source.position[0];
-				const double rel_y = seg_start[1] - source.position[1];
-				const double rel_z = seg_start[2] - source.position[2];
-				const double t_closest = std::clamp(-(rel_x * seg_dx + rel_y * seg_dy + rel_z * seg_dz) / seg_len_sq, 0.0, 1.0);
-				const double cx = rel_x + t_closest * seg_dx;
-				const double cy = rel_y + t_closest * seg_dy;
-				const double cz = rel_z + t_closest * seg_dz;
+				const auto rim_start = source.to_local({seg_start[0] - source.position[0], seg_start[1] - source.position[1], seg_start[2] - source.position[2]});
+				const auto rim_delta = source.to_local({seg_dx, seg_dy, seg_dz});
+				const double inverse_equatorial = 1.0 / std::max(source.equatorial_horizon_radius, 1e-12);
+				const double inverse_polar = 1.0 / std::max(source.horizon_radius, 1e-12);
+				const double sx = rim_start[0] * inverse_equatorial;
+				const double sy = rim_start[1] * inverse_equatorial;
+				const double sz = rim_start[2] * inverse_polar;
+				const double dxs = rim_delta[0] * inverse_equatorial;
+				const double dys = rim_delta[1] * inverse_equatorial;
+				const double dzs = rim_delta[2] * inverse_polar;
+				const double scaled_len_sq = std::max(dxs * dxs + dys * dys + dzs * dzs, 1e-30);
+				const double t_closest = std::clamp(-(sx * dxs + sy * dys + sz * dzs) / scaled_len_sq, 0.0, 1.0);
+				const double cx = sx + t_closest * dxs;
+				const double cy = sy + t_closest * dys;
+				const double cz = sz + t_closest * dzs;
 				const double d_closest = std::sqrt(cx * cx + cy * cy + cz * cz);
-				const double rim_band = 0.12 * source.horizon_radius;
-				if (d_closest > source.horizon_radius && d_closest < source.horizon_radius + rim_band) {
-					const double ring = 1.0 - (d_closest - source.horizon_radius) / rim_band;
-					const double rim_intensity = ring * ring * std::min(std::sqrt(seg_len_sq) / rim_band, 1.0) * 0.35;
+				const double rim_band = 0.12;
+				if (d_closest > 1.0 && d_closest < 1.0 + rim_band) {
+					const double ring = 1.0 - (d_closest - 1.0) / rim_band;
+					const double rim_intensity = ring * ring * std::min(std::sqrt(seg_len_sq) / (rim_band * source.equatorial_horizon_radius), 1.0) * 0.35;
 					result.rim_color[0] += static_cast<float>(rim_intensity);
 					result.rim_color[1] += static_cast<float>(rim_intensity * 0.75);
 					result.rim_color[2] += static_cast<float>(rim_intensity * 0.45);
@@ -2162,11 +2170,7 @@ public:
 							const auto ray_cartesian_pos = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
 							double nearest_horizon_ratio = 1e30;
 							for (const auto& subsidiary_source : subsidiary_sources) {
-								const double delta_x = ray_cartesian_pos[0] - subsidiary_source.position[0];
-								const double delta_y = ray_cartesian_pos[1] - subsidiary_source.position[1];
-								const double delta_z = ray_cartesian_pos[2] - subsidiary_source.position[2];
-								const double distance_to_source = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
-								nearest_horizon_ratio = std::min(nearest_horizon_ratio, distance_to_source / std::max(subsidiary_source.horizon_radius, 1e-9));
+								nearest_horizon_ratio = std::min(nearest_horizon_ratio, subsidiary_source.horizon_ratio(ray_cartesian_pos));
 							}
 							subsidiary_horizon_guard = std::clamp(nearest_horizon_ratio / 8.0, 0.03, 1.0);
 						}

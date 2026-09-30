@@ -304,6 +304,18 @@ private:
 					primary_absorbed_any = true;
 				}
 			}
+			for (auto& b : bodies_copy) {
+				if (!b.enabled || !b.is_spacetime_source) continue;
+				const double distance = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
+				if (distance > r_h + b.kerr_outer_horizon_radius()) continue;
+				const double orbital_angular_momentum = b.mass * (b.position[0] * b.velocity[1] - b.position[1] * b.velocity[0]);
+				const double total_angular_momentum = params_.spin * params_.mass + b.spin[2] * b.mass + orbital_angular_momentum;
+				params_.mass += b.mass;
+				params_.spin = std::clamp(total_angular_momentum / params_.mass, -0.999 * params_.mass, 0.999 * params_.mass);
+				b.enabled = false;
+				b.integrity = 0.0;
+				primary_absorbed_any = true;
+			}
 		}
 
 		struct SourceInfo {
@@ -338,6 +350,8 @@ private:
 						}
 					}
 					sb.mass = m_total;
+					sb.charge += b.charge;
+					sb.enforce_spacetime_source_invariants();
 					b.enabled = false;
 					b.integrity = 0.0;
 					sources_changed = true;
@@ -365,6 +379,8 @@ private:
 						survivor.spin[c] += merged.spin[c];
 					}
 					survivor.mass = m_total;
+					survivor.charge += merged.charge;
+					survivor.enforce_spacetime_source_invariants();
 					merged.enabled = false;
 					merged.integrity = 0.0;
 					sources_changed = true;

@@ -939,9 +939,9 @@ public:
 		for (const auto& b : sys.bodies()) {
 			if (!b.enabled) continue;
 			targets.push_back(DynamicLookAtTarget{
-				"Celestial Body #" + std::to_string(b.id) + " (M=" + std::to_string(b.mass).substr(0, 4) + ")",
+				(b.is_spacetime_source ? "Independent Black Hole #" : "Celestial Body #") + std::to_string(b.id) + " (M=" + std::to_string(b.mass).substr(0, 4) + ")",
 				b.position,
-				std::max(b.radius * 4.0, 10.0)
+				std::max(b.effective_radius() * 4.0, 10.0)
 			});
 		}
 

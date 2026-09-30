@@ -13,6 +13,7 @@
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/io/user_settings.hpp"
+#include "relativistic/optics/disk_thermal_profile.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -59,7 +60,7 @@ namespace BodyEditorSection {
 	inline constexpr uint32_t Material = 1U << 4;
 	inline constexpr uint32_t Surface = 1U << 5;
 	inline constexpr uint32_t Complete = Identity | SourceToggle | Physical | Multipoles | Material | Surface;
-	inline constexpr uint32_t SpacetimeSource = Identity | Physical | Multipoles;
+	inline constexpr uint32_t SpacetimeSource = Identity | Physical;
 }
 
 struct BodyEditorViewState {
@@ -806,7 +807,8 @@ private:
 		body.acceleration = {0.0, 0.0, 0.0};
 		body.set_name(unique_name(body.has_name() ? body.name_view() : std::string_view("Body")));
 		if (body.is_spacetime_source) {
-			body.radius = std::max(body.kerr_outer_horizon_radius(), 1e-6);
+			body.enforce_spacetime_source_invariants();
+			resolve_source_placement(body);
 		}
 		const uint32_t id = sys.add_body(std::move(body));
 		orchestrator_.surface_layers().set(id, layers);
@@ -882,6 +884,7 @@ private:
 				} else if (b.preset_3d == Dynamics::Body3DPreset::BlackHole) {
 					apply_body_preset_defaults(b, Dynamics::Body3DPreset::Metallic);
 				}
+				b.enforce_spacetime_source_invariants();
 				changed = true;
 			}
 			render_setting_tooltip("Marks this body as its own gravitating compact object with a Kerr event horizon derived from its mass and spin. It participates fully in N-body dynamics, can absorb ordinary bodies crossing its horizon, and merges with other spacetime sources on contact. The rendered lensing still follows the primary central object only.");
@@ -948,6 +951,193 @@ private:
 
 		const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
 		ImGui::TextDisabled("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(kinetic_energy_joules, prefs.energy).c_str());
+		return changed;
+	}
+
+	[[nodiscard]] double primary_horizon_radius() const noexcept {
+		const auto& p = orchestrator_.parameters();
+		if (p.mass <= 0.0) return 0.0;
+		const double a = std::clamp(p.spin, -0.999 * p.mass, 0.999 * p.mass);
+		return p.mass + std::sqrt(std::max(p.mass * p.mass - a * a, 0.0));
+	}
+
+	[[nodiscard]] std::string source_overlap_warning(const Dynamics::PostNewtonianBody& b) const {
+		const double horizon = b.kerr_outer_horizon_radius();
+		const double primary_horizon = primary_horizon_radius();
+		if (primary_horizon > 0.0 && distance_from_center(b) < primary_horizon + horizon) {
+			return "This horizon overlaps the primary source horizon; overlapping sources merge when the simulation runs, and new sources are moved to a safe separation when spawned.";
+		}
+		auto& sys = orchestrator_.nbody_system();
+		{
+			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+			for (const auto& other : sys.bodies()) {
+				if (!other.enabled || !other.is_spacetime_source || other.id == b.id) continue;
+				const double dx = b.position[0] - other.position[0];
+				const double dy = b.position[1] - other.position[1];
+				const double dz = b.position[2] - other.position[2];
+				if (std::sqrt(dx * dx + dy * dy + dz * dz) < horizon + other.kerr_outer_horizon_radius()) {
+					return "This horizon overlaps another independent black hole; overlapping sources merge when the simulation runs, and new sources are moved to a safe separation when spawned.";
+				}
+			}
+		}
+		const auto& camera = orchestrator_.camera();
+		const double cx = b.position[0] - camera.position[0];
+		const double cy = b.position[1] - camera.position[1];
+		const double cz = b.position[2] - camera.position[2];
+		if (std::sqrt(cx * cx + cy * cy + cz * cz) < horizon) {
+			return "The observer is located inside this event horizon.";
+		}
+		return {};
+	}
+
+	void resolve_source_placement(Dynamics::PostNewtonianBody& body) noexcept {
+		constexpr double separation_margin = 1.25;
+		const double horizon = body.kerr_outer_horizon_radius();
+		const double primary_horizon = primary_horizon_radius();
+		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+		const auto separate_from = [&body](const std::array<double, 3>& center, double required_distance) noexcept -> bool {
+			const std::array<double, 3> offset{body.position[0] - center[0], body.position[1] - center[1], body.position[2] - center[2]};
+			const double distance = std::sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
+			if (distance >= required_distance) return false;
+			const std::array<double, 3> direction = (distance > 1e-9)
+				? std::array<double, 3>{offset[0] / distance, offset[1] / distance, offset[2] / distance}
+				: std::array<double, 3>{1.0, 0.0, 0.0};
+			body.position = {center[0] + direction[0] * required_distance, center[1] + direction[1] * required_distance, center[2] + direction[2] * required_distance};
+			return true;
+		};
+		for (int pass = 0; pass < 16; ++pass) {
+			bool moved = false;
+			if (primary_horizon > 0.0) {
+				moved = separate_from({0.0, 0.0, 0.0}, (primary_horizon + horizon) * separation_margin);
+			}
+			for (const auto& other : sys.bodies()) {
+				if (!other.enabled || !other.is_spacetime_source || other.id == body.id) continue;
+				moved = separate_from(other.position, (other.kerr_outer_horizon_radius() + horizon) * separation_margin) || moved;
+			}
+			if (!moved) break;
+		}
+	}
+
+	[[nodiscard]] bool render_spacetime_source_physical_section(Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
+		bool changed = false;
+		const auto& prefs = orchestrator_.unit_preferences();
+		const double mass_scale_kg = mass_scale();
+		const double length_scale_m = length_scale();
+		const double speed_scale_mps = get_speed_scale(orchestrator_.constants_engine());
+
+		const double previous_spin_parameter = b.kerr_spin_parameter();
+		double mass_kg = b.mass * mass_scale_kg;
+		if (unit_aware_slider_double("Mass", &mass_kg, 0.001 * mass_scale_kg, 1.0e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-12 * mass_scale_kg, 1e60 * mass_scale_kg)) {
+			const std::array<double, 3> preserved_axis = b.spin_axis_unit();
+			b.mass = std::max(1e-9, mass_kg / mass_scale_kg);
+			b.set_spin_state(previous_spin_parameter, preserved_axis);
+			changed = true;
+		}
+		render_setting_tooltip(("Gravitating mass of the black hole, displayed in " + std::string(Units::mass_unit_suffix(prefs.mass)) + ". It sets the event horizon; the dimensionless spin is preserved when the mass changes.").c_str());
+
+		float spin_parameter = static_cast<float>(b.kerr_spin_parameter());
+		if (slider_float_with_input("Dimensionless Spin (a/M)", &spin_parameter, 0.0f, 0.999f, "%.4f")) {
+			b.set_spin_state(static_cast<double>(spin_parameter), b.spin_axis_unit());
+			changed = true;
+		}
+		render_setting_tooltip("Kerr spin parameter a/M in [0, 0.999]. It flattens the horizon, shrinks the ISCO and drives frame dragging and spin-orbit coupling; its direction is set by the spin axis below.");
+
+		const bool spinning = b.kerr_spin_parameter() > 1e-9;
+		const std::array<double, 3> axis = b.spin_axis_unit();
+		constexpr double radians_to_degrees = 180.0 / std::numbers::pi;
+		float polar_degrees = static_cast<float>(std::acos(std::clamp(axis[2], -1.0, 1.0)) * radians_to_degrees);
+		float azimuth_degrees = static_cast<float>(std::atan2(axis[1], axis[0]) * radians_to_degrees);
+		ImGui::BeginDisabled(!spinning);
+		bool orientation_changed = ImGui::SliderFloat("Spin Axis Polar Angle", &polar_degrees, 0.0f, 180.0f, "%.1f deg");
+		render_setting_tooltip("Angle between the black hole rotation axis and the world +Z axis. It orients the flattened horizon, the accretion disk plane and the frame dragging direction.");
+		orientation_changed = ImGui::SliderFloat("Spin Axis Azimuth", &azimuth_degrees, -180.0f, 180.0f, "%.1f deg") || orientation_changed;
+		render_setting_tooltip("Azimuth of the rotation axis around the world Z axis.");
+		if (orientation_changed) {
+			const double polar = static_cast<double>(polar_degrees) / radians_to_degrees;
+			const double azimuth = static_cast<double>(azimuth_degrees) / radians_to_degrees;
+			b.set_spin_state(b.kerr_spin_parameter(), {std::sin(polar) * std::cos(azimuth), std::sin(polar) * std::sin(azimuth), std::cos(polar)});
+			changed = true;
+		}
+		if (ImGui::SmallButton("Align With Orbital Angular Momentum")) {
+			const std::array<double, 3> angular_momentum{
+				b.position[1] * b.velocity[2] - b.position[2] * b.velocity[1],
+				b.position[2] * b.velocity[0] - b.position[0] * b.velocity[2],
+				b.position[0] * b.velocity[1] - b.position[1] * b.velocity[0]
+			};
+			if (std::sqrt(angular_momentum[0] * angular_momentum[0] + angular_momentum[1] * angular_momentum[1] + angular_momentum[2] * angular_momentum[2]) > 1e-12) {
+				b.set_spin_state(b.kerr_spin_parameter(), angular_momentum);
+				changed = true;
+			}
+		}
+		render_setting_tooltip("Points the spin axis along the orbital angular momentum of this black hole around the origin, producing an aligned (prograde) configuration.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Align With Primary Spin")) {
+			b.set_spin_state(b.kerr_spin_parameter(), {0.0, 0.0, (orchestrator_.parameters().spin >= 0.0) ? 1.0 : -1.0});
+			changed = true;
+		}
+		render_setting_tooltip("Points the spin axis along the rotation axis of the primary central source.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Reset Axis To +Z")) {
+			b.set_spin_state(b.kerr_spin_parameter(), {0.0, 0.0, 1.0});
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		if (!spinning) {
+			ImGui::TextDisabled("The spin axis only has an effect when the dimensionless spin is non-zero.");
+		}
+
+		const double charge_limit = std::max(b.mass, 1e-6);
+		double charge = b.charge;
+		if (unit_aware_slider_double("Charge", &charge, -charge_limit, charge_limit, UnitCategory::Charge, prefs, "%.4e")) {
+			b.charge = charge;
+			changed = true;
+		}
+		render_setting_tooltip(("Net electric charge, displayed in " + std::string(Units::charge_unit_suffix(prefs.charge)) + ", limited to the extremal bound |Q| <= M. It only acts through the electromagnetic interactions between bodies.").c_str());
+
+		double position_m[3] = {b.position[0] * length_scale_m, b.position[1] * length_scale_m, b.position[2] * length_scale_m};
+		if (unit_aware_input_double3("Position (x, y, z)", position_m, UnitCategory::Distance, prefs)) {
+			b.position = {position_m[0] / length_scale_m, position_m[1] / length_scale_m, position_m[2] / length_scale_m};
+			changed = true;
+		}
+		render_setting_tooltip(("Cartesian position of the black hole relative to the primary source, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ".").c_str());
+
+		double velocity_mps[3] = {b.velocity[0] * speed_scale_mps, b.velocity[1] * speed_scale_mps, b.velocity[2] * speed_scale_mps};
+		if (unit_aware_input_double3("Velocity (vx, vy, vz)", velocity_mps, UnitCategory::Velocity, prefs)) {
+			b.velocity = {velocity_mps[0] / speed_scale_mps, velocity_mps[1] / speed_scale_mps, velocity_mps[2] / speed_scale_mps};
+			changed = true;
+		}
+		render_setting_tooltip(("Coordinate velocity of the black hole, displayed in " + std::string(Units::velocity_unit_suffix(prefs.velocity)) + ".").c_str());
+
+		if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
+			b.velocity = compute_circular_orbit_velocity(b.position, orchestrator_.parameters().mass + b.mass);
+			changed = true;
+		}
+		render_setting_tooltip("Overwrites the velocity with the Keplerian circular-orbit velocity around the primary source, including the mass of this black hole.");
+
+		if (ImGui::Button("Move To Safe Separation", ImVec2(-1.0f, 24.0f))) {
+			resolve_source_placement(b);
+			changed = true;
+		}
+		render_setting_tooltip("Pushes the black hole outward until its horizon no longer overlaps the primary source or any other independent black hole, keeping a 25% margin.");
+
+		const std::string overlap_warning = source_overlap_warning(b);
+		if (!overlap_warning.empty()) {
+			render_wrapped_colored_text(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), overlap_warning.c_str());
+		}
+
+		const double horizon = b.kerr_outer_horizon_radius();
+		const double spin_length = b.kerr_spin_parameter() * b.mass;
+		const double equatorial_extent = std::sqrt(horizon * horizon + spin_length * spin_length);
+		const double isco = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);
+		ImGui::TextDisabled("Outer Horizon: %s | Equatorial Extent: %s", Units::format_distance(horizon * length_scale_m, prefs.distance).c_str(), Units::format_distance(equatorial_extent * length_scale_m, prefs.distance).c_str());
+		ImGui::TextDisabled("Equatorial Ergosphere: %s | ISCO (Prograde): %s", Units::format_distance(2.0 * b.mass * length_scale_m, prefs.distance).c_str(), Units::format_distance(isco * length_scale_m, prefs.distance).c_str());
+		const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
+		ImGui::TextDisabled("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(kinetic_energy_joules, prefs.energy).c_str());
+
+		if (changed) {
+			b.enforce_spacetime_source_invariants();
+		}
 		return changed;
 	}
 
@@ -1206,11 +1396,14 @@ private:
 
 	[[nodiscard]] BodyEditResult render_body_editor(Dynamics::PostNewtonianBody& b, Dynamics::BodySurfaceLayerSet* layers, BodyEditorViewState& view, uint32_t sections) noexcept {
 		BodyEditResult result;
+		if (b.is_spacetime_source) {
+			sections &= ~(BodyEditorSection::Multipoles | BodyEditorSection::Material | BodyEditorSection::Surface);
+		}
 		if ((sections & BodyEditorSection::Identity) != 0U && ImGui::CollapsingHeader("Identity & State", ImGuiTreeNodeFlags_DefaultOpen)) {
 			result.body_changed = render_identity_section(b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
 		}
 		if ((sections & BodyEditorSection::Physical) != 0U && ImGui::CollapsingHeader("Physical State & Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
-			result.body_changed = render_physical_section(b, view) || result.body_changed;
+			result.body_changed = (b.is_spacetime_source ? render_spacetime_source_physical_section(b, view) : render_physical_section(b, view)) || result.body_changed;
 		}
 		if ((sections & BodyEditorSection::Multipoles) != 0U && ImGui::CollapsingHeader("Gravitational Multipoles")) {
 			result.body_changed = render_multipole_section(b, view) || result.body_changed;

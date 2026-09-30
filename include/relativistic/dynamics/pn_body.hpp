@@ -178,6 +178,45 @@ struct alignas(64) PostNewtonianBody {
 		return rg + std::sqrt(std::max(rg * rg - a * a, 0.0));
 	}
 
+	[[nodiscard]] double effective_radius() const noexcept {
+		return is_spacetime_source ? std::max(kerr_outer_horizon_radius(), 1e-6) : radius;
+	}
+
+	[[nodiscard]] std::array<double, 3> spin_axis_unit() const noexcept {
+		const double spin_norm = spin_magnitude();
+		if (spin_norm > 1e-12) {
+			return {spin[0] / spin_norm, spin[1] / spin_norm, spin[2] / spin_norm};
+		}
+		const double axis_norm = std::sqrt(rotation_axis_3d[0] * rotation_axis_3d[0] + rotation_axis_3d[1] * rotation_axis_3d[1] + rotation_axis_3d[2] * rotation_axis_3d[2]);
+		if (axis_norm > 1e-12) {
+			return {rotation_axis_3d[0] / axis_norm, rotation_axis_3d[1] / axis_norm, rotation_axis_3d[2] / axis_norm};
+		}
+		return {0.0, 0.0, 1.0};
+	}
+
+	void set_spin_state(double dimensionless_spin, const std::array<double, 3>& axis) noexcept {
+		const double axis_norm = std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+		const std::array<double, 3> unit = (axis_norm > 1e-12)
+			? std::array<double, 3>{axis[0] / axis_norm, axis[1] / axis_norm, axis[2] / axis_norm}
+			: std::array<double, 3>{0.0, 0.0, 1.0};
+		rotation_axis_3d = unit;
+		const double magnitude = std::clamp(dimensionless_spin, 0.0, 0.999) * std::max(mass, 0.0);
+		spin = {unit[0] * magnitude, unit[1] * magnitude, unit[2] * magnitude};
+	}
+
+	void enforce_spacetime_source_invariants() noexcept {
+		if (!is_spacetime_source) return;
+		quadrupole_moment = 0.0;
+		j2 = 0.0;
+		j3 = 0.0;
+		j4 = 0.0;
+		magnetic_moment = 0.0;
+		const double charge_limit = std::max(mass, 0.0);
+		charge = std::clamp(charge, -charge_limit, charge_limit);
+		radius = std::max(kerr_outer_horizon_radius(), 1e-6);
+		reference_radius = radius;
+	}
+
 	void set_composition(std::string_view value) noexcept {
 		const size_t len = std::min(value.size(), composition.size() - 1);
 		for (size_t i = 0; i < len; ++i) composition[i] = value[i];
@@ -191,7 +230,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.color_primary = {color[0], color[1], color[2], color[3]};
 		gpu.color_secondary = {color_secondary[0], color_secondary[1], color_secondary[2], color_secondary[3]};
 		gpu.atmosphere_color = {atmosphere_color[0], atmosphere_color[1], atmosphere_color[2], atmosphere_color[3]};
-		gpu.radius = is_spacetime_source ? std::max(kerr_outer_horizon_radius(), 1e-6) : radius;
+		gpu.radius = effective_radius();
 		gpu.mass = mass;
 		gpu.charge = charge;
 		gpu.temperature = temperature;
@@ -203,6 +242,8 @@ struct alignas(64) PostNewtonianBody {
 		gpu.rotation_speed = static_cast<double>(rotation_speed_3d);
 		gpu.oblateness_ratio = (std::abs(j2) > 1e-9) ? (1.0 - j2) : 1.0;
 		gpu.spin_parameter = is_spacetime_source ? kerr_spin_parameter() : 0.0;
+		const std::array<double, 3> source_axis = spin_axis_unit();
+		gpu.spin_axis = {source_axis[0], source_axis[1], source_axis[2], 0.0};
 		gpu.color_tertiary = {color_tertiary[0], color_tertiary[1], color_tertiary[2], color_tertiary[3]};
 		gpu.texture_detail_scale = static_cast<double>(texture_detail_scale);
 		gpu.polar_cap_strength = static_cast<double>(polar_cap_strength);

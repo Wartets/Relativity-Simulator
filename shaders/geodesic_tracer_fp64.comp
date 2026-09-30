@@ -158,6 +158,10 @@ struct GpuBody {
 	double polar_cap_strength;
 	double ring_system_enabled;
 	double night_side_light_intensity;
+	double spin_axis_x;
+	double spin_axis_y;
+	double spin_axis_z;
+	double spin_axis_reserved;
 	uint surface_layer_count;
 	uint layer_pad0;
 	uint layer_pad1;
@@ -1052,6 +1056,18 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 	return col;
 }
 
+dvec3 source_spin_axis(uint bi) {
+	dvec3 axis = dvec3(bodies[bi].spin_axis_x, bodies[bi].spin_axis_y, bodies[bi].spin_axis_z);
+	double axis_length = length(axis);
+	return (axis_length > 1e-12) ? (axis / axis_length) : dvec3(0.0, 0.0, 1.0);
+}
+
+void source_frame(dvec3 axis, out dvec3 frame_x, out dvec3 frame_y) {
+	dvec3 helper = (abs(axis.z) < 0.9) ? dvec3(0.0, 0.0, 1.0) : dvec3(1.0, 0.0, 0.0);
+	frame_x = normalize(cross(helper, axis));
+	frame_y = cross(axis, frame_x);
+}
+
 bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_color, out double out_opacity, out bool out_absorbed) {
 	out_color = vec3(0.0);
 	out_opacity = 0.0;
@@ -1070,14 +1086,27 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 		double rh = m + sqrt(max(m * m - a_spin * a_spin, 0.0));
 		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
 
+		double req = sqrt(rh * rh + a_spin * a_spin);
+		dvec3 source_axis = source_spin_axis(bi);
+		dvec3 source_fx;
+		dvec3 source_fy;
+		source_frame(source_axis, source_fx, source_fy);
 		dvec3 o = seg_start - bpos;
-		double b_coeff = 2.0 * dot(o, seg_vec);
-		double c_coeff = dot(o, o) - rh * rh;
-		double discr = b_coeff * b_coeff - 4.0 * seg_len_sq * c_coeff;
-		if (discr >= 0.0) {
+		dvec3 lo = dvec3(dot(o, source_fx) / req, dot(o, source_fy) / req, dot(o, source_axis) / rh);
+		dvec3 lv = dvec3(dot(seg_vec, source_fx) / req, dot(seg_vec, source_fy) / req, dot(seg_vec, source_axis) / rh);
+		dvec3 lo_end = lo + lv;
+		double q_a = dot(lv, lv);
+		double q_b = 2.0 * dot(lo, lv);
+		double q_c = dot(lo, lo) - 1.0;
+		if (q_c <= 0.0 || dot(lo_end, lo_end) <= 1.0) {
+			out_absorbed = true;
+			return true;
+		}
+		double discr = q_b * q_b - 4.0 * q_a * q_c;
+		if (q_a > 1e-30 && discr >= 0.0) {
 			double sqrt_discr = sqrt(discr);
-			double t1 = (-b_coeff - sqrt_discr) / (2.0 * seg_len_sq);
-			double t2 = (-b_coeff + sqrt_discr) / (2.0 * seg_len_sq);
+			double t1 = (-q_b - sqrt_discr) / (2.0 * q_a);
+			double t2 = (-q_b + sqrt_discr) / (2.0 * q_a);
 			if ((t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0)) {
 				out_absorbed = true;
 				return true;
@@ -1085,24 +1114,24 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 		}
 
 		double rim_seg_len = sqrt(seg_len_sq);
-		double rim_t = clamp(-dot(o, seg_vec) / seg_len_sq, 0.0, 1.0);
-		double rim_d = length(o + rim_t * seg_vec);
-		double rim_band = 0.12 * rh;
-		if (rim_d > rh && rim_d < rh + rim_band) {
-			double rim_ring = 1.0 - (rim_d - rh) / rim_band;
-			double rim_i = rim_ring * rim_ring * min(rim_seg_len / rim_band, 1.0) * 0.35;
+		double rim_t = clamp(-dot(lo, lv) / max(q_a, 1e-30), 0.0, 1.0);
+		double rim_d = length(lo + rim_t * lv);
+		double rim_band = 0.12;
+		if (rim_d > 1.0 && rim_d < 1.0 + rim_band) {
+			double rim_ring = 1.0 - (rim_d - 1.0) / rim_band;
+			double rim_i = rim_ring * rim_ring * min(rim_seg_len / (rim_band * req), 1.0) * 0.35;
 			rim_total += vec3(1.0, 0.75, 0.45) * float(rim_i);
 		}
 
-		double prev_z_rel = seg_start.z - bpos.z;
-		double curr_z_rel = seg_end.z - bpos.z;
+		double prev_z_rel = lo.z * rh;
+		double curr_z_rel = lo_end.z * rh;
 		double z_span = curr_z_rel - prev_z_rel;
 		if (prev_z_rel * curr_z_rel <= 0.0 && abs(z_span) > 1e-15) {
 			double isco = kerr_isco_radius_prograde_retrograde(m, a_spin);
 			double disk_outer = 24.0 * m;
 			double s_cross = clamp(abs(prev_z_rel) / abs(z_span), 0.0, 1.0);
-			dvec3 cross_pos = seg_start + s_cross * seg_vec - bpos;
-			double r_cross = length(dvec2(cross_pos.x, cross_pos.y));
+			dvec3 cross_pos = lo + s_cross * lv;
+			double r_cross = length(dvec2(cross_pos.x * req, cross_pos.y * req));
 			if (r_cross >= isco && r_cross <= disk_outer) {
 				double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
 				double g_doppler = sqrt(max(1.0 - rh / r_cross, 1e-4)) / gamma_orb;
@@ -1435,7 +1464,13 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 
 		dvec3 rel = pos - bpos;
 		double r_len = length(rel);
-		if (r_len < rh * 1.5) continue;
+		dvec3 deflection_axis = source_spin_axis(bi);
+		dvec3 deflection_fx;
+		dvec3 deflection_fy;
+		source_frame(deflection_axis, deflection_fx, deflection_fy);
+		double horizon_equatorial = sqrt(rh * rh + a_spin * a_spin);
+		dvec3 scaled_rel = dvec3(dot(rel, deflection_fx) / horizon_equatorial, dot(rel, deflection_fy) / horizon_equatorial, dot(rel, deflection_axis) / rh);
+		if (length(scaled_rel) < 1.5) continue;
 		if (r_len > m * 2000.0) continue;
 
 		double proj = dot(rel, dir);
@@ -1451,11 +1486,11 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 		dvec3 n_axis = dvec3(cross_x, cross_y, cross_z) / cross_norm;
 
 		double schwarzschild_term = (4.0 * m) / max(impact_param, m * 1e-3);
-		double impact_cubed = impact_param * impact_param * impact_param;
-		double gravitomagnetic_term = (4.0 * a_spin * m) / max(impact_cubed, m * m * 1e-6);
+		double impact_squared = impact_param * impact_param;
+		double gravitomagnetic_term = -(4.0 * a_spin * m * dot(deflection_axis, n_axis)) / max(impact_squared, m * m * 1e-6);
 		double quad_term = (schwarzschild_term * schwarzschild_term) * 0.1875;
 		double weight = double(exp(float(-r_len / (30.0 * max(m, 1e-6)))));
-		double total_deflection = min((schwarzschild_term + gravitomagnetic_term + quad_term) * weight * (abs(dt) / max(r_len, m)), 0.5);
+		double total_deflection = min(max(schwarzschild_term + gravitomagnetic_term + quad_term, 0.0) * weight * (abs(dt) / max(r_len, m)), 0.5);
 		if (total_deflection < 1e-14) continue;
 
 		double wx = n_axis.y * dir.z - n_axis.z * dir.y;
@@ -1631,8 +1666,13 @@ double subsidiary_step_guard(dvec3 pos) {
 		double a_spin = a_star * m_b;
 		double rh_b = m_b + sqrt(max(m_b * m_b - a_spin * a_spin, 0.0));
 		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
-		double dist = length(pos - bpos);
-		nearest_ratio = min(nearest_ratio, dist / max(rh_b, 1e-9));
+		dvec3 guard_axis = source_spin_axis(bi);
+		dvec3 guard_fx;
+		dvec3 guard_fy;
+		source_frame(guard_axis, guard_fx, guard_fy);
+		dvec3 guard_rel = pos - bpos;
+		double guard_equatorial = sqrt(rh_b * rh_b + a_spin * a_spin);
+		nearest_ratio = min(nearest_ratio, length(dvec3(dot(guard_rel, guard_fx) / guard_equatorial, dot(guard_rel, guard_fy) / guard_equatorial, dot(guard_rel, guard_axis) / max(rh_b, 1e-9))));
 	}
 	if (nearest_ratio > 1.0e29) return 1.0;
 	return clamp(nearest_ratio / 8.0, 0.03, 1.0);
@@ -1803,7 +1843,7 @@ void main() {
 					break;
 				}
 
-				if (!use_kerr_newman_metric && (pc.render_flags & (1u << 10)) != 0u) {
+				if (!use_kerr_newman_metric && !subsidiary_sources_present && (pc.render_flags & (1u << 10)) != 0u) {
 					double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
 					if (ray_r > effective_skip_r) {
 						dvec3 skip_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);

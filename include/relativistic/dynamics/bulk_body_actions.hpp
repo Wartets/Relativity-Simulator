@@ -142,7 +142,14 @@ public:
 		if (enabled_count == 0) return;
 		const double average_mass = total_mass / static_cast<double>(enabled_count);
 		for (auto& body : sys.bodies()) {
-			if (body.enabled) body.mass = average_mass;
+			if (!body.enabled) continue;
+			const double preserved_spin_parameter = body.kerr_spin_parameter();
+			const std::array<double, 3> preserved_axis = body.spin_axis_unit();
+			body.mass = average_mass;
+			if (body.is_spacetime_source) {
+				body.set_spin_state(preserved_spin_parameter, preserved_axis);
+				body.enforce_spacetime_source_invariants();
+			}
 		}
 		sys.update_accelerations();
 	}
@@ -164,7 +171,16 @@ public:
 
 	static void set_parameter_for_all(PostNewtonianSystem& sys, BulkScalarParameter param, double value) noexcept {
 		for (auto& body : sys.bodies()) {
-			if (body.enabled) set_bulk_scalar_parameter(body, param, value);
+			if (!body.enabled) continue;
+			const double preserved_spin_parameter = body.kerr_spin_parameter();
+			const std::array<double, 3> preserved_axis = body.spin_axis_unit();
+			set_bulk_scalar_parameter(body, param, value);
+			if (body.is_spacetime_source) {
+				if (param == BulkScalarParameter::Mass) {
+					body.set_spin_state(preserved_spin_parameter, preserved_axis);
+				}
+				body.enforce_spacetime_source_invariants();
+			}
 		}
 		sys.update_accelerations();
 	}

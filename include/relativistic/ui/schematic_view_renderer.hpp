@@ -5,6 +5,7 @@
 #include "relativistic/observer/camera_projections.hpp"
 #include "relativistic/observer/direction_projection.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/optics/disk_thermal_profile.hpp"
 #include <imgui.h>
 #include <array>
 #include <vector>
@@ -103,6 +104,23 @@ private:
 		pt.screen.y = rect_min_.y + static_cast<float>((v_screen * 0.5 + 0.5) * rect_height);
 		pt.visible = true;
 		return pt;
+	}
+
+	[[nodiscard]] bool is_occluded_by_sphere(const std::array<double, 3>& target, const std::array<double, 3>& sphere_center, double sphere_radius) const noexcept {
+		const double dx = target[0] - camera_position_[0];
+		const double dy = target[1] - camera_position_[1];
+		const double dz = target[2] - camera_position_[2];
+		const double ox = camera_position_[0] - sphere_center[0];
+		const double oy = camera_position_[1] - sphere_center[1];
+		const double oz = camera_position_[2] - sphere_center[2];
+		const double a_coeff = dx * dx + dy * dy + dz * dz;
+		if (a_coeff <= 1e-18) return false;
+		const double b_coeff = 2.0 * (ox * dx + oy * dy + oz * dz);
+		const double c_coeff = ox * ox + oy * oy + oz * oz - sphere_radius * sphere_radius;
+		const double discriminant = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
+		if (discriminant < 0.0) return false;
+		const double entry = (-b_coeff - std::sqrt(discriminant)) / (2.0 * a_coeff);
+		return entry >= 0.0 && entry < 1.0;
 	}
 
 	[[nodiscard]] double compute_screen_radius(const std::array<double, 3>& world_center, double physical_radius) const noexcept {
@@ -812,7 +830,7 @@ private:
 	}
 
 	void draw_all_body_vectors(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, ImU32 body_color) const {
-		const double effective_radius = std::max(body.radius, 1e-4);
+		const double effective_radius = std::max(body.effective_radius(), 1e-4);
 
 		const auto emit = [&](SchematicVectorKind kind, const std::array<double, 3>& raw_vec, double magnitude) {
 			const auto& style = cfg.vector_style(kind);
@@ -880,7 +898,140 @@ private:
 		return tag;
 	}
 
-	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val, const Units::UnitDisplayPreferences* unit_prefs = nullptr) const {
+	void draw_orbit_ring(
+		ImDrawList* draw_list,
+		const std::array<double, 3>& center,
+		const std::array<double, 3>& axis,
+		double radius,
+		ImU32 color,
+		float thickness,
+		double center_depth,
+		bool front_half
+	) const {
+		const std::array<double, 3> helper = (std::abs(axis[2]) < 0.9)
+			? std::array<double, 3>{0.0, 0.0, 1.0}
+			: std::array<double, 3>{1.0, 0.0, 0.0};
+		std::array<double, 3> u{
+			helper[1] * axis[2] - helper[2] * axis[1],
+			helper[2] * axis[0] - helper[0] * axis[2],
+			helper[0] * axis[1] - helper[1] * axis[0]
+		};
+		const double u_length = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+		for (double& component : u) component /= u_length;
+		const std::array<double, 3> v{
+			axis[1] * u[2] - axis[2] * u[1],
+			axis[2] * u[0] - axis[0] * u[2],
+			axis[0] * u[1] - axis[1] * u[0]
+		};
+		constexpr int segments = 96;
+		std::vector<ImVec2> run;
+		run.reserve(static_cast<size_t>(segments) + 1);
+		const auto flush = [&]() {
+			if (run.size() >= 2) {
+				draw_list->AddPolyline(run.data(), static_cast<int>(run.size()), color, ImDrawFlags_None, thickness);
+			}
+			run.clear();
+		};
+		for (int i = 0; i <= segments; ++i) {
+			const double angle = 2.0 * std::numbers::pi_v<double> * static_cast<double>(i) / static_cast<double>(segments);
+			const double c = std::cos(angle);
+			const double s = std::sin(angle);
+			const std::array<double, 3> point{
+				center[0] + radius * (c * u[0] + s * v[0]),
+				center[1] + radius * (c * u[1] + s * v[1]),
+				center[2] + radius * (c * u[2] + s * v[2])
+			};
+			const auto projected = project(point);
+			const bool in_front = projected.forward_depth < center_depth;
+			if (projected.visible && in_front == front_half) {
+				run.push_back(projected.screen);
+			} else {
+				flush();
+			}
+		}
+		flush();
+	}
+
+	void draw_spacetime_source(
+		ImDrawList* draw_list,
+		const Dynamics::PostNewtonianBody& body,
+		const SchematicViewConfig& cfg,
+		const Units::UnitDisplayPreferences* unit_prefs,
+		bool overlay_pass
+	) const {
+		const auto center_proj = project(body.position);
+		if (!center_proj.visible) return;
+
+		const auto& style = cfg.effective_body_style(body.id);
+		const double horizon = body.kerr_outer_horizon_radius();
+		const double spin_parameter = body.kerr_spin_parameter();
+		const double spin_length = spin_parameter * body.mass;
+		const bool spinning = spin_parameter > 1e-6;
+		const std::array<double, 3> axis = body.spin_axis_unit();
+		const auto ellipse = compute_screen_ellipse(body.position, horizon);
+		const float px_rx = static_cast<float>(std::clamp(static_cast<double>(ellipse.rx), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius));
+		const float px_ry = static_cast<float>(std::clamp(static_cast<double>(ellipse.ry), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius));
+		const ImVec2 center = center_proj.screen;
+		const bool circular = std::abs(px_rx - px_ry) < 1.0f;
+
+		if (!overlay_pass) {
+			const double isco = Optics::DiskThermalProfile::kerr_isco_radius(body.mass, spin_length);
+			const double disk_outer = Optics::DiskThermalProfile::disk_outer_radius(body.mass);
+			const ImU32 isco_color = IM_COL32(255, 170, 70, 210);
+			const ImU32 outer_color = IM_COL32(170, 105, 60, 95);
+
+			if (disk_outer > 0.0) draw_orbit_ring(draw_list, body.position, axis, disk_outer, outer_color, 1.0f, center_proj.forward_depth, false);
+			if (isco > 0.0) draw_orbit_ring(draw_list, body.position, axis, isco, isco_color, 1.6f, center_proj.forward_depth, false);
+
+			draw_body_halo(draw_list, center, px_rx, px_ry, std::array<float, 4>{1.0f, 0.72f, 0.38f, 0.55f}, 0.6f, 1.7f);
+
+			const ImU32 horizon_color = IM_COL32(1, 1, 3, 255);
+			const ImU32 rim_color = IM_COL32(255, 210, 140, 235);
+			if (circular) {
+				draw_list->AddCircleFilled(center, px_rx, horizon_color, 64);
+				draw_list->AddCircle(center, px_rx, rim_color, 64, 1.6f);
+			} else {
+				draw_list->AddEllipseFilled(center, ImVec2(px_rx, px_ry), horizon_color, 0.0f, 64);
+				draw_list->AddEllipse(center, ImVec2(px_rx, px_ry), rim_color, 0.0f, 64, 1.6f);
+			}
+
+			if (disk_outer > 0.0) draw_orbit_ring(draw_list, body.position, axis, disk_outer, outer_color, 1.0f, center_proj.forward_depth, true);
+			if (isco > 0.0) draw_orbit_ring(draw_list, body.position, axis, isco, isco_color, 1.6f, center_proj.forward_depth, true);
+		}
+
+		if (spinning) {
+			SchematicVectorStyle axis_style{};
+			axis_style.enabled = true;
+			axis_style.length_scale = 1.0;
+			axis_style.min_pixel_length = static_cast<double>(std::max(px_rx, px_ry) * 2.4f);
+			axis_style.max_pixel_length = axis_style.min_pixel_length;
+			axis_style.head_size_px = 8.0;
+			axis_style.line_thickness_px = 2.0;
+			const std::array<double, 3> axis_origin{
+				body.position[0] + axis[0] * horizon,
+				body.position[1] + axis[1] * horizon,
+				body.position[2] + axis[2] * horizon
+			};
+			draw_body_vector(draw_list, axis_origin, axis, 1.0, axis_style, IM_COL32(120, 200, 255, 230));
+		}
+
+		if (cfg.show_vectors) {
+			draw_all_body_vectors(draw_list, body, cfg, IM_COL32(120, 200, 255, 255));
+		}
+
+		if (cfg.show_tags && style.show_tag) {
+			const std::string tag = build_object_tag(body, style, unit_prefs);
+			if (!tag.empty()) {
+				draw_list->AddText(
+					ImVec2(center.x + std::max(px_rx, px_ry) + 5.0f, center.y - 8.0f),
+					IM_COL32(225, 232, 250, 235),
+					tag.c_str()
+				);
+			}
+		}
+	}
+
+	void draw_body(ImDrawList* draw_list, const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg, double min_val, double max_val, const Units::UnitDisplayPreferences* unit_prefs = nullptr, bool overlay_pass = false) const {
 		if (!body.enabled) return;
 		const auto& style = cfg.effective_body_style(body.id);
 		const auto proj = project(body.position);
@@ -908,6 +1059,11 @@ private:
 				}
 				draw_offscreen_indicator(draw_list, body.position, "#" + std::to_string(body.id), indicator_style, mapped_color);
 			}
+			return;
+		}
+
+		if (body.is_spacetime_source) {
+			draw_spacetime_source(draw_list, body, cfg, unit_prefs, overlay_pass);
 			return;
 		}
 
@@ -1288,8 +1444,14 @@ public:
 		}
 
 		if (cfg.show_bodies) {
+			const double primary_mass = std::max(params.mass, 0.0);
+			const double primary_spin = std::clamp(params.spin, -primary_mass, primary_mass);
+			const double primary_horizon = (primary_mass > 0.0)
+				? (primary_mass + std::sqrt(std::max(primary_mass * primary_mass - primary_spin * primary_spin, 0.0)))
+				: 0.0;
 			for (const auto& body : bodies) {
-				draw_body(draw_list, body, cfg, min_val, max_val);
+				if (primary_horizon > 0.0 && is_occluded_by_sphere(body.position, std::array<double, 3>{0.0, 0.0, 0.0}, primary_horizon)) continue;
+				draw_body(draw_list, body, cfg, min_val, max_val, nullptr, true);
 			}
 		}
 	}
@@ -1348,14 +1510,31 @@ public:
 			}
 		}
 
+		struct SceneDrawEntry {
+			double depth;
+			const Dynamics::PostNewtonianBody* body;
+		};
+		std::vector<SceneDrawEntry> scene_entries;
+		scene_entries.reserve(bodies.size() + 1);
 		if (cfg.show_central_object) {
-			draw_central_object(draw_list, params, central_radius, cfg);
+			scene_entries.push_back(SceneDrawEntry{project(std::array<double, 3>{0.0, 0.0, 0.0}).forward_depth, nullptr});
 		}
-
 		if (cfg.show_bodies) {
-			const auto& unit_prefs = orchestrator.unit_preferences();
 			for (const auto& body : bodies) {
-				draw_body(draw_list, body, cfg, min_val, max_val, &unit_prefs);
+				if (!body.enabled) continue;
+				scene_entries.push_back(SceneDrawEntry{project(body.position).forward_depth, &body});
+			}
+		}
+		std::stable_sort(scene_entries.begin(), scene_entries.end(), [](const SceneDrawEntry& a, const SceneDrawEntry& b) noexcept {
+			return a.depth > b.depth;
+		});
+
+		const auto& unit_prefs = orchestrator.unit_preferences();
+		for (const auto& entry : scene_entries) {
+			if (entry.body == nullptr) {
+				draw_central_object(draw_list, params, central_radius, cfg);
+			} else {
+				draw_body(draw_list, *entry.body, cfg, min_val, max_val, &unit_prefs);
 			}
 		}
 	}

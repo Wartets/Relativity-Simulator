@@ -890,9 +890,6 @@ public:
 		if (!bodies.empty() && body_mapped_ != nullptr) {
 			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));
 		}
-		if (persistent_counter_mapped_ != nullptr) {
-			*static_cast<uint32_t*>(persistent_counter_mapped_) = 0U;
-		}
 
 		if (vkResetCommandBuffer(command_buffer_, 0) != VK_SUCCESS) {
 			return false;
@@ -911,9 +908,7 @@ public:
 
 		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
 		const uint32_t tiles_y = (params.screen_height + 15U) / 16U;
-		const uint32_t total_tiles = tiles_x * tiles_y;
-		const uint32_t persistent_group_count = std::clamp(total_tiles, 16U, 64U);
-		vkCmdDispatch(command_buffer_, persistent_group_count, 1, 1);
+		vkCmdDispatch(command_buffer_, tiles_x, tiles_y, 1);
 
 		VkBufferMemoryBarrier barrier{};
 		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -958,7 +953,7 @@ public:
 			return false;
 		}
 
-		constexpr uint64_t kComputeDispatchTimeoutNs = 5000000000ULL;
+		constexpr uint64_t kComputeDispatchTimeoutNs = 10000000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
 			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");

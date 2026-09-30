@@ -95,7 +95,7 @@ private:
 	}
 
 	static void clamp_workload_budget(GpuCameraPushConstants& constants, size_t body_count) noexcept {
-		constexpr uint64_t kMaxStepPixelBudget = 20000000000ULL;
+		constexpr uint64_t kMaxStepPixelBudget = 500000000ULL;
 		const uint64_t pixel_count = static_cast<uint64_t>(constants.screen_width) * static_cast<uint64_t>(constants.screen_height);
 		if (pixel_count == 0ULL) {
 			return;
@@ -125,12 +125,13 @@ private:
 		if (bodies.size() > kMaxGpuBackgroundBodies) {
 			return false;
 		}
+		GpuCameraPushConstants gpu_params = params;
 		std::vector<GpuBodyGpuLayout> gpu_bodies_layout;
 		gpu_bodies_layout.reserve(bodies.size());
 		for (const auto& body : bodies) {
 			gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
 		}
-		const bool dispatched = gpu_executor_->dispatch_and_readback(params, output, gpu_bodies_layout);
+		const bool dispatched = gpu_executor_->dispatch_and_readback(gpu_params, output, gpu_bodies_layout);
 		if (!dispatched && !gpu_executor_->is_ready()) {
 			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
 			use_gpu_compute_.store(false, std::memory_order_relaxed);

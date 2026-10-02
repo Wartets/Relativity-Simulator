@@ -2,6 +2,9 @@
 
 #include "relativistic/capture/camera_path.hpp"
 #include "relativistic/capture/capture_progress.hpp"
+#include "relativistic/capture/motion_script.hpp"
+#include "relativistic/capture/physics_recorder.hpp"
+#include "relativistic/capture/script_events.hpp"
 #include "relativistic/core/engine_log.hpp"
 #include "relativistic/io/image_format.hpp"
 #include "relativistic/io/image_stream_writers.hpp"
@@ -66,8 +69,9 @@ struct SequenceRequest {
 	std::string output_directory{};
 	std::string session_name{};
 	std::string comment{};
-	bool use_path{false};
-	CameraPath path{};
+	bool use_script{false};
+	MotionScript script{};
+	IO::RecordingSettings recording{};
 	bool manual_stepping{false};
 };
 
@@ -152,6 +156,13 @@ private:
 		uint32_t locked_height{0};
 		uint32_t manual_requests{0};
 		bool paused_by_session{false};
+		bool world_frozen{false};
+		uint64_t still_counter{0};
+		double saved_warp{1.0};
+		double warp_base{1.0};
+		ScriptSample last_sample{};
+		ScriptEventDispatcher dispatcher{};
+		std::vector<std::string> pending_stills{};
 		Orchestrator::CameraState saved_camera{};
 		double saved_exposure{0.0};
 		double saved_fov{60.0};
@@ -164,6 +175,8 @@ private:
 	BodiesProvider bodies_provider_{};
 	CaptureProgress progress_{};
 	SequenceSession session_{};
+	PhysicsRecorder recorder_{};
+	std::string recording_summary_{};
 	std::atomic<uint32_t> pending_tasks_{0};
 	std::atomic<bool> sequence_failed_{false};
 	std::mutex queue_mutex_;
@@ -368,6 +381,170 @@ private:
 		}
 	}
 
+	[[nodiscard]] std::optional<std::array<double, 3>> lookup_body_position(int32_t id) const {
+		for (const auto& body : orchestrator_.nbody_system().bodies()) {
+			if (static_cast<int32_t>(body.id) == id) {
+				return body.position;
+			}
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] ScriptSample sample_script(double seconds) const {
+		const BodyPositionLookup lookup = [this](int32_t id) { return lookup_body_position(id); };
+		return session_.request.script.sample(seconds, lookup);
+	}
+
+	[[nodiscard]] CameraPose live_pose() const noexcept {
+		const auto& camera = orchestrator_.camera();
+		CameraPose pose;
+		pose.position = camera.position;
+		pose.pitch_deg = camera.pitch;
+		pose.yaw_deg = camera.yaw;
+		pose.roll_deg = camera.roll;
+		pose.fov_deg = camera.fov_deg;
+		pose.exposure_ev = orchestrator_.parameters().camera_exposure;
+		return pose;
+	}
+
+	[[nodiscard]] static std::string sanitize_label(const std::string& label) {
+		std::string result;
+		result.reserve(label.size());
+		for (const char c : label) {
+			const bool alnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+			result.push_back(alnum ? static_cast<char>((c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c) : '_');
+		}
+		return result.empty() ? std::string("event") : result;
+	}
+
+	void apply_event_value(const ScriptEvent& event, double value) {
+		if (event.action == EventAction::SetWarp) {
+			session_.warp_base = std::max(value, 1.0e-6);
+			orchestrator_.scheduler().set_warp_factor(session_.warp_base);
+		} else if (event.action == EventAction::SetParameter) {
+			orchestrator_.set_physical_param(static_cast<Orchestrator::ParameterType>(event.parameter), value);
+		}
+		orchestrator_.notify_state_changed();
+	}
+
+	void execute_event(const ScriptEvent& event, size_t index, double time) {
+		Orchestrator::CommandResult result{};
+		const bool ramped = event.duration > 1.0e-9;
+		switch (event.action) {
+			case EventAction::Marker:
+				break;
+			case EventAction::CaptureStill:
+				session_.pending_stills.push_back(event.display_label());
+				break;
+			case EventAction::SetParameter:
+			case EventAction::SetWarp:
+				if (!ramped) apply_event_value(event, event.value);
+				break;
+			case EventAction::Pause:
+				if (session_.realtime) {
+					orchestrator_.apply_command(Orchestrator::Command::make_pause(), result);
+				} else {
+					session_.world_frozen = true;
+				}
+				break;
+			case EventAction::Resume:
+				if (session_.realtime) {
+					orchestrator_.apply_command(Orchestrator::Command::make_resume(), result);
+				} else {
+					session_.world_frozen = false;
+				}
+				break;
+			case EventAction::StepTicks: {
+				const uint64_t ticks = static_cast<uint64_t>(std::clamp(event.value, 0.0, 100000.0));
+				for (uint64_t i = 0; i < ticks; ++i) {
+					step_one_tick();
+				}
+				break;
+			}
+			case EventAction::SetMetric:
+				orchestrator_.apply_command(Orchestrator::Command::make_set_metric(event.text), result);
+				break;
+			case EventAction::SetIntegrator:
+				orchestrator_.apply_command(Orchestrator::Command::make_set_integrator(event.text), result);
+				break;
+			case EventAction::LoadScenario:
+				orchestrator_.apply_command(Orchestrator::Command::make_load_scenario(event.text), result);
+				break;
+		}
+		orchestrator_.notify_state_changed();
+		recorder_.note_event(RecordedEvent{session_.frames_prepared, time, index, event_action_name(event.action), event.display_label(), event.value});
+	}
+
+	void process_script_events(double seconds) {
+		if (!session_.request.use_script) {
+			return;
+		}
+		session_.dispatcher.advance(
+			session_.request.script,
+			seconds,
+			[this](const ScriptEvent& event, size_t index, double time) { execute_event(event, index, time); },
+			[this](const ScriptEvent& event, double value) { apply_event_value(event, value); }
+		);
+	}
+
+	void flush_pending_stills(const FrameSample* reference) {
+		if (session_.pending_stills.empty()) {
+			return;
+		}
+		const SequenceRequest& request = session_.request;
+		const IO::ScreenshotFormat format = request.settings.frame_format;
+		FrameSample sample;
+		bool ready = validate_target(request.target, format).empty();
+		if (ready && reference != nullptr) {
+			sample = *reference;
+		} else if (ready) {
+			auto constants = constants_provider_ ? constants_provider_() : std::nullopt;
+			if (constants.has_value()) {
+				sample.constants = *constants;
+				prepare_constants(sample.constants, request.target);
+				if (bodies_provider_) {
+					sample.bodies = bodies_provider_();
+				}
+			} else {
+				ready = false;
+			}
+		}
+		if (ready) {
+			for (const std::string& label : session_.pending_stills) {
+				auto job = std::make_shared<FrameJob>();
+				job->samples.push_back(sample);
+				job->path = session_.directory / ("event_" + std::to_string(++session_.still_counter) + "_" + sanitize_label(label) + "." + session_.extension);
+				job->width = request.target.width;
+				job->height = request.target.height;
+				job->supersampling = request.target.supersampling;
+				job->format = format;
+				job->comment = request.comment;
+				enqueue([this, job]() { static_cast<void>(render_frame_job(*job)); });
+			}
+		}
+		session_.pending_stills.clear();
+	}
+
+	void record_frame_state(uint64_t frame_index, double session_time, const ScriptSample& script_sample) {
+		if (!recorder_.active()) {
+			return;
+		}
+		RecordSample sample;
+		sample.frame_index = frame_index;
+		sample.session_time = session_time;
+		sample.script_time = script_sample.script_time;
+		sample.script_progress = script_sample.script_progress;
+		sample.segment_index = script_sample.segment_index;
+		sample.segment_progress = script_sample.segment_progress;
+		sample.simulation_rate = script_sample.simulation_rate;
+		sample.pose = live_pose();
+		recorder_.record(sample);
+	}
+
+	void finish_recording() {
+		recording_summary_ = recorder_.finish();
+	}
+
 	void apply_pose(const CameraPose& pose) noexcept {
 		auto& camera = orchestrator_.camera();
 		camera.position = pose.position;
@@ -401,31 +578,28 @@ private:
 		const uint32_t sample_count = std::max(settings.temporal_samples, 1U);
 
 		double base_time = static_cast<double>(index) * frame_dt;
-		if (settings.trigger == IO::SequenceCaptureTrigger::PathDuration && request.use_path && session_.frames_total > 1) {
-			base_time = request.path.effective_duration() * static_cast<double>(index) / static_cast<double>(session_.frames_total - 1U);
+		if (settings.trigger == IO::SequenceCaptureTrigger::PathDuration && request.use_script && session_.frames_total > 1) {
+			base_time = request.script.total_duration() * static_cast<double>(index) / static_cast<double>(session_.frames_total - 1U);
 		}
+		process_script_events(base_time);
 
 		auto job = std::make_shared<FrameJob>();
 		job->samples.reserve(sample_count);
+		ScriptSample last_script_sample{};
 		for (uint32_t s = 0; s < sample_count; ++s) {
 			const double offset = ((static_cast<double>(s) + 0.5) / static_cast<double>(sample_count) - 0.5) * static_cast<double>(settings.shutter_fraction) * frame_dt;
-			session_.tick_accumulator += session_.ticks_per_frame / static_cast<double>(sample_count);
+			const double sample_time = std::max(base_time + offset, 0.0);
+			const double rate = request.use_script ? std::max(sample_script(sample_time).simulation_rate, 0.0) : 1.0;
+			session_.tick_accumulator += (session_.world_frozen ? 0.0 : session_.ticks_per_frame * rate) / static_cast<double>(sample_count);
 			while (session_.tick_accumulator >= 1.0) {
 				step_one_tick();
 				session_.tick_accumulator -= 1.0;
 			}
-			if (request.use_path) {
-				std::array<double, 3> dynamic_target{0.0, 0.0, 0.0};
-				if (request.path.tracked_body_id >= 0) {
-					const auto& bodies = orchestrator_.nbody_system().bodies();
-					for (const auto& b : bodies) {
-						if (static_cast<int32_t>(b.id) == request.path.tracked_body_id) {
-							dynamic_target = b.position;
-							break;
-						}
-					}
+			if (request.use_script) {
+				last_script_sample = sample_script(sample_time);
+				if (last_script_sample.valid) {
+					apply_pose(last_script_sample.pose);
 				}
-				apply_pose(request.path.evaluate(std::max(base_time + offset, 0.0), dynamic_target));
 			}
 			auto constants = constants_provider_ ? constants_provider_() : std::nullopt;
 			if (!constants.has_value()) {
@@ -440,6 +614,9 @@ private:
 			}
 			job->samples.push_back(std::move(sample));
 		}
+
+		record_frame_state(index, base_time, last_script_sample);
+		flush_pending_stills(&job->samples.back());
 
 		float fade = 1.0f;
 		if (session_.frames_total > 0) {
@@ -486,6 +663,8 @@ private:
 		if (width == 0U || height == 0U || pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height)) {
 			return;
 		}
+		record_frame_state(session_.frames_prepared, session_.session_time, session_.last_sample);
+		flush_pending_stills(nullptr);
 		if (!session_.dimensions_locked) {
 			session_.locked_width = width;
 			session_.locked_height = height;
@@ -523,19 +702,16 @@ private:
 	void update_realtime(double dt) {
 		const IO::VideoSequenceSettings& settings = session_.request.settings;
 		session_.session_time += dt;
-		if (session_.request.use_path) {
-			std::array<double, 3> dynamic_target{0.0, 0.0, 0.0};
-			if (session_.request.path.tracked_body_id >= 0) {
-				const auto& bodies = orchestrator_.nbody_system().bodies();
-				for (const auto& b : bodies) {
-					if (static_cast<int32_t>(b.id) == session_.request.path.tracked_body_id) {
-						dynamic_target = b.position;
-						break;
-					}
-				}
+		ScriptSample script_sample{};
+		if (session_.request.use_script) {
+			script_sample = sample_script(session_.session_time);
+			if (script_sample.valid) {
+				apply_pose(script_sample.pose);
+				orchestrator_.scheduler().set_warp_factor(session_.warp_base * std::max(script_sample.simulation_rate, 1.0e-6));
 			}
-			apply_pose(session_.request.path.evaluate(session_.session_time, dynamic_target));
+			process_script_events(session_.session_time);
 		}
+		session_.last_sample = script_sample;
 		const bool limit_reached = session_.frames_total > 0 && session_.frames_prepared >= session_.frames_total;
 		if (session_.stopping || limit_reached) {
 			return;
@@ -556,12 +732,15 @@ private:
 
 	void restore_session_state() noexcept {
 		auto& parameters = orchestrator_.parameters();
-		if (session_.request.settings.restore_camera_after_capture || session_.request.use_path) {
+		if (session_.request.settings.restore_camera_after_capture || session_.request.use_script) {
 			orchestrator_.camera() = session_.saved_camera;
 			parameters.camera_fov_deg = session_.saved_fov;
 			parameters.camera_exposure = session_.saved_exposure;
 		}
 		parameters.camera_mode = session_.saved_camera_mode;
+		if (session_.request.use_script) {
+			orchestrator_.scheduler().set_warp_factor(session_.saved_warp);
+		}
 		if (session_.paused_by_session) {
 			orchestrator_.scheduler().resume();
 		}
@@ -580,6 +759,9 @@ private:
 			info << "frames_per_second=" << settings.frames_per_second << '\n';
 			info << "frame_format=" << IO::image_format_descriptor(settings.frame_format).display_name << '\n';
 			info << "start_frame_index=" << settings.start_frame_index << '\n';
+			if (!recording_summary_.empty()) {
+				info << "recording=" << recording_summary_ << '\n';
+			}
 			if (!session_.realtime) {
 				info << "resolution=" << session_.request.target.width << 'x' << session_.request.target.height << '\n';
 				info << "supersampling=" << session_.request.target.supersampling << '\n';
@@ -590,10 +772,11 @@ private:
 				info << "ffmpeg=" << command << '\n';
 			}
 		}
-		if (session_.request.use_path) {
-			std::ofstream path_file(session_.directory / "camera_path.txt", std::ios::trunc);
-			if (path_file.is_open()) {
-				path_file << session_.request.path.to_text();
+		if (session_.request.use_script) {
+			std::ofstream script_file(session_.directory / "motion_script.cfg", std::ios::trunc);
+			if (script_file.is_open()) {
+				IO::SettingsWriter writer(script_file);
+				session_.request.script.write(writer);
 			}
 		}
 	}
@@ -609,6 +792,7 @@ private:
 	void finalize_session() {
 		const CapturePhase outcome = session_.cancelled ? CapturePhase::Cancelled
 			: (sequence_failed_.load(std::memory_order_acquire) ? CapturePhase::Failed : CapturePhase::Completed);
+		finish_recording();
 		restore_session_state();
 		write_manifest();
 		const std::string summary = std::to_string(progress_.frames_done()) + " frame(s) written to " + session_.directory.string();
@@ -698,6 +882,7 @@ public:
 	}
 
 	[[nodiscard]] CaptureProgress& progress() noexcept { return progress_; }
+	[[nodiscard]] size_t recorded_rows() const noexcept { return recorder_.row_count(); }
 	[[nodiscard]] const CaptureProgress& progress() const noexcept { return progress_; }
 
 	[[nodiscard]] bool is_busy() const noexcept {
@@ -708,7 +893,7 @@ public:
 	[[nodiscard]] bool is_manual_stepping() const noexcept { return session_.active && !session_.realtime && session_.request.manual_stepping; }
 	[[nodiscard]] uint32_t manual_frames_pending() const noexcept { return session_.manual_requests; }
 	[[nodiscard]] bool locks_live_resolution() const noexcept { return session_.active && session_.realtime; }
-	[[nodiscard]] bool drives_camera() const noexcept { return session_.active && session_.request.use_path; }
+	[[nodiscard]] bool drives_camera() const noexcept { return session_.active && session_.request.use_script; }
 	[[nodiscard]] bool suppresses_live_render() const noexcept { return session_.active && !session_.realtime && !session_.request.settings.preview_in_viewport; }
 
 	[[nodiscard]] float live_resolution_multiplier() const noexcept {
@@ -808,8 +993,8 @@ public:
 				total_frames = std::max<uint64_t>(settings.fixed_frame_count, 1ULL);
 				break;
 			case IO::SequenceCaptureTrigger::PathDuration:
-				if (request.use_path) {
-					total_frames = static_cast<uint64_t>(std::max(std::round(request.path.effective_duration() * static_cast<double>(settings.frames_per_second)), 1.0));
+				if (request.use_script && request.script.is_usable()) {
+					total_frames = static_cast<uint64_t>(std::max(std::round(request.script.total_duration() * static_cast<double>(settings.frames_per_second)), 1.0));
 				} else {
 					total_frames = static_cast<uint64_t>(std::max(std::round(settings.duration_seconds * settings.frames_per_second), 1.0f));
 				}
@@ -835,6 +1020,7 @@ public:
 		session_.stopping = false;
 		session_.cancelled = false;
 		session_.request = request;
+		session_.request.use_script = request.use_script && request.script.is_usable();
 		session_.directory = std::move(dir);
 		session_.extension = image_format_descriptor(settings.frame_format).extension;
 		session_.frames_total = total_frames;
@@ -869,14 +1055,24 @@ public:
 		session_.saved_fov = parameters.camera_fov_deg;
 		session_.saved_exposure = parameters.camera_exposure;
 		session_.saved_camera_mode = parameters.camera_mode;
+		session_.saved_warp = orchestrator_.scheduler().warp_factor();
+		session_.warp_base = session_.saved_warp;
 
 		if (!realtime && settings.pause_simulation_during_capture) {
 			session_.paused_by_session = !orchestrator_.scheduler().is_paused();
 			orchestrator_.scheduler().pause();
 		}
 
-		if (request.use_path) {
-			apply_pose(request.path.evaluate(0.0));
+		recording_summary_.clear();
+		if (session_.request.use_script) {
+			session_.dispatcher.reset(session_.request.script);
+			const ScriptSample first_sample = sample_script(0.0);
+			if (first_sample.valid) {
+				apply_pose(first_sample.pose);
+			}
+		}
+		if (request.recording.enabled) {
+			recorder_.begin(request.recording, orchestrator_, session_.directory, session_.request.use_script ? request.script.name : std::string{}, static_cast<double>(settings.frames_per_second));
 		}
 
 		sequence_failed_.store(false, std::memory_order_release);

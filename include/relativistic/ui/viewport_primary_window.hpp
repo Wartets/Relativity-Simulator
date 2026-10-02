@@ -220,6 +220,14 @@ public:
 		force_rerender_ = true;
 	}
 
+	void set_path_preview(const Capture::PathPreview* preview) {
+		if (preview != nullptr) {
+			schematic_renderer_.set_path_preview(*preview);
+		} else {
+			schematic_renderer_.clear_path_preview();
+		}
+	}
+
 	void set_fullscreen_toggle_callback(std::function<void()> callback) noexcept {
 		fullscreen_toggle_callback_ = std::move(callback);
 	}

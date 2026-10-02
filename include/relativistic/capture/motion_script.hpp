@@ -997,7 +997,7 @@ struct MotionScript {
 				const Vec3 prev_world = ScriptMath::add(prev_anchor, prev_pos);
 
 				if (segment.anchor == AnchorMode::ContinuePrevious) {
-					return prev_world;
+					return ScriptMath::sub(prev_world, evaluate_segment_raw_position(segment_index, 0.0, 0.0, 0.0));
 				}
 				return ScriptMath::add(prev_world, segment.anchor_offset);
 			}
@@ -1093,8 +1093,8 @@ struct MotionScript {
 		result.pose.pitch_deg = pitch;
 		result.pose.yaw_deg = yaw;
 		result.pose.roll_deg = roll;
-		result.pose.field_of_view_deg = fov;
-		result.pose.exposure = exposure;
+		result.pose.fov_deg = fov;
+		result.pose.exposure_ev = exposure;
 		result.simulation_rate = sim_warp;
 		result.segment_index = seg_idx;
 		result.segment_progress = u;
@@ -1235,7 +1235,103 @@ struct MotionScript {
 		return script;
 	}
 
+	static MotionScript from_parametric_legacy_path(const CameraPath& legacy) {
+		MotionScript script;
+		script.name = "Converted Path";
+		script.end_behavior = legacy.end_behavior;
+
+		ShapeKind kind = ShapeKind::Linear;
+		switch (legacy.kind) {
+			case PathKind::Orbit:
+			case PathKind::TargetTrackingOrbit: kind = ShapeKind::Orbit; break;
+			case PathKind::LogarithmicSpiral: kind = ShapeKind::LogarithmicSpiral; break;
+			case PathKind::Helical: kind = ShapeKind::Helix; break;
+			case PathKind::DollyZoom:
+			case PathKind::LinearFlyBy:
+			case PathKind::Keyframes:
+			default: kind = ShapeKind::Linear; break;
+		}
+
+		ScriptSegment segment = make_script_segment(kind, legacy.duration_seconds);
+		switch (legacy.easing) {
+			case PathEasing::EaseIn: segment.time_easing = EasingSpec::make(EasingKind::QuadIn); break;
+			case PathEasing::EaseOut: segment.time_easing = EasingSpec::make(EasingKind::QuadOut); break;
+			case PathEasing::EaseInOut: segment.time_easing = EasingSpec::make(EasingKind::Smoothstep); break;
+			case PathEasing::Smootherstep: segment.time_easing = EasingSpec::make(EasingKind::Smootherstep); break;
+			case PathEasing::Linear:
+			default: segment.time_easing = EasingSpec::make(EasingKind::Linear); break;
+		}
+
+		ShapeSpec& shape = segment.layers.front().shape;
+		switch (legacy.kind) {
+			case PathKind::Orbit:
+				shape.controls[0] = legacy.orbit.center;
+				shape.values = {legacy.orbit.radius_start, legacy.orbit.radius_end, legacy.orbit.elevation_start_deg, legacy.orbit.elevation_end_deg, legacy.orbit.azimuth_start_deg, legacy.orbit.revolutions, 0.0, 0.0};
+				break;
+			case PathKind::TargetTrackingOrbit:
+				shape.controls[0] = legacy.tracked_body_id >= 0 ? Vec3{0.0, 0.0, 0.0} : legacy.orbit.center;
+				shape.values = {legacy.orbit.radius_start, legacy.orbit.radius_end, legacy.orbit.elevation_start_deg, legacy.orbit.elevation_end_deg, legacy.orbit.azimuth_start_deg, legacy.orbit.revolutions, 0.0, 0.0};
+				if (legacy.tracked_body_id >= 0) {
+					segment.anchor = AnchorMode::TrackBody;
+					segment.anchor_body = legacy.tracked_body_id;
+				}
+				break;
+			case PathKind::LogarithmicSpiral:
+				shape.controls[0] = legacy.spiral.center;
+				shape.values = {legacy.spiral.radius_start, legacy.spiral.radius_end, legacy.spiral.height_start, legacy.spiral.height_end, legacy.spiral.revolutions, legacy.spiral.expansion_rate, 0.0, 0.0};
+				break;
+			case PathKind::Helical:
+				shape.controls[0] = legacy.helical.start;
+				shape.controls[1] = legacy.helical.end;
+				shape.values = {legacy.helical.radius, legacy.helical.revolutions, legacy.helical.phase_deg, legacy.helical.radius, 0.0, 0.0, 0.0, 0.0};
+				break;
+			case PathKind::DollyZoom:
+				shape.controls[0] = legacy.dolly_zoom.start_position;
+				shape.controls[1] = legacy.dolly_zoom.end_position;
+				break;
+			case PathKind::LinearFlyBy:
+				shape.controls[0] = legacy.fly_by.start;
+				shape.controls[1] = legacy.fly_by.end;
+				break;
+			case PathKind::Keyframes:
+			default: break;
+		}
+
+		if (legacy.kind == PathKind::DollyZoom) {
+			segment.orientation.mode = OrientationMode::LookAtTarget;
+			segment.orientation.target_offset = legacy.dolly_zoom.target;
+			segment.fov = ScalarChannel::make(legacy.dolly_zoom.fov_start_deg, legacy.dolly_zoom.fov_end_deg, true);
+		} else {
+			switch (legacy.orientation) {
+				case PathOrientation::LookAtTarget:
+					segment.orientation.mode = OrientationMode::LookAtTarget;
+					segment.orientation.target_offset = legacy.look_target;
+					if (legacy.kind == PathKind::TargetTrackingOrbit && legacy.tracked_body_id >= 0) {
+						segment.orientation.target_body = legacy.tracked_body_id;
+						segment.orientation.target_offset = {0.0, 0.0, 0.0};
+					}
+					break;
+				case PathOrientation::AlongTravel:
+					segment.orientation.mode = OrientationMode::AlongTravel;
+					break;
+				case PathOrientation::Keyframed:
+				default:
+					segment.orientation.mode = OrientationMode::Fixed;
+					segment.orientation.start = legacy.fixed_pitch_yaw;
+					break;
+			}
+			segment.fov = ScalarChannel::make(legacy.fov_start_deg, legacy.fov_end_deg, std::abs(legacy.fov_start_deg - legacy.fov_end_deg) > 1e-9);
+		}
+		segment.exposure = ScalarChannel::make(legacy.exposure_start_ev, legacy.exposure_end_ev, std::abs(legacy.exposure_start_ev - legacy.exposure_end_ev) > 1e-9);
+		segment.roll = ScalarChannel::make(legacy.roll_deg, legacy.roll_deg, std::abs(legacy.roll_deg) > 1e-9);
+
+		script.segments.push_back(std::move(segment));
+		return script;
+	}
+
 	static MotionScript from_legacy_path(const CameraPath& legacy) {
+		if (legacy.kind != PathKind::Keyframes) return from_parametric_legacy_path(legacy);
+
 		MotionScript script;
 		script.name = "Converted Path";
 		script.end_behavior = legacy.end_behavior;
@@ -1252,7 +1348,7 @@ struct MotionScript {
 			seg.layers.push_back(std::move(layer));
 			seg.orientation.mode = OrientationMode::Fixed;
 			seg.orientation.start = {legacy.keyframes[0].pose.pitch_deg, legacy.keyframes[0].pose.yaw_deg};
-			seg.fov = ScalarChannel::make(legacy.keyframes[0].pose.field_of_view_deg, legacy.keyframes[0].pose.field_of_view_deg, true);
+			seg.fov = ScalarChannel::make(legacy.keyframes[0].pose.fov_deg, legacy.keyframes[0].pose.fov_deg, true);
 			script.segments.push_back(std::move(seg));
 			return script;
 		}
@@ -1277,8 +1373,8 @@ struct MotionScript {
 			seg.orientation.start = {k0.pose.pitch_deg, k0.pose.yaw_deg};
 			seg.orientation.end = {k1.pose.pitch_deg, k1.pose.yaw_deg};
 
-			seg.fov = ScalarChannel::make(k0.pose.field_of_view_deg, k1.pose.field_of_view_deg, true);
-			seg.exposure = ScalarChannel::make(k0.pose.exposure, k1.pose.exposure, true);
+			seg.fov = ScalarChannel::make(k0.pose.fov_deg, k1.pose.fov_deg, true);
+			seg.exposure = ScalarChannel::make(k0.pose.exposure_ev, k1.pose.exposure_ev, true);
 			seg.roll = ScalarChannel::make(k0.pose.roll_deg, k1.pose.roll_deg, true);
 
 			script.segments.push_back(std::move(seg));

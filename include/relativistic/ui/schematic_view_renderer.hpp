@@ -6,6 +6,7 @@
 #include "relativistic/observer/direction_projection.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
+#include "relativistic/capture/path_preview.hpp"
 #include <imgui.h>
 #include <array>
 #include <vector>
@@ -47,6 +48,7 @@ private:
 	double lensing_mass_{0.0};
 	bool apply_lensing_{false};
 	std::unordered_map<uint32_t, std::deque<TrailSample>> body_trails_{};
+	Capture::PathPreview path_preview_{};
 
 	[[nodiscard]] static int clamp8(double value) noexcept {
 		return static_cast<int>(std::clamp(value, 0.0, 255.0));
@@ -1376,7 +1378,95 @@ private:
 		return points;
 	}
 
+void draw_path_preview(ImDrawList* draw_list) const {
+		const auto& preview = path_preview_;
+		if (preview.empty()) return;
+
+		for (size_t i = 1; i < preview.vertices.size(); ++i) {
+			const auto from = project(preview.vertices[i - 1].position);
+			const auto to = project(preview.vertices[i].position);
+			if (!from.visible || !to.visible) continue;
+			const uint32_t segment = preview.vertices[i].segment;
+			const auto& rgb = Capture::kPathPreviewPalette[segment % Capture::kPathPreviewPalette.size()];
+			const bool highlighted = preview.highlighted_segment >= 0 && static_cast<uint32_t>(preview.highlighted_segment) == segment;
+			draw_list->AddLine(from.screen, to.screen, IM_COL32(rgb[0], rgb[1], rgb[2], 235), highlighted ? 3.4f : 1.8f);
+			if (preview.show_samples) {
+				draw_list->AddCircleFilled(to.screen, 1.8f, IM_COL32(255, 255, 255, 170), 8);
+			}
+		}
+
+		if (preview.show_markers) {
+			for (const auto& marker : preview.markers) {
+				const auto point = project(marker.position);
+				if (!point.visible) continue;
+				const ImVec2 c = point.screen;
+				switch (marker.kind) {
+					case Capture::PathPreviewMarkerKind::Start:
+						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(90, 235, 120, 245), 16);
+						break;
+					case Capture::PathPreviewMarkerKind::End:
+						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(245, 90, 90, 245), 16);
+						break;
+					case Capture::PathPreviewMarkerKind::Event:
+						draw_list->AddQuadFilled(ImVec2(c.x, c.y - 7.0f), ImVec2(c.x + 7.0f, c.y), ImVec2(c.x, c.y + 7.0f), ImVec2(c.x - 7.0f, c.y), IM_COL32(255, 220, 70, 245));
+						break;
+					case Capture::PathPreviewMarkerKind::SegmentBoundary:
+					default:
+						draw_list->AddCircle(c, 5.0f, IM_COL32(240, 245, 255, 235), 16, 1.6f);
+						break;
+				}
+				if (preview.show_labels && !marker.label.empty()) {
+					draw_list->AddText(ImVec2(c.x + 9.0f, c.y - 7.0f), IM_COL32(230, 236, 250, 225), marker.label.c_str());
+				}
+			}
+		}
+
+		if (preview.show_frustum && preview.cursor.valid) {
+			const auto& cursor = preview.cursor;
+			const double length = preview.frustum_length;
+			const double half_width = std::tan(std::clamp(cursor.fov_rad, 0.02, 3.0) * 0.5) * length;
+			const double half_height = half_width * 9.0 / 16.0;
+			const auto corner = [&](double sx, double sy) noexcept {
+				return std::array<double, 3>{
+					cursor.position[0] + cursor.forward[0] * length + cursor.right[0] * sx * half_width + cursor.up[0] * sy * half_height,
+					cursor.position[1] + cursor.forward[1] * length + cursor.right[1] * sx * half_width + cursor.up[1] * sy * half_height,
+					cursor.position[2] + cursor.forward[2] * length + cursor.right[2] * sx * half_width + cursor.up[2] * sy * half_height
+				};
+			};
+			const auto apex = project(cursor.position);
+			const std::array<ProjectedPoint, 4> corners{project(corner(-1.0, 1.0)), project(corner(1.0, 1.0)), project(corner(1.0, -1.0)), project(corner(-1.0, -1.0))};
+			const ImU32 frustum_color = IM_COL32(255, 245, 140, 240);
+			if (apex.visible) {
+				draw_list->AddCircleFilled(apex.screen, 4.0f, frustum_color, 12);
+				for (const auto& c : corners) {
+					if (c.visible) draw_list->AddLine(apex.screen, c.screen, frustum_color, 1.3f);
+				}
+			}
+			for (size_t i = 0; i < corners.size(); ++i) {
+				const auto& a = corners[i];
+				const auto& b = corners[(i + 1) % corners.size()];
+				if (a.visible && b.visible) draw_list->AddLine(a.screen, b.screen, frustum_color, 1.6f);
+			}
+		}
+	}
+
 public:
+	void set_path_preview(const Capture::PathPreview& preview) {
+		path_preview_ = preview;
+	}
+
+	void clear_path_preview() noexcept {
+		path_preview_ = Capture::PathPreview{};
+	}
+
+	[[nodiscard]] bool has_path_preview() const noexcept {
+		return !path_preview_.empty();
+	}
+
+	void render_path_preview_only(ImDrawList* draw_list) const {
+		draw_path_preview(draw_list);
+	}
+
 	void configure(
 		const Orchestrator::CameraState& cam,
 		Observer::ProjectionMode projection_mode,
@@ -1407,6 +1497,7 @@ public:
 	void render_overlay(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
 		const auto& sys = orchestrator.nbody_system();
 		const auto bodies = sys.bodies();
+		draw_path_preview(draw_list);
 		if (bodies.empty()) return;
 
 		const auto& params = orchestrator.parameters();
@@ -1478,6 +1569,8 @@ public:
 		if (cfg.show_field_lines) {
 			draw_field_lines(draw_list, central_radius, cfg);
 		}
+
+		draw_path_preview(draw_list);
 
 		update_trails(bodies, cfg);
 		if (cfg.show_trails) {

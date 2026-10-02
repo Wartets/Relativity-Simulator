@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -37,7 +38,9 @@ inline constexpr std::array<const char*, 7> kOrientationNames{
 inline constexpr std::array<const char*, 5> kWaveNames{"Sine", "Triangle", "Square", "Sawtooth", "Smooth Noise"};
 inline constexpr std::array<const char*, 3> kPathEndNames{"Clamp At End", "Loop", "Ping-Pong"};
 inline constexpr std::array<const char*, 4> kTriggerNames{"Script Time", "Segment Start", "Segment End", "Segment Fraction"};
-inline constexpr std::array<const char*, 10> kActionNames{"Marker", "Capture Still", "Set Parameter", "Set Time Warp", "Pause Simulation", "Resume Simulation", "Step Ticks", "Set Metric", "Set Integrator", "Load Scenario"};
+inline constexpr std::array<const char*, 14> kActionNames{"Marker", "Capture Still", "Set Parameter", "Set Time Warp", "Pause Simulation", "Resume Simulation", "Step Ticks", "Set Metric", "Set Integrator", "Load Scenario", "Set Tick Rate", "Apply Performance Preset", "Set Rendering Overlay", "Set Resolution Scale"};
+inline constexpr std::array<const char*, 6> kPerformancePresetNames{"Potato", "Performance", "Balanced", "Quality High", "Ultra Fidelity", "Scientific Extreme"};
+inline constexpr std::array<const char*, 2> kTransitionModeNames{"Shortest Arc", "Direct Interpolation"};
 inline constexpr std::array<const char*, 12> kDriverSourceNames{
 	"Distance To Target", "Distance To Origin", "Position X", "Position Y", "Position Z", "Camera Speed",
 	"Segment Progress", "Script Progress", "Segment Time", "Script Time", "Time Relative To Event", "Custom Expression"
@@ -127,6 +130,18 @@ inline constexpr std::array<ExpressionPreset, 3> kSphericalPresets{{
 		std::vector<const char*> result;
 		result.reserve(Capture::kEventParameters.size());
 		for (const auto& entry : Capture::kEventParameters) {
+			result.push_back(entry.name);
+		}
+		return result;
+	}();
+	return names;
+}
+
+[[nodiscard]] inline const std::vector<const char*>& event_overlay_names() {
+	static const std::vector<const char*> names = [] {
+		std::vector<const char*> result;
+		result.reserve(Capture::kEventOverlays.size());
+		for (const auto& entry : Capture::kEventOverlays) {
 			result.push_back(entry.name);
 		}
 		return result;
@@ -261,6 +276,13 @@ private:
 		std::vector<double> fov{};
 		std::vector<double> exposure{};
 		std::vector<double> rate{};
+		std::vector<double> acceleration{};
+		std::vector<double> angular_rate{};
+		std::vector<double> path_length{};
+		std::vector<double> nearest_distance{};
+		std::vector<double> shake_displacement{};
+		std::vector<double> shake_rotation{};
+		std::vector<double> transition_weight{};
 		std::vector<double> segment_marks{};
 		std::vector<double> event_marks{};
 	};
@@ -291,6 +313,7 @@ private:
 	std::vector<char> text_buffer_{};
 	std::vector<BodyChoice> bodies_{};
 	CurveSet curves_{};
+	std::array<bool, 7> curve_groups_{true, true, true, true, true, true, true};
 
 	bool mark(bool value) noexcept {
 		if (value) {
@@ -316,19 +339,30 @@ private:
 		}
 	}
 
-	bool edit_body_reference(const char* label, int32_t& id) const {
+	bool edit_body_reference(const char* label, int32_t& id, bool allow_nearest = false) const {
 		std::vector<const char*> items;
-		items.reserve(bodies_.size() + 1);
+		items.reserve(bodies_.size() + 2);
 		items.push_back("World Origin / Fixed Point");
-		int current = 0;
+		if (allow_nearest) {
+			items.push_back("Nearest Body To Camera");
+		}
+		const size_t first_body = items.size();
+		int current = (allow_nearest && id == Capture::kNearestBodyReference) ? 1 : 0;
 		for (size_t i = 0; i < bodies_.size(); ++i) {
 			items.push_back(bodies_[i].label.c_str());
 			if (bodies_[i].id == id) {
-				current = static_cast<int>(i + 1);
+				current = static_cast<int>(first_body + i);
 			}
 		}
 		if (ImGui::Combo(label, &current, items.data(), static_cast<int>(items.size()))) {
-			id = (current == 0) ? Capture::kOriginReference : bodies_[static_cast<size_t>(current - 1)].id;
+			const size_t picked = static_cast<size_t>(current);
+			if (picked == 0) {
+				id = Capture::kOriginReference;
+			} else if (allow_nearest && picked == 1) {
+				id = Capture::kNearestBodyReference;
+			} else {
+				id = bodies_[picked - first_body].id;
+			}
 			return true;
 		}
 		return false;
@@ -428,7 +462,10 @@ private:
 		const double total = script.total_duration();
 		curves_.time.reserve(kCurveSamples + 1);
 		Capture::Vec3 previous{0.0, 0.0, 0.0};
+		Capture::CameraPose previous_pose{};
 		double previous_time = 0.0;
+		double previous_speed = 0.0;
+		double travelled = 0.0;
 		bool has_previous = false;
 		for (size_t i = 0; i <= kCurveSamples; ++i) {
 			const double t = std::min(total * static_cast<double>(i) / static_cast<double>(kCurveSamples), total - 1.0e-9);
@@ -449,16 +486,36 @@ private:
 			curves_.exposure.push_back(pose.exposure_ev);
 			curves_.rate.push_back(sample.simulation_rate);
 			double speed = 0.0;
+			double acceleration = 0.0;
+			double angular_rate = 0.0;
 			if (has_previous && t - previous_time > 1.0e-9) {
-				speed = Capture::ScriptMath::length(Capture::ScriptMath::sub(pose.position, previous)) / (t - previous_time);
+				const double dt = t - previous_time;
+				const double step = Capture::ScriptMath::length(Capture::ScriptMath::sub(pose.position, previous));
+				travelled += step;
+				speed = step / dt;
+				acceleration = (speed - previous_speed) / dt;
+				const double delta_pitch = pose.pitch_deg - previous_pose.pitch_deg;
+				const double delta_yaw = std::remainder(pose.yaw_deg - previous_pose.yaw_deg, 360.0);
+				const double delta_roll = std::remainder(pose.roll_deg - previous_pose.roll_deg, 360.0);
+				angular_rate = std::sqrt(delta_pitch * delta_pitch + delta_yaw * delta_yaw + delta_roll * delta_roll) / dt;
 			}
 			curves_.speed.push_back(speed);
+			curves_.acceleration.push_back(acceleration);
+			curves_.angular_rate.push_back(angular_rate);
+			curves_.path_length.push_back(travelled);
+			curves_.nearest_distance.push_back(sample.nearest_distance >= 0.0 ? sample.nearest_distance : 0.0);
+			curves_.shake_displacement.push_back(Capture::ScriptMath::length(sample.shake_position));
+			curves_.shake_rotation.push_back(Capture::ScriptMath::length(sample.shake_rotation));
+			curves_.transition_weight.push_back(sample.transition_weight);
 			previous = pose.position;
+			previous_pose = pose;
+			previous_speed = speed;
 			previous_time = t;
 			has_previous = true;
 		}
 		if (curves_.speed.size() > 1) {
 			curves_.speed[0] = curves_.speed[1];
+			curves_.angular_rate[0] = curves_.angular_rate[1];
 		}
 		double accumulated = 0.0;
 		const auto active = script.active_segments();
@@ -504,6 +561,7 @@ private:
 		if (ImGui::Button("Refresh Curves")) {
 			curves_dirty_ = true;
 		}
+		render_setting_tooltip("Recomputes and redraws all trajectory and parameter curves.");
 		ImGui::SameLine();
 		help_marker("Shows every evaluated camera quantity over the script time, including the effect of drivers, expressions and modulation. Drag the yellow line to move the preview cursor.");
 		if (curves_.time.size() < 2) {
@@ -511,12 +569,30 @@ private:
 			return;
 		}
 		const double total = script.total_duration();
-		const float height = std::max(ImGui::GetContentRegionAvail().y, 520.0f);
-		if (ImPlot::BeginSubplots("##ScriptCurves", 4, 1, ImVec2(-1.0f, height), ImPlotSubplotFlags_LinkAllX)) {
-			curve_plot("Position", "World Units", {{"Distance To Origin", &curves_.distance}, {"X", &curves_.x}, {"Y", &curves_.y}, {"Z", &curves_.z}}, total);
-			curve_plot("Motion", "Units Per Second / Rate", {{"Camera Speed", &curves_.speed}, {"Simulation Rate", &curves_.rate}}, total);
-			curve_plot("View Direction", "Degrees", {{"Pitch", &curves_.pitch}, {"Yaw", &curves_.yaw}, {"Roll", &curves_.roll}}, total);
-			curve_plot("Lens", "Degrees / EV", {{"Field Of View", &curves_.fov}, {"Exposure", &curves_.exposure}}, total);
+		static constexpr std::array<const char*, 7> group_names{"Position", "Motion", "Travel", "View Direction", "Angular Rate", "Lens", "Modifiers"};
+		FlowLayout group_flow;
+		int visible_rows = 0;
+		for (size_t i = 0; i < group_names.size(); ++i) {
+			group_flow.next(FlowLayout::checkbox_width(group_names[i]));
+			ImGui::PushID(static_cast<int>(i));
+			ImGui::Checkbox(group_names[i], &curve_groups_[i]);
+			ImGui::PopID();
+			visible_rows += curve_groups_[i] ? 1 : 0;
+		}
+		render_setting_tooltip("Chooses which curve groups are plotted. Modifiers shows the simulation rate, the camera shake displacement and the transition blend weight.");
+		if (visible_rows == 0) {
+			ImGui::TextDisabled("Enable at least one curve group.");
+			return;
+		}
+		const float height = std::max(ImGui::GetContentRegionAvail().y, 190.0f * static_cast<float>(visible_rows));
+		if (ImPlot::BeginSubplots("##ScriptCurves", visible_rows, 1, ImVec2(-1.0f, height), ImPlotSubplotFlags_LinkAllX)) {
+			if (curve_groups_[0]) curve_plot("Position", "World Units", {{"Distance To Origin", &curves_.distance}, {"X", &curves_.x}, {"Y", &curves_.y}, {"Z", &curves_.z}}, total);
+			if (curve_groups_[1]) curve_plot("Motion", "Units Per Second / Second Squared", {{"Camera Speed", &curves_.speed}, {"Tangential Acceleration", &curves_.acceleration}}, total);
+			if (curve_groups_[2]) curve_plot("Travel", "World Units (0 = No Body)", {{"Path Length", &curves_.path_length}, {"Distance To Nearest Body", &curves_.nearest_distance}}, total);
+			if (curve_groups_[3]) curve_plot("View Direction", "Degrees", {{"Pitch", &curves_.pitch}, {"Yaw", &curves_.yaw}, {"Roll", &curves_.roll}}, total);
+			if (curve_groups_[4]) curve_plot("Angular Rate", "Degrees Per Second / Degrees", {{"View Angular Rate", &curves_.angular_rate}, {"Shake Rotation", &curves_.shake_rotation}}, total);
+			if (curve_groups_[5]) curve_plot("Lens", "Degrees / EV", {{"Field Of View", &curves_.fov}, {"Exposure", &curves_.exposure}}, total);
+			if (curve_groups_[6]) curve_plot("Modifiers", "Multiplier / World Units / Weight", {{"Simulation Rate", &curves_.rate}, {"Shake Displacement", &curves_.shake_displacement}, {"Transition Weight", &curves_.transition_weight}}, total);
 			ImPlot::EndSubplots();
 		}
 	}
@@ -582,6 +658,16 @@ private:
 			draw->AddRectFilled(top_left, bottom_right, IM_COL32(rgb[0], rgb[1], rgb[2], selected ? 235 : 150), 3.0f);
 			if (selected) {
 				draw->AddRect(top_left, bottom_right, IM_COL32(255, 255, 255, 255), 3.0f, 0, 2.0f);
+			}
+			if (segment.transition.enabled && slot > 0) {
+				const float transition_end = std::min(time_to_x(accumulated + segment.transition.reach_seconds()), bottom_right.x);
+				draw->AddRectFilled(ImVec2(top_left.x, bottom_right.y - 6.0f), ImVec2(transition_end, bottom_right.y), IM_COL32(255, 255, 255, 190), 2.0f);
+			}
+			if (segment.shake.enabled) {
+				for (float zig = top_left.x + 2.0f; zig + 3.0f < bottom_right.x; zig += 6.0f) {
+					draw->AddLine(ImVec2(zig, top_left.y + 20.0f), ImVec2(zig + 3.0f, top_left.y + 26.0f), IM_COL32(10, 12, 18, 200), 1.2f);
+					draw->AddLine(ImVec2(zig + 3.0f, top_left.y + 26.0f), ImVec2(zig + 6.0f, top_left.y + 20.0f), IM_COL32(10, 12, 18, 200), 1.2f);
+				}
 			}
 			if (bottom_right.x - top_left.x > 36.0f) {
 				draw->PushClipRect(top_left, bottom_right, true);
@@ -651,6 +737,7 @@ private:
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
 		bool changed = ImGui::Checkbox("Enable Periodic Modulation", &modulation.enabled);
+		render_setting_tooltip("Enables periodic oscillation (sine, triangle, square, sawtooth, noise) on this animated channel.");
 		ImGui::BeginDisabled(!modulation.enabled);
 		if (begin_property_grid("##ModulationGrid")) {
 			changed |= property_enum("Waveform", modulation.wave, kWaveNames, "Shape of the periodic oscillation added to the value.");
@@ -688,7 +775,7 @@ private:
 			property_info("", driver_source_hint(driver.source));
 			switch (driver.source) {
 				case Capture::DriverSource::DistanceToTarget:
-					changed |= property_row("Target Body", "Body or fixed point the distance is measured to.", [&] { return edit_body_reference("##value", driver.body); });
+					changed |= property_row("Target Body", "Body or fixed point the distance is measured to. Nearest Body To Camera measures the distance to the closest enabled body.", [&] { return edit_body_reference("##value", driver.body, true); });
 					changed |= property_vec3("Target Offset", driver.point, 0.1, "%.3f", "Offset from the body, or the absolute point when no body is selected.");
 					break;
 				case Capture::DriverSource::EventTimeOffset:
@@ -780,6 +867,7 @@ private:
 			changed |= edit_driver(channel.driver, channel.start, channel.end, unit, script);
 			ImGui::SeparatorText("Expression Override");
 			changed |= ImGui::Checkbox("Use Expression", &channel.use_expression);
+			render_setting_tooltip("Overrides or calculates the animated channel value using a mathematical expression over signal variables.");
 			if (channel.use_expression) {
 				if (begin_property_grid("##ChannelExpressionGrid")) {
 					changed |= property_expression("Value Expression", channel.expression, "Computes the animated value from the signal variables.");
@@ -833,15 +921,18 @@ private:
 			shape.reset(shape.kind);
 			changed = true;
 		}
+		render_setting_tooltip("Resets all control points and shape parameters to their default geometric configuration.");
 
 		if (descriptor.waypoints) {
 			ImGui::SeparatorText("Waypoints");
 			ImGui::Text("%zu waypoint(s)", shape.waypoints.size());
 			ImGui::SameLine();
 			changed |= ImGui::Checkbox("Closed Loop", &shape.closed);
+			render_setting_tooltip("Connects the final waypoint back to the first waypoint to form a continuous closed trajectory.");
 			if (shape.kind != Capture::ShapeKind::BSpline) {
 				ImGui::SameLine();
 				changed |= ImGui::Checkbox("Uniform Speed", &shape.uniform_speed);
+				render_setting_tooltip("Normalizes camera travel speed along the spline regardless of uneven waypoint spacing.");
 			}
 			int remove_index = -1;
 			int duplicate_index = -1;
@@ -868,14 +959,17 @@ private:
 							shape.waypoints[static_cast<size_t>(i)] = orchestrator.camera().position;
 							changed = true;
 						}
+						render_setting_tooltip("Snaps this waypoint coordinates to the current interactive camera position.");
 						ImGui::SameLine();
 						if (ImGui::SmallButton("Copy")) {
 							duplicate_index = i;
 						}
+						render_setting_tooltip("Duplicates this waypoint.");
 						ImGui::SameLine();
 						if (ImGui::SmallButton("Del")) {
 							remove_index = i;
 						}
+						render_setting_tooltip("Deletes this waypoint.");
 						ImGui::PopID();
 					}
 				}
@@ -894,16 +988,19 @@ private:
 				shape.waypoints.push_back(orchestrator.camera().position);
 				changed = true;
 			}
+			render_setting_tooltip("Appends a new waypoint at the current interactive camera position.");
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Add Blank")) {
 				shape.waypoints.push_back(shape.waypoints.empty() ? Capture::Vec3{0.0, 0.0, 0.0} : shape.waypoints.back());
 				changed = true;
 			}
+			render_setting_tooltip("Appends a duplicate of the last waypoint or world origin.");
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Reverse")) {
 				std::reverse(shape.waypoints.begin(), shape.waypoints.end());
 				changed = true;
 			}
+			render_setting_tooltip("Reverses the order of all waypoints in the list.");
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Subdivide")) {
 				std::vector<Capture::Vec3> refined;
@@ -918,11 +1015,13 @@ private:
 				shape.waypoints = std::move(refined);
 				changed = true;
 			}
+			render_setting_tooltip("Inserts interpolated midpoints between consecutive waypoints for higher path detail.");
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Clear")) {
 				shape.waypoints.clear();
 				changed = true;
 			}
+			render_setting_tooltip("Removes all waypoints from this shape.");
 		}
 
 		if (descriptor.expressions) {
@@ -948,6 +1047,7 @@ private:
 				}
 				changed = true;
 			}
+			render_setting_tooltip("Loads a predefined set of mathematical parametric coordinate equations.");
 		}
 
 		if (ImGui::TreeNode("Shape Transform")) {
@@ -965,6 +1065,7 @@ private:
 				shape.translation = {0.0, 0.0, 0.0};
 				changed = true;
 			}
+			render_setting_tooltip("Resets scale, rotation, pivot, and translation to neutral default transforms.");
 			ImGui::TreePop();
 		}
 		return changed;
@@ -1021,6 +1122,7 @@ private:
 					segment.layers[i].enabled = enabled;
 					changed = true;
 				}
+				render_setting_tooltip("Enables or disables this movement layer in the position blend stack.");
 				ImGui::TableNextColumn();
 				char label[160];
 				std::snprintf(label, sizeof(label), "%02zu  %s", i + 1, segment.layers[i].name.c_str());
@@ -1039,6 +1141,7 @@ private:
 		if (ImGui::Button("Add Layer...")) {
 			ImGui::OpenPopup("##AddLayerPopup");
 		}
+		render_setting_tooltip("Opens a menu to add a new positional movement layer to this segment.");
 		if (ImGui::BeginPopup("##AddLayerPopup")) {
 			for (const auto& group : kShapeGroups) {
 				if (ImGui::BeginMenu(group.name)) {
@@ -1067,24 +1170,28 @@ private:
 			++selected_layer_;
 			changed = true;
 		}
+		render_setting_tooltip("Duplicates the currently selected movement layer.");
 		ImGui::SameLine();
 		if (ImGui::Button("Delete")) {
 			segment.layers.erase(segment.layers.begin() + selected_layer_);
 			selected_layer_ = std::max(selected_layer_ - 1, 0);
 			changed = true;
 		}
+		render_setting_tooltip("Removes the currently selected movement layer.");
 		ImGui::SameLine();
 		if (ImGui::Button("Up") && selected_layer_ > 0) {
 			std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ - 1)]);
 			--selected_layer_;
 			changed = true;
 		}
+		render_setting_tooltip("Moves the selected layer earlier in the layer evaluation stack.");
 		ImGui::SameLine();
 		if (ImGui::Button("Down") && selected_layer_ + 1 < static_cast<int>(segment.layers.size())) {
 			std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ + 1)]);
 			++selected_layer_;
 			changed = true;
 		}
+		render_setting_tooltip("Moves the selected layer later in the layer evaluation stack.");
 		ImGui::EndDisabled();
 
 		if (!segment.layers.empty()) {
@@ -1131,7 +1238,7 @@ private:
 				break;
 			case Capture::OrientationMode::LookAtTarget:
 				if (begin_property_grid("##LookTargetGrid")) {
-					changed |= property_row("Target Body", "Body or fixed point the camera faces.", [&] { return edit_body_reference("##value", orientation.target_body); });
+					changed |= property_row("Target Body", "Body or fixed point the camera faces. Nearest Body To Camera re-evaluates the closest enabled body every frame and switches instantly when another body becomes closer; use a view blend duration in the segment transition to soften segment changes.", [&] { return edit_body_reference("##value", orientation.target_body, true); });
 					changed |= property_vec3("Target Offset", orientation.target_offset, 0.1, "%.3f", "Offset from the body, or the absolute point when no body is selected.");
 					end_property_grid();
 				}
@@ -1152,7 +1259,7 @@ private:
 				break;
 			case Capture::OrientationMode::TargetPath:
 				if (begin_property_grid("##LookMovingTargetGrid")) {
-					changed |= property_row("Anchor Body", "Body the target trajectory is relative to, or the world origin.", [&] { return edit_body_reference("##value", orientation.target_body); });
+					changed |= property_row("Anchor Body", "Body the target trajectory is relative to, the world origin, or the body nearest to the camera.", [&] { return edit_body_reference("##value", orientation.target_body, true); });
 					changed |= property_vec3("Extra Offset", orientation.target_offset, 0.1, "%.3f", "Constant offset added to the target trajectory.");
 					end_property_grid();
 				}
@@ -1194,6 +1301,7 @@ private:
 	bool render_shake_pane(Capture::ShakeSpec& shake) {
 		using namespace CaptureWidgets;
 		bool changed = ImGui::Checkbox("Enable Camera Shake", &shake.enabled);
+		render_setting_tooltip("Applies procedural pseudo-random camera shake perturbations to position and rotation.");
 		ImGui::BeginDisabled(!shake.enabled);
 		if (begin_property_grid("##ShakeGrid")) {
 			changed |= property_vec3("Position Amplitude", shake.position_amplitude, 0.01, "%.3f", "Maximum positional displacement per axis.");
@@ -1231,6 +1339,51 @@ private:
 			changed |= property_vec3("Anchor Offset", segment.anchor_offset, 0.1, "%.3f", "Offset added to the anchor position.");
 			end_property_grid();
 		}
+		ImGui::SeparatorText("Transition From Previous Segment");
+		const auto active_segments = script.active_segments();
+		const bool is_first_active = !active_segments.empty() && &script.segments[active_segments.front()] == &segment;
+		if (is_first_active) {
+			ImGui::TextDisabled("This is the first active segment, so there is no previous segment to blend from.");
+		}
+		auto& transition = segment.transition;
+		changed |= ImGui::Checkbox("Blend Into This Segment", &transition.enabled);
+		render_setting_tooltip("Smoothly blends the camera pose from the end of the previous segment into this one instead of cutting. Position, view direction and lens values can use separate durations and easing curves.");
+		ImGui::BeginDisabled(!transition.enabled);
+		if (begin_property_grid("##TransitionGrid")) {
+			changed |= property_drag("View Blend Duration (s)", transition.orientation_seconds, 0.02, 0.0, segment.duration, "%.3f", "Time during which pitch, yaw and roll glide from the previous segment's final view. 0 cuts immediately.");
+			changed |= property_enum("View Blend Path", transition.orientation_mode, kTransitionModeNames, "Shortest Arc turns the short way around; Direct Interpolation follows the raw angle difference, which allows deliberate multi-turn spins.");
+			changed |= property_drag("Position Blend Duration (s)", transition.position_seconds, 0.02, 0.0, segment.duration, "%.3f", "Time during which the camera position glides from the previous segment's end to this segment's path. Useful when segments are not anchored to each other.");
+			changed |= property_drag("Lens Blend Duration (s)", transition.lens_seconds, 0.02, 0.0, segment.duration, "%.3f", "Time during which field of view, exposure and the simulation rate multiplier glide from the previous values.");
+			changed |= property_check("Blend Simulation Rate", transition.blend_simulation_rate, "Includes the simulation rate multiplier in the lens blend.");
+			end_property_grid();
+		}
+		if (ImGui::SmallButton("Match All To View Duration")) {
+			transition.position_seconds = transition.orientation_seconds;
+			transition.lens_seconds = transition.orientation_seconds;
+			changed = true;
+		}
+		render_setting_tooltip("Sets position and lens blend durations to match the view blend duration.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Quarter Of Segment")) {
+			transition.orientation_seconds = segment.duration * 0.25;
+			transition.position_seconds = transition.orientation_seconds;
+			transition.lens_seconds = transition.orientation_seconds;
+			changed = true;
+		}
+		render_setting_tooltip("Sets all transition blend durations to exactly 25% of this segment's duration.");
+		if (ImGui::TreeNode("View Blend Easing")) {
+			changed |= edit_easing("TransitionViewEasing", transition.orientation_easing);
+			ImGui::TreePop();
+		}
+		if (ImGui::TreeNode("Position Blend Easing")) {
+			changed |= edit_easing("TransitionPositionEasing", transition.position_easing);
+			ImGui::TreePop();
+		}
+		if (ImGui::TreeNode("Lens Blend Easing")) {
+			changed |= edit_easing("TransitionLensEasing", transition.lens_easing);
+			ImGui::TreePop();
+		}
+		ImGui::EndDisabled();
 		static_cast<void>(script);
 		return changed;
 	}
@@ -1299,6 +1452,7 @@ private:
 					script.segments[i].enabled = enabled;
 					mark(true);
 				}
+				render_setting_tooltip("Enables or disables this segment in the script playback.");
 				ImGui::TableNextColumn();
 				char label[192];
 				const char* first_shape = script.segments[i].layers.empty() ? "Empty" : Capture::shape_descriptor(script.segments[i].layers.front().shape.kind).name;
@@ -1324,9 +1478,13 @@ private:
 			ImGui::EndTable();
 		}
 
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+		drag_double("New Segment Duration (s)", new_segment_duration_, 0.05, 0.05, 3600.0, "%.2f");
+		render_setting_tooltip("Duration given to segments created with Add Segment, Add Stop and Add Leg.");
 		if (ImGui::Button("Add Segment...")) {
 			ImGui::OpenPopup("##AddSegmentPopup");
 		}
+		render_setting_tooltip("Opens a menu to insert a new trajectory segment with a chosen shape.");
 		if (ImGui::BeginPopup("##AddSegmentPopup")) {
 			for (const auto& group : kShapeGroups) {
 				if (ImGui::BeginMenu(group.name)) {
@@ -1373,18 +1531,22 @@ private:
 		if (ImGui::Button("Dup")) {
 			apply_segment_action(script, ListAction::Duplicate, selected_segment_);
 		}
+		render_setting_tooltip("Duplicates the selected segment.");
 		ImGui::SameLine();
 		if (ImGui::Button("Del")) {
 			apply_segment_action(script, ListAction::Delete, selected_segment_);
 		}
+		render_setting_tooltip("Deletes the selected segment.");
 		ImGui::SameLine();
 		if (ImGui::Button("Up")) {
 			apply_segment_action(script, ListAction::MoveUp, selected_segment_);
 		}
+		render_setting_tooltip("Moves the selected segment earlier in the script order.");
 		ImGui::SameLine();
 		if (ImGui::Button("Down")) {
 			apply_segment_action(script, ListAction::MoveDown, selected_segment_);
 		}
+		render_setting_tooltip("Moves the selected segment later in the script order.");
 		ImGui::EndDisabled();
 
 		ImGui::EndChild();
@@ -1416,6 +1578,7 @@ private:
 					changed |= property_drag("Segment Fraction", event.fraction, 0.005, 0.0, 1.0, "%.3f", "Fraction of the segment progress (0 to 1).");
 				}
 			}
+			changed |= property_drag("Time Offset (s)", event.offset_seconds, 0.02, -86400.0, 86400.0, "%.3f", "Shifts the trigger time. Use a negative offset with Segment End to fire just before a segment finishes.");
 			changed |= property_enum("Action", event.action, kActionNames, "Action executed when the event triggers.");
 
 			switch (event.action) {
@@ -1457,6 +1620,38 @@ private:
 				}
 				case Capture::EventAction::LoadScenario:
 					changed |= property_text("Scenario Path", event.text);
+					break;
+				case Capture::EventAction::SetOverlay: {
+					int overlay_index = static_cast<int>(Capture::event_overlay_index(event.parameter));
+					const auto& overlay_names = event_overlay_names();
+					if (property_row("Overlay", "Rendering overlay switched by this event.", [&] {
+						return ImGui::Combo("##value", &overlay_index, overlay_names.data(), static_cast<int>(overlay_names.size()));
+					})) {
+						event.parameter = static_cast<uint32_t>(overlay_index);
+						changed = true;
+					}
+					bool overlay_enabled = event.value > 0.5;
+					if (property_check("Overlay Enabled", overlay_enabled, "Turns the overlay on or off when the event fires.")) {
+						event.value = overlay_enabled ? 1.0 : 0.0;
+						changed = true;
+					}
+					break;
+				}
+				case Capture::EventAction::SetPerformancePreset: {
+					int preset = std::clamp(static_cast<int>(std::lround(event.value)), 0, 5);
+					if (property_row("Preset", "Performance preset applied when the event fires.", [&] {
+						return ImGui::Combo("##value", &preset, kPerformancePresetNames.data(), static_cast<int>(kPerformancePresetNames.size()));
+					})) {
+						event.value = static_cast<double>(preset);
+						changed = true;
+					}
+					break;
+				}
+				case Capture::EventAction::SetTickRate:
+					property_info("Unit", "Value is the scheduler tick rate in Hz (10 to 1000). The ramp fields below can glide it over time.");
+					break;
+				case Capture::EventAction::SetResolutionScale:
+					property_info("Unit", "Value is the live render scale (0.1 to 2). The ramp fields below can glide it over time.");
 					break;
 				default:
 					break;
@@ -1505,6 +1700,7 @@ private:
 					script.events[i].enabled = enabled;
 					mark(true);
 				}
+				render_setting_tooltip("Enables or disables this event.");
 				ImGui::TableNextColumn();
 				char label[192];
 				std::snprintf(label, sizeof(label), "%02zu  %s  (%s)", i + 1, script.events[i].name.c_str(), Capture::event_action_name(script.events[i].action));
@@ -1546,6 +1742,7 @@ private:
 			selected_event_ = static_cast<int>(script.events.size()) - 1;
 			mark(true);
 		}
+		render_setting_tooltip("Creates a new event scheduled at the current timeline cursor position.");
 		ImGui::SameLine();
 		if (ImGui::Button("Sort By Time")) {
 			std::stable_sort(script.events.begin(), script.events.end(), [&script](const Capture::ScriptEvent& a, const Capture::ScriptEvent& b) {
@@ -1554,6 +1751,7 @@ private:
 			selected_event_ = -1;
 			mark(true);
 		}
+		render_setting_tooltip("Sorts all events in chronological order according to their trigger times.");
 
 		const bool has_event = selected_event_ >= 0 && selected_event_ < static_cast<int>(script.events.size());
 		ImGui::BeginDisabled(!has_event);
@@ -1564,12 +1762,14 @@ private:
 			++selected_event_;
 			mark(true);
 		}
+		render_setting_tooltip("Duplicates the selected event.");
 		ImGui::SameLine();
 		if (ImGui::Button("Delete")) {
 			script.events.erase(script.events.begin() + selected_event_);
 			selected_event_ = std::min(selected_event_, static_cast<int>(script.events.size()) - 1);
 			mark(true);
 		}
+		render_setting_tooltip("Deletes the selected event.");
 		ImGui::EndDisabled();
 
 		ImGui::EndChild();
@@ -1625,12 +1825,14 @@ private:
 
 		ImGui::SeparatorText("Presets");
 		ImGui::Combo("Preset Template", &preset_index_, Capture::kScriptPresetNames.data(), static_cast<int>(Capture::kScriptPresetCount));
+		render_setting_tooltip("Predefined trajectory script template to replace or append.");
 		if (ImGui::Button("Replace Script With Preset")) {
 			script = Capture::MotionScript::make_preset(static_cast<Capture::ScriptPreset>(preset_index_));
 			select_segment(script.segments.empty() ? -1 : 0);
 			selected_event_ = -1;
 			mark(true);
 		}
+		render_setting_tooltip("Replaces the entire current motion script with the selected preset template.");
 		ImGui::SameLine();
 		if (ImGui::Button("Append Preset")) {
 			Capture::MotionScript preset = Capture::MotionScript::make_preset(static_cast<Capture::ScriptPreset>(preset_index_));
@@ -1645,6 +1847,7 @@ private:
 			}
 			mark(true);
 		}
+		render_setting_tooltip("Appends all segments and events from the selected preset to the current script.");
 		ImGui::SameLine();
 		if (ImGui::Button("New Empty Script")) {
 			script = Capture::MotionScript{};
@@ -1652,6 +1855,7 @@ private:
 			selected_event_ = -1;
 			mark(true);
 		}
+		render_setting_tooltip("Clears all segments and events to start a blank motion script.");
 
 		ImGui::SeparatorText("Import / Export & Files");
 		render_script_files(script);
@@ -1667,6 +1871,7 @@ private:
 			const std::string error = Capture::save_motion_script(file_path_, script);
 			file_message_ = error.empty() ? ("Script saved to " + file_path_) : error;
 		}
+		render_setting_tooltip("Saves the active motion script to the specified file path on disk.");
 		ImGui::SameLine();
 		if (ImGui::Button("Load Script From File")) {
 			const std::string error = Capture::load_motion_script(file_path_, script);
@@ -1679,6 +1884,7 @@ private:
 				file_message_ = error;
 			}
 		}
+		render_setting_tooltip("Loads a motion script from the specified file path on disk.");
 		if (text_buffer_.empty()) {
 			text_buffer_.assign(kTextBufferCapacity, '\0');
 		}
@@ -1692,6 +1898,7 @@ private:
 				file_message_ = "The script is too large for the text field, use the script file instead.";
 			}
 		}
+		render_setting_tooltip("Serializes the script into text format and populates the text field above.");
 		ImGui::SameLine();
 		if (ImGui::Button("Import Text")) {
 			auto parsed = Capture::motion_script_from_text(text_buffer_.data());
@@ -1705,6 +1912,7 @@ private:
 				file_message_ = "The text does not contain a valid motion script.";
 			}
 		}
+		render_setting_tooltip("Parses the text from the field above and replaces the active motion script.");
 		if (!file_message_.empty()) {
 			ImGui::TextDisabled("%s", file_message_.c_str());
 		}

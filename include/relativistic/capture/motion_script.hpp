@@ -15,16 +15,49 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace Relativistic::Capture {
 
 using Vec3 = std::array<double, 3>;
-using BodyPositionLookup = std::function<std::optional<Vec3>(int32_t)>;
+class BodyPositionLookup {
+public:
+	using PositionFunction = std::function<std::optional<Vec3>(int32_t)>;
+	using NearestFunction = std::function<std::optional<std::pair<int32_t, Vec3>>(const Vec3&)>;
+
+	BodyPositionLookup() = default;
+
+	template <typename Callable>
+		requires (!std::is_same_v<std::remove_cvref_t<Callable>, BodyPositionLookup> && std::is_invocable_r_v<std::optional<Vec3>, Callable&, int32_t>)
+	BodyPositionLookup(Callable&& position, NearestFunction nearest = {})
+		: position_(std::forward<Callable>(position)), nearest_(std::move(nearest)) {}
+
+	[[nodiscard]] explicit operator bool() const noexcept {
+		return static_cast<bool>(position_);
+	}
+
+	[[nodiscard]] std::optional<Vec3> operator()(int32_t id) const {
+		return position_ ? position_(id) : std::nullopt;
+	}
+
+	[[nodiscard]] bool has_nearest() const noexcept {
+		return static_cast<bool>(nearest_);
+	}
+
+	[[nodiscard]] std::optional<std::pair<int32_t, Vec3>> nearest(const Vec3& from) const {
+		return nearest_ ? nearest_(from) : std::nullopt;
+	}
+
+private:
+	PositionFunction position_{};
+	NearestFunction nearest_{};
+};
 
 inline constexpr int32_t kFixedPointReference = -2;
 inline constexpr int32_t kOriginReference = -1;
+inline constexpr int32_t kNearestBodyReference = -3;
 
 namespace ScriptMath {
 
@@ -69,6 +102,16 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 
 [[nodiscard]] inline Vec3 read_vec(const IO::SettingsReader& reader, const std::string& key, const Vec3& fallback) {
 	return {reader.real(key + ".x", fallback[0]), reader.real(key + ".y", fallback[1]), reader.real(key + ".z", fallback[2])};
+}
+
+[[nodiscard]] inline std::optional<Vec3> resolve_body(const BodyPositionLookup& lookup, int32_t id, const Vec3& from) {
+	if (!lookup) return std::nullopt;
+	if (id == kNearestBodyReference) {
+		if (const auto nearest = lookup.nearest(from)) return nearest->second;
+		return std::nullopt;
+	}
+	if (id >= 0) return lookup(id);
+	return std::nullopt;
 }
 
 [[nodiscard]] inline Vec3 evaluate_point_curve(const std::vector<Vec3>& points, double u, bool closed, bool uniform_speed, double tension, int mode) noexcept {
@@ -561,8 +604,8 @@ struct DriverSpec {
 		switch (source) {
 			case DriverSource::DistanceToTarget: {
 				Vec3 target = point;
-				if (body >= 0 && ctx.bodies != nullptr && static_cast<bool>(*ctx.bodies)) {
-					if (const auto position = (*ctx.bodies)(body)) {
+				if (ctx.bodies != nullptr) {
+					if (const auto position = ScriptMath::resolve_body(*ctx.bodies, body, ctx.position)) {
 						target = ScriptMath::add(*position, point);
 					}
 				}
@@ -801,6 +844,48 @@ struct OrientationSpec {
 	}
 };
 
+enum class TransitionBlendMode : uint32_t { ShortestArc = 0, Direct };
+
+struct SegmentTransition {
+	bool enabled{false};
+	double orientation_seconds{0.0};
+	double position_seconds{0.0};
+	double lens_seconds{0.0};
+	EasingSpec orientation_easing{EasingSpec::make(EasingKind::Smoothstep)};
+	EasingSpec position_easing{EasingSpec::make(EasingKind::Smoothstep)};
+	EasingSpec lens_easing{EasingSpec::make(EasingKind::Smoothstep)};
+	TransitionBlendMode orientation_mode{TransitionBlendMode::ShortestArc};
+	bool blend_simulation_rate{true};
+
+	[[nodiscard]] double reach_seconds() const noexcept {
+		return enabled ? std::max({orientation_seconds, position_seconds, lens_seconds}) : 0.0;
+	}
+
+	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
+		writer.flag(prefix + "enabled", enabled);
+		writer.real(prefix + "orient_s", orientation_seconds);
+		writer.real(prefix + "pos_s", position_seconds);
+		writer.real(prefix + "lens_s", lens_seconds);
+		orientation_easing.write(writer, prefix + "orient_ease.");
+		position_easing.write(writer, prefix + "pos_ease.");
+		lens_easing.write(writer, prefix + "lens_ease.");
+		writer.enumeration(prefix + "mode", orientation_mode);
+		writer.flag(prefix + "rate", blend_simulation_rate);
+	}
+
+	void read(const IO::SettingsReader& reader, const std::string& prefix) {
+		enabled = reader.flag(prefix + "enabled", enabled);
+		orientation_seconds = reader.real(prefix + "orient_s", orientation_seconds);
+		position_seconds = reader.real(prefix + "pos_s", position_seconds);
+		lens_seconds = reader.real(prefix + "lens_s", lens_seconds);
+		orientation_easing.read(reader, prefix + "orient_ease.");
+		position_easing.read(reader, prefix + "pos_ease.");
+		lens_easing.read(reader, prefix + "lens_ease.");
+		orientation_mode = reader.enumeration(prefix + "mode", orientation_mode, TransitionBlendMode::Direct);
+		blend_simulation_rate = reader.flag(prefix + "rate", blend_simulation_rate);
+	}
+};
+
 enum class AnchorMode : uint32_t { World = 0, ContinuePrevious, OffsetFromPrevious, TrackBody };
 
 struct ScriptSegment {
@@ -818,6 +903,7 @@ struct ScriptSegment {
 	ScalarChannel roll{ScalarChannel::make(0.0, 0.0, false)};
 	ScalarChannel warp{ScalarChannel::make(1.0, 1.0, false)};
 	ShakeSpec shake{};
+	SegmentTransition transition{};
 
 	[[nodiscard]] bool uses_signals() const noexcept {
 		const auto reactive = [](const ScalarChannel& channel) noexcept { return channel.enabled && (channel.driver.enabled || channel.use_expression); };
@@ -842,6 +928,7 @@ struct ScriptSegment {
 		roll.write(writer, prefix + "roll.");
 		warp.write(writer, prefix + "warp.");
 		shake.write(writer, prefix + "shake.");
+		transition.write(writer, prefix + "transition.");
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
@@ -861,6 +948,7 @@ struct ScriptSegment {
 		roll.read(reader, prefix + "roll.");
 		warp.read(reader, prefix + "warp.");
 		shake.read(reader, prefix + "shake.");
+		transition.read(reader, prefix + "transition.");
 	}
 };
 
@@ -877,7 +965,7 @@ struct ScriptSegment {
 
 enum class EventTrigger : uint32_t { ScriptTime = 0, SegmentStart, SegmentEnd, SegmentFraction };
 
-enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetWarp, Pause, Resume, StepTicks, SetMetric, SetIntegrator, LoadScenario };
+enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetWarp, Pause, Resume, StepTicks, SetMetric, SetIntegrator, LoadScenario, SetTickRate, SetPerformancePreset, SetOverlay, SetResolutionScale };
 
 [[nodiscard]] inline const char* event_action_name(EventAction action) noexcept {
 	switch (action) {
@@ -891,6 +979,10 @@ enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetW
 		case EventAction::SetMetric: return "Set Metric";
 		case EventAction::SetIntegrator: return "Set Integrator";
 		case EventAction::LoadScenario: return "Load Scenario";
+		case EventAction::SetTickRate: return "Set Tick Rate";
+		case EventAction::SetPerformancePreset: return "Apply Performance Preset";
+		case EventAction::SetOverlay: return "Set Rendering Overlay";
+		case EventAction::SetResolutionScale: return "Set Resolution Scale";
 		default: return "Event";
 	}
 }
@@ -902,6 +994,7 @@ struct ScriptEvent {
 	double time_seconds{0.0};
 	uint32_t segment{0};
 	double fraction{0.5};
+	double offset_seconds{0.0};
 	EventAction action{EventAction::Marker};
 	uint32_t parameter{0};
 	double value{1.0};
@@ -921,6 +1014,7 @@ struct ScriptEvent {
 		writer.real(prefix + "time", time_seconds);
 		writer.unsigned_value(prefix + "segment", segment);
 		writer.real(prefix + "fraction", fraction);
+		writer.real(prefix + "offset", offset_seconds);
 		writer.enumeration(prefix + "action", action);
 		writer.unsigned_value(prefix + "parameter", parameter);
 		writer.real(prefix + "value", value);
@@ -937,7 +1031,8 @@ struct ScriptEvent {
 		time_seconds = reader.real(prefix + "time", time_seconds);
 		segment = reader.unsigned_value(prefix + "segment", segment);
 		fraction = reader.real(prefix + "fraction", fraction);
-		action = reader.enumeration(prefix + "action", action, EventAction::LoadScenario);
+		offset_seconds = reader.real(prefix + "offset", offset_seconds);
+		action = reader.enumeration(prefix + "action", action, EventAction::SetResolutionScale);
 		parameter = reader.unsigned_value(prefix + "parameter", parameter);
 		value = reader.real(prefix + "value", value);
 		value_end = reader.real(prefix + "value_end", value_end);
@@ -955,6 +1050,10 @@ struct ScriptSample {
 	double script_time{0.0};
 	double script_progress{0.0};
 	bool valid{false};
+	Vec3 shake_position{0.0, 0.0, 0.0};
+	Vec3 shake_rotation{0.0, 0.0, 0.0};
+	double transition_weight{0.0};
+	double nearest_distance{-1.0};
 };
 
 enum class ScriptPreset : uint32_t {
@@ -1013,10 +1112,16 @@ struct MotionScript {
 
 	void scale_time(double factor) {
 		if (!(factor > 0.0) || !std::isfinite(factor)) return;
-		for (ScriptSegment& segment : segments) segment.duration *= factor;
+		for (ScriptSegment& segment : segments) {
+			segment.duration *= factor;
+			segment.transition.orientation_seconds *= factor;
+			segment.transition.position_seconds *= factor;
+			segment.transition.lens_seconds *= factor;
+		}
 		for (ScriptEvent& event : events) {
 			if (event.trigger == EventTrigger::ScriptTime) event.time_seconds *= factor;
 			event.duration *= factor;
+			event.offset_seconds *= factor;
 		}
 	}
 
@@ -1025,6 +1130,9 @@ struct MotionScript {
 		if (events.size() > 1024) events.resize(1024);
 		for (ScriptSegment& segment : segments) {
 			segment.duration = std::clamp(segment.duration, 0.01, 86400.0);
+			segment.transition.orientation_seconds = std::clamp(segment.transition.orientation_seconds, 0.0, segment.duration);
+			segment.transition.position_seconds = std::clamp(segment.transition.position_seconds, 0.0, segment.duration);
+			segment.transition.lens_seconds = std::clamp(segment.transition.lens_seconds, 0.0, segment.duration);
 			for (ShapeLayer& layer : segment.layers) {
 				layer.window_start = std::clamp(layer.window_start, 0.0, 1.0);
 				layer.window_end = std::clamp(layer.window_end, 0.0, 1.0);
@@ -1037,16 +1145,16 @@ struct MotionScript {
 	}
 
 	[[nodiscard]] double resolved_event_time(const ScriptEvent& event) const noexcept {
-		if (segments.empty() || event.trigger == EventTrigger::ScriptTime) return event.time_seconds;
+		if (segments.empty() || event.trigger == EventTrigger::ScriptTime) return std::max(event.time_seconds + event.offset_seconds, 0.0);
 		const size_t index = std::min<size_t>(event.segment, segments.size() - 1);
 		const double start = segment_start_time(index);
 		const double duration = segments[index].enabled ? segments[index].duration : 0.0;
 		switch (event.trigger) {
-			case EventTrigger::SegmentStart: return start;
-			case EventTrigger::SegmentEnd: return start + duration;
-			case EventTrigger::SegmentFraction: return start + duration * std::clamp(event.fraction, 0.0, 1.0);
+			case EventTrigger::SegmentStart: return std::max(start + event.offset_seconds, 0.0);
+			case EventTrigger::SegmentEnd: return std::max(start + duration + event.offset_seconds, 0.0);
+			case EventTrigger::SegmentFraction: return std::max(start + duration * std::clamp(event.fraction, 0.0, 1.0) + event.offset_seconds, 0.0);
 			case EventTrigger::ScriptTime:
-			default: return event.time_seconds;
+			default: return std::max(event.time_seconds + event.offset_seconds, 0.0);
 		}
 	}
 
@@ -1185,12 +1293,63 @@ struct MotionScript {
 		ScriptSample result{};
 		const auto loc = locate(seconds);
 		if (!loc) return result;
+		result = evaluate_segment_pose(loc->segment_index, loc->progress, loc->local_seconds, loc->global_seconds, loc->script_progress, seconds, body_lookup);
+		apply_segment_transition(result, loc->segment_index, loc->local_seconds, loc->global_seconds, body_lookup);
+		return result;
+	}
 
-		const size_t seg_idx = loc->segment_index;
+	[[nodiscard]] ScriptSample sample_segment(size_t segment_index, double linear, const BodyPositionLookup& body_lookup = {}) const noexcept {
+		if (segment_index >= segments.size()) return ScriptSample{};
+		const ScriptSegment& target = segments[segment_index];
+		const double clamped = std::clamp(linear, 0.0, 1.0);
+		const double start = segment_start_time(segment_index);
+		const double local = clamped * target.duration;
+		const double global = start + local;
+		ScriptSample result = evaluate_segment_pose(segment_index, target.time_easing.evaluate(clamped), local, global, global / total_duration(), global, body_lookup);
+		apply_segment_transition(result, segment_index, local, global, body_lookup);
+		return result;
+	}
+
+	void apply_segment_transition(ScriptSample& current, size_t segment_index, double local_seconds, double global_seconds, const BodyPositionLookup& body_lookup) const noexcept {
+		if (!current.valid || segment_index >= segments.size()) return;
+		const SegmentTransition& transition = segments[segment_index].transition;
+		if (!transition.enabled || local_seconds >= transition.reach_seconds()) return;
+		const std::vector<size_t> active = active_segments();
+		const auto found = std::find(active.begin(), active.end(), segment_index);
+		if (found == active.end() || found == active.begin()) return;
+		const size_t previous_index = *(found - 1);
+		const double previous_end = std::max(global_seconds - local_seconds, 0.0);
+		const ScriptSample previous = evaluate_segment_pose(previous_index, 1.0, segments[previous_index].duration, previous_end, current.script_progress, previous_end, body_lookup);
+		if (!previous.valid) return;
+
+		const auto weight = [local_seconds](double span, const EasingSpec& easing) noexcept {
+			return (span > 1e-9) ? easing.evaluate(std::clamp(local_seconds / span, 0.0, 1.0)) : 1.0;
+		};
+		const double view_weight = weight(transition.orientation_seconds, transition.orientation_easing);
+		const double position_weight = weight(transition.position_seconds, transition.position_easing);
+		const double lens_weight = weight(transition.lens_seconds, transition.lens_easing);
+		const bool shortest = transition.orientation_mode == TransitionBlendMode::ShortestArc;
+		const auto blend_angle = [shortest](double from, double to, double w) noexcept {
+			return from + (shortest ? PathDetail::wrap_degrees(to - from) : (to - from)) * w;
+		};
+
+		current.pose.position = ScriptMath::lerp(previous.pose.position, current.pose.position, position_weight);
+		current.pose.pitch_deg = PathDetail::lerp(previous.pose.pitch_deg, current.pose.pitch_deg, view_weight);
+		current.pose.yaw_deg = blend_angle(previous.pose.yaw_deg, current.pose.yaw_deg, view_weight);
+		current.pose.roll_deg = blend_angle(previous.pose.roll_deg, current.pose.roll_deg, view_weight);
+		current.pose.fov_deg = PathDetail::lerp(previous.pose.fov_deg, current.pose.fov_deg, lens_weight);
+		current.pose.exposure_ev = PathDetail::lerp(previous.pose.exposure_ev, current.pose.exposure_ev, lens_weight);
+		if (transition.blend_simulation_rate) {
+			current.simulation_rate = PathDetail::lerp(previous.simulation_rate, current.simulation_rate, lens_weight);
+		}
+		current.transition_weight = 1.0 - std::min({view_weight, position_weight, lens_weight});
+	}
+
+	[[nodiscard]] ScriptSample evaluate_segment_pose(size_t seg_idx, double u, double local_t, double global_t, double script_progress, double speed_time, const BodyPositionLookup& body_lookup) const noexcept {
+		ScriptSample result{};
+		if (seg_idx >= segments.size()) return result;
+
 		const ScriptSegment& segment = segments[seg_idx];
-		const double u = loc->progress;
-		const double local_t = loc->local_seconds;
-		const double global_t = loc->global_seconds;
 
 		const Vec3 anchor = evaluate_segment_anchor(seg_idx, body_lookup);
 		const Vec3 raw_pos = evaluate_segment_raw_position(seg_idx, u, local_t, global_t);
@@ -1213,14 +1372,14 @@ struct MotionScript {
 		signals.segment_time = local_t;
 		signals.segment_duration = segment.duration;
 		signals.segment_index = static_cast<double>(seg_idx);
-		signals.script_progress = loc->script_progress;
+		signals.script_progress = script_progress;
 		signals.script_time = global_t;
 		signals.bodies = &body_lookup;
 		signals.event_time = [this](uint32_t index) -> double {
 			return index < events.size() ? resolved_event_time(events[index]) : 0.0;
 		};
 		if (segment.uses_signals()) {
-			signals.speed = estimate_speed(seconds, body_lookup);
+			signals.speed = estimate_speed(speed_time, body_lookup);
 		}
 
 		switch (orient.mode) {
@@ -1238,10 +1397,8 @@ struct MotionScript {
 
 			case OrientationMode::LookAtTarget: {
 				Vec3 target{0.0, 0.0, 0.0};
-				if (orient.target_body >= 0 && body_lookup) {
-					if (auto bpos = body_lookup(orient.target_body)) {
-						target = *bpos;
-					}
+				if (const auto bpos = ScriptMath::resolve_body(body_lookup, orient.target_body, pos)) {
+					target = *bpos;
 				}
 				target = ScriptMath::add(target, orient.target_offset);
 				const Vec3 dir = ScriptMath::sub(target, pos);
@@ -1268,10 +1425,8 @@ struct MotionScript {
 
 			case OrientationMode::TargetPath: {
 				Vec3 anchor_point{0.0, 0.0, 0.0};
-				if (orient.target_body >= 0 && body_lookup) {
-					if (auto bpos = body_lookup(orient.target_body)) {
-						anchor_point = *bpos;
-					}
+				if (const auto bpos = ScriptMath::resolve_body(body_lookup, orient.target_body, pos)) {
+					anchor_point = *bpos;
 				}
 				const ShapeEvaluationContext target_ctx{orient.easing.evaluate(u), local_t, segment.duration, global_t};
 				const Vec3 target = ScriptMath::add(ScriptMath::add(anchor_point, orient.target_path.evaluate(target_ctx)), orient.target_offset);
@@ -1307,8 +1462,15 @@ struct MotionScript {
 		result.segment_index = seg_idx;
 		result.segment_progress = u;
 		result.script_time = global_t;
-		result.script_progress = loc->script_progress;
+		result.script_progress = script_progress;
 		result.valid = true;
+		result.shake_position = shake_pos;
+		result.shake_rotation = shake_rot;
+		if (body_lookup.has_nearest()) {
+			if (const auto nearest = body_lookup.nearest(pos)) {
+				result.nearest_distance = ScriptMath::length(ScriptMath::sub(nearest->second, pos));
+			}
+		}
 
 		return result;
 	}

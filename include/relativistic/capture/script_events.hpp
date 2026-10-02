@@ -2,6 +2,7 @@
 
 #include "relativistic/capture/motion_script.hpp"
 #include "relativistic/orchestrator/command.hpp"
+#include "relativistic/render/gpu_types.hpp"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -15,7 +16,7 @@ struct EventParameterEntry {
 	Orchestrator::ParameterType type;
 };
 
-inline constexpr std::array<EventParameterEntry, 35> kEventParameters{{
+inline constexpr std::array<EventParameterEntry, 50> kEventParameters{{
 	{"Central Mass", Orchestrator::ParameterType::Mass},
 	{"Spin Parameter", Orchestrator::ParameterType::Spin},
 	{"Electric Charge", Orchestrator::ParameterType::Charge},
@@ -50,8 +51,39 @@ inline constexpr std::array<EventParameterEntry, 35> kEventParameters{{
 	{"Body Atmosphere Intensity", Orchestrator::ParameterType::BodyAtmosphereGlobalIntensity},
 	{"Integration Step Factor", Orchestrator::ParameterType::IntegrationStepFactor},
 	{"Far-Field Step Scale", Orchestrator::ParameterType::FarFieldStepScale},
-	{"Ambient Temperature", Orchestrator::ParameterType::InteractionAmbientTemperature}
+	{"Ambient Temperature", Orchestrator::ParameterType::InteractionAmbientTemperature},
+	{"Sky Star Size Variation", Orchestrator::ParameterType::SkyStarSizeVariation},
+	{"Sky Star Color Variation", Orchestrator::ParameterType::SkyStarColorVariation},
+	{"Sky Star Temperature Bias", Orchestrator::ParameterType::SkyStarTemperatureBias},
+	{"Sky Galaxy Brightness", Orchestrator::ParameterType::SkyGalaxyBrightness},
+	{"Sky Dust Intensity", Orchestrator::ParameterType::SkyDustIntensity},
+	{"Sky Cluster Brightness", Orchestrator::ParameterType::SkyClusterBrightness},
+	{"Sky Background Red", Orchestrator::ParameterType::SkyBackgroundR},
+	{"Sky Background Green", Orchestrator::ParameterType::SkyBackgroundG},
+	{"Sky Background Blue", Orchestrator::ParameterType::SkyBackgroundB},
+	{"Render Distance Scale", Orchestrator::ParameterType::RenderDistanceScale},
+	{"Maximum Ray Steps", Orchestrator::ParameterType::MaxRaySteps},
+	{"Pole Guard Precision Scale", Orchestrator::ParameterType::PoleGuardPrecisionScale},
+	{"Collision Restitution Multiplier", Orchestrator::ParameterType::InteractionCollisionRestitutionMultiplier},
+	{"Radiative Coupling Scale", Orchestrator::ParameterType::InteractionRadiativeCouplingScale},
+	{"Schematic View Enabled", Orchestrator::ParameterType::SchematicModeEnabled}
 }};
+
+struct EventOverlayEntry {
+	const char* name;
+	uint32_t flag;
+};
+
+inline constexpr std::array<EventOverlayEntry, 4> kEventOverlays{{
+	{"3D Body Ray-Tracing", Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING},
+	{"Body Doppler Beaming", Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING},
+	{"Body Gravitational Redshift", Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT},
+	{"Atmosphere Rim Scattering", Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING}
+}};
+
+[[nodiscard]] inline size_t event_overlay_index(uint32_t parameter) noexcept {
+	return std::min<size_t>(parameter, kEventOverlays.size() - 1);
+}
 
 [[nodiscard]] inline size_t event_parameter_index(uint32_t parameter) noexcept {
 	for (size_t i = 0; i < kEventParameters.size(); ++i) {
@@ -61,7 +93,7 @@ inline constexpr std::array<EventParameterEntry, 35> kEventParameters{{
 }
 
 [[nodiscard]] constexpr bool is_ramp_action(EventAction action) noexcept {
-	return action == EventAction::SetParameter || action == EventAction::SetWarp;
+	return action == EventAction::SetParameter || action == EventAction::SetWarp || action == EventAction::SetTickRate || action == EventAction::SetResolutionScale;
 }
 
 class ScriptEventDispatcher {

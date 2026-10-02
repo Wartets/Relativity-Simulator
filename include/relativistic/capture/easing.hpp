@@ -25,10 +25,11 @@ enum class EasingKind : uint32_t {
 	ElasticIn, ElasticOut, ElasticInOut,
 	BounceIn, BounceOut, BounceInOut,
 	Smoothstep, Smootherstep, Smoothest,
-	Power, PowerInOut, Steps, DelayWindow, CubicBezier, Spring, CustomExpression, CustomCurve
+	Power, PowerInOut, Steps, DelayWindow, CubicBezier, Spring, CustomExpression, CustomCurve,
+	Sigmoid, Curvature, SmoothSteps, Wobble
 };
 
-inline constexpr size_t kEasingKindCount = static_cast<size_t>(EasingKind::CustomCurve) + 1;
+inline constexpr size_t kEasingKindCount = static_cast<size_t>(EasingKind::Wobble) + 1;
 
 [[nodiscard]] inline const std::vector<const char*>& easing_kind_names() {
 	static const std::vector<std::string> storage = [] {
@@ -40,7 +41,7 @@ inline constexpr size_t kEasingKindCount = static_cast<size_t>(EasingKind::Custo
 				names.push_back(std::string(family) + " " + variant);
 			}
 		}
-		for (const char* extra : {"Smoothstep", "Smootherstep", "Smoothest (7th Order)", "Power", "Power In-Out", "Steps", "Delay Window", "Cubic Bezier", "Damped Spring", "Custom Expression", "Custom Curve"}) {
+		for (const char* extra : {"Smoothstep", "Smootherstep", "Smoothest (7th Order)", "Power", "Power In-Out", "Steps", "Delay Window", "Cubic Bezier", "Damped Spring", "Custom Expression", "Custom Curve", "Sigmoid", "Curvature", "Smooth Steps", "Wobble"}) {
 			names.emplace_back(extra);
 		}
 		return names;
@@ -62,6 +63,10 @@ inline constexpr size_t kEasingKindCount = static_cast<size_t>(EasingKind::Custo
 		case EasingKind::DelayWindow: return {"Start Fraction", "End Fraction", nullptr, nullptr};
 		case EasingKind::CubicBezier: return {"Control X1", "Control Y1", "Control X2", "Control Y2"};
 		case EasingKind::Spring: return {"Damping", "Oscillations", nullptr, nullptr};
+		case EasingKind::Sigmoid: return {"Steepness", nullptr, nullptr, nullptr};
+		case EasingKind::Curvature: return {"Curvature (Negative = Ease Out)", nullptr, nullptr, nullptr};
+		case EasingKind::SmoothSteps: return {"Step Count", "Step Smoothness", nullptr, nullptr};
+		case EasingKind::Wobble: return {"Oscillations", "Amplitude", nullptr, nullptr};
 		case EasingKind::CustomExpression: return {"Parameter a", "Parameter b", "Parameter c", "Parameter k"};
 		default: return {nullptr, nullptr, nullptr, nullptr};
 	}
@@ -136,6 +141,14 @@ struct EasingSpec {
 	double repeat{1.0};
 	bool ping_pong{false};
 	bool reverse{false};
+	double input_start{0.0};
+	double input_end{1.0};
+	double output_start{0.0};
+	double output_end{1.0};
+	double bias{0.5};
+	double gain{0.5};
+	double quantize_steps{0.0};
+	bool clamp_output{false};
 	bool smooth_curve{true};
 	Expression expression{"u"};
 	std::vector<EasingPoint> points{{0.0, 0.0}, {0.5, 0.5}, {1.0, 1.0}};
@@ -156,6 +169,10 @@ struct EasingSpec {
 			case EasingKind::DelayWindow: parameters = {0.2, 0.8, 0.0, 1.0}; break;
 			case EasingKind::CubicBezier: parameters = {0.25, 0.1, 0.25, 1.0}; break;
 			case EasingKind::Spring: parameters = {4.0, 3.0, 0.0, 1.0}; break;
+			case EasingKind::Sigmoid: parameters = {8.0, 0.0, 0.0, 1.0}; break;
+			case EasingKind::Curvature: parameters = {2.0, 0.0, 0.0, 1.0}; break;
+			case EasingKind::SmoothSteps: parameters = {5.0, 0.5, 0.0, 1.0}; break;
+			case EasingKind::Wobble: parameters = {3.0, 0.1, 0.0, 1.0}; break;
 			case EasingKind::CustomExpression: expression.assign("u"); break;
 			case EasingKind::CustomCurve: points = {{0.0, 0.0}, {0.25, 0.1}, {0.75, 0.9}, {1.0, 1.0}}; break;
 			default: break;
@@ -168,6 +185,8 @@ struct EasingSpec {
 
 	[[nodiscard]] double evaluate(double progress) const noexcept {
 		double x = std::clamp(progress, 0.0, 1.0);
+		const double window_span = input_end - input_start;
+		x = (std::abs(window_span) > 1e-9) ? std::clamp((x - input_start) / window_span, 0.0, 1.0) : ((x >= input_start) ? 1.0 : 0.0);
 		if (reverse) x = 1.0 - x;
 		const double cycles = std::max(repeat, 1.0);
 		if (cycles > 1.0 + 1e-9) {
@@ -181,8 +200,25 @@ struct EasingSpec {
 			if (ping_pong && std::fmod(cycle, 2.0) >= 1.0) fraction = 1.0 - fraction;
 			x = fraction;
 		}
-		const double shaped = evaluate_base(x);
-		return x + (shaped - x) * blend;
+		double y = x + (evaluate_base(x) - x) * blend;
+		if ((bias != 0.5 || gain != 0.5) && y > 0.0 && y < 1.0) {
+			const auto schlick = [](double v, double b) noexcept {
+				const double clamped_b = std::clamp(b, 1e-4, 1.0 - 1e-4);
+				return v / ((1.0 / clamped_b - 2.0) * (1.0 - v) + 1.0);
+			};
+			y = schlick(y, bias);
+			const double inverse_gain = 1.0 - gain;
+			y = (y < 0.5) ? 0.5 * schlick(2.0 * y, inverse_gain) : 1.0 - 0.5 * schlick(2.0 - 2.0 * y, inverse_gain);
+		}
+		if (quantize_steps >= 1.0) {
+			const double steps = std::round(quantize_steps);
+			y = std::round(y * steps) / steps;
+		}
+		y = output_start + (output_end - output_start) * y;
+		if (clamp_output) {
+			y = std::clamp(y, std::min(output_start, output_end), std::max(output_start, output_end));
+		}
+		return y;
 	}
 
 private:
@@ -226,6 +262,29 @@ private:
 				const double end = response(1.0);
 				return (std::abs(end) < 1e-9) ? x : response(x) / end;
 			}
+			case EasingKind::Sigmoid: {
+				const double steepness = std::max(parameters[0], 0.01);
+				const auto logistic = [steepness](double v) noexcept { return 1.0 / (1.0 + std::exp(-steepness * (v - 0.5))); };
+				const double low = logistic(0.0);
+				const double high = logistic(1.0);
+				return (high - low > 1e-12) ? (logistic(x) - low) / (high - low) : x;
+			}
+			case EasingKind::Curvature: {
+				const double curvature = std::clamp(parameters[0], -50.0, 50.0);
+				return (std::abs(curvature) < 1e-6) ? x : (std::exp(curvature * x) - 1.0) / (std::exp(curvature) - 1.0);
+			}
+			case EasingKind::SmoothSteps: {
+				const double count = std::max(1.0, std::round(parameters[0]));
+				const double smoothness = std::clamp(parameters[1], 1e-3, 1.0);
+				const double scaled = x * count;
+				const double idx = std::min(std::floor(scaled), count - 1.0);
+				const double fraction = scaled - idx;
+				const double start = (1.0 - smoothness) * 0.5;
+				const double t = std::clamp((fraction - start) / smoothness, 0.0, 1.0);
+				return std::clamp((idx + t * t * (3.0 - 2.0 * t)) / count, 0.0, 1.0);
+			}
+			case EasingKind::Wobble:
+				return x + parameters[1] * std::sin(2.0 * std::numbers::pi_v<double> * std::max(parameters[0], 0.0) * x) * std::sin(std::numbers::pi_v<double> * x);
 			case EasingKind::CustomExpression: {
 				ExpressionVariables variables{};
 				variables[ExpressionSlot::Progress] = x;
@@ -278,6 +337,14 @@ public:
 		writer.real(prefix + "repeat", repeat);
 		writer.flag(prefix + "ping_pong", ping_pong);
 		writer.flag(prefix + "reverse", reverse);
+		writer.real(prefix + "in0", input_start);
+		writer.real(prefix + "in1", input_end);
+		writer.real(prefix + "out0", output_start);
+		writer.real(prefix + "out1", output_end);
+		writer.real(prefix + "bias", bias);
+		writer.real(prefix + "gain", gain);
+		writer.real(prefix + "quant", quantize_steps);
+		writer.flag(prefix + "clamp_out", clamp_output);
 		writer.flag(prefix + "smooth", smooth_curve);
 		writer.text(prefix + "expr", expression.source());
 		writer.unsigned_value(prefix + "points", points.size());
@@ -288,7 +355,7 @@ public:
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		kind = reader.enumeration(prefix + "kind", kind, EasingKind::CustomCurve);
+		kind = reader.enumeration(prefix + "kind", kind, EasingKind::Wobble);
 		for (size_t i = 0; i < parameters.size(); ++i) {
 			parameters[i] = reader.real(prefix + "p" + std::to_string(i), parameters[i]);
 		}
@@ -296,6 +363,14 @@ public:
 		repeat = std::max(reader.real(prefix + "repeat", repeat), 1.0);
 		ping_pong = reader.flag(prefix + "ping_pong", ping_pong);
 		reverse = reader.flag(prefix + "reverse", reverse);
+		input_start = reader.real(prefix + "in0", input_start);
+		input_end = reader.real(prefix + "in1", input_end);
+		output_start = reader.real(prefix + "out0", output_start);
+		output_end = reader.real(prefix + "out1", output_end);
+		bias = reader.real(prefix + "bias", bias);
+		gain = reader.real(prefix + "gain", gain);
+		quantize_steps = reader.real(prefix + "quant", quantize_steps);
+		clamp_output = reader.flag(prefix + "clamp_out", clamp_output);
 		smooth_curve = reader.flag(prefix + "smooth", smooth_curve);
 		expression.assign(reader.text(prefix + "expr", expression.source()));
 		const size_t count = std::min<size_t>(reader.wide_value(prefix + "points", points.size()), 4096);

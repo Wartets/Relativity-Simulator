@@ -126,6 +126,8 @@ private:
 	bool preview_show_samples_{false};
 	bool preview_show_frustum_{true};
 	bool preview_show_direction_{true};
+	bool preview_include_modifiers_{true};
+	bool preview_show_reference_{true};
 	double preview_frustum_length_{10.0};
 	double preview_speed_{1.0};
 	double preview_time_{0.0};
@@ -195,7 +197,7 @@ private:
 			if (segment.enabled && segment.anchor == Capture::AnchorMode::TrackBody) {
 				return true;
 			}
-			if ((segment.orientation.mode == Capture::OrientationMode::LookAtTarget || segment.orientation.mode == Capture::OrientationMode::TargetPath) && segment.orientation.target_body >= 0) {
+			if ((segment.orientation.mode == Capture::OrientationMode::LookAtTarget || segment.orientation.mode == Capture::OrientationMode::TargetPath) && (segment.orientation.target_body >= 0 || segment.orientation.target_body == Capture::kNearestBodyReference)) {
 				return true;
 			}
 		}
@@ -250,6 +252,8 @@ private:
 			options.show_samples = preview_show_samples_;
 			options.show_frustum = preview_show_frustum_;
 			options.show_direction = preview_show_direction_;
+			options.include_modifiers = preview_include_modifiers_;
+			options.show_reference = preview_show_reference_;
 			options.cursor_seconds = preview_time_;
 			options.highlighted_segment = highlighted;
 			preview_ = Capture::build_path_preview(settings_.script, lookup, options);
@@ -280,9 +284,11 @@ private:
 			if (ImGui::InputInt("Width (px)", &width, 16, 256)) {
 				target.explicit_width = static_cast<uint32_t>(std::clamp(width, 16, 65535));
 			}
+			render_setting_tooltip("Horizontal resolution of the output image or sequence frames in pixels.");
 			if (ImGui::InputInt("Height (px)", &height, 16, 256)) {
 				target.explicit_height = static_cast<uint32_t>(std::clamp(height, 16, 65535));
 			}
+			render_setting_tooltip("Vertical resolution of the output image or sequence frames in pixels.");
 			FlowLayout resolution_flow;
 			for (size_t i = 0; i < kResolutionPresets.size(); ++i) {
 				const bool selected = target.explicit_width == kResolutionPresets[i].width && target.explicit_height == kResolutionPresets[i].height;
@@ -291,6 +297,7 @@ private:
 					target.explicit_width = kResolutionPresets[i].width;
 					target.explicit_height = kResolutionPresets[i].height;
 				}
+				render_setting_tooltip("Sets the explicit resolution to this standard preset.");
 				ImGui::PopID();
 			}
 			if (resolution_flow.small_button("Viewport Size")) {
@@ -350,6 +357,7 @@ private:
 		if (ImGui::Combo("File Format", &format_index, format_names().data(), static_cast<int>(IO::kScreenshotFormatCount))) {
 			user_settings_.screenshot_format = static_cast<uint32_t>(format_index);
 		}
+		render_setting_tooltip("Image file format and bit depth used to save the screenshot.");
 		const IO::ScreenshotFormat format = screenshot_format();
 		const auto& descriptor = IO::image_format_descriptor(format);
 		if (begin_stat_table("##FormatStats", 4)) {
@@ -365,11 +373,12 @@ private:
 
 		ImGui::BeginDisabled(!descriptor.supports_comment);
 		ImGui::Checkbox("Embed Watermark / Comment", &user_settings_.screenshot_watermark_enabled);
+		render_setting_tooltip("Stores the text as metadata in formats that support it (PNG, PNG16, HDR, TIFF).");
 		if (user_settings_.screenshot_watermark_enabled) {
 			input_text("Watermark Text", user_settings_.screenshot_watermark_text);
+			render_setting_tooltip("Custom metadata or comment string embedded in the saved image file header.");
 		}
 		ImGui::EndDisabled();
-		render_setting_tooltip("Stores the text as metadata in formats that support it (PNG, PNG16, HDR, TIFF).");
 
 		IO::ScreenshotCaptureContext context;
 		const Capture::CaptureTarget resolved = resolve_target(settings_.screenshot_target);
@@ -406,15 +415,18 @@ private:
 		if (ImGui::SmallButton("Open Motion Script Tab")) {
 			requested_tab_ = StudioTab::Script;
 		}
+		render_setting_tooltip("Switches directly to the Motion Script tab to edit or configure the camera trajectory.");
 		if (script_usable() && video.trigger != IO::SequenceCaptureTrigger::PathDuration) {
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Use Script Duration")) {
 				video.trigger = IO::SequenceCaptureTrigger::PathDuration;
 			}
+			render_setting_tooltip("Sets the capture stop condition to match the total duration of the motion script.");
 		}
 
 		section_header("Timing");
 		ImGui::SliderFloat("Frame Rate", &video.frames_per_second, 1.0f, 240.0f, "%.2f fps");
+		render_setting_tooltip("Number of frames per second of video. It also sets the simulation time step between frames in deterministic mode.");
 		FlowLayout rate_flow;
 		for (const float preset : {24.0f, 25.0f, 30.0f, 50.0f, 60.0f, 120.0f}) {
 			char label[24];
@@ -422,12 +434,16 @@ private:
 			if (rate_flow.small_button(label, std::abs(video.frames_per_second - preset) < 0.01f)) {
 				video.frames_per_second = preset;
 			}
+			render_setting_tooltip("Sets the capture and video frame rate to this standard value.");
 		}
 		enum_combo("Stop Condition", video.trigger, kTriggerNames);
+		render_setting_tooltip("Defines when the capture ends: by hand, after a duration, after a frame count, never, or when the motion script finishes.");
 		if (video.trigger == IO::SequenceCaptureTrigger::FixedDuration) {
 			ImGui::SliderFloat("Duration", &video.duration_seconds, 0.1f, 3600.0f, "%.2f s", ImGuiSliderFlags_Logarithmic);
+			render_setting_tooltip("Length of the video. The number of frames is this value multiplied by the frame rate.");
 		} else if (video.trigger == IO::SequenceCaptureTrigger::FixedFrameCount) {
 			ImGui::InputScalar("Frame Count", ImGuiDataType_U64, &video.fixed_frame_count);
+			render_setting_tooltip("Exact number of frames to render before the sequence finishes.");
 			video.fixed_frame_count = std::max<uint64_t>(video.fixed_frame_count, 1ULL);
 		} else if (video.trigger == IO::SequenceCaptureTrigger::PathDuration) {
 			if (script_usable()) {
@@ -446,6 +462,7 @@ private:
 
 		section_header("Output");
 		input_text("Sequence Directory", settings_.sequence_directory);
+		render_setting_tooltip("Parent folder in which every capture session creates its own sub-folder.");
 		input_text("Session Name (empty = automatic)", settings_.session_name);
 		render_setting_tooltip("Name of the sub-folder created for this capture. strftime tokens are supported; empty generates a timestamped name.");
 		int frame_format_index = static_cast<int>(std::min<uint32_t>(static_cast<uint32_t>(video.frame_format), IO::kScreenshotFormatCount - 1U));
@@ -454,7 +471,9 @@ private:
 		}
 		render_setting_tooltip("Image format of each written frame. Use a lossless 8-bit format for encoding with ffmpeg.");
 		ImGui::InputScalar("First Frame Index", ImGuiDataType_U64, &video.start_frame_index);
+		render_setting_tooltip("Number given to the first written frame, useful to continue a previous sequence.");
 		slider_u32("Frame Number Padding", video.frame_name_padding, 1U, 12U);
+		render_setting_tooltip("Number of digits in frame file names, padded with zeros so frames sort correctly.");
 
 		ImGui::Separator();
 		if (realtime) {
@@ -478,28 +497,35 @@ private:
 			render_setting_tooltip("Portion of the frame interval covered by the virtual shutter.");
 			ImGui::EndDisabled();
 			slider_u32("Fade In Frames", video.fade_in_frames, 0U, 600U);
+			render_setting_tooltip("Number of opening frames that fade up from black.");
 			slider_u32("Fade Out Frames", video.fade_out_frames, 0U, 600U);
+			render_setting_tooltip("Number of closing frames that fade down to black. Requires a fixed frame count, duration or script duration.");
 
 			section_header("Stepping Control");
 			ImGui::Checkbox("Manual Frame Stepping", &settings_.manual_stepping);
 			render_setting_tooltip("Renders a frame only when you request it with the Render Next Frame button, allowing inspection and camera adjustments between frames.");
 			ImGui::Checkbox("Pause Simulation During Capture", &video.pause_simulation_during_capture);
+			render_setting_tooltip("Stops the live simulation clock while frames are rendered; the capture then advances the world itself according to World Advance.");
 			ImGui::Checkbox("Preview Frames In Viewport", &video.preview_in_viewport);
 			render_setting_tooltip("Keeps the live viewport rendering while frames are being captured, at the cost of speed.");
 		}
 
 		section_header("World Advance");
 		enum_combo("Advance Mode", video.advance_mode, kAdvanceNames);
+		render_setting_tooltip("Frozen World keeps bodies still, Fixed Ticks advances a constant number of ticks per frame, and Simulation Seconds Per Video Second makes the video run at a chosen speed. A motion script simulation rate multiplier scales the advance further.");
 		if (video.advance_mode == IO::SequenceAdvanceMode::TicksPerFrame) {
 			slider_u32("Ticks Per Frame", video.ticks_per_frame, 0U, 1000U, ImGuiSliderFlags_Logarithmic);
+		render_setting_tooltip("Scheduler ticks integrated between two frames. With temporal samples above 1 the ticks are spread over the sub-frame samples.");
 		} else if (video.advance_mode == IO::SequenceAdvanceMode::SimulationRateRatio) {
 			drag_double("Simulation Seconds Per Video Second", video.simulation_seconds_per_video_second, 0.01, 0.0, 1.0e9, "%.4f");
+			render_setting_tooltip("Ratio of physical simulation seconds that elapse during one second of captured video playback.");
 			const double tick_dt = orchestrator_.scheduler().tick_dt();
 			if (tick_dt > 0.0) {
 				ImGui::TextDisabled("Equals %.3f ticks per frame at the current scheduler rate.", video.simulation_seconds_per_video_second / (static_cast<double>(video.frames_per_second) * tick_dt));
 			}
 		}
 		ImGui::Checkbox("Restore Camera After Capture", &video.restore_camera_after_capture);
+		render_setting_tooltip("Puts the live camera, field of view and exposure back where they were before the capture started. A motion script always restores them.");
 
 		if (!realtime && frames > 0) {
 			const Capture::CaptureTarget resolved = resolve_target(settings_.sequence_target);
@@ -530,6 +556,7 @@ private:
 		if (ImGui::Button("Preview Options")) {
 			ImGui::OpenPopup("##PreviewOptionsPopup");
 		}
+		render_setting_tooltip("Configures trajectory visualization details, markers, labels, samples, frustum and reference paths in the viewport.");
 		if (ImGui::BeginPopup("##PreviewOptionsPopup")) {
 			bool options_changed = false;
 			if (begin_property_grid("##PreviewOptionsGrid")) {
@@ -538,6 +565,8 @@ private:
 				options_changed |= property_check("Labels", preview_show_labels_, "Names next to the markers.");
 				options_changed |= property_check("Sample Points", preview_show_samples_, "Dots at every sampled point of the path.");
 				options_changed |= property_check("Direction Arrows", preview_show_direction_, "Arrows indicating the travel direction along the path.");
+				options_changed |= property_check("Shake And Transitions", preview_include_modifiers_, "Draws the path the camera really follows, including camera shake displacement and position blends between segments, and adds a marker where each transition ends.");
+				options_changed |= property_check("Reference Path", preview_show_reference_, "Keeps a faint line showing the clean path without shake and transitions so their effect is easy to judge.");
 				options_changed |= property_check("Camera Frustum", preview_show_frustum_, "Frustum drawn at the preview time.");
 				options_changed |= property_drag("Frustum Length", preview_frustum_length_, 0.1, 0.5, 10000.0, "%.2f", "Depth of the drawn frustum in world units.");
 				end_property_grid();
@@ -552,6 +581,7 @@ private:
 		if (ImGui::Button(preview_playing_ ? "Pause" : "Play", ImVec2(ImGui::GetFontSize() * 4.5f, 0.0f))) {
 			preview_playing_ = !preview_playing_;
 		}
+		render_setting_tooltip("Plays or pauses the real-time preview animation along the motion script trajectory.");
 		ImGui::SameLine();
 		const double total = script.total_duration();
 		const double zero = 0.0;
@@ -575,6 +605,7 @@ private:
 				coordinator.preview_pose(sample.pose);
 			}
 		}
+		render_setting_tooltip("Positions and aligns the interactive viewport camera to match the motion script at the current preview time.");
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::BeginDisabled(!preview_active_ || session_running);
@@ -582,6 +613,7 @@ private:
 			coordinator.preview_pose(preview_restore_pose_);
 			preview_active_ = false;
 		}
+		render_setting_tooltip("Restores the interactive viewport camera to its pose prior to moving to the preview pose.");
 		ImGui::EndDisabled();
 	}
 
@@ -609,13 +641,18 @@ private:
 		ImGui::TextDisabled("Rows are written at the frame rate of the sequence, reduced by the decimation factor.");
 
 		enum_combo("File Format", recording.format, kRecordingFormatNames);
+		render_setting_tooltip("Storage format of the recorded data. The VTK polyline format forces the position, time and redshift channels.");
 		input_text("File Name Stem", recording.file_stem);
+		render_setting_tooltip("Base name of the recording files. Characters other than letters, digits, dash and underscore are replaced.");
 		slider_u32("Decimation (Keep 1 Of N Frames)", recording.decimation, 1U, 1000U, ImGuiSliderFlags_Logarithmic);
+		render_setting_tooltip("Writes one row every N captured frames. Velocity and acceleration are still derived from every frame.");
 		slider_u32("Numeric Precision (Digits)", recording.precision, 3U, 17U);
+		render_setting_tooltip("Significant digits written in text formats. 17 digits reproduce a 64-bit value exactly.");
 		ImGui::Checkbox("Convert To SI Units", &recording.si_units);
 		render_setting_tooltip("Scales lengths, times, masses, energies and rates through the active physical constants preset instead of writing simulation units.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Write Event Log", &recording.write_events);
+		render_setting_tooltip("Generates a separate text log listing all script events triggered during sequence capture.");
 
 		section_header("Presets");
 		FlowLayout recording_flow;
@@ -624,6 +661,7 @@ private:
 			if (recording_flow.small_button(kRecordingPresetNames[i])) {
 				recording.apply_preset(i);
 			}
+			render_setting_tooltip("Applies this predefined channel selection preset for physical data recording.");
 			ImGui::PopID();
 		}
 
@@ -646,10 +684,12 @@ private:
 				if (ImGui::SmallButton("Select All")) {
 					recording.channel_mask |= group_mask;
 				}
+				render_setting_tooltip("Enables all channels in this group.");
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Select None")) {
 					recording.channel_mask &= ~group_mask;
 				}
+				render_setting_tooltip("Disables all channels in this group.");
 				const int channel_columns = std::clamp(static_cast<int>(ImGui::GetContentRegionAvail().x / (ImGui::GetFontSize() * 16.0f)), 1, 4);
 				const bool channel_table = ImGui::BeginTable("##ChannelTable", channel_columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings);
 				for (size_t i = first; i < last; ++i) {
@@ -670,6 +710,7 @@ private:
 					if (ImGui::Checkbox(label, &value)) {
 						recording.set_channel(infos[i].channel, value);
 					}
+					render_setting_tooltip(forced ? "This channel is required by the selected export format and cannot be disabled." : "Toggles recording for this physical channel.");
 					ImGui::EndDisabled();
 					ImGui::PopID();
 				}
@@ -684,13 +725,18 @@ private:
 
 		section_header("Per-Body Data");
 		ImGui::Checkbox("Body Positions", &recording.body_positions);
+		render_setting_tooltip("Records the 3D position coordinates (x, y, z) for each active N-body.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Body Velocities", &recording.body_velocities);
+		render_setting_tooltip("Records the 3D velocity vector components (vx, vy, vz) for each active N-body.");
 		ImGui::Checkbox("Distance To Camera", &recording.body_camera_distance);
+		render_setting_tooltip("Records the Euclidean distance from the camera to each active N-body.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Body Speeds", &recording.body_speeds);
+		render_setting_tooltip("Records the scalar velocity magnitude for each active N-body.");
 		ImGui::BeginDisabled(!recording.any_body_channel());
 		slider_u32("Maximum Bodies", recording.max_bodies, 1U, 256U);
+		render_setting_tooltip("Caps the maximum number of N-body entities included in the per-body channel columns.");
 		ImGui::EndDisabled();
 
 		const uint64_t frames = planned_frame_count();
@@ -714,7 +760,9 @@ private:
 
 		section_header("Codec And Container");
 		enum_combo("Video Codec", video.codec, kCodecNames);
+		render_setting_tooltip("Encoder used by ffmpeg. H.264 is the most compatible, H.265 and AV1 are more compact, ProRes, FFV1 and Motion JPEG suit editing, and Image Sequence Only skips encoding.");
 		enum_combo("Container", video.container, kContainerNames);
+		render_setting_tooltip("File wrapper of the encoded video. Some codecs force a compatible container, as shown in the effective container line below.");
 		ImGui::TextDisabled("Effective container: .%s | Pixel format: %s", video.container_extension().c_str(), video.resolved_pixel_format().c_str());
 
 		const bool lossy_rate_codec = video.codec == IO::VideoCodecPreset::H264 || video.codec == IO::VideoCodecPreset::H265 || video.codec == IO::VideoCodecPreset::VP9 || video.codec == IO::VideoCodecPreset::AV1;
@@ -722,15 +770,19 @@ private:
 
 		ImGui::BeginDisabled(!lossy_rate_codec);
 		enum_combo("Rate Control", video.rate_control, kRateControlNames);
+		render_setting_tooltip("Selects whether the encoder targets a constant quality factor (CRF) or an average bitrate.");
 		ImGui::EndDisabled();
 		ImGui::BeginDisabled(!quality_codec || (lossy_rate_codec && video.rate_control != IO::VideoRateControl::ConstantQuality));
 		slider_u32("Quality (CRF, Lower Is Better)", video.crf, 0U, 51U);
+		render_setting_tooltip("Constant quality factor. Around 18 is visually lossless for H.264 and 0 is lossless; higher values reduce file size.");
 		ImGui::EndDisabled();
 		ImGui::BeginDisabled(!lossy_rate_codec || video.rate_control != IO::VideoRateControl::TargetBitrate);
 		slider_u32("Target Bitrate (kbps)", video.target_bitrate_kbps, 100U, 400000U, ImGuiSliderFlags_Logarithmic);
+		render_setting_tooltip("Average bitrate aimed at by the encoder when Target Bitrate rate control is selected.");
 		ImGui::EndDisabled();
 		ImGui::BeginDisabled(!lossy_rate_codec);
 		enum_combo("Encoder Speed", video.encoder_speed, kEncoderSpeedNames);
+		render_setting_tooltip("Slower presets spend more time to compress better at the same quality.");
 		ImGui::EndDisabled();
 
 		section_header("Stream Options");
@@ -739,14 +791,17 @@ private:
 		ImGui::SliderFloat("Output Frame Rate Override", &video.encode_frames_per_second, 0.0f, 240.0f, "%.2f fps");
 		render_setting_tooltip("Zero keeps the capture frame rate; any other value resamples the encoded video to that rate.");
 		ImGui::Checkbox("Loop Output (GIF)", &video.loop_output);
+		render_setting_tooltip("Makes an animated GIF restart automatically when it reaches the end.");
 
 		section_header("Assembly");
 		ImGui::Checkbox("Assemble Video Automatically After Capture", &video.assemble_video_after_capture);
 		render_setting_tooltip("Runs ffmpeg once all frames are written. Requires ffmpeg to be reachable through the executable below.");
 		ImGui::BeginDisabled(!video.assemble_video_after_capture);
 		ImGui::Checkbox("Delete Frames After Successful Assembly", &video.delete_frames_after_assembly);
+		render_setting_tooltip("Removes the intermediate frame images once ffmpeg reports success. Frames are kept if encoding fails.");
 		ImGui::EndDisabled();
 		input_text("ffmpeg Executable", video.ffmpeg_executable);
+		render_setting_tooltip("Path or command name for the ffmpeg executable used for video encoding.");
 
 		const std::string extension(IO::image_format_descriptor(video.frame_format).extension);
 		const std::string directory = settings_.sequence_directory + "/<session>";
@@ -759,6 +814,7 @@ private:
 			if (ImGui::SmallButton("Copy Command")) {
 				ImGui::SetClipboardText(command.c_str());
 			}
+			render_setting_tooltip("Copies the full ffmpeg command line to the system clipboard.");
 		}
 	}
 
@@ -838,6 +894,7 @@ private:
 			if (actions.button("Render Next Frame", action_width)) {
 				coordinator.request_manual_frame();
 			}
+			render_setting_tooltip("Renders and records the next frame in manual stepping mode.");
 			ImGui::SameLine();
 			ImGui::TextDisabled("Pending requests: %u", coordinator.manual_frames_pending());
 		}

@@ -1472,6 +1472,33 @@ struct DepthSphere {
 		return make_depth_sphere(body.position, std::max(body.radius, 1e-4) * style.radius_scale, style.sphere_min_pixel_radius, style.sphere_max_pixel_radius, pixel_radius_override);
 	}
 
+	void draw_path_reference(ImDrawList* draw_list) const {
+		const auto& preview = path_preview_;
+		if (!preview.show_reference || preview.reference_vertices.size() < 2) return;
+		std::vector<ImVec2> run;
+		uint32_t current = preview.reference_vertices.front().segment;
+		const auto flush = [&]() {
+			if (run.size() >= 2) {
+				const auto& rgb = Capture::kPathPreviewPalette[current % Capture::kPathPreviewPalette.size()];
+				draw_list->AddPolyline(run.data(), static_cast<int>(run.size()), IM_COL32(rgb[0], rgb[1], rgb[2], 90), ImDrawFlags_None, 1.0f);
+			}
+			run.clear();
+		};
+		for (const auto& vertex : preview.reference_vertices) {
+			if (vertex.segment != current) {
+				flush();
+				current = vertex.segment;
+			}
+			const ProjectedPoint projected = project(vertex.position);
+			if (projected.visible) {
+				run.push_back(projected.screen);
+			} else {
+				flush();
+			}
+		}
+		flush();
+	}
+
 	[[nodiscard]] PathScene build_path_scene(std::span<const DepthSphere> spheres, double hidden_radius) const {
 		PathScene scene;
 		const auto& preview = path_preview_;
@@ -1711,6 +1738,9 @@ struct DepthSphere {
 					case Capture::PathPreviewMarkerKind::Event:
 						draw_list->AddQuadFilled(ImVec2(c.x, c.y - 7.0f), ImVec2(c.x + 7.0f, c.y), ImVec2(c.x, c.y + 7.0f), ImVec2(c.x - 7.0f, c.y), IM_COL32(255, 220, 70, 245));
 						break;
+					case Capture::PathPreviewMarkerKind::Transition:
+						draw_list->AddRect(ImVec2(c.x - 5.0f, c.y - 5.0f), ImVec2(c.x + 5.0f, c.y + 5.0f), IM_COL32(110, 230, 255, 240), 0.0f, 0, 1.8f);
+						break;
 					case Capture::PathPreviewMarkerKind::SegmentBoundary:
 					default:
 						draw_list->AddCircle(c, 5.0f, IM_COL32(240, 245, 255, 235), 16, 1.6f);
@@ -1758,6 +1788,7 @@ public:
 	}
 
 	void render_path_preview_only(ImDrawList* draw_list) const {
+		draw_path_reference(draw_list);
 		PathScene scene = build_path_scene(std::span<const DepthSphere>{}, 2.0 * lensing_mass_);
 		flush_path_scene(draw_list, scene, std::numeric_limits<size_t>::max());
 	}
@@ -1790,6 +1821,7 @@ public:
 	}
 
 	void render_overlay(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
+		draw_path_reference(draw_list);
 		const auto& sys = orchestrator.nbody_system();
 		const auto bodies = sys.bodies();
 		if (bodies.empty()) {
@@ -1869,6 +1901,7 @@ public:
 
 	void render(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
 		draw_list->AddRectFilled(rect_min_, ImVec2(rect_min_.x + rect_size_.x, rect_min_.y + rect_size_.y), IM_COL32(5, 6, 10, 255));
+		draw_path_reference(draw_list);
 
 		const auto& params = orchestrator.parameters();
 		const auto& sys = orchestrator.nbody_system();

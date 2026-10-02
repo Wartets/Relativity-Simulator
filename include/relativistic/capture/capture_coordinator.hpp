@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -390,8 +391,24 @@ private:
 		return std::nullopt;
 	}
 
+	[[nodiscard]] std::optional<std::pair<int32_t, Vec3>> lookup_nearest_body(const Vec3& from) const {
+		std::optional<std::pair<int32_t, Vec3>> best;
+		double best_distance = std::numeric_limits<double>::max();
+		for (const auto& body : orchestrator_.nbody_system().bodies()) {
+			if (!body.enabled) {
+				continue;
+			}
+			const double distance = ScriptMath::length(ScriptMath::sub(body.position, from));
+			if (distance < best_distance) {
+				best_distance = distance;
+				best = std::make_pair(static_cast<int32_t>(body.id), body.position);
+			}
+		}
+		return best;
+	}
+
 	[[nodiscard]] ScriptSample sample_script(double seconds) const {
-		const BodyPositionLookup lookup = [this](int32_t id) { return lookup_body_position(id); };
+		const BodyPositionLookup lookup([this](int32_t id) { return lookup_body_position(id); }, [this](const Vec3& from) { return lookup_nearest_body(from); });
 		return session_.request.script.sample(seconds, lookup);
 	}
 
@@ -423,6 +440,10 @@ private:
 			orchestrator_.scheduler().set_warp_factor(session_.warp_base);
 		} else if (event.action == EventAction::SetParameter) {
 			orchestrator_.set_physical_param(static_cast<Orchestrator::ParameterType>(event.parameter), value);
+		} else if (event.action == EventAction::SetTickRate) {
+			orchestrator_.scheduler().set_tick_rate(value);
+		} else if (event.action == EventAction::SetResolutionScale) {
+			orchestrator_.set_physical_param(Orchestrator::ParameterType::ResolutionScale, value);
 		}
 		orchestrator_.notify_state_changed();
 	}
@@ -438,6 +459,8 @@ private:
 				break;
 			case EventAction::SetParameter:
 			case EventAction::SetWarp:
+			case EventAction::SetTickRate:
+			case EventAction::SetResolutionScale:
 				if (!ramped) apply_event_value(event, event.value);
 				break;
 			case EventAction::Pause:
@@ -469,6 +492,12 @@ private:
 				break;
 			case EventAction::LoadScenario:
 				orchestrator_.apply_command(Orchestrator::Command::make_load_scenario(event.text), result);
+				break;
+			case EventAction::SetPerformancePreset:
+				orchestrator_.apply_command(Orchestrator::Command::make_set_performance_preset(static_cast<uint32_t>(std::clamp(event.value, 0.0, 5.0))), result);
+				break;
+			case EventAction::SetOverlay:
+				orchestrator_.apply_command(Orchestrator::Command::make_set_visual_overlay(kEventOverlays[event_overlay_index(event.parameter)].flag, event.value > 0.5), result);
 				break;
 		}
 		orchestrator_.notify_state_changed();

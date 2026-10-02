@@ -11,7 +11,8 @@ enum class PathPreviewMarkerKind : uint32_t {
 	Start = 0,
 	End = 1,
 	SegmentBoundary = 2,
-	Event = 3
+	Event = 3,
+	Transition = 4
 };
 
 inline constexpr std::array<std::array<uint8_t, 3>, 8> kPathPreviewPalette{{
@@ -47,6 +48,7 @@ struct PathPreviewCursor {
 
 struct PathPreview {
 	std::vector<PathPreviewVertex> vertices{};
+	std::vector<PathPreviewVertex> reference_vertices{};
 	std::vector<PathPreviewMarker> markers{};
 	PathPreviewCursor cursor{};
 	double frustum_length{10.0};
@@ -56,6 +58,7 @@ struct PathPreview {
 	bool show_samples{false};
 	bool show_frustum{true};
 	bool show_direction{true};
+	bool show_reference{true};
 
 	[[nodiscard]] bool empty() const noexcept {
 		return vertices.empty() && !cursor.valid;

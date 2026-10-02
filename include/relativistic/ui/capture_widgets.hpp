@@ -422,7 +422,9 @@ inline bool edit_easing(const char* label, Capture::EasingSpec& spec) {
 	}
 
 	modified |= drag_double("Blend With Linear", spec.blend, 0.01, 0.0, 2.0, "%.3f");
+	render_setting_tooltip("0 gives a straight line, 1 uses the selected curve as is, values above 1 exaggerate its deviation from linear.");
 	modified |= drag_double("Repeat Cycles", spec.repeat, 0.05, 1.0, 64.0, "%.2f");
+	render_setting_tooltip("Plays the curve several times across the progress range.");
 	if (spec.repeat > 1.0) {
 		modified |= ImGui::Checkbox("Ping-Pong Cycles", &spec.ping_pong);
 	}
@@ -437,7 +439,39 @@ inline bool edit_easing(const char* label, Capture::EasingSpec& spec) {
 	for (size_t i = 0; i < samples.size(); ++i) {
 		samples[i] = static_cast<float>(spec.evaluate(static_cast<double>(i) / static_cast<double>(samples.size() - 1)));
 	}
-	ImGui::PlotLines("##EasingPlot", samples.data(), static_cast<int>(samples.size()), 0, nullptr, FLT_MAX, FLT_MAX, ImVec2(ImGui::GetContentRegionAvail().x, 56.0f));
+	if (ImGui::TreeNode("Input And Output Shaping")) {
+		modified |= drag_double("Input Window Start", spec.input_start, 0.005, 0.0, 1.0, "%.3f");
+		render_setting_tooltip("Progress value below which the curve stays at its first value.");
+		modified |= drag_double("Input Window End", spec.input_end, 0.005, 0.0, 1.0, "%.3f");
+		render_setting_tooltip("Progress value above which the curve stays at its last value. The curve is stretched between the two window bounds.");
+		modified |= drag_double("Bias", spec.bias, 0.005, 0.01, 0.99, "%.3f");
+		render_setting_tooltip("Pushes the curve toward its start (below 0.5) or toward its end (above 0.5). 0.5 leaves the curve unchanged.");
+		modified |= drag_double("Gain", spec.gain, 0.005, 0.01, 0.99, "%.3f");
+		render_setting_tooltip("Sharpens (above 0.5) or flattens (below 0.5) the middle of the curve. 0.5 leaves the curve unchanged.");
+		modified |= drag_double("Quantize Steps", spec.quantize_steps, 0.1, 0.0, 256.0, "%.0f");
+		render_setting_tooltip("Snaps the result to this many evenly spaced levels. 0 or 1 disables quantization.");
+		modified |= drag_double("Output Start", spec.output_start, 0.005, -10.0, 10.0, "%.3f");
+		render_setting_tooltip("Value produced when the shaped curve is at 0.");
+		modified |= drag_double("Output End", spec.output_end, 0.005, -10.0, 10.0, "%.3f");
+		render_setting_tooltip("Value produced when the shaped curve is at 1. Use values beyond the range to over-travel or invert the animation.");
+		modified |= ImGui::Checkbox("Clamp Output To Range", &spec.clamp_output);
+		render_setting_tooltip("Prevents overshoot, bounce and elastic curves from leaving the output range.");
+		if (ImGui::SmallButton("Reset Shaping")) {
+			spec.input_start = 0.0;
+			spec.input_end = 1.0;
+			spec.output_start = 0.0;
+			spec.output_end = 1.0;
+			spec.bias = 0.5;
+			spec.gain = 0.5;
+			spec.quantize_steps = 0.0;
+			spec.clamp_output = false;
+			modified = true;
+		}
+		ImGui::TreePop();
+	}
+
+	ImGui::PlotLines("##EasingPlot", samples.data(), static_cast<int>(samples.size()), 0, nullptr, FLT_MAX, FLT_MAX, ImVec2(ImGui::GetContentRegionAvail().x, 84.0f));
+	ImGui::TextDisabled("f(0.25) = %.3f   f(0.50) = %.3f   f(0.75) = %.3f", spec.evaluate(0.25), spec.evaluate(0.5), spec.evaluate(0.75));
 
 	ImGui::PopID();
 	return modified;

@@ -27,7 +27,11 @@ struct CameraPose {
 enum class PathKind : uint32_t {
 	Keyframes = 0,
 	Orbit = 1,
-	LinearFlyBy = 2
+	LinearFlyBy = 2,
+	TargetTrackingOrbit = 3,
+	DollyZoom = 4,
+	LogarithmicSpiral = 5,
+	Helical = 6
 };
 
 enum class PathInterpolation : uint32_t {
@@ -76,6 +80,32 @@ struct OrbitParameters {
 struct FlyByParameters {
 	std::array<double, 3> start{-60.0, 40.0, 0.0};
 	std::array<double, 3> end{60.0, 40.0, 0.0};
+};
+
+struct SpiralParameters {
+	std::array<double, 3> center{0.0, 0.0, 0.0};
+	double radius_start{80.0};
+	double radius_end{15.0};
+	double height_start{20.0};
+	double height_end{2.0};
+	double revolutions{3.0};
+	double expansion_rate{1.0};
+};
+
+struct HelicalParameters {
+	std::array<double, 3> start{0.0, 0.0, -40.0};
+	std::array<double, 3> end{0.0, 0.0, 40.0};
+	double radius{25.0};
+	double revolutions{4.0};
+	double phase_deg{0.0};
+};
+
+struct DollyZoomParameters {
+	std::array<double, 3> start_position{0.0, 80.0, 0.0};
+	std::array<double, 3> end_position{0.0, 18.0, 0.0};
+	std::array<double, 3> target{0.0, 0.0, 0.0};
+	double fov_start_deg{90.0};
+	double fov_end_deg{25.0};
 };
 
 namespace PathDetail {
@@ -130,9 +160,13 @@ inline constexpr double kRadToDeg = 180.0 / std::numbers::pi_v<double>;
 
 struct CameraPath {
 	PathKind kind{PathKind::Keyframes};
+	int32_t tracked_body_id{-1};
 	std::vector<CameraKeyframe> keyframes{};
 	OrbitParameters orbit{};
 	FlyByParameters fly_by{};
+	SpiralParameters spiral{};
+	HelicalParameters helical{};
+	DollyZoomParameters dolly_zoom{};
 	double duration_seconds{10.0};
 	PathInterpolation interpolation{PathInterpolation::CatmullRom};
 	PathEasing easing{PathEasing::Linear};
@@ -168,14 +202,25 @@ struct CameraPath {
 		sort_keyframes();
 	}
 
-	[[nodiscard]] CameraPose evaluate(double time_seconds) const noexcept {
+	[[nodiscard]] CameraPose evaluate(double time_seconds, std::array<double, 3> dynamic_target = {0.0, 0.0, 0.0}) const noexcept {
 		const double total = effective_duration();
 		const double progress = eased_progress(time_seconds, total);
 		CameraPose pose{};
 		if (kind == PathKind::Keyframes) {
 			pose = keyframe_pose_at(progress * total);
+		} else if (kind == PathKind::DollyZoom) {
+			pose.position = {
+				PathDetail::lerp(dolly_zoom.start_position[0], dolly_zoom.end_position[0], progress),
+				PathDetail::lerp(dolly_zoom.start_position[1], dolly_zoom.end_position[1], progress),
+				PathDetail::lerp(dolly_zoom.start_position[2], dolly_zoom.end_position[2], progress)
+			};
+			pose.roll_deg = roll_deg;
+			pose.fov_deg = PathDetail::lerp(dolly_zoom.fov_start_deg, dolly_zoom.fov_end_deg, progress);
+			pose.exposure_ev = PathDetail::lerp(exposure_start_ev, exposure_end_ev, progress);
+			pose.pitch_deg = fixed_pitch_yaw[0];
+			pose.yaw_deg = fixed_pitch_yaw[1];
 		} else {
-			pose.position = position_at(progress);
+			pose.position = position_at(progress, dynamic_target);
 			pose.roll_deg = roll_deg;
 			pose.fov_deg = PathDetail::lerp(fov_start_deg, fov_end_deg, progress);
 			pose.exposure_ev = PathDetail::lerp(exposure_start_ev, exposure_end_ev, progress);
@@ -183,14 +228,18 @@ struct CameraPath {
 			pose.yaw_deg = fixed_pitch_yaw[1];
 		}
 
-		if (orientation == PathOrientation::LookAtTarget) {
-			orient_along(pose, {look_target[0] - pose.position[0], look_target[1] - pose.position[1], look_target[2] - pose.position[2]});
+		const std::array<double, 3> effective_target = (kind == PathKind::TargetTrackingOrbit && tracked_body_id >= 0)
+			? dynamic_target
+			: ((kind == PathKind::DollyZoom) ? dolly_zoom.target : look_target);
+
+		if (orientation == PathOrientation::LookAtTarget || kind == PathKind::TargetTrackingOrbit || kind == PathKind::DollyZoom) {
+			orient_along(pose, {effective_target[0] - pose.position[0], effective_target[1] - pose.position[1], effective_target[2] - pose.position[2]});
 		} else if (orientation == PathOrientation::AlongTravel) {
 			constexpr double epsilon = 1.0e-4;
 			const double before = std::clamp(progress - epsilon, 0.0, 1.0);
 			const double after = std::clamp(progress + epsilon, 0.0, 1.0);
-			const auto p0 = position_at(before);
-			const auto p1 = position_at(after);
+			const auto p0 = position_at(before, dynamic_target);
+			const auto p1 = position_at(after, dynamic_target);
 			orient_along(pose, {p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]});
 		}
 		return pose;
@@ -200,6 +249,7 @@ struct CameraPath {
 		std::ostringstream out;
 		out << std::setprecision(17);
 		out << "kind=" << static_cast<uint32_t>(kind) << '\n';
+		out << "tracked_body=" << tracked_body_id << '\n';
 		out << "duration=" << duration_seconds << '\n';
 		out << "interpolation=" << static_cast<uint32_t>(interpolation) << '\n';
 		out << "easing=" << static_cast<uint32_t>(easing) << '\n';
@@ -215,6 +265,16 @@ struct CameraPath {
 			<< orbit.elevation_end_deg << ',' << orbit.azimuth_start_deg << ',' << orbit.revolutions << '\n';
 		out << "flyby=" << fly_by.start[0] << ',' << fly_by.start[1] << ',' << fly_by.start[2] << ','
 			<< fly_by.end[0] << ',' << fly_by.end[1] << ',' << fly_by.end[2] << '\n';
+		out << "spiral=" << spiral.center[0] << ',' << spiral.center[1] << ',' << spiral.center[2] << ','
+			<< spiral.radius_start << ',' << spiral.radius_end << ',' << spiral.height_start << ','
+			<< spiral.height_end << ',' << spiral.revolutions << ',' << spiral.expansion_rate << '\n';
+		out << "helical=" << helical.start[0] << ',' << helical.start[1] << ',' << helical.start[2] << ','
+			<< helical.end[0] << ',' << helical.end[1] << ',' << helical.end[2] << ','
+			<< helical.radius << ',' << helical.revolutions << ',' << helical.phase_deg << '\n';
+		out << "dolly=" << dolly_zoom.start_position[0] << ',' << dolly_zoom.start_position[1] << ',' << dolly_zoom.start_position[2] << ','
+			<< dolly_zoom.end_position[0] << ',' << dolly_zoom.end_position[1] << ',' << dolly_zoom.end_position[2] << ','
+			<< dolly_zoom.target[0] << ',' << dolly_zoom.target[1] << ',' << dolly_zoom.target[2] << ','
+			<< dolly_zoom.fov_start_deg << ',' << dolly_zoom.fov_end_deg << '\n';
 		for (const auto& key : keyframes) {
 			out << "key=" << key.time_seconds << ',' << key.pose.position[0] << ',' << key.pose.position[1] << ',' << key.pose.position[2] << ','
 				<< key.pose.pitch_deg << ',' << key.pose.yaw_deg << ',' << key.pose.roll_deg << ',' << key.pose.fov_deg << ','
@@ -247,7 +307,9 @@ struct CameraPath {
 				continue;
 			}
 			if (key == "kind") {
-				path.kind = static_cast<PathKind>(std::min<uint32_t>(static_cast<uint32_t>(std::max(v[0], 0.0)), 2U));
+				path.kind = static_cast<PathKind>(std::min<uint32_t>(static_cast<uint32_t>(std::max(v[0], 0.0)), 6U));
+			} else if (key == "tracked_body") {
+				path.tracked_body_id = static_cast<int32_t>(v[0]);
 			} else if (key == "duration") {
 				path.duration_seconds = std::max(v[0], 1.0e-3);
 			} else if (key == "interpolation") {
@@ -274,6 +336,12 @@ struct CameraPath {
 				path.orbit = OrbitParameters{{v[0], v[1], v[2]}, v[3], v[4], v[5], v[6], v[7], v[8]};
 			} else if (key == "flyby" && v.size() >= 6) {
 				path.fly_by = FlyByParameters{{v[0], v[1], v[2]}, {v[3], v[4], v[5]}};
+			} else if (key == "spiral" && v.size() >= 9) {
+				path.spiral = SpiralParameters{{v[0], v[1], v[2]}, v[3], v[4], v[5], v[6], v[7], v[8]};
+			} else if (key == "helical" && v.size() >= 9) {
+				path.helical = HelicalParameters{{v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], v[8]};
+			} else if (key == "dolly" && v.size() >= 11) {
+				path.dolly_zoom = DollyZoomParameters{{v[0], v[1], v[2]}, {v[3], v[4], v[5]}, {v[6], v[7], v[8]}, v[9], v[10]};
 			} else if (key == "key" && v.size() >= 10) {
 				CameraKeyframe keyframe;
 				keyframe.time_seconds = v[0];
@@ -328,7 +396,7 @@ private:
 		}
 	}
 
-	[[nodiscard]] std::array<double, 3> position_at(double progress) const noexcept {
+	[[nodiscard]] std::array<double, 3> position_at(double progress, std::array<double, 3> dynamic_target = {0.0, 0.0, 0.0}) const noexcept {
 		switch (kind) {
 			case PathKind::Orbit: {
 				const double radius = PathDetail::lerp(orbit.radius_start, orbit.radius_end, progress);
@@ -340,6 +408,45 @@ private:
 					orbit.center[2] + radius * std::sin(elevation)
 				};
 			}
+			case PathKind::TargetTrackingOrbit: {
+				const std::array<double, 3> center = (tracked_body_id >= 0) ? dynamic_target : orbit.center;
+				const double radius = PathDetail::lerp(orbit.radius_start, orbit.radius_end, progress);
+				const double elevation = PathDetail::lerp(orbit.elevation_start_deg, orbit.elevation_end_deg, progress) * PathDetail::kDegToRad;
+				const double azimuth = (orbit.azimuth_start_deg + 360.0 * orbit.revolutions * progress) * PathDetail::kDegToRad;
+				return {
+					center[0] + radius * std::cos(elevation) * std::cos(azimuth),
+					center[1] + radius * std::cos(elevation) * std::sin(azimuth),
+					center[2] + radius * std::sin(elevation)
+				};
+			}
+			case PathKind::LogarithmicSpiral: {
+				const double log_ratio = std::log(std::max(spiral.radius_end / std::max(spiral.radius_start, 1.0e-6), 1.0e-6));
+				const double radius = spiral.radius_start * std::exp(log_ratio * std::pow(progress, std::max(spiral.expansion_rate, 0.01)));
+				const double height = PathDetail::lerp(spiral.height_start, spiral.height_end, progress);
+				const double angle = 2.0 * std::numbers::pi_v<double> * spiral.revolutions * progress;
+				return {
+					spiral.center[0] + radius * std::cos(angle),
+					spiral.center[1] + radius * std::sin(angle),
+					spiral.center[2] + height
+				};
+			}
+			case PathKind::Helical: {
+				const double cx = PathDetail::lerp(helical.start[0], helical.end[0], progress);
+				const double cy = PathDetail::lerp(helical.start[1], helical.end[1], progress);
+				const double cz = PathDetail::lerp(helical.start[2], helical.end[2], progress);
+				const double angle = (helical.phase_deg * PathDetail::kDegToRad) + (2.0 * std::numbers::pi_v<double> * helical.revolutions * progress);
+				return {
+					cx + helical.radius * std::cos(angle),
+					cy + helical.radius * std::sin(angle),
+					cz
+				};
+			}
+			case PathKind::DollyZoom:
+				return {
+					PathDetail::lerp(dolly_zoom.start_position[0], dolly_zoom.end_position[0], progress),
+					PathDetail::lerp(dolly_zoom.start_position[1], dolly_zoom.end_position[1], progress),
+					PathDetail::lerp(dolly_zoom.start_position[2], dolly_zoom.end_position[2], progress)
+				};
 			case PathKind::LinearFlyBy:
 				return {
 					PathDetail::lerp(fly_by.start[0], fly_by.end[0], progress),

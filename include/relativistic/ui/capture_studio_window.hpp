@@ -56,7 +56,7 @@ inline constexpr std::array<const char*, 9> kCodecNames{"H.264 (libx264)", "H.26
 inline constexpr std::array<const char*, 6> kContainerNames{"MP4", "MKV", "MOV", "WebM", "AVI", "GIF"};
 inline constexpr std::array<const char*, 2> kRateControlNames{"Constant Quality (CRF)", "Target Bitrate"};
 inline constexpr std::array<const char*, 9> kEncoderSpeedNames{"Ultrafast", "Superfast", "Veryfast", "Faster", "Fast", "Medium", "Slow", "Slower", "Veryslow"};
-inline constexpr std::array<const char*, 3> kPathKindNames{"Keyframes", "Orbit", "Linear Fly-By"};
+inline constexpr std::array<const char*, 7> kPathKindNames{"Keyframes", "Orbit", "Linear Fly-By", "Target Tracking Orbit", "Dolly Zoom (Vertigo)", "Logarithmic Spiral Infall", "Helical Trajectory"};
 inline constexpr std::array<const char*, 4> kInterpolationNames{"Step", "Linear", "Smoothstep", "Catmull-Rom Spline"};
 inline constexpr std::array<const char*, 5> kEasingNames{"Linear", "Ease In", "Ease Out", "Ease In Out", "Smootherstep"};
 inline constexpr std::array<const char*, 3> kOrientationNames{"Keyframed / Fixed Angles", "Look At Target", "Along Travel Direction"};
@@ -217,13 +217,15 @@ private:
 	[[nodiscard]] Capture::CaptureTarget resolve_target(const IO::CaptureTargetSettings& source) const noexcept {
 		Capture::CaptureTarget target;
 		if (source.use_explicit_resolution) {
-			target.width = source.explicit_width;
-			target.height = source.explicit_height;
+			target.width = (source.explicit_width + 1U) & ~1U;
+			target.height = (source.explicit_height + 1U) & ~1U;
 		} else {
 			const ImVec2 size = viewport_.content_size();
 			const double multiplier = static_cast<double>(source.resolution_multiplier);
-			target.width = static_cast<uint32_t>(std::clamp<long long>(std::llround(static_cast<double>(size.x) * multiplier), 1LL, 1000000LL));
-			target.height = static_cast<uint32_t>(std::clamp<long long>(std::llround(static_cast<double>(size.y) * multiplier), 1LL, 1000000LL));
+			const uint32_t w = static_cast<uint32_t>(std::clamp<long long>(std::llround(static_cast<double>(size.x) * multiplier), 2LL, 1000000LL));
+			const uint32_t h = static_cast<uint32_t>(std::clamp<long long>(std::llround(static_cast<double>(size.y) * multiplier), 2LL, 1000000LL));
+			target.width = (w + 1U) & ~1U;
+			target.height = (h + 1U) & ~1U;
 		}
 		target.supersampling = source.supersampling;
 		target.max_ray_steps = source.max_ray_steps;
@@ -652,9 +654,32 @@ private:
 		}
 
 		ImGui::Separator();
-		if (path.kind == Capture::PathKind::Orbit) {
-			ImGui::TextColored(kHeaderColor, "Orbit");
-			drag_double3("Orbit Center", path.orbit.center, 0.1, "%.4f");
+		if (path.kind == Capture::PathKind::Orbit || path.kind == Capture::PathKind::TargetTrackingOrbit) {
+			ImGui::TextColored(kHeaderColor, path.kind == Capture::PathKind::TargetTrackingOrbit ? "Target Tracking Orbit" : "Orbit");
+			if (path.kind == Capture::PathKind::TargetTrackingOrbit) {
+				const auto& bodies = orchestrator_.nbody_system().bodies();
+				std::vector<std::string> body_items;
+				body_items.push_back("Origin / Central Source");
+				int selected_body_idx = (path.tracked_body_id < 0) ? 0 : 0;
+				for (size_t bi = 0; bi < bodies.size(); ++bi) {
+					body_items.push_back("Body #" + std::to_string(bodies[bi].id) + " (M=" + std::to_string(bodies[bi].mass).substr(0, 4) + ")");
+					if (static_cast<int32_t>(bodies[bi].id) == path.tracked_body_id) {
+						selected_body_idx = static_cast<int>(bi + 1);
+					}
+				}
+				std::vector<const char*> item_ptrs;
+				item_ptrs.reserve(body_items.size());
+				for (const auto& s : body_items) item_ptrs.push_back(s.c_str());
+				if (ImGui::Combo("Tracked Celestial Body", &selected_body_idx, item_ptrs.data(), static_cast<int>(item_ptrs.size()))) {
+					if (selected_body_idx == 0) {
+						path.tracked_body_id = -1;
+					} else {
+						path.tracked_body_id = static_cast<int32_t>(bodies[static_cast<size_t>(selected_body_idx - 1)].id);
+					}
+				}
+			} else {
+				drag_double3("Orbit Center", path.orbit.center, 0.1, "%.4f");
+			}
 			drag_double("Radius Start", path.orbit.radius_start, 0.1, 0.001, 1.0e9, "%.3f");
 			drag_double("Radius End", path.orbit.radius_end, 0.1, 0.001, 1.0e9, "%.3f");
 			drag_double("Elevation Start (deg)", path.orbit.elevation_start_deg, 0.1, -89.0, 89.0, "%.2f");
@@ -664,6 +689,43 @@ private:
 			if (ImGui::SmallButton("Radius Start From Camera")) {
 				const auto& camera = orchestrator_.camera();
 				path.orbit.radius_start = std::max(std::sqrt(camera.position[0] * camera.position[0] + camera.position[1] * camera.position[1] + camera.position[2] * camera.position[2]), 0.001);
+			}
+		} else if (path.kind == Capture::PathKind::LogarithmicSpiral) {
+			ImGui::TextColored(kHeaderColor, "Logarithmic Spiral Infall");
+			drag_double3("Spiral Center", path.spiral.center, 0.1, "%.4f");
+			drag_double("Radius Start", path.spiral.radius_start, 0.1, 0.01, 1.0e9, "%.3f");
+			drag_double("Radius End (Infall)", path.spiral.radius_end, 0.1, 0.001, 1.0e9, "%.3f");
+			drag_double("Height Start", path.spiral.height_start, 0.1, -1.0e6, 1.0e6, "%.3f");
+			drag_double("Height End", path.spiral.height_end, 0.1, -1.0e6, 1.0e6, "%.3f");
+			drag_double("Revolutions", path.spiral.revolutions, 0.05, 0.1, 100.0, "%.3f");
+			drag_double("Expansion / Acceleration Rate", path.spiral.expansion_rate, 0.02, 0.1, 10.0, "%.2f");
+			if (ImGui::SmallButton("Start From Camera")) {
+				const auto& camera = orchestrator_.camera();
+				path.spiral.radius_start = std::max(std::sqrt(camera.position[0] * camera.position[0] + camera.position[1] * camera.position[1]), 0.01);
+				path.spiral.height_start = camera.position[2];
+			}
+		} else if (path.kind == Capture::PathKind::Helical) {
+			ImGui::TextColored(kHeaderColor, "Helical Trajectory");
+			drag_double3("Helical Start Axis", path.helical.start, 0.1, "%.4f");
+			drag_double3("Helical End Axis", path.helical.end, 0.1, "%.4f");
+			drag_double("Helix Radius", path.helical.radius, 0.1, 0.01, 1.0e6, "%.3f");
+			drag_double("Revolutions", path.helical.revolutions, 0.05, 0.1, 100.0, "%.3f");
+			drag_double("Phase Offset (deg)", path.helical.phase_deg, 0.25, -360.0, 360.0, "%.2f");
+		} else if (path.kind == Capture::PathKind::DollyZoom) {
+			ImGui::TextColored(kHeaderColor, "Dolly Zoom (Vertigo Effect)");
+			drag_double3("Start Position", path.dolly_zoom.start_position, 0.1, "%.4f");
+			drag_double3("End Position", path.dolly_zoom.end_position, 0.1, "%.4f");
+			drag_double3("Fixed Focus Target", path.dolly_zoom.target, 0.1, "%.4f");
+			drag_double("Start FOV (deg)", path.dolly_zoom.fov_start_deg, 0.1, 5.0, 170.0, "%.2f");
+			drag_double("End FOV (deg)", path.dolly_zoom.fov_end_deg, 0.1, 5.0, 170.0, "%.2f");
+			if (ImGui::SmallButton("Start From Camera")) {
+				path.dolly_zoom.start_position = orchestrator_.camera().position;
+				path.dolly_zoom.fov_start_deg = orchestrator_.camera().fov_deg;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("End At Camera")) {
+				path.dolly_zoom.end_position = orchestrator_.camera().position;
+				path.dolly_zoom.fov_end_deg = orchestrator_.camera().fov_deg;
 			}
 		} else if (path.kind == Capture::PathKind::LinearFlyBy) {
 			ImGui::TextColored(kHeaderColor, "Linear Fly-By");

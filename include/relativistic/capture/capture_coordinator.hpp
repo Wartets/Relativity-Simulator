@@ -415,7 +415,17 @@ private:
 				session_.tick_accumulator -= 1.0;
 			}
 			if (request.use_path) {
-				apply_pose(request.path.evaluate(std::max(base_time + offset, 0.0)));
+				std::array<double, 3> dynamic_target{0.0, 0.0, 0.0};
+				if (request.path.tracked_body_id >= 0) {
+					const auto& bodies = orchestrator_.nbody_system().bodies();
+					for (const auto& b : bodies) {
+						if (static_cast<int32_t>(b.id) == request.path.tracked_body_id) {
+							dynamic_target = b.position;
+							break;
+						}
+					}
+				}
+				apply_pose(request.path.evaluate(std::max(base_time + offset, 0.0), dynamic_target));
 			}
 			auto constants = constants_provider_ ? constants_provider_() : std::nullopt;
 			if (!constants.has_value()) {
@@ -514,7 +524,17 @@ private:
 		const IO::VideoSequenceSettings& settings = session_.request.settings;
 		session_.session_time += dt;
 		if (session_.request.use_path) {
-			apply_pose(session_.request.path.evaluate(session_.session_time));
+			std::array<double, 3> dynamic_target{0.0, 0.0, 0.0};
+			if (session_.request.path.tracked_body_id >= 0) {
+				const auto& bodies = orchestrator_.nbody_system().bodies();
+				for (const auto& b : bodies) {
+					if (static_cast<int32_t>(b.id) == session_.request.path.tracked_body_id) {
+						dynamic_target = b.position;
+						break;
+					}
+				}
+			}
+			apply_pose(session_.request.path.evaluate(session_.session_time, dynamic_target));
 		}
 		const bool limit_reached = session_.frames_total > 0 && session_.frames_prepared >= session_.frames_total;
 		if (session_.stopping || limit_reached) {
@@ -580,9 +600,9 @@ private:
 
 	[[nodiscard]] std::string assembly_command() const {
 		return session_.request.settings.build_ffmpeg_command(
-			session_.directory.generic_string(),
+			session_.directory.string(),
 			session_.extension,
-			(session_.directory / "video").generic_string()
+			(session_.directory / "video").string()
 		);
 	}
 
@@ -606,7 +626,7 @@ private:
 		const bool delete_frames = settings.delete_frames_after_assembly;
 		enqueue([this, command, directory, extension, delete_frames, summary]() {
 #if defined(_WIN32)
-			const std::string invocation = "\"" + command + "\"";
+			const std::string invocation = "cmd.exe /C \"" + command + "\"";
 #else
 			const std::string invocation = command;
 #endif

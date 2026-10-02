@@ -202,13 +202,20 @@ struct VideoSequenceSettings {
 		}
 		char number_buffer[32];
 		std::snprintf(number_buffer, sizeof(number_buffer), "%.3f", static_cast<double>(frames_per_second));
-		std::string cmd = ffmpeg_executable.empty() ? std::string("ffmpeg") : ffmpeg_executable;
+		std::string exe = ffmpeg_executable.empty() ? std::string("ffmpeg") : ffmpeg_executable;
+		if (exe.find(' ') != std::string::npos && (exe.front() != '"' || exe.back() != '"')) {
+			exe = "\"" + exe + "\"";
+		}
+		std::string cmd = exe;
 		cmd += " -y -hide_banner -loglevel warning -framerate ";
 		cmd += number_buffer;
 		cmd += " -start_number " + std::to_string(start_number);
-		cmd += " -i \"" + input_directory + "/" + input_pattern + "\"";
+		const std::string input_full = (std::filesystem::path(input_directory) / input_pattern).string();
+		cmd += " -i \"" + input_full + "\"";
 		if (codec == VideoCodecPreset::GIF) {
 			cmd += " -vf \"split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3\"";
+		} else {
+			cmd += " -vf \"pad=ceil(iw/2)*2:ceil(ih/2)*2\"";
 		}
 		cmd += " -c:v " + codec_name();
 		const uint32_t speed_index = static_cast<uint32_t>(encoder_speed);

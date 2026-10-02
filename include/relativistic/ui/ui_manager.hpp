@@ -195,6 +195,7 @@ public:
 		hud_manager_window_.open_state() = user_settings_.window_hud_manager_open;
 		keybind_window_.open_state() = user_settings_.window_keybind_settings_open;
 		constants_window_.open_state() = user_settings_.window_constants_open;
+		capture_studio_window_->open_state() = user_settings_.window_capture_studio_open;
 		log_console_window_.open_state() = user_settings_.window_log_console_open;
 		log_console_window_.attach_system_console_flag(user_settings_.show_system_console);
 
@@ -280,6 +281,25 @@ public:
 		}
 	}
 
+	void toggle_capture_studio() noexcept {
+		if (capture_studio_window_) {
+			capture_studio_window_->open_state() = !capture_studio_window_->open_state();
+		}
+	}
+
+	void trigger_sequence_start() noexcept {
+		if (!capture_studio_window_) {
+			return;
+		}
+		try {
+			capture_studio_window_->start_sequence();
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("Sequence start failed: ") + ex.what());
+		} catch (...) {
+			Core::log_error("Sequence start failed with an unknown error.");
+		}
+	}
+
 	void open_capture_studio() noexcept {
 		if (capture_studio_window_) {
 			capture_studio_window_->open_state() = true;
@@ -307,6 +327,7 @@ public:
 		user_settings_.window_hud_manager_open = hud_manager_window_.open_state();
 		user_settings_.window_keybind_settings_open = keybind_window_.open_state();
 		user_settings_.window_constants_open = constants_window_.open_state();
+		user_settings_.window_capture_studio_open = capture_studio_window_ ? capture_studio_window_->open_state() : user_settings_.window_capture_studio_open;
 		user_settings_.window_log_console_open = log_console_window_.open_state();
 		user_settings_.constants_preset = static_cast<uint32_t>(orchestrator_.constants_engine().active_preset());
 		user_settings_.constants_c = orchestrator_.constants_engine().sim_speed_of_light();
@@ -611,6 +632,9 @@ private:
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleConstantsWindow, main_window_)) {
 			constants_window_.open_state() = !constants_window_.open_state();
 		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleCaptureStudio, main_window_)) {
+			toggle_capture_studio();
+		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleScenarioWindow, main_window_)) {
 			if (scenario_window_) scenario_window_->open_state() = !scenario_window_->open_state();
 		}
@@ -864,6 +888,51 @@ private:
 				ImGui::EndMenu();
 			}
 
+			if (ImGui::BeginMenu("Capture")) {
+				if (capture_studio_window_ && viewport_window_) {
+					auto& coordinator = viewport_window_->capture_coordinator();
+					const bool busy = coordinator.is_busy();
+					const bool sequence_active = coordinator.is_sequence_active();
+					ImGui::MenuItem("Capture Studio", key_hint(InputAction::ToggleCaptureStudio).c_str(), &capture_studio_window_->open_state());
+					ImGui::Separator();
+					if (ImGui::MenuItem("Screenshot Settings...")) {
+						capture_studio_window_->open_tab(CaptureStudioWindow::StudioTab::Screenshot);
+					}
+					if (ImGui::MenuItem("Sequence Settings...")) {
+						capture_studio_window_->open_tab(CaptureStudioWindow::StudioTab::Sequence);
+					}
+					if (ImGui::MenuItem("Motion Script Editor...")) {
+						capture_studio_window_->open_tab(CaptureStudioWindow::StudioTab::Script);
+					}
+					if (ImGui::MenuItem("Data Recording...")) {
+						capture_studio_window_->open_tab(CaptureStudioWindow::StudioTab::Recording);
+					}
+					if (ImGui::MenuItem("Video Encoding...")) {
+						capture_studio_window_->open_tab(CaptureStudioWindow::StudioTab::Encoding);
+					}
+					ImGui::Separator();
+					ImGui::BeginDisabled(busy);
+					if (ImGui::MenuItem("Quick Screenshot", key_hint(InputAction::CaptureScreenshot).c_str())) {
+						trigger_screenshot_capture();
+					}
+					if (ImGui::MenuItem("Start Sequence")) {
+						trigger_sequence_start();
+					}
+					ImGui::EndDisabled();
+					ImGui::BeginDisabled(!sequence_active);
+					if (ImGui::MenuItem("Finish Sequence")) {
+						coordinator.stop_sequence();
+					}
+					ImGui::EndDisabled();
+					ImGui::BeginDisabled(!busy);
+					if (ImGui::MenuItem("Cancel Capture")) {
+						coordinator.cancel_all();
+					}
+					ImGui::EndDisabled();
+				}
+				ImGui::EndMenu();
+			}
+
 			if (ImGui::BeginMenu("Window Layouts")) {
 				if (ImGui::MenuItem("Multi-Window Detached (Default)", "F2", current_layout_ == UiLayoutPreset::MultiWindowDetached)) {
 					apply_multi_window_layout_preset(UiLayoutPreset::MultiWindowDetached);
@@ -896,7 +965,7 @@ private:
 				ImGui::MenuItem("Performance Analysis & Profiling", key_hint(InputAction::TogglePerformanceAnalysisWindow).c_str(), &performance_analysis_window_.open_state());
 				ImGui::MenuItem("Engine Log Console", nullptr, &log_console_window_.open_state());
 				if (capture_studio_window_) {
-					ImGui::MenuItem("Capture Studio", key_hint(InputAction::CaptureScreenshot).c_str(), &capture_studio_window_->open_state());
+					ImGui::MenuItem("Capture Studio", key_hint(InputAction::ToggleCaptureStudio).c_str(), &capture_studio_window_->open_state());
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {

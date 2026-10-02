@@ -506,11 +506,141 @@ struct ModulationSpec {
 	}
 };
 
+struct SignalContext {
+	Vec3 position{0.0, 0.0, 0.0};
+	double speed{0.0};
+	double segment_progress{0.0};
+	double segment_time{0.0};
+	double segment_duration{1.0};
+	double segment_index{0.0};
+	double script_progress{0.0};
+	double script_time{0.0};
+	const BodyPositionLookup* bodies{nullptr};
+	std::function<double(uint32_t)> event_time{};
+
+	[[nodiscard]] ExpressionVariables variables(double measurement) const noexcept {
+		ExpressionVariables v{};
+		v[ExpressionSlot::LocalTime] = segment_time;
+		v[ExpressionSlot::Progress] = segment_progress;
+		v[ExpressionSlot::Duration] = segment_duration;
+		v[ExpressionSlot::GlobalTime] = script_time;
+		v[ExpressionSlot::Radius] = ScriptMath::length(position);
+		v[ExpressionSlot::PositionX] = position[0];
+		v[ExpressionSlot::PositionY] = position[1];
+		v[ExpressionSlot::PositionZ] = position[2];
+		v[ExpressionSlot::Speed] = speed;
+		v[ExpressionSlot::Measure] = measurement;
+		v[ExpressionSlot::ScriptProgress] = script_progress;
+		v[ExpressionSlot::SegmentIndex] = segment_index;
+		return v;
+	}
+};
+
+enum class DriverSource : uint32_t {
+	DistanceToTarget = 0, DistanceToOrigin, PositionX, PositionY, PositionZ, Speed, SegmentProgress, ScriptProgress, SegmentTime, ScriptTime, EventTimeOffset, Expression
+};
+
+enum class DriverBlend : uint32_t { Replace = 0, Add, Multiply };
+
+struct DriverSpec {
+	bool enabled{false};
+	DriverSource source{DriverSource::DistanceToTarget};
+	int32_t body{kOriginReference};
+	Vec3 point{0.0, 0.0, 0.0};
+	uint32_t event{0};
+	Expression expression{"r"};
+	double input_min{5.0};
+	double input_max{80.0};
+	double output_min{0.0};
+	double output_max{1.0};
+	bool clamp_input{true};
+	DriverBlend blend{DriverBlend::Replace};
+	EasingSpec response{};
+
+	[[nodiscard]] double measure(const SignalContext& ctx) const noexcept {
+		switch (source) {
+			case DriverSource::DistanceToTarget: {
+				Vec3 target = point;
+				if (body >= 0 && ctx.bodies != nullptr && static_cast<bool>(*ctx.bodies)) {
+					if (const auto position = (*ctx.bodies)(body)) {
+						target = ScriptMath::add(*position, point);
+					}
+				}
+				return ScriptMath::length(ScriptMath::sub(ctx.position, target));
+			}
+			case DriverSource::DistanceToOrigin: return ScriptMath::length(ctx.position);
+			case DriverSource::PositionX: return ctx.position[0];
+			case DriverSource::PositionY: return ctx.position[1];
+			case DriverSource::PositionZ: return ctx.position[2];
+			case DriverSource::Speed: return ctx.speed;
+			case DriverSource::SegmentProgress: return ctx.segment_progress;
+			case DriverSource::ScriptProgress: return ctx.script_progress;
+			case DriverSource::SegmentTime: return ctx.segment_time;
+			case DriverSource::ScriptTime: return ctx.script_time;
+			case DriverSource::EventTimeOffset: return static_cast<bool>(ctx.event_time) ? (ctx.script_time - ctx.event_time(event)) : 0.0;
+			case DriverSource::Expression: return expression.evaluate(ctx.variables(0.0), 0.0);
+		}
+		return 0.0;
+	}
+
+	[[nodiscard]] double normalize(double measured) const noexcept {
+		const double span = input_max - input_min;
+		const double t = (std::abs(span) > 1e-12) ? (measured - input_min) / span : ((measured >= input_min) ? 1.0 : 0.0);
+		return clamp_input ? std::clamp(t, 0.0, 1.0) : t;
+	}
+
+	[[nodiscard]] double apply(double base, const SignalContext& ctx) const noexcept {
+		if (!enabled) return base;
+		const double t = normalize(measure(ctx));
+		const double shaped = (t < 0.0 || t > 1.0) ? t : response.evaluate(t);
+		const double driven = output_min + (output_max - output_min) * shaped;
+		switch (blend) {
+			case DriverBlend::Add: return base + driven;
+			case DriverBlend::Multiply: return base * driven;
+			case DriverBlend::Replace:
+			default: return driven;
+		}
+	}
+
+	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
+		writer.flag(prefix + "enabled", enabled);
+		writer.enumeration(prefix + "source", source);
+		writer.signed_value(prefix + "body", body);
+		ScriptMath::write_vec(writer, prefix + "point", point);
+		writer.unsigned_value(prefix + "event", event);
+		writer.text(prefix + "expr", expression.source());
+		writer.real(prefix + "in0", input_min);
+		writer.real(prefix + "in1", input_max);
+		writer.real(prefix + "out0", output_min);
+		writer.real(prefix + "out1", output_max);
+		writer.flag(prefix + "clamp", clamp_input);
+		writer.enumeration(prefix + "blend", blend);
+		response.write(writer, prefix + "resp.");
+	}
+
+	void read(const IO::SettingsReader& reader, const std::string& prefix) {
+		enabled = reader.flag(prefix + "enabled", enabled);
+		source = reader.enumeration(prefix + "source", source, DriverSource::Expression);
+		body = reader.signed_value(prefix + "body", body);
+		point = ScriptMath::read_vec(reader, prefix + "point", point);
+		event = reader.unsigned_value(prefix + "event", event);
+		expression.assign(reader.text(prefix + "expr", expression.source()));
+		input_min = reader.real(prefix + "in0", input_min);
+		input_max = reader.real(prefix + "in1", input_max);
+		output_min = reader.real(prefix + "out0", output_min);
+		output_max = reader.real(prefix + "out1", output_max);
+		clamp_input = reader.flag(prefix + "clamp", clamp_input);
+		blend = reader.enumeration(prefix + "blend", blend, DriverBlend::Multiply);
+		response.read(reader, prefix + "resp.");
+	}
+};
+
 struct ChannelContext {
 	double progress{0.0};
 	double local_seconds{0.0};
 	double duration{1.0};
 	double global_seconds{0.0};
+	const SignalContext* signals{nullptr};
 };
 
 struct ScalarChannel {
@@ -521,6 +651,7 @@ struct ScalarChannel {
 	bool use_expression{false};
 	Expression expression{"a+(b-a)*u"};
 	ModulationSpec modulation{};
+	DriverSpec driver{};
 
 	[[nodiscard]] static ScalarChannel make(double start_value, double end_value, bool enabled_state) {
 		ScalarChannel channel;
@@ -534,8 +665,17 @@ struct ScalarChannel {
 		if (!enabled) return fallback;
 		double value = start + (end - start) * easing.evaluate(ctx.progress);
 		if (use_expression && expression.valid()) {
-			const ExpressionVariables variables{ctx.local_seconds, ctx.progress, ctx.duration, ctx.global_seconds, start, end, 0.0, 0.0};
+			ExpressionVariables variables = (ctx.signals != nullptr) ? ctx.signals->variables(driver.enabled ? driver.measure(*ctx.signals) : 0.0) : ExpressionVariables{};
+			variables[ExpressionSlot::LocalTime] = ctx.local_seconds;
+			variables[ExpressionSlot::Progress] = ctx.progress;
+			variables[ExpressionSlot::Duration] = ctx.duration;
+			variables[ExpressionSlot::GlobalTime] = ctx.global_seconds;
+			variables[ExpressionSlot::ParameterA] = start;
+			variables[ExpressionSlot::ParameterB] = end;
 			value = expression.evaluate(variables, value);
+		}
+		if (ctx.signals != nullptr) {
+			value = driver.apply(value, *ctx.signals);
 		}
 		return value + modulation.evaluate(ctx.progress, ctx.local_seconds);
 	}
@@ -548,6 +688,7 @@ struct ScalarChannel {
 		writer.flag(prefix + "use_expr", use_expression);
 		writer.text(prefix + "expr", expression.source());
 		modulation.write(writer, prefix + "mod.");
+		driver.write(writer, prefix + "drv.");
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
@@ -558,6 +699,7 @@ struct ScalarChannel {
 		use_expression = reader.flag(prefix + "use_expr", use_expression);
 		expression.assign(reader.text(prefix + "expr", expression.source()));
 		modulation.read(reader, prefix + "mod.");
+		driver.read(reader, prefix + "drv.");
 	}
 };
 
@@ -605,7 +747,7 @@ struct ShakeSpec {
 	}
 };
 
-enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression };
+enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression, TargetPath };
 
 struct OrientationSpec {
 	OrientationMode mode{OrientationMode::LookAtTarget};
@@ -618,6 +760,9 @@ struct OrientationSpec {
 	double pitch_offset{0.0};
 	double yaw_offset{0.0};
 	std::array<Expression, 2> expressions{Expression{"0"}, Expression{"0"}};
+	ShapeSpec target_path{};
+	ScalarChannel pitch_modifier{};
+	ScalarChannel yaw_modifier{};
 
 	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
 		writer.enumeration(prefix + "mode", mode);
@@ -633,10 +778,13 @@ struct OrientationSpec {
 		writer.real(prefix + "yaw_offset", yaw_offset);
 		writer.text(prefix + "expr0", expressions[0].source());
 		writer.text(prefix + "expr1", expressions[1].source());
+		target_path.write(writer, prefix + "path.");
+		pitch_modifier.write(writer, prefix + "pitch_mod.");
+		yaw_modifier.write(writer, prefix + "yaw_mod.");
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::Expression);
+		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::TargetPath);
 		start = {reader.real(prefix + "s0", start[0]), reader.real(prefix + "s1", start[1])};
 		end = {reader.real(prefix + "e0", end[0]), reader.real(prefix + "e1", end[1])};
 		easing.read(reader, prefix + "ease.");
@@ -647,6 +795,9 @@ struct OrientationSpec {
 		yaw_offset = reader.real(prefix + "yaw_offset", yaw_offset);
 		expressions[0].assign(reader.text(prefix + "expr0", expressions[0].source()));
 		expressions[1].assign(reader.text(prefix + "expr1", expressions[1].source()));
+		target_path.read(reader, prefix + "path.");
+		pitch_modifier.read(reader, prefix + "pitch_mod.");
+		yaw_modifier.read(reader, prefix + "yaw_mod.");
 	}
 };
 
@@ -667,6 +818,13 @@ struct ScriptSegment {
 	ScalarChannel roll{ScalarChannel::make(0.0, 0.0, false)};
 	ScalarChannel warp{ScalarChannel::make(1.0, 1.0, false)};
 	ShakeSpec shake{};
+
+	[[nodiscard]] bool uses_signals() const noexcept {
+		const auto reactive = [](const ScalarChannel& channel) noexcept { return channel.enabled && (channel.driver.enabled || channel.use_expression); };
+		return reactive(fov) || reactive(exposure) || reactive(roll) || reactive(warp)
+			|| reactive(orientation.pitch_modifier) || reactive(orientation.yaw_modifier)
+			|| orientation.mode == OrientationMode::Expression;
+	}
 
 	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
 		writer.text(prefix + "name", name);
@@ -1005,6 +1163,24 @@ struct MotionScript {
 		return segment.anchor_offset;
 	}
 
+	[[nodiscard]] Vec3 position_at(double seconds, const BodyPositionLookup& body_lookup) const noexcept {
+		const auto loc = locate(seconds);
+		if (!loc) return {0.0, 0.0, 0.0};
+		return ScriptMath::add(
+			evaluate_segment_anchor(loc->segment_index, body_lookup),
+			evaluate_segment_raw_position(loc->segment_index, loc->progress, loc->local_seconds, loc->global_seconds)
+		);
+	}
+
+	[[nodiscard]] double estimate_speed(double seconds, const BodyPositionLookup& body_lookup) const noexcept {
+		constexpr double step = 2.0e-3;
+		const double lower = std::max(seconds - step, 0.0);
+		const double upper = seconds + step;
+		const Vec3 before = position_at(lower, body_lookup);
+		const Vec3 after = position_at(upper, body_lookup);
+		return ScriptMath::length(ScriptMath::sub(after, before)) / std::max(upper - lower, 1e-9);
+	}
+
 	[[nodiscard]] ScriptSample sample(double seconds, const BodyPositionLookup& body_lookup = {}) const noexcept {
 		ScriptSample result{};
 		const auto loc = locate(seconds);
@@ -1030,6 +1206,22 @@ struct MotionScript {
 		double pitch = 0.0;
 		double yaw = 0.0;
 		const OrientationSpec& orient = segment.orientation;
+
+		SignalContext signals;
+		signals.position = pos;
+		signals.segment_progress = u;
+		signals.segment_time = local_t;
+		signals.segment_duration = segment.duration;
+		signals.segment_index = static_cast<double>(seg_idx);
+		signals.script_progress = loc->script_progress;
+		signals.script_time = global_t;
+		signals.bodies = &body_lookup;
+		signals.event_time = [this](uint32_t index) -> double {
+			return index < events.size() ? resolved_event_time(events[index]) : 0.0;
+		};
+		if (segment.uses_signals()) {
+			signals.speed = estimate_speed(seconds, body_lookup);
+		}
 
 		switch (orient.mode) {
 			case OrientationMode::Fixed:
@@ -1068,9 +1260,22 @@ struct MotionScript {
 			}
 
 			case OrientationMode::Expression: {
-				const ExpressionVariables variables{local_t, u, segment.duration, global_t, 0.0, 0.0, 0.0, 0.0};
+				const ExpressionVariables variables = signals.variables(0.0);
 				pitch = orient.expressions[0].evaluate(variables, 0.0);
 				yaw = orient.expressions[1].evaluate(variables, 0.0);
+				break;
+			}
+
+			case OrientationMode::TargetPath: {
+				Vec3 anchor_point{0.0, 0.0, 0.0};
+				if (orient.target_body >= 0 && body_lookup) {
+					if (auto bpos = body_lookup(orient.target_body)) {
+						anchor_point = *bpos;
+					}
+				}
+				const ShapeEvaluationContext target_ctx{orient.easing.evaluate(u), local_t, segment.duration, global_t};
+				const Vec3 target = ScriptMath::add(ScriptMath::add(anchor_point, orient.target_path.evaluate(target_ctx)), orient.target_offset);
+				static_cast<void>(ScriptMath::angles_from_direction(ScriptMath::sub(target, pos), pitch, yaw));
 				break;
 			}
 
@@ -1083,7 +1288,10 @@ struct MotionScript {
 		yaw += orient.yaw_offset + shake_rot[1];
 		double roll = shake_rot[2];
 
-		const ChannelContext ch_ctx{u, local_t, segment.duration, global_t};
+		ChannelContext ch_ctx{u, local_t, segment.duration, global_t};
+		ch_ctx.signals = &signals;
+		pitch += orient.pitch_modifier.evaluate(ch_ctx, 0.0);
+		yaw += orient.yaw_modifier.evaluate(ch_ctx, 0.0);
 		double fov = segment.fov.evaluate(ch_ctx, 60.0);
 		double exposure = segment.exposure.evaluate(ch_ctx, 0.0);
 		roll += segment.roll.evaluate(ch_ctx, 0.0);

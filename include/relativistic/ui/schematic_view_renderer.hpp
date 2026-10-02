@@ -1378,46 +1378,120 @@ private:
 		return points;
 	}
 
-void draw_path_preview(ImDrawList* draw_list) const {
-		const auto& preview = path_preview_;
-		if (preview.empty()) return;
+struct DepthSphere {
+		std::array<double, 3> center{0.0, 0.0, 0.0};
+		double radius{0.0};
+	};
 
-		for (size_t i = 1; i < preview.vertices.size(); ++i) {
-			const auto from = project(preview.vertices[i - 1].position);
-			const auto to = project(preview.vertices[i].position);
-			if (!from.visible || !to.visible) continue;
-			const uint32_t segment = preview.vertices[i].segment;
-			const auto& rgb = Capture::kPathPreviewPalette[segment % Capture::kPathPreviewPalette.size()];
-			const bool highlighted = preview.highlighted_segment >= 0 && static_cast<uint32_t>(preview.highlighted_segment) == segment;
-			draw_list->AddLine(from.screen, to.screen, IM_COL32(rgb[0], rgb[1], rgb[2], 235), highlighted ? 3.4f : 1.8f);
-			if (preview.show_samples) {
-				draw_list->AddCircleFilled(to.screen, 1.8f, IM_COL32(255, 255, 255, 170), 8);
+	enum class PathCommandKind : uint8_t { Segment, Marker, FrustumEdge, FrustumApex };
+
+	struct PathCommand {
+		PathCommandKind kind{PathCommandKind::Segment};
+		size_t index{0};
+		size_t slot{0};
+		double depth{0.0};
+		float depth_factor{0.0f};
+		bool arrow{false};
+	};
+
+	struct PathScene {
+		std::vector<PathCommand> commands{};
+		std::vector<ProjectedPoint> vertices{};
+		std::vector<ProjectedPoint> markers{};
+		std::array<ProjectedPoint, 5> frustum{};
+		size_t cursor{0};
+	};
+
+	[[nodiscard]] DepthSphere make_central_sphere(double central_radius, const SchematicViewConfig& cfg) const noexcept {
+		const auto& style = cfg.central_object_style;
+		return DepthSphere{{0.0, 0.0, 0.0}, (style.shape == SchematicObjectShape::Point) ? 0.0 : central_radius * style.radius_scale};
+	}
+
+	[[nodiscard]] DepthSphere make_body_sphere(const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg) const noexcept {
+		if (body.is_spacetime_source) {
+			return DepthSphere{body.position, body.kerr_outer_horizon_radius()};
+		}
+		const auto& style = cfg.effective_body_style(body.id);
+		return DepthSphere{body.position, (style.shape == SchematicObjectShape::Point) ? 0.0 : std::max(body.radius, 1e-4) * style.radius_scale};
+	}
+
+	[[nodiscard]] PathScene build_path_scene(std::span<const DepthSphere> spheres, double hidden_radius) const {
+		PathScene scene;
+		const auto& preview = path_preview_;
+		if (preview.empty()) return scene;
+
+		const std::array<double, 3> origin{0.0, 0.0, 0.0};
+		const auto classify = [&](const std::array<double, 3>& point, size_t& slot) -> bool {
+			if (hidden_radius > 0.0 && is_occluded_by_sphere(point, origin, hidden_radius)) return false;
+			slot = spheres.size();
+			for (size_t i = 0; i < spheres.size(); ++i) {
+				if (spheres[i].radius > 0.0 && is_occluded_by_sphere(point, spheres[i].center, spheres[i].radius)) {
+					slot = i;
+					break;
+				}
 			}
+			return true;
+		};
+
+		scene.vertices.reserve(preview.vertices.size());
+		double depth_min = std::numeric_limits<double>::max();
+		double depth_max = std::numeric_limits<double>::lowest();
+		for (const auto& vertex : preview.vertices) {
+			const auto projected = project(vertex.position);
+			scene.vertices.push_back(projected);
+			if (projected.visible) {
+				depth_min = std::min(depth_min, projected.forward_depth);
+				depth_max = std::max(depth_max, projected.forward_depth);
+			}
+		}
+		const double depth_span = std::max(depth_max - depth_min, 1e-9);
+
+		constexpr double arrow_spacing = 110.0;
+		double arrow_distance = 0.0;
+		for (size_t i = 1; i < scene.vertices.size(); ++i) {
+			if (preview.vertices[i].segment != preview.vertices[i - 1].segment) {
+				arrow_distance = 0.0;
+				continue;
+			}
+			const auto& from = scene.vertices[i - 1];
+			const auto& to = scene.vertices[i];
+			if (!from.visible || !to.visible) continue;
+			const auto& a = preview.vertices[i - 1].position;
+			const auto& b = preview.vertices[i].position;
+			const std::array<double, 3> mid{(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5, (a[2] + b[2]) * 0.5};
+			size_t slot = 0;
+			if (!classify(mid, slot)) continue;
+
+			const double dx = static_cast<double>(to.screen.x - from.screen.x);
+			const double dy = static_cast<double>(to.screen.y - from.screen.y);
+			arrow_distance += std::sqrt(dx * dx + dy * dy);
+
+			PathCommand command;
+			command.kind = PathCommandKind::Segment;
+			command.index = i;
+			command.slot = slot;
+			command.depth = 0.5 * (from.forward_depth + to.forward_depth);
+			command.depth_factor = static_cast<float>(std::clamp((command.depth - depth_min) / depth_span, 0.0, 1.0));
+			if (arrow_distance >= arrow_spacing) {
+				command.arrow = preview.show_direction;
+				arrow_distance = 0.0;
+			}
+			scene.commands.push_back(command);
 		}
 
 		if (preview.show_markers) {
-			for (const auto& marker : preview.markers) {
-				const auto point = project(marker.position);
-				if (!point.visible) continue;
-				const ImVec2 c = point.screen;
-				switch (marker.kind) {
-					case Capture::PathPreviewMarkerKind::Start:
-						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(90, 235, 120, 245), 16);
-						break;
-					case Capture::PathPreviewMarkerKind::End:
-						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(245, 90, 90, 245), 16);
-						break;
-					case Capture::PathPreviewMarkerKind::Event:
-						draw_list->AddQuadFilled(ImVec2(c.x, c.y - 7.0f), ImVec2(c.x + 7.0f, c.y), ImVec2(c.x, c.y + 7.0f), ImVec2(c.x - 7.0f, c.y), IM_COL32(255, 220, 70, 245));
-						break;
-					case Capture::PathPreviewMarkerKind::SegmentBoundary:
-					default:
-						draw_list->AddCircle(c, 5.0f, IM_COL32(240, 245, 255, 235), 16, 1.6f);
-						break;
-				}
-				if (preview.show_labels && !marker.label.empty()) {
-					draw_list->AddText(ImVec2(c.x + 9.0f, c.y - 7.0f), IM_COL32(230, 236, 250, 225), marker.label.c_str());
-				}
+			scene.markers.reserve(preview.markers.size());
+			for (size_t i = 0; i < preview.markers.size(); ++i) {
+				const auto projected = project(preview.markers[i].position);
+				scene.markers.push_back(projected);
+				size_t slot = 0;
+				if (!projected.visible || !classify(preview.markers[i].position, slot)) continue;
+				PathCommand command;
+				command.kind = PathCommandKind::Marker;
+				command.index = i;
+				command.slot = slot;
+				command.depth = projected.forward_depth;
+				scene.commands.push_back(command);
 			}
 		}
 
@@ -1433,20 +1507,124 @@ void draw_path_preview(ImDrawList* draw_list) const {
 					cursor.position[2] + cursor.forward[2] * length + cursor.right[2] * sx * half_width + cursor.up[2] * sy * half_height
 				};
 			};
-			const auto apex = project(cursor.position);
-			const std::array<ProjectedPoint, 4> corners{project(corner(-1.0, 1.0)), project(corner(1.0, 1.0)), project(corner(1.0, -1.0)), project(corner(-1.0, -1.0))};
-			const ImU32 frustum_color = IM_COL32(255, 245, 140, 240);
-			if (apex.visible) {
-				draw_list->AddCircleFilled(apex.screen, 4.0f, frustum_color, 12);
-				for (const auto& c : corners) {
-					if (c.visible) draw_list->AddLine(apex.screen, c.screen, frustum_color, 1.3f);
+			const std::array<std::array<double, 3>, 5> world{cursor.position, corner(-1.0, 1.0), corner(1.0, 1.0), corner(1.0, -1.0), corner(-1.0, -1.0)};
+			for (size_t k = 0; k < world.size(); ++k) {
+				scene.frustum[k] = project(world[k]);
+			}
+
+			static constexpr std::array<std::pair<size_t, size_t>, 8> edges{{{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {2, 3}, {3, 4}, {4, 1}}};
+			for (size_t e = 0; e < edges.size(); ++e) {
+				const auto& pa = scene.frustum[edges[e].first];
+				const auto& pb = scene.frustum[edges[e].second];
+				if (!pa.visible || !pb.visible) continue;
+				const auto& wa = world[edges[e].first];
+				const auto& wb = world[edges[e].second];
+				const std::array<double, 3> mid{(wa[0] + wb[0]) * 0.5, (wa[1] + wb[1]) * 0.5, (wa[2] + wb[2]) * 0.5};
+				size_t slot = 0;
+				if (!classify(mid, slot)) continue;
+				PathCommand command;
+				command.kind = PathCommandKind::FrustumEdge;
+				command.index = e;
+				command.slot = slot;
+				command.depth = 0.5 * (pa.forward_depth + pb.forward_depth);
+				scene.commands.push_back(command);
+			}
+			size_t apex_slot = 0;
+			if (scene.frustum[0].visible && classify(world[0], apex_slot)) {
+				PathCommand command;
+				command.kind = PathCommandKind::FrustumApex;
+				command.slot = apex_slot;
+				command.depth = scene.frustum[0].forward_depth;
+				scene.commands.push_back(command);
+			}
+		}
+
+		std::stable_sort(scene.commands.begin(), scene.commands.end(), [](const PathCommand& a, const PathCommand& b) noexcept {
+			if (a.slot != b.slot) return a.slot < b.slot;
+			return a.depth > b.depth;
+		});
+		return scene;
+	}
+
+	void draw_path_command(ImDrawList* draw_list, const PathScene& scene, const PathCommand& command) const {
+		const auto& preview = path_preview_;
+		const float near_factor = 1.0f - command.depth_factor;
+		const ImU32 frustum_color = IM_COL32(255, 245, 140, 240);
+		switch (command.kind) {
+			case PathCommandKind::Segment: {
+				const auto& from = scene.vertices[command.index - 1];
+				const auto& to = scene.vertices[command.index];
+				const uint32_t segment = preview.vertices[command.index].segment;
+				const auto& rgb = Capture::kPathPreviewPalette[segment % Capture::kPathPreviewPalette.size()];
+				const bool highlighted = preview.highlighted_segment >= 0 && static_cast<uint32_t>(preview.highlighted_segment) == segment;
+				const float thickness = (highlighted ? 3.6f : 2.0f) * (0.7f + 0.3f * near_factor);
+				const int alpha = static_cast<int>(150.0f + 95.0f * near_factor);
+				const ImU32 color = IM_COL32(rgb[0], rgb[1], rgb[2], alpha);
+				draw_list->AddLine(from.screen, to.screen, IM_COL32(6, 8, 14, alpha * 3 / 5), thickness + 2.0f);
+				draw_list->AddLine(from.screen, to.screen, color, thickness);
+				if (preview.show_samples) {
+					draw_list->AddCircleFilled(to.screen, 1.8f, IM_COL32(255, 255, 255, 170), 8);
 				}
+				if (command.arrow) {
+					const float dx = to.screen.x - from.screen.x;
+					const float dy = to.screen.y - from.screen.y;
+					const float length = std::sqrt(dx * dx + dy * dy);
+					if (length > 1e-3f) {
+						const ImVec2 n{dx / length, dy / length};
+						const ImVec2 perp{-n.y, n.x};
+						const float size = 5.0f + 2.5f * near_factor;
+						const ImVec2 tip{to.screen.x + n.x * size, to.screen.y + n.y * size};
+						const ImVec2 base{to.screen.x - n.x * size, to.screen.y - n.y * size};
+						draw_list->AddTriangleFilled(tip, ImVec2(base.x + perp.x * size * 0.8f, base.y + perp.y * size * 0.8f), ImVec2(base.x - perp.x * size * 0.8f, base.y - perp.y * size * 0.8f), color);
+					}
+				}
+				break;
 			}
-			for (size_t i = 0; i < corners.size(); ++i) {
-				const auto& a = corners[i];
-				const auto& b = corners[(i + 1) % corners.size()];
-				if (a.visible && b.visible) draw_list->AddLine(a.screen, b.screen, frustum_color, 1.6f);
+			case PathCommandKind::Marker: {
+				const auto& marker = preview.markers[command.index];
+				const ImVec2 c = scene.markers[command.index].screen;
+				switch (marker.kind) {
+					case Capture::PathPreviewMarkerKind::Start:
+						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(90, 235, 120, 245), 16);
+						draw_list->AddCircle(c, 6.0f, IM_COL32(6, 8, 14, 220), 16, 1.4f);
+						break;
+					case Capture::PathPreviewMarkerKind::End:
+						draw_list->AddCircleFilled(c, 6.0f, IM_COL32(245, 90, 90, 245), 16);
+						draw_list->AddCircle(c, 6.0f, IM_COL32(6, 8, 14, 220), 16, 1.4f);
+						break;
+					case Capture::PathPreviewMarkerKind::Event:
+						draw_list->AddQuadFilled(ImVec2(c.x, c.y - 7.0f), ImVec2(c.x + 7.0f, c.y), ImVec2(c.x, c.y + 7.0f), ImVec2(c.x - 7.0f, c.y), IM_COL32(255, 220, 70, 245));
+						break;
+					case Capture::PathPreviewMarkerKind::SegmentBoundary:
+					default:
+						draw_list->AddCircle(c, 5.0f, IM_COL32(240, 245, 255, 235), 16, 1.6f);
+						break;
+				}
+				if (preview.show_labels && !marker.label.empty()) {
+					const ImVec2 text_position(c.x + 9.0f, c.y - 7.0f);
+					const ImVec2 text_size = ImGui::CalcTextSize(marker.label.c_str());
+					draw_list->AddRectFilled(ImVec2(text_position.x - 2.0f, text_position.y - 1.0f), ImVec2(text_position.x + text_size.x + 2.0f, text_position.y + text_size.y + 1.0f), IM_COL32(8, 10, 18, 150), 3.0f);
+					draw_list->AddText(text_position, IM_COL32(230, 236, 250, 235), marker.label.c_str());
+				}
+				break;
 			}
+			case PathCommandKind::FrustumEdge: {
+				static constexpr std::array<std::pair<size_t, size_t>, 8> edges{{{0, 1}, {0, 2}, {0, 3}, {0, 4}, {1, 2}, {2, 3}, {3, 4}, {4, 1}}};
+				const auto& pa = scene.frustum[edges[command.index].first];
+				const auto& pb = scene.frustum[edges[command.index].second];
+				draw_list->AddLine(pa.screen, pb.screen, frustum_color, command.index < 4 ? 1.3f : 1.6f);
+				break;
+			}
+			case PathCommandKind::FrustumApex:
+				draw_list->AddCircleFilled(scene.frustum[0].screen, 4.0f, frustum_color, 12);
+				break;
+		}
+	}
+
+	void flush_path_scene(ImDrawList* draw_list, PathScene& scene, size_t slot_limit) const {
+		while (scene.cursor < scene.commands.size() && scene.commands[scene.cursor].slot < slot_limit) {
+			draw_path_command(draw_list, scene, scene.commands[scene.cursor]);
+			++scene.cursor;
 		}
 	}
 
@@ -1464,7 +1642,8 @@ public:
 	}
 
 	void render_path_preview_only(ImDrawList* draw_list) const {
-		draw_path_preview(draw_list);
+		PathScene scene = build_path_scene(std::span<const DepthSphere>{}, 2.0 * lensing_mass_);
+		flush_path_scene(draw_list, scene, std::numeric_limits<size_t>::max());
 	}
 
 	void configure(
@@ -1497,8 +1676,11 @@ public:
 	void render_overlay(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
 		const auto& sys = orchestrator.nbody_system();
 		const auto bodies = sys.bodies();
-		draw_path_preview(draw_list);
-		if (bodies.empty()) return;
+		if (bodies.empty()) {
+			PathScene empty_scene = build_path_scene(std::span<const DepthSphere>{}, 2.0 * lensing_mass_);
+			flush_path_scene(draw_list, empty_scene, std::numeric_limits<size_t>::max());
+			return;
+		}
 
 		const auto& params = orchestrator.parameters();
 		const double mu = std::max(params.mass, 1e-6);
@@ -1534,17 +1716,39 @@ public:
 			}
 		}
 
+		const double primary_mass = std::max(params.mass, 0.0);
+		const double primary_spin = std::clamp(params.spin, -primary_mass, primary_mass);
+		const double primary_horizon = (primary_mass > 0.0)
+			? (primary_mass + std::sqrt(std::max(primary_mass * primary_mass - primary_spin * primary_spin, 0.0)))
+			: 0.0;
+
+		struct OverlayEntry {
+			double depth;
+			const Dynamics::PostNewtonianBody* body;
+		};
+		std::vector<OverlayEntry> overlay_entries;
 		if (cfg.show_bodies) {
-			const double primary_mass = std::max(params.mass, 0.0);
-			const double primary_spin = std::clamp(params.spin, -primary_mass, primary_mass);
-			const double primary_horizon = (primary_mass > 0.0)
-				? (primary_mass + std::sqrt(std::max(primary_mass * primary_mass - primary_spin * primary_spin, 0.0)))
-				: 0.0;
+			overlay_entries.reserve(bodies.size());
 			for (const auto& body : bodies) {
 				if (primary_horizon > 0.0 && is_occluded_by_sphere(body.position, std::array<double, 3>{0.0, 0.0, 0.0}, primary_horizon)) continue;
-				draw_body(draw_list, body, cfg, min_val, max_val, nullptr, true);
+				overlay_entries.push_back(OverlayEntry{project(body.position).forward_depth, &body});
 			}
+			std::stable_sort(overlay_entries.begin(), overlay_entries.end(), [](const OverlayEntry& a, const OverlayEntry& b) noexcept {
+				return a.depth > b.depth;
+			});
 		}
+
+		std::vector<DepthSphere> overlay_spheres;
+		overlay_spheres.reserve(overlay_entries.size());
+		for (const auto& entry : overlay_entries) {
+			overlay_spheres.push_back(make_body_sphere(*entry.body, cfg));
+		}
+		PathScene overlay_scene = build_path_scene(overlay_spheres, 2.0 * lensing_mass_);
+		for (size_t i = 0; i < overlay_entries.size(); ++i) {
+			flush_path_scene(draw_list, overlay_scene, i + 1);
+			draw_body(draw_list, *overlay_entries[i].body, cfg, min_val, max_val, nullptr, true);
+		}
+		flush_path_scene(draw_list, overlay_scene, std::numeric_limits<size_t>::max());
 	}
 
 	void render(ImDrawList* draw_list, const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const SchematicViewConfig& cfg) {
@@ -1569,8 +1773,6 @@ public:
 		if (cfg.show_field_lines) {
 			draw_field_lines(draw_list, central_radius, cfg);
 		}
-
-		draw_path_preview(draw_list);
 
 		update_trails(bodies, cfg);
 		if (cfg.show_trails) {
@@ -1622,14 +1824,24 @@ public:
 			return a.depth > b.depth;
 		});
 
-		const auto& unit_prefs = orchestrator.unit_preferences();
+		std::vector<DepthSphere> depth_spheres;
+		depth_spheres.reserve(scene_entries.size());
 		for (const auto& entry : scene_entries) {
+			depth_spheres.push_back(entry.body == nullptr ? make_central_sphere(central_radius, cfg) : make_body_sphere(*entry.body, cfg));
+		}
+		PathScene path_scene = build_path_scene(depth_spheres, 0.0);
+
+		const auto& unit_prefs = orchestrator.unit_preferences();
+		for (size_t i = 0; i < scene_entries.size(); ++i) {
+			flush_path_scene(draw_list, path_scene, i + 1);
+			const auto& entry = scene_entries[i];
 			if (entry.body == nullptr) {
 				draw_central_object(draw_list, params, central_radius, cfg);
 			} else {
 				draw_body(draw_list, *entry.body, cfg, min_val, max_val, &unit_prefs);
 			}
 		}
+		flush_path_scene(draw_list, path_scene, std::numeric_limits<size_t>::max());
 	}
 };
 

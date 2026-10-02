@@ -15,7 +15,7 @@
 
 namespace Relativistic::Capture {
 
-inline constexpr size_t kExpressionVariableCount = 8;
+inline constexpr size_t kExpressionVariableCount = 16;
 inline constexpr size_t kExpressionStackLimit = 32;
 
 using ExpressionVariables = std::array<double, kExpressionVariableCount>;
@@ -29,9 +29,17 @@ namespace ExpressionSlot {
 	inline constexpr size_t ParameterB = 5;
 	inline constexpr size_t ParameterC = 6;
 	inline constexpr size_t ParameterK = 7;
+	inline constexpr size_t Radius = 8;
+	inline constexpr size_t PositionX = 9;
+	inline constexpr size_t PositionY = 10;
+	inline constexpr size_t PositionZ = 11;
+	inline constexpr size_t Speed = 12;
+	inline constexpr size_t Measure = 13;
+	inline constexpr size_t ScriptProgress = 14;
+	inline constexpr size_t SegmentIndex = 15;
 }
 
-inline constexpr std::array<std::string_view, kExpressionVariableCount> kExpressionVariableNames{"t", "u", "d", "g", "a", "b", "c", "k"};
+inline constexpr std::array<std::string_view, kExpressionVariableCount> kExpressionVariableNames{"t", "u", "d", "g", "a", "b", "c", "k", "r", "x", "y", "z", "v", "m", "p", "s"};
 
 [[nodiscard]] inline double hashed_noise_value(int64_t lattice) noexcept {
 	uint64_t x = static_cast<uint64_t>(lattice) * 0x9E3779B97F4A7C15ULL;

@@ -9,12 +9,16 @@
 #include "relativistic/ui/capture_widgets.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
+#include <implot.h>
 #include <algorithm>
 #include <array>
+#include <cfloat>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -27,11 +31,18 @@ namespace MotionScriptEditorDetail {
 
 inline constexpr std::array<const char*, 4> kAnchorNames{"World (Absolute)", "Continue From Previous End", "Offset From Previous End", "Track Body"};
 inline constexpr std::array<const char*, 3> kBlendNames{"Replace", "Add", "Add Relative To Layer Start"};
-inline constexpr std::array<const char*, 6> kOrientationNames{"Free (Keep Current)", "Fixed Angles", "Interpolated Angles", "Look At Target", "Along Travel Direction", "Expressions"};
+inline constexpr std::array<const char*, 7> kOrientationNames{
+	"Free (Keep Current View)", "Fixed Angles", "Interpolated Angles", "Look At Target", "Along Travel Direction", "Pitch And Yaw Expressions", "Look At Moving Target"
+};
 inline constexpr std::array<const char*, 5> kWaveNames{"Sine", "Triangle", "Square", "Sawtooth", "Smooth Noise"};
 inline constexpr std::array<const char*, 3> kPathEndNames{"Clamp At End", "Loop", "Ping-Pong"};
 inline constexpr std::array<const char*, 4> kTriggerNames{"Script Time", "Segment Start", "Segment End", "Segment Fraction"};
 inline constexpr std::array<const char*, 10> kActionNames{"Marker", "Capture Still", "Set Parameter", "Set Time Warp", "Pause Simulation", "Resume Simulation", "Step Ticks", "Set Metric", "Set Integrator", "Load Scenario"};
+inline constexpr std::array<const char*, 12> kDriverSourceNames{
+	"Distance To Target", "Distance To Origin", "Position X", "Position Y", "Position Z", "Camera Speed",
+	"Segment Progress", "Script Progress", "Segment Time", "Script Time", "Time Relative To Event", "Custom Expression"
+};
+inline constexpr std::array<const char*, 3> kDriverBlendNames{"Replace Channel Value", "Add To Channel Value", "Multiply Channel Value"};
 inline constexpr std::array<const char*, 10> kMetricNames{
 	"Flat Minkowski", "Schwarzschild Black Hole", "Kerr Rotating Black Hole", "Reissner-Nordstrom Charged", "Kerr-Newman Charged Rotating",
 	"Schwarzschild-de Sitter (Lambda)", "FLRW Cosmological Expansion", "Morris-Thorne Traversable Wormhole", "Alcubierre Warp Drive Bubble", "BSSN 3+1 Numerical Grid"
@@ -39,6 +50,28 @@ inline constexpr std::array<const char*, 10> kMetricNames{
 inline constexpr std::array<const char*, 6> kIntegratorNames{
 	"Dormand-Prince RK45 (Adaptive)", "Cash-Karp 5(4) (Adaptive)", "Vernier 9(8) High-Order", "Symplectic Gauss-Legendre 4th", "Symplectic Gauss-Legendre 6th", "Hermite 4th-Order (Aarseth)"
 };
+
+inline constexpr const char* kShapeVariableHelp = "Variables: t local seconds, u progress, d duration, g global seconds, a b c k shape parameters.";
+inline constexpr const char* kSignalVariableHelp = "Variables: t segment seconds, u segment progress, d segment duration, g script seconds, r distance to origin, x y z camera position, v camera speed, p script progress, s segment index, a b channel start and end, m driver measurement.";
+
+inline constexpr std::array<Capture::ShapeKind, 4> kBasicShapes{Capture::ShapeKind::Hold, Capture::ShapeKind::Linear, Capture::ShapeKind::QuadraticBezier, Capture::ShapeKind::CubicBezier};
+inline constexpr std::array<Capture::ShapeKind, 3> kWaypointShapes{Capture::ShapeKind::Spline, Capture::ShapeKind::Polyline, Capture::ShapeKind::BSpline};
+inline constexpr std::array<Capture::ShapeKind, 5> kRotationShapes{Capture::ShapeKind::Arc, Capture::ShapeKind::Helix, Capture::ShapeKind::Orbit, Capture::ShapeKind::LogarithmicSpiral, Capture::ShapeKind::ArchimedeanSpiral};
+inline constexpr std::array<Capture::ShapeKind, 6> kCurveShapes{Capture::ShapeKind::Lissajous, Capture::ShapeKind::TorusKnot, Capture::ShapeKind::Lemniscate, Capture::ShapeKind::Rose, Capture::ShapeKind::Epitrochoid, Capture::ShapeKind::Wave};
+inline constexpr std::array<Capture::ShapeKind, 3> kEquationShapes{Capture::ShapeKind::ExpressionCartesian, Capture::ShapeKind::ExpressionCylindrical, Capture::ShapeKind::ExpressionSpherical};
+
+struct ShapeGroup {
+	const char* name;
+	std::span<const Capture::ShapeKind> kinds;
+};
+
+inline constexpr std::array<ShapeGroup, 5> kShapeGroups{{
+	{"Static And Straight", kBasicShapes},
+	{"Through Waypoints", kWaypointShapes},
+	{"Rotations And Orbits", kRotationShapes},
+	{"Closed And Periodic Curves", kCurveShapes},
+	{"Equations", kEquationShapes}
+}};
 
 struct ExpressionPreset {
 	const char* name;
@@ -101,6 +134,90 @@ inline constexpr std::array<ExpressionPreset, 3> kSphericalPresets{{
 	return names;
 }
 
+inline void apply_driver_source_defaults(Capture::DriverSpec& driver) noexcept {
+	using Source = Capture::DriverSource;
+	switch (driver.source) {
+		case Source::DistanceToTarget:
+		case Source::DistanceToOrigin: driver.input_min = 5.0; driver.input_max = 80.0; break;
+		case Source::PositionX:
+		case Source::PositionY:
+		case Source::PositionZ: driver.input_min = -80.0; driver.input_max = 80.0; break;
+		case Source::Speed: driver.input_min = 0.0; driver.input_max = 20.0; break;
+		case Source::SegmentProgress:
+		case Source::ScriptProgress: driver.input_min = 0.0; driver.input_max = 1.0; break;
+		case Source::SegmentTime: driver.input_min = 0.0; driver.input_max = 5.0; break;
+		case Source::ScriptTime: driver.input_min = 0.0; driver.input_max = 10.0; break;
+		case Source::EventTimeOffset: driver.input_min = -2.0; driver.input_max = 2.0; break;
+		case Source::Expression: driver.input_min = 0.0; driver.input_max = 1.0; break;
+	}
+}
+
+[[nodiscard]] inline const char* driver_source_hint(Capture::DriverSource source) noexcept {
+	using Source = Capture::DriverSource;
+	switch (source) {
+		case Source::DistanceToTarget: return "Distance between the camera and the chosen target, in world units.";
+		case Source::DistanceToOrigin: return "Distance between the camera and the world origin, in world units.";
+		case Source::PositionX: return "Camera X coordinate.";
+		case Source::PositionY: return "Camera Y coordinate.";
+		case Source::PositionZ: return "Camera Z coordinate.";
+		case Source::Speed: return "Camera speed along the path, in world units per second.";
+		case Source::SegmentProgress: return "Eased progress inside the current segment, from 0 to 1.";
+		case Source::ScriptProgress: return "Progress through the whole script, from 0 to 1.";
+		case Source::SegmentTime: return "Seconds elapsed since the current segment started.";
+		case Source::ScriptTime: return "Seconds elapsed since the script started.";
+		case Source::EventTimeOffset: return "Script time minus the chosen event time: negative before the event, positive after it.";
+		case Source::Expression: return "Any expression built from the signal variables.";
+	}
+	return "";
+}
+
+[[nodiscard]] inline const char* orientation_mode_hint(Capture::OrientationMode mode) noexcept {
+	using Mode = Capture::OrientationMode;
+	switch (mode) {
+		case Mode::Free: return "The view direction is left untouched; only the adjustments below apply.";
+		case Mode::Fixed: return "The camera keeps a constant pitch and yaw during the whole segment.";
+		case Mode::Interpolated: return "Pitch and yaw are interpolated from a start to an end value.";
+		case Mode::LookAtTarget: return "The camera always faces a fixed point or a simulation body.";
+		case Mode::AlongTravel: return "The camera looks in the direction it is moving.";
+		case Mode::Expression: return "Pitch and yaw in degrees are computed by expressions every frame.";
+		case Mode::TargetPath: return "The camera faces a target that itself moves along a scripted trajectory.";
+	}
+	return "";
+}
+
+template <typename T>
+inline void move_element(std::vector<T>& values, size_t from, size_t to) {
+	if (from == to || from >= values.size() || to >= values.size()) {
+		return;
+	}
+	if (from < to) {
+		std::rotate(values.begin() + static_cast<ptrdiff_t>(from), values.begin() + static_cast<ptrdiff_t>(from) + 1, values.begin() + static_cast<ptrdiff_t>(to) + 1);
+	} else {
+		std::rotate(values.begin() + static_cast<ptrdiff_t>(to), values.begin() + static_cast<ptrdiff_t>(from), values.begin() + static_cast<ptrdiff_t>(from) + 1);
+	}
+}
+
+[[nodiscard]] inline bool shape_kind_picker(const char* label, Capture::ShapeKind& kind) {
+	bool changed = false;
+	if (ImGui::BeginCombo(label, Capture::shape_descriptor(kind).name)) {
+		for (const auto& group : kShapeGroups) {
+			ImGui::SeparatorText(group.name);
+			for (const Capture::ShapeKind candidate : group.kinds) {
+				const bool selected = candidate == kind;
+				if (ImGui::Selectable(Capture::shape_descriptor(candidate).name, selected)) {
+					kind = candidate;
+					changed = true;
+				}
+				if (selected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+		}
+		ImGui::EndCombo();
+	}
+	return changed;
+}
+
 }
 
 class MotionScriptEditor {
@@ -108,33 +225,83 @@ public:
 	using OrchestratorType = Orchestrator::SimulationOrchestrator<1024>;
 
 private:
+	enum class Pane : int {
+		None = -1,
+		Path = 0,
+		Events = 1,
+		Curves = 2,
+		Script = 3
+	};
+
+	enum class ListAction : int {
+		None = 0,
+		Duplicate,
+		Delete,
+		MoveUp,
+		MoveDown,
+		Toggle,
+		InsertStop
+	};
+
 	struct BodyChoice {
 		int32_t id{0};
 		std::string label{};
 	};
 
+	struct CurveSet {
+		std::vector<double> time{};
+		std::vector<double> distance{};
+		std::vector<double> speed{};
+		std::vector<double> x{};
+		std::vector<double> y{};
+		std::vector<double> z{};
+		std::vector<double> pitch{};
+		std::vector<double> yaw{};
+		std::vector<double> roll{};
+		std::vector<double> fov{};
+		std::vector<double> exposure{};
+		std::vector<double> rate{};
+		std::vector<double> segment_marks{};
+		std::vector<double> event_marks{};
+	};
+
+	struct CurveSeries {
+		const char* name;
+		const std::vector<double>* values;
+	};
+
 	static constexpr size_t kTextBufferCapacity = 1U << 19U;
+	static constexpr size_t kCurveSamples = 512;
 
 	int selected_segment_{-1};
 	int selected_layer_{0};
 	int selected_event_{-1};
-	uint32_t new_segment_kind_{static_cast<uint32_t>(Capture::ShapeKind::Linear)};
-	uint32_t new_layer_kind_{static_cast<uint32_t>(Capture::ShapeKind::Wave)};
+	float list_pane_width_{300.0f};
 	double new_segment_duration_{5.0};
 	int preset_index_{0};
 	double time_scale_factor_{1.0};
 	double fit_duration_{30.0};
 	double cursor_seconds_{0.0};
 	bool modified_{false};
+	bool curves_dirty_{true};
+	Pane pane_request_{Pane::None};
 	std::optional<double> cursor_request_{};
 	std::string file_message_{};
 	std::string file_path_{"config/motion_script.cfg"};
 	std::vector<char> text_buffer_{};
 	std::vector<BodyChoice> bodies_{};
+	CurveSet curves_{};
 
 	bool mark(bool value) noexcept {
-		modified_ = modified_ || value;
+		if (value) {
+			modified_ = true;
+			curves_dirty_ = true;
+		}
 		return value;
+	}
+
+	[[nodiscard]] ImGuiTabItemFlags tab_flags(Pane pane) const noexcept {
+		return (pane_request_ == pane) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 	}
 
 	void refresh_bodies(OrchestratorType& orchestrator) {
@@ -165,6 +332,12 @@ private:
 			return true;
 		}
 		return false;
+	}
+
+	[[nodiscard]] static std::string event_label(const Capture::MotionScript& script, size_t index) {
+		char buffer[192];
+		std::snprintf(buffer, sizeof(buffer), "%02zu  %s  (%.2f s)", index + 1, script.events[index].display_label().c_str(), script.resolved_event_time(script.events[index]));
+		return buffer;
 	}
 
 	void select_segment(int index) noexcept {
@@ -198,10 +371,171 @@ private:
 		return last_active;
 	}
 
+	void apply_segment_action(Capture::MotionScript& script, ListAction action, int index) {
+		if (index < 0 || index >= static_cast<int>(script.segments.size())) {
+			return;
+		}
+		const size_t i = static_cast<size_t>(index);
+		switch (action) {
+			case ListAction::Duplicate: {
+				Capture::ScriptSegment copy = script.segments[i];
+				copy.name += " Copy";
+				script.segments.insert(script.segments.begin() + index + 1, std::move(copy));
+				select_segment(index + 1);
+				break;
+			}
+			case ListAction::Delete:
+				script.segments.erase(script.segments.begin() + index);
+				select_segment(std::min(index, static_cast<int>(script.segments.size()) - 1));
+				break;
+			case ListAction::MoveUp:
+				if (index > 0) {
+					MotionScriptEditorDetail::move_element(script.segments, i, i - 1);
+					select_segment(index - 1);
+				}
+				break;
+			case ListAction::MoveDown:
+				if (index + 1 < static_cast<int>(script.segments.size())) {
+					MotionScriptEditorDetail::move_element(script.segments, i, i + 1);
+					select_segment(index + 1);
+				}
+				break;
+			case ListAction::Toggle:
+				script.segments[i].enabled = !script.segments[i].enabled;
+				break;
+			case ListAction::InsertStop: {
+				Capture::ScriptSegment stop = Capture::make_script_segment(Capture::ShapeKind::Hold, std::min(new_segment_duration_, 3600.0));
+				stop.name = "Stop";
+				stop.anchor = Capture::AnchorMode::ContinuePrevious;
+				script.segments.insert(script.segments.begin() + index + 1, std::move(stop));
+				select_segment(index + 1);
+				break;
+			}
+			case ListAction::None:
+			default:
+				return;
+		}
+		mark(true);
+	}
+
+	void rebuild_curves(const Capture::MotionScript& script, OrchestratorType& orchestrator) {
+		curves_ = CurveSet{};
+		curves_dirty_ = false;
+		if (!script.is_usable()) {
+			return;
+		}
+		const auto lookup = Capture::make_body_position_lookup(orchestrator);
+		const double total = script.total_duration();
+		curves_.time.reserve(kCurveSamples + 1);
+		Capture::Vec3 previous{0.0, 0.0, 0.0};
+		double previous_time = 0.0;
+		bool has_previous = false;
+		for (size_t i = 0; i <= kCurveSamples; ++i) {
+			const double t = std::min(total * static_cast<double>(i) / static_cast<double>(kCurveSamples), total - 1.0e-9);
+			const auto sample = script.sample(std::max(t, 0.0), lookup);
+			if (!sample.valid) {
+				continue;
+			}
+			const auto& pose = sample.pose;
+			curves_.time.push_back(t);
+			curves_.x.push_back(pose.position[0]);
+			curves_.y.push_back(pose.position[1]);
+			curves_.z.push_back(pose.position[2]);
+			curves_.distance.push_back(Capture::ScriptMath::length(pose.position));
+			curves_.pitch.push_back(pose.pitch_deg);
+			curves_.yaw.push_back(pose.yaw_deg);
+			curves_.roll.push_back(pose.roll_deg);
+			curves_.fov.push_back(pose.fov_deg);
+			curves_.exposure.push_back(pose.exposure_ev);
+			curves_.rate.push_back(sample.simulation_rate);
+			double speed = 0.0;
+			if (has_previous && t - previous_time > 1.0e-9) {
+				speed = Capture::ScriptMath::length(Capture::ScriptMath::sub(pose.position, previous)) / (t - previous_time);
+			}
+			curves_.speed.push_back(speed);
+			previous = pose.position;
+			previous_time = t;
+			has_previous = true;
+		}
+		if (curves_.speed.size() > 1) {
+			curves_.speed[0] = curves_.speed[1];
+		}
+		double accumulated = 0.0;
+		const auto active = script.active_segments();
+		for (size_t slot = 0; slot + 1 < active.size(); ++slot) {
+			accumulated += script.segments[active[slot]].duration;
+			curves_.segment_marks.push_back(accumulated);
+		}
+		for (const auto& event : script.events) {
+			if (event.enabled) {
+				curves_.event_marks.push_back(script.resolved_event_time(event));
+			}
+		}
+	}
+
+	void curve_plot(const char* title, const char* y_label, std::initializer_list<CurveSeries> series, double total) {
+		if (!ImPlot::BeginPlot(title)) {
+			return;
+		}
+		ImPlot::SetupAxes("Script Time (s)", y_label, ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+		ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, total, ImPlotCond_Once);
+		ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+		for (const CurveSeries& entry : series) {
+			ImPlot::PlotLine(entry.name, curves_.time.data(), entry.values->data(), static_cast<int>(std::min(curves_.time.size(), entry.values->size())));
+		}
+		if (!curves_.segment_marks.empty()) {
+			ImPlot::PlotInfLines("Segment Boundaries", curves_.segment_marks.data(), static_cast<int>(curves_.segment_marks.size()));
+		}
+		if (!curves_.event_marks.empty()) {
+			ImPlot::PlotInfLines("Events", curves_.event_marks.data(), static_cast<int>(curves_.event_marks.size()));
+		}
+		double cursor = cursor_seconds_;
+		if (ImPlot::DragLineX(0, &cursor, ImVec4(1.0f, 0.96f, 0.55f, 1.0f), 1.5f)) {
+			cursor_request_ = std::clamp(cursor, 0.0, total);
+		}
+		ImPlot::EndPlot();
+	}
+
+	void render_curves(const Capture::MotionScript& script, OrchestratorType& orchestrator) {
+		using namespace CaptureWidgets;
+		if (curves_dirty_) {
+			rebuild_curves(script, orchestrator);
+		}
+		if (ImGui::Button("Refresh Curves")) {
+			curves_dirty_ = true;
+		}
+		ImGui::SameLine();
+		help_marker("Shows every evaluated camera quantity over the script time, including the effect of drivers, expressions and modulation. Drag the yellow line to move the preview cursor.");
+		if (curves_.time.size() < 2) {
+			ImGui::TextDisabled("Enable at least one segment to display the curves.");
+			return;
+		}
+		const double total = script.total_duration();
+		const float height = std::max(ImGui::GetContentRegionAvail().y, 520.0f);
+		if (ImPlot::BeginSubplots("##ScriptCurves", 4, 1, ImVec2(-1.0f, height), ImPlotSubplotFlags_LinkAllX)) {
+			curve_plot("Position", "World Units", {{"Distance To Origin", &curves_.distance}, {"X", &curves_.x}, {"Y", &curves_.y}, {"Z", &curves_.z}}, total);
+			curve_plot("Motion", "Units Per Second / Rate", {{"Camera Speed", &curves_.speed}, {"Simulation Rate", &curves_.rate}}, total);
+			curve_plot("View Direction", "Degrees", {{"Pitch", &curves_.pitch}, {"Yaw", &curves_.yaw}, {"Roll", &curves_.roll}}, total);
+			curve_plot("Lens", "Degrees / EV", {{"Field Of View", &curves_.fov}, {"Exposure", &curves_.exposure}}, total);
+			ImPlot::EndSubplots();
+		}
+	}
+
+	void render_summary(const Capture::MotionScript& script) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		ImGui::TextColored(kHeaderColor, "%s", script.name.c_str());
+		ImGui::SameLine();
+		ImGui::TextDisabled("%zu active segment(s)  |  %zu event(s)  |  %.3f s  |  %s", script.active_segments().size(), script.events.size(), script.total_duration(), kPathEndNames[std::min(static_cast<size_t>(script.end_behavior), kPathEndNames.size() - 1)]);
+	}
+
 	void render_timeline(Capture::MotionScript& script) {
 		using namespace CaptureWidgets;
-		const float width = std::max(ImGui::GetContentRegionAvail().x, 120.0f);
-		constexpr float height = 52.0f;
+		constexpr float ruler_height = 18.0f;
+		constexpr float event_lane = 16.0f;
+		constexpr float track_height = 40.0f;
+		constexpr float height = ruler_height + event_lane + track_height;
+		const float width = std::max(ImGui::GetContentRegionAvail().x, 160.0f);
 		const ImVec2 origin = ImGui::GetCursorScreenPos();
 		ImGui::InvisibleButton("##ScriptTimeline", ImVec2(width, height));
 		const bool hovered = ImGui::IsItemHovered();
@@ -211,8 +545,26 @@ private:
 		const auto time_to_x = [&](double seconds) noexcept {
 			return origin.x + static_cast<float>(std::clamp(seconds / total, 0.0, 1.0)) * width;
 		};
+		const float track_top = origin.y + ruler_height + event_lane;
 
 		draw->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height), IM_COL32(18, 20, 30, 255), 4.0f);
+		draw->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + ruler_height), IM_COL32(28, 32, 46, 255), 4.0f, ImDrawFlags_RoundCornersTop);
+
+		static constexpr std::array<double, 15> steps{0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0};
+		double step = steps.back();
+		for (const double candidate : steps) {
+			if (total / candidate <= static_cast<double>(width) / 64.0) {
+				step = candidate;
+				break;
+			}
+		}
+		for (double t = 0.0; t <= total + 1.0e-9; t += step) {
+			const float x = time_to_x(t);
+			draw->AddLine(ImVec2(x, origin.y + ruler_height - 6.0f), ImVec2(x, origin.y + ruler_height), IM_COL32(150, 160, 185, 255));
+			char label[24];
+			std::snprintf(label, sizeof(label), step < 1.0 ? "%.2f s" : "%.0f s", t);
+			draw->AddText(ImVec2(x + 3.0f, origin.y + 2.0f), IM_COL32(170, 180, 205, 255), label);
+		}
 
 		size_t slot = 0;
 		double accumulated = 0.0;
@@ -225,15 +577,15 @@ private:
 			const float x1 = time_to_x(accumulated + segment.duration);
 			const auto& rgb = Capture::kPathPreviewPalette[slot % Capture::kPathPreviewPalette.size()];
 			const bool selected = selected_segment_ == static_cast<int>(i);
-			const ImVec2 top_left(x0 + 1.0f, origin.y + 14.0f);
-			const ImVec2 bottom_right(std::max(x1 - 1.0f, x0 + 2.0f), origin.y + height - 6.0f);
+			const ImVec2 top_left(x0 + 1.0f, track_top + 2.0f);
+			const ImVec2 bottom_right(std::max(x1 - 1.0f, x0 + 2.0f), origin.y + height - 3.0f);
 			draw->AddRectFilled(top_left, bottom_right, IM_COL32(rgb[0], rgb[1], rgb[2], selected ? 235 : 150), 3.0f);
 			if (selected) {
 				draw->AddRect(top_left, bottom_right, IM_COL32(255, 255, 255, 255), 3.0f, 0, 2.0f);
 			}
 			if (bottom_right.x - top_left.x > 36.0f) {
 				draw->PushClipRect(top_left, bottom_right, true);
-				draw->AddText(ImVec2(top_left.x + 4.0f, top_left.y + 8.0f), IM_COL32(10, 12, 18, 255), segment.name.c_str());
+				draw->AddText(ImVec2(top_left.x + 4.0f, top_left.y + 4.0f), IM_COL32(10, 12, 18, 255), segment.name.c_str());
 				draw->PopClipRect();
 			}
 			accumulated += segment.duration;
@@ -245,13 +597,14 @@ private:
 				continue;
 			}
 			const float x = time_to_x(script.resolved_event_time(script.events[i]));
-			const float y = origin.y + 7.0f;
+			const float y = origin.y + ruler_height + event_lane * 0.5f;
 			const ImU32 color = (selected_event_ == static_cast<int>(i)) ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 220, 70, 235);
-			draw->AddQuadFilled(ImVec2(x, y - 5.0f), ImVec2(x + 5.0f, y), ImVec2(x, y + 5.0f), ImVec2(x - 5.0f, y), color);
+			draw->AddQuadFilled(ImVec2(x, y - 6.0f), ImVec2(x + 6.0f, y), ImVec2(x, y + 6.0f), ImVec2(x - 6.0f, y), color);
 		}
 
 		const float cursor_x = time_to_x(cursor_seconds_);
 		draw->AddLine(ImVec2(cursor_x, origin.y), ImVec2(cursor_x, origin.y + height), IM_COL32(255, 245, 140, 255), 2.0f);
+		draw->AddTriangleFilled(ImVec2(cursor_x - 5.0f, origin.y), ImVec2(cursor_x + 5.0f, origin.y), ImVec2(cursor_x, origin.y + 8.0f), IM_COL32(255, 245, 140, 255));
 
 		const ImVec2 mouse = ImGui::GetIO().MousePos;
 		const double hover_time = std::clamp(static_cast<double>((mouse.x - origin.x) / width), 0.0, 1.0) * total;
@@ -261,10 +614,10 @@ private:
 				ImGui::SetTooltip("%s | %.3f s", script.segments[static_cast<size_t>(hovered_segment)].name.c_str(), hover_time);
 			}
 		}
-		if (ImGui::IsItemClicked()) {
+		const auto pick_event = [&]() {
 			int event_hit = -1;
-			float best_distance = 7.0f;
-			if (mouse.y < origin.y + 15.0f) {
+			float best_distance = 8.0f;
+			if (mouse.y >= origin.y + ruler_height && mouse.y < track_top) {
 				for (size_t i = 0; i < script.events.size(); ++i) {
 					const float distance = std::abs(time_to_x(script.resolved_event_time(script.events[i])) - mouse.x);
 					if (distance < best_distance) {
@@ -273,6 +626,10 @@ private:
 					}
 				}
 			}
+			return event_hit;
+		};
+		if (ImGui::IsItemClicked()) {
+			const int event_hit = pick_event();
 			if (event_hit >= 0) {
 				selected_event_ = event_hit;
 			} else {
@@ -282,57 +639,205 @@ private:
 				}
 			}
 		}
+		if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+			pane_request_ = (pick_event() >= 0) ? Pane::Events : Pane::Path;
+		}
 		if (active) {
 			cursor_request_ = hover_time;
 		}
+	}
+
+	bool edit_modulation(Capture::ModulationSpec& modulation) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		bool changed = ImGui::Checkbox("Enable Periodic Modulation", &modulation.enabled);
+		ImGui::BeginDisabled(!modulation.enabled);
+		if (begin_property_grid("##ModulationGrid")) {
+			changed |= property_enum("Waveform", modulation.wave, kWaveNames, "Shape of the periodic oscillation added to the value.");
+			changed |= property_drag_free("Amplitude At Start", modulation.amplitude, 0.01, "%.4f", "Oscillation amplitude at the start of the segment.");
+			changed |= property_drag_free("Amplitude At End", modulation.amplitude_end, 0.01, "%.4f", "Oscillation amplitude at the end of the segment.");
+			changed |= property_drag("Frequency (Hz)", modulation.frequency, 0.005, 0.0, 1000.0, "%.4f", "Number of oscillations per second.");
+			changed |= property_drag("Phase (deg)", modulation.phase_deg, 0.5, -360.0, 360.0, "%.1f", "Starting phase of the oscillation.");
+			changed |= property_drag("Edge Fade", modulation.fade, 0.005, 0.0, 0.5, "%.3f", "Fraction of the segment used to fade the oscillation in and out.");
+			end_property_grid();
+		}
+		ImGui::EndDisabled();
+		return changed;
+	}
+
+	bool edit_driver(Capture::DriverSpec& driver, double channel_start, double channel_end, const char* unit, const Capture::MotionScript& script) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		bool changed = false;
+		bool enabled = driver.enabled;
+		if (ImGui::Checkbox("Drive This Value From A Live Signal", &enabled)) {
+			if (enabled && !driver.enabled && driver.output_min == 0.0 && driver.output_max == 1.0) {
+				driver.output_min = channel_start;
+				driver.output_max = channel_end;
+			}
+			driver.enabled = enabled;
+			changed = true;
+		}
+		render_setting_tooltip("Maps a measured quantity, such as the distance to a body, onto this value in real time.");
+		ImGui::BeginDisabled(!driver.enabled);
+		if (begin_property_grid("##DriverGrid")) {
+			if (property_enum("Signal", driver.source, kDriverSourceNames, "The measured quantity that controls the value.")) {
+				apply_driver_source_defaults(driver);
+				changed = true;
+			}
+			property_info("", driver_source_hint(driver.source));
+			switch (driver.source) {
+				case Capture::DriverSource::DistanceToTarget:
+					changed |= property_row("Target Body", "Body or fixed point the distance is measured to.", [&] { return edit_body_reference("##value", driver.body); });
+					changed |= property_vec3("Target Offset", driver.point, 0.1, "%.3f", "Offset from the body, or the absolute point when no body is selected.");
+					break;
+				case Capture::DriverSource::EventTimeOffset:
+					if (script.events.empty()) {
+						property_info("Event", "The script has no events. Add one in the Events tab.");
+					} else {
+						driver.event = std::min<uint32_t>(driver.event, static_cast<uint32_t>(script.events.size() - 1));
+						changed |= property_row("Event", "Event the time offset is measured from.", [&] {
+							bool picked = false;
+							const std::string preview = event_label(script, driver.event);
+							if (ImGui::BeginCombo("##value", preview.c_str())) {
+								for (size_t i = 0; i < script.events.size(); ++i) {
+									const std::string label = event_label(script, i);
+									if (ImGui::Selectable(label.c_str(), driver.event == i)) {
+										driver.event = static_cast<uint32_t>(i);
+										picked = true;
+									}
+								}
+								ImGui::EndCombo();
+							}
+							return picked;
+						});
+					}
+					break;
+				case Capture::DriverSource::Expression:
+					changed |= property_expression("Signal Expression", driver.expression, "Expression evaluated every frame to produce the measured value.");
+					break;
+				default:
+					break;
+			}
+			changed |= property_drag_free("Input At Minimum", driver.input_min, 0.05, "%.4f", "Measured value that produces the minimum output.");
+			changed |= property_drag_free("Input At Maximum", driver.input_max, 0.05, "%.4f", "Measured value that produces the maximum output.");
+			changed |= property_check("Clamp Input", driver.clamp_input, "When disabled the output keeps extrapolating outside the input range.");
+			changed |= property_drag_free("Output At Minimum", driver.output_min, 0.05, "%.4f", "Value produced when the input is at its minimum.");
+			changed |= property_drag_free("Output At Maximum", driver.output_max, 0.05, "%.4f", "Value produced when the input is at its maximum.");
+			changed |= property_enum("Combine With Animation", driver.blend, kDriverBlendNames, "How the driven value is combined with the animated value of the channel.");
+			end_property_grid();
+		}
+		if (ImGui::TreeNode("Response Curve")) {
+			changed |= edit_easing("DriverResponse", driver.response);
+			ImGui::TreePop();
+		}
+		ImGui::TextDisabled("Input %.2f to %.2f maps to %.2f to %.2f %s", driver.input_min, driver.input_max, driver.output_min, driver.output_max, unit);
+		ImGui::EndDisabled();
+		return changed;
+	}
+
+	[[nodiscard]] static std::string channel_summary(const Capture::ScalarChannel& channel, const char* unit) {
+		using namespace MotionScriptEditorDetail;
+		if (!channel.enabled) {
+			return "Inactive";
+		}
+		char buffer[160];
+		if (channel.driver.enabled) {
+			std::snprintf(buffer, sizeof(buffer), "Driven by %s", kDriverSourceNames[std::min(static_cast<size_t>(channel.driver.source), kDriverSourceNames.size() - 1)]);
+		} else {
+			std::snprintf(buffer, sizeof(buffer), "%.2f to %.2f %s", channel.start, channel.end, unit);
+		}
+		std::string text = buffer;
+		if (channel.use_expression) {
+			text += " + Expression";
+		}
+		if (channel.modulation.enabled) {
+			text += " + Modulation";
+		}
+		return text;
+	}
+
+	bool edit_channel(const char* label, Capture::ScalarChannel& channel, const char* unit, const Capture::MotionScript& script) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		bool changed = false;
+		ImGui::PushID(label);
+		const std::string header = std::string(label) + "  -  " + channel_summary(channel, unit) + "###channel";
+		if (ImGui::CollapsingHeader(header.c_str(), channel.enabled ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None)) {
+			changed |= ImGui::Checkbox("Animate This Value", &channel.enabled);
+			render_setting_tooltip("When disabled the value is left to the live camera and simulation state.");
+			ImGui::BeginDisabled(!channel.enabled);
+			if (begin_property_grid("##ChannelGrid")) {
+				changed |= property_drag_free("Start Value", channel.start, 0.05, "%.4f", "Value at the start of the segment.");
+				changed |= property_drag_free("End Value", channel.end, 0.05, "%.4f", "Value at the end of the segment.");
+				end_property_grid();
+			}
+			if (ImGui::TreeNode("Easing Between Start And End")) {
+				changed |= edit_easing("ChannelEasing", channel.easing);
+				ImGui::TreePop();
+			}
+			ImGui::SeparatorText("Reactive Driver");
+			changed |= edit_driver(channel.driver, channel.start, channel.end, unit, script);
+			ImGui::SeparatorText("Expression Override");
+			changed |= ImGui::Checkbox("Use Expression", &channel.use_expression);
+			if (channel.use_expression) {
+				if (begin_property_grid("##ChannelExpressionGrid")) {
+					changed |= property_expression("Value Expression", channel.expression, "Computes the animated value from the signal variables.");
+					end_property_grid();
+				}
+				ImGui::TextDisabled("%s", kSignalVariableHelp);
+			}
+			if (ImGui::TreeNode("Periodic Modulation")) {
+				changed |= edit_modulation(channel.modulation);
+				ImGui::TreePop();
+			}
+			ImGui::EndDisabled();
+		}
+		ImGui::PopID();
+		return changed;
 	}
 
 	bool edit_shape(Capture::ShapeSpec& shape, OrchestratorType& orchestrator) {
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
 		bool changed = false;
+		const auto& descriptor = Capture::shape_descriptor(shape.kind);
 
-		const auto& names = Capture::shape_kind_names();
-		int kind_index = static_cast<int>(shape.kind);
-		if (ImGui::Combo("Shape", &kind_index, names.data(), static_cast<int>(names.size()))) {
-			shape.reset(static_cast<Capture::ShapeKind>(kind_index));
-			changed = true;
+		if (begin_property_grid("##ShapeGrid")) {
+			Capture::ShapeKind picked = shape.kind;
+			if (property_row("Shape", "Mathematical family used to generate the trajectory.", [&] { return shape_kind_picker("##value", picked); })) {
+				shape.reset(picked);
+				changed = true;
+			}
+			for (size_t i = 0; i < descriptor.control_labels.size(); ++i) {
+				if (descriptor.control_labels[i] == nullptr) {
+					continue;
+				}
+				bool copy_camera = false;
+				const bool position = control_is_position(shape.kind, i);
+				changed |= property_vec3(descriptor.control_labels[i], shape.controls[i], 0.1, "%.3f", nullptr, position ? "Camera" : nullptr, &copy_camera);
+				if (copy_camera) {
+					shape.controls[i] = orchestrator.camera().position;
+					changed = true;
+				}
+			}
+			for (size_t i = 0; i < descriptor.value_labels.size(); ++i) {
+				if (descriptor.value_labels[i] == nullptr) {
+					continue;
+				}
+				changed |= property_drag_free(descriptor.value_labels[i], shape.values[i], 0.05, "%.4f");
+			}
+			end_property_grid();
 		}
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Reset Shape")) {
+		if (ImGui::SmallButton("Reset Shape To Defaults")) {
 			shape.reset(shape.kind);
 			changed = true;
 		}
 
-		const auto& descriptor = Capture::shape_descriptor(shape.kind);
-		for (size_t i = 0; i < descriptor.control_labels.size(); ++i) {
-			if (descriptor.control_labels[i] == nullptr) {
-				continue;
-			}
-			ImGui::PushID(static_cast<int>(i));
-			changed |= drag_vec3(descriptor.control_labels[i], shape.controls[i], 0.1, "%.3f");
-			if (control_is_position(shape.kind, i)) {
-				ImGui::SameLine();
-				if (ImGui::SmallButton("Cam")) {
-					shape.controls[i] = orchestrator.camera().position;
-					changed = true;
-				}
-				render_setting_tooltip("Copies the live camera position into this control.");
-			}
-			ImGui::PopID();
-		}
-
-		for (size_t i = 0; i < descriptor.value_labels.size(); ++i) {
-			if (descriptor.value_labels[i] == nullptr) {
-				continue;
-			}
-			ImGui::PushID(static_cast<int>(100 + i));
-			changed |= drag_double_free(descriptor.value_labels[i], shape.values[i], 0.05, "%.4f");
-			ImGui::PopID();
-		}
-
 		if (descriptor.waypoints) {
-			ImGui::TextColored(kHeaderColor, "Waypoints (%zu)", shape.waypoints.size());
+			ImGui::SeparatorText("Waypoints");
+			ImGui::Text("%zu waypoint(s)", shape.waypoints.size());
+			ImGui::SameLine();
 			changed |= ImGui::Checkbox("Closed Loop", &shape.closed);
 			if (shape.kind != Capture::ShapeKind::BSpline) {
 				ImGui::SameLine();
@@ -340,30 +845,42 @@ private:
 			}
 			int remove_index = -1;
 			int duplicate_index = -1;
-			ImGui::BeginChild("##Waypoints", ImVec2(0.0f, 180.0f), true);
-			ImGuiListClipper clipper;
-			clipper.Begin(static_cast<int>(shape.waypoints.size()));
-			while (clipper.Step()) {
-				for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-					ImGui::PushID(i);
-					changed |= drag_vec3("##waypoint", shape.waypoints[static_cast<size_t>(i)], 0.1, "%.2f");
-					ImGui::SameLine();
-					if (ImGui::SmallButton("Cam")) {
-						shape.waypoints[static_cast<size_t>(i)] = orchestrator.camera().position;
-						changed = true;
+			if (ImGui::BeginTable("##Waypoints", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, 190.0f))) {
+				ImGui::TableSetupScrollFreeze(0, 1);
+				ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+				ImGui::TableSetupColumn("Position", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 118.0f);
+				ImGui::TableHeadersRow();
+				ImGuiListClipper clipper;
+				clipper.Begin(static_cast<int>(shape.waypoints.size()));
+				while (clipper.Step()) {
+					for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+						ImGui::PushID(i);
+						ImGui::TableNextRow();
+						ImGui::TableNextColumn();
+						ImGui::AlignTextToFramePadding();
+						ImGui::Text("%d", i + 1);
+						ImGui::TableNextColumn();
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						changed |= drag_vec3("##position", shape.waypoints[static_cast<size_t>(i)], 0.1, "%.2f");
+						ImGui::TableNextColumn();
+						if (ImGui::SmallButton("Camera")) {
+							shape.waypoints[static_cast<size_t>(i)] = orchestrator.camera().position;
+							changed = true;
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Copy")) {
+							duplicate_index = i;
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Del")) {
+							remove_index = i;
+						}
+						ImGui::PopID();
 					}
-					ImGui::SameLine();
-					if (ImGui::SmallButton("+")) {
-						duplicate_index = i;
-					}
-					ImGui::SameLine();
-					if (ImGui::SmallButton("X")) {
-						remove_index = i;
-					}
-					ImGui::PopID();
 				}
+				ImGui::EndTable();
 			}
-			ImGui::EndChild();
 			if (duplicate_index >= 0) {
 				const auto copy = shape.waypoints[static_cast<size_t>(duplicate_index)];
 				shape.waypoints.insert(shape.waypoints.begin() + duplicate_index + 1, copy);
@@ -409,13 +926,15 @@ private:
 		}
 
 		if (descriptor.expressions) {
+			ImGui::SeparatorText("Equations");
 			const auto labels = Capture::shape_expression_labels(shape.kind);
-			for (size_t i = 0; i < shape.expressions.size(); ++i) {
-				ImGui::PushID(static_cast<int>(200 + i));
-				changed |= input_expression(labels[i], shape.expressions[i]);
-				ImGui::PopID();
+			if (begin_property_grid("##EquationGrid")) {
+				for (size_t i = 0; i < shape.expressions.size(); ++i) {
+					changed |= property_expression(labels[i], shape.expressions[i]);
+				}
+				end_property_grid();
 			}
-			ImGui::TextDisabled("Variables: t local seconds, u progress, d duration, g global seconds, a b c k parameters.");
+			ImGui::TextDisabled("%s", kShapeVariableHelp);
 			const auto presets = expression_presets(shape.kind);
 			int pick = -1;
 			std::vector<const char*> preset_names;
@@ -423,7 +942,7 @@ private:
 			for (const auto& preset : presets) {
 				preset_names.push_back(preset.name);
 			}
-			if (ImGui::Combo("Equation Preset", &pick, preset_names.data(), static_cast<int>(preset_names.size()))) {
+			if (ImGui::Combo("Load Equation Preset", &pick, preset_names.data(), static_cast<int>(preset_names.size()))) {
 				for (size_t i = 0; i < shape.expressions.size(); ++i) {
 					shape.expressions[i].assign(presets[static_cast<size_t>(pick)].sources[i]);
 				}
@@ -432,10 +951,13 @@ private:
 		}
 
 		if (ImGui::TreeNode("Shape Transform")) {
-			changed |= drag_vec3("Scale", shape.scale, 0.01, "%.3f");
-			changed |= drag_vec3("Rotation (Roll, Pitch, Yaw deg)", shape.rotation_deg, 0.25, "%.2f");
-			changed |= drag_vec3("Pivot", shape.pivot, 0.1, "%.3f");
-			changed |= drag_vec3("Translation", shape.translation, 0.1, "%.3f");
+			if (begin_property_grid("##TransformGrid")) {
+				changed |= property_vec3("Scale", shape.scale, 0.01, "%.3f", "Per-axis scale applied around the pivot.");
+				changed |= property_vec3("Rotation (Roll, Pitch, Yaw deg)", shape.rotation_deg, 0.25, "%.2f", "Euler rotation applied around the pivot.");
+				changed |= property_vec3("Pivot", shape.pivot, 0.1, "%.3f", "Point the scale and rotation are applied around.");
+				changed |= property_vec3("Translation", shape.translation, 0.1, "%.3f", "Offset applied after scale and rotation.");
+				end_property_grid();
+			}
 			if (ImGui::SmallButton("Reset Transform")) {
 				shape.scale = {1.0, 1.0, 1.0};
 				shape.rotation_deg = {0.0, 0.0, 0.0};
@@ -452,265 +974,372 @@ private:
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
 		bool changed = false;
-		changed |= input_text("Layer Name", layer.name);
-		changed |= ImGui::Checkbox("Layer Enabled", &layer.enabled);
-		changed |= enum_combo("Blend Mode", layer.blend, kBlendNames);
-		render_setting_tooltip("Replace overrides the stack, Add sums absolute positions, Add Relative sums only the displacement from the layer start, which is ideal for wobbles, spirals and offsets over a base path.");
-		changed |= drag_double("Weight Start", layer.weight_start, 0.01, -50.0, 50.0, "%.3f");
-		changed |= drag_double("Weight End", layer.weight_end, 0.01, -50.0, 50.0, "%.3f");
-		changed |= drag_double("Active Window Start", layer.window_start, 0.005, 0.0, 1.0, "%.3f");
-		changed |= drag_double("Active Window End", layer.window_end, 0.005, 0.0, 1.0, "%.3f");
+		ImGui::SeparatorText("Layer Settings");
+		if (begin_property_grid("##LayerGrid")) {
+			changed |= property_text("Name", layer.name);
+			changed |= property_check("Enabled", layer.enabled);
+			changed |= property_enum("Blend Mode", layer.blend, kBlendNames, "Replace overrides the stack, Add sums absolute positions, Add Relative sums only the displacement from the layer start, which suits wobbles and offsets over a base path.");
+			changed |= property_drag("Weight At Start", layer.weight_start, 0.01, -50.0, 50.0, "%.3f", "Layer strength at the start of the segment.");
+			changed |= property_drag("Weight At End", layer.weight_end, 0.01, -50.0, 50.0, "%.3f", "Layer strength at the end of the segment.");
+			changed |= property_drag("Active Window Start", layer.window_start, 0.005, 0.0, 1.0, "%.3f", "Segment progress where the layer starts playing.");
+			changed |= property_drag("Active Window End", layer.window_end, 0.005, 0.0, 1.0, "%.3f", "Segment progress where the layer finishes playing.");
+			end_property_grid();
+		}
 		if (ImGui::TreeNode("Layer Time Easing")) {
 			changed |= edit_easing("LayerEasing", layer.easing);
 			ImGui::TreePop();
 		}
+		ImGui::SeparatorText("Layer Shape");
+		ImGui::PushID("LayerShape");
 		changed |= edit_shape(layer.shape, orchestrator);
-		return changed;
-	}
-
-	bool edit_modulation(Capture::ModulationSpec& modulation) {
-		using namespace CaptureWidgets;
-		using namespace MotionScriptEditorDetail;
-		bool changed = ImGui::Checkbox("Enable Modulation", &modulation.enabled);
-		if (modulation.enabled) {
-			changed |= enum_combo("Wave", modulation.wave, kWaveNames);
-			changed |= drag_double_free("Amplitude Start", modulation.amplitude, 0.01, "%.4f");
-			changed |= drag_double_free("Amplitude End", modulation.amplitude_end, 0.01, "%.4f");
-			changed |= drag_double("Frequency (Hz)", modulation.frequency, 0.005, 0.0, 1000.0, "%.4f");
-			changed |= drag_double("Phase (deg)", modulation.phase_deg, 0.5, -360.0, 360.0, "%.1f");
-			changed |= drag_double("Edge Fade", modulation.fade, 0.005, 0.0, 0.5, "%.3f");
-		}
-		return changed;
-	}
-
-	bool edit_channel(const char* label, Capture::ScalarChannel& channel) {
-		using namespace CaptureWidgets;
-		bool changed = false;
-		ImGui::PushID(label);
-		if (ImGui::TreeNode(label)) {
-			changed |= ImGui::Checkbox("Animate", &channel.enabled);
-			if (channel.enabled) {
-				changed |= drag_double_free("Start", channel.start, 0.05, "%.4f");
-				changed |= drag_double_free("End", channel.end, 0.05, "%.4f");
-				if (ImGui::TreeNode("Easing")) {
-					changed |= edit_easing("ChannelEasing", channel.easing);
-					ImGui::TreePop();
-				}
-				changed |= ImGui::Checkbox("Use Expression", &channel.use_expression);
-				if (channel.use_expression) {
-					changed |= input_expression("Value Expression", channel.expression);
-					ImGui::TextDisabled("Variables: t, u, d, g, a = start, b = end.");
-				}
-				if (ImGui::TreeNode("Modulation")) {
-					changed |= edit_modulation(channel.modulation);
-					ImGui::TreePop();
-				}
-			}
-			ImGui::TreePop();
-		}
 		ImGui::PopID();
 		return changed;
 	}
 
-	bool edit_orientation(Capture::OrientationSpec& orientation) {
+	bool render_movement_pane(Capture::ScriptSegment& segment, OrchestratorType& orchestrator) {
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
-		bool changed = enum_combo("Orientation Mode", orientation.mode, kOrientationNames);
+		bool changed = false;
+		selected_layer_ = std::clamp(selected_layer_, 0, std::max(static_cast<int>(segment.layers.size()) - 1, 0));
+		ImGui::TextColored(kHeaderColor, "Movement Layers (%zu)", segment.layers.size());
+		ImGui::SameLine();
+		help_marker("Layers are combined from top to bottom to build the camera position. Use Add Relative layers to put a wobble or a spiral on top of a base path.");
+
+		if (ImGui::BeginTable("##LayerTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, 120.0f))) {
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+			ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableSetupColumn("Blend", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+			ImGui::TableSetupColumn("Shape", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+			ImGui::TableHeadersRow();
+			for (size_t i = 0; i < segment.layers.size(); ++i) {
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				bool enabled = segment.layers[i].enabled;
+				if (ImGui::Checkbox("##layer_enabled", &enabled)) {
+					segment.layers[i].enabled = enabled;
+					changed = true;
+				}
+				ImGui::TableNextColumn();
+				char label[160];
+				std::snprintf(label, sizeof(label), "%02zu  %s", i + 1, segment.layers[i].name.c_str());
+				if (ImGui::Selectable(label, selected_layer_ == static_cast<int>(i))) {
+					selected_layer_ = static_cast<int>(i);
+				}
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(kBlendNames[static_cast<size_t>(segment.layers[i].blend)]);
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(Capture::shape_descriptor(segment.layers[i].shape.kind).name);
+				ImGui::PopID();
+			}
+			ImGui::EndTable();
+		}
+
+		if (ImGui::Button("Add Layer...")) {
+			ImGui::OpenPopup("##AddLayerPopup");
+		}
+		if (ImGui::BeginPopup("##AddLayerPopup")) {
+			for (const auto& group : kShapeGroups) {
+				if (ImGui::BeginMenu(group.name)) {
+					for (const Capture::ShapeKind kind : group.kinds) {
+						if (ImGui::MenuItem(Capture::shape_descriptor(kind).name)) {
+							Capture::ShapeLayer layer;
+							layer.name = Capture::shape_descriptor(kind).name;
+							layer.blend = segment.layers.empty() ? Capture::LayerBlend::Replace : Capture::LayerBlend::AddRelative;
+							layer.shape = Capture::ShapeSpec::make(kind);
+							segment.layers.push_back(std::move(layer));
+							selected_layer_ = static_cast<int>(segment.layers.size()) - 1;
+							changed = true;
+						}
+					}
+					ImGui::EndMenu();
+				}
+			}
+			ImGui::EndPopup();
+		}
+		ImGui::BeginDisabled(segment.layers.empty());
+		ImGui::SameLine();
+		if (ImGui::Button("Duplicate")) {
+			Capture::ShapeLayer copy = segment.layers[static_cast<size_t>(selected_layer_)];
+			copy.name += " Copy";
+			segment.layers.insert(segment.layers.begin() + selected_layer_ + 1, std::move(copy));
+			++selected_layer_;
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Delete")) {
+			segment.layers.erase(segment.layers.begin() + selected_layer_);
+			selected_layer_ = std::max(selected_layer_ - 1, 0);
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Up") && selected_layer_ > 0) {
+			std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ - 1)]);
+			--selected_layer_;
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Down") && selected_layer_ + 1 < static_cast<int>(segment.layers.size())) {
+			std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ + 1)]);
+			++selected_layer_;
+			changed = true;
+		}
+		ImGui::EndDisabled();
+
+		if (!segment.layers.empty()) {
+			ImGui::PushID("SelectedLayer");
+			changed |= edit_layer(segment.layers[static_cast<size_t>(selected_layer_)], orchestrator);
+			ImGui::PopID();
+		}
+		return changed;
+	}
+
+	bool render_look_pane(Capture::ScriptSegment& segment, OrchestratorType& orchestrator, const Capture::MotionScript& script) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		bool changed = false;
+		auto& orientation = segment.orientation;
+
+		ImGui::SeparatorText("View Direction Source");
+		if (begin_property_grid("##LookModeGrid")) {
+			changed |= property_enum("Mode", orientation.mode, kOrientationNames, "Chooses how the viewing direction is produced during this segment.");
+			end_property_grid();
+		}
+		ImGui::TextDisabled("%s", orientation_mode_hint(orientation.mode));
+
 		switch (orientation.mode) {
 			case Capture::OrientationMode::Fixed:
-				changed |= drag_double("Pitch (deg)", orientation.start[0], 0.25, -89.0, 89.0, "%.2f");
-				changed |= drag_double("Yaw (deg)", orientation.start[1], 0.25, -36000.0, 36000.0, "%.2f");
+				if (begin_property_grid("##LookFixedGrid")) {
+					changed |= property_drag("Pitch (deg)", orientation.start[0], 0.25, -89.0, 89.0, "%.2f");
+					changed |= property_drag("Yaw (deg)", orientation.start[1], 0.25, -36000.0, 36000.0, "%.2f");
+					end_property_grid();
+				}
 				break;
 			case Capture::OrientationMode::Interpolated:
-				changed |= drag_double("Pitch Start (deg)", orientation.start[0], 0.25, -89.0, 89.0, "%.2f");
-				changed |= drag_double("Yaw Start (deg)", orientation.start[1], 0.25, -36000.0, 36000.0, "%.2f");
-				changed |= drag_double("Pitch End (deg)", orientation.end[0], 0.25, -89.0, 89.0, "%.2f");
-				changed |= drag_double("Yaw End (deg)", orientation.end[1], 0.25, -36000.0, 36000.0, "%.2f");
+				if (begin_property_grid("##LookInterpolatedGrid")) {
+					changed |= property_drag("Pitch At Start (deg)", orientation.start[0], 0.25, -89.0, 89.0, "%.2f");
+					changed |= property_drag("Yaw At Start (deg)", orientation.start[1], 0.25, -36000.0, 36000.0, "%.2f");
+					changed |= property_drag("Pitch At End (deg)", orientation.end[0], 0.25, -89.0, 89.0, "%.2f");
+					changed |= property_drag("Yaw At End (deg)", orientation.end[1], 0.25, -36000.0, 36000.0, "%.2f");
+					end_property_grid();
+				}
 				if (ImGui::TreeNode("Orientation Easing")) {
 					changed |= edit_easing("OrientationEasing", orientation.easing);
 					ImGui::TreePop();
 				}
 				break;
 			case Capture::OrientationMode::LookAtTarget:
-				changed |= edit_body_reference("Target Body", orientation.target_body);
-				changed |= drag_vec3("Target Offset", orientation.target_offset, 0.1, "%.3f");
+				if (begin_property_grid("##LookTargetGrid")) {
+					changed |= property_row("Target Body", "Body or fixed point the camera faces.", [&] { return edit_body_reference("##value", orientation.target_body); });
+					changed |= property_vec3("Target Offset", orientation.target_offset, 0.1, "%.3f", "Offset from the body, or the absolute point when no body is selected.");
+					end_property_grid();
+				}
 				break;
 			case Capture::OrientationMode::AlongTravel:
-				changed |= drag_double("Look-Ahead (Progress)", orientation.look_ahead, 0.001, 0.001, 0.5, "%.4f");
+				if (begin_property_grid("##LookTravelGrid")) {
+					changed |= property_drag("Look-Ahead (Progress)", orientation.look_ahead, 0.001, 0.001, 0.5, "%.4f", "How far ahead along the path the camera looks, as a fraction of the segment.");
+					end_property_grid();
+				}
 				break;
 			case Capture::OrientationMode::Expression:
-				changed |= input_expression("Pitch Expression (deg)", orientation.expressions[0]);
-				changed |= input_expression("Yaw Expression (deg)", orientation.expressions[1]);
-				ImGui::TextDisabled("Variables: t, u, d, g.");
+				if (begin_property_grid("##LookExpressionGrid")) {
+					changed |= property_expression("Pitch Expression (deg)", orientation.expressions[0], "Pitch angle in degrees.");
+					changed |= property_expression("Yaw Expression (deg)", orientation.expressions[1], "Yaw angle in degrees.");
+					end_property_grid();
+				}
+				ImGui::TextDisabled("%s", kSignalVariableHelp);
+				break;
+			case Capture::OrientationMode::TargetPath:
+				if (begin_property_grid("##LookMovingTargetGrid")) {
+					changed |= property_row("Anchor Body", "Body the target trajectory is relative to, or the world origin.", [&] { return edit_body_reference("##value", orientation.target_body); });
+					changed |= property_vec3("Extra Offset", orientation.target_offset, 0.1, "%.3f", "Constant offset added to the target trajectory.");
+					end_property_grid();
+				}
+				if (ImGui::TreeNode("Target Time Easing")) {
+					changed |= edit_easing("TargetEasing", orientation.easing);
+					ImGui::TreePop();
+				}
+				ImGui::SeparatorText("Target Trajectory");
+				ImGui::PushID("TargetShape");
+				changed |= edit_shape(orientation.target_path, orchestrator);
+				ImGui::PopID();
 				break;
 			case Capture::OrientationMode::Free:
 			default:
 				break;
 		}
-		changed |= drag_double("Pitch Offset (deg)", orientation.pitch_offset, 0.1, -180.0, 180.0, "%.2f");
-		changed |= drag_double("Yaw Offset (deg)", orientation.yaw_offset, 0.1, -360.0, 360.0, "%.2f");
+
+		ImGui::SeparatorText("Fine Adjustment");
+		if (begin_property_grid("##LookOffsetGrid")) {
+			changed |= property_drag("Constant Pitch Offset (deg)", orientation.pitch_offset, 0.1, -180.0, 180.0, "%.2f", "Added to the computed pitch.");
+			changed |= property_drag("Constant Yaw Offset (deg)", orientation.yaw_offset, 0.1, -360.0, 360.0, "%.2f", "Added to the computed yaw.");
+			end_property_grid();
+		}
+		changed |= edit_channel("Pitch Modifier (deg)", orientation.pitch_modifier, "deg", script);
+		changed |= edit_channel("Yaw Modifier (deg)", orientation.yaw_modifier, "deg", script);
 		return changed;
 	}
 
-	bool edit_shake(Capture::ShakeSpec& shake) {
+	bool render_lens_pane(Capture::ScriptSegment& segment, const Capture::MotionScript& script) {
+		bool changed = false;
+		ImGui::TextDisabled("Each value can be animated, driven by a live signal, computed by an expression and modulated.");
+		changed |= edit_channel("Field Of View", segment.fov, "deg", script);
+		changed |= edit_channel("Exposure", segment.exposure, "EV", script);
+		changed |= edit_channel("Roll", segment.roll, "deg", script);
+		changed |= edit_channel("Simulation Rate Multiplier", segment.warp, "x", script);
+		return changed;
+	}
+
+	bool render_shake_pane(Capture::ShakeSpec& shake) {
 		using namespace CaptureWidgets;
 		bool changed = ImGui::Checkbox("Enable Camera Shake", &shake.enabled);
-		if (shake.enabled) {
-			changed |= drag_vec3("Position Amplitude", shake.position_amplitude, 0.01, "%.3f");
-			changed |= drag_vec3("Rotation Amplitude (deg)", shake.rotation_amplitude, 0.01, "%.3f");
-			changed |= drag_double("Frequency (Hz)", shake.frequency, 0.01, 0.0, 100.0, "%.3f");
-			changed |= slider_u32("Seed", shake.seed, 0U, 9999U);
-			changed |= drag_double("Edge Fade", shake.fade, 0.005, 0.0, 0.5, "%.3f");
+		ImGui::BeginDisabled(!shake.enabled);
+		if (begin_property_grid("##ShakeGrid")) {
+			changed |= property_vec3("Position Amplitude", shake.position_amplitude, 0.01, "%.3f", "Maximum positional displacement per axis.");
+			changed |= property_vec3("Rotation Amplitude (deg)", shake.rotation_amplitude, 0.01, "%.3f", "Maximum angular displacement per axis.");
+			changed |= property_drag("Frequency (Hz)", shake.frequency, 0.01, 0.0, 100.0, "%.3f", "Speed of the shake.");
+			changed |= property_u32("Seed", shake.seed, 0U, 9999U, 0, "Different seeds produce different shake patterns.");
+			changed |= property_drag("Edge Fade", shake.fade, 0.005, 0.0, 0.5, "%.3f", "Fraction of the segment used to fade the shake in and out.");
+			end_property_grid();
 		}
+		ImGui::EndDisabled();
 		return changed;
 	}
 
-	bool edit_segment(Capture::MotionScript& script, Capture::ScriptSegment& segment, OrchestratorType& orchestrator) {
+	bool render_timing_pane(Capture::MotionScript& script, Capture::ScriptSegment& segment) {
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
 		bool changed = false;
-
-		ImGui::TextColored(kHeaderColor, "Segment: %s", segment.name.c_str());
-		changed |= input_text("Segment Name", segment.name);
-		changed |= ImGui::Checkbox("Segment Enabled", &segment.enabled);
-		changed |= drag_double("Duration (s)", segment.duration, 0.05, 0.01, 86400.0, "%.3f");
+		ImGui::SeparatorText("Segment");
+		if (begin_property_grid("##TimingGrid")) {
+			changed |= property_text("Name", segment.name);
+			changed |= property_check("Enabled", segment.enabled, "Disabled segments are skipped and take no time.");
+			changed |= property_drag("Duration (s)", segment.duration, 0.05, 0.01, 86400.0, "%.3f", "Length of this segment in seconds.");
+			end_property_grid();
+		}
 		if (ImGui::TreeNode("Segment Time Easing")) {
 			changed |= edit_easing("SegmentEasing", segment.time_easing);
 			ImGui::TreePop();
 		}
-
-		if (ImGui::CollapsingHeader("Anchor")) {
-			changed |= enum_combo("Anchor Mode", segment.anchor, kAnchorNames);
+		ImGui::SeparatorText("Anchor");
+		if (begin_property_grid("##AnchorGrid")) {
+			changed |= property_enum("Anchor Mode", segment.anchor, kAnchorNames, "Defines what the segment positions are relative to.");
 			if (segment.anchor == Capture::AnchorMode::TrackBody) {
-				changed |= edit_body_reference("Anchor Body", segment.anchor_body);
+				changed |= property_row("Anchor Body", "Body the segment follows.", [&] { return edit_body_reference("##value", segment.anchor_body); });
 			}
-			changed |= drag_vec3("Anchor Offset", segment.anchor_offset, 0.1, "%.3f");
-		}
-
-		if (ImGui::CollapsingHeader("Movement Layers", ImGuiTreeNodeFlags_DefaultOpen)) {
-			const auto& names = Capture::shape_kind_names();
-			int add_kind = static_cast<int>(new_layer_kind_);
-			if (ImGui::Combo("New Layer Shape", &add_kind, names.data(), static_cast<int>(names.size()))) {
-				new_layer_kind_ = static_cast<uint32_t>(add_kind);
-			}
-			if (ImGui::Button("Add Layer")) {
-				Capture::ShapeLayer layer;
-				const auto kind = static_cast<Capture::ShapeKind>(new_layer_kind_);
-				layer.name = Capture::shape_descriptor(kind).name;
-				layer.blend = segment.layers.empty() ? Capture::LayerBlend::Replace : Capture::LayerBlend::AddRelative;
-				layer.shape = Capture::ShapeSpec::make(kind);
-				segment.layers.push_back(std::move(layer));
-				selected_layer_ = static_cast<int>(segment.layers.size()) - 1;
-				changed = true;
-			}
-			selected_layer_ = std::clamp(selected_layer_, 0, std::max(static_cast<int>(segment.layers.size()) - 1, 0));
-			ImGui::SameLine();
-			ImGui::BeginDisabled(segment.layers.empty());
-			if (ImGui::Button("Duplicate Layer")) {
-				Capture::ShapeLayer copy = segment.layers[static_cast<size_t>(selected_layer_)];
-				copy.name += " Copy";
-				segment.layers.insert(segment.layers.begin() + selected_layer_ + 1, std::move(copy));
-				++selected_layer_;
-				changed = true;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Delete Layer")) {
-				segment.layers.erase(segment.layers.begin() + selected_layer_);
-				selected_layer_ = std::max(selected_layer_ - 1, 0);
-				changed = true;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Layer Up") && selected_layer_ > 0) {
-				std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ - 1)]);
-				--selected_layer_;
-				changed = true;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Layer Down") && selected_layer_ + 1 < static_cast<int>(segment.layers.size())) {
-				std::swap(segment.layers[static_cast<size_t>(selected_layer_)], segment.layers[static_cast<size_t>(selected_layer_ + 1)]);
-				++selected_layer_;
-				changed = true;
-			}
-			ImGui::EndDisabled();
-
-			ImGui::BeginChild("##LayerList", ImVec2(0.0f, 96.0f), true);
-			for (size_t i = 0; i < segment.layers.size(); ++i) {
-				ImGui::PushID(static_cast<int>(i));
-				bool enabled = segment.layers[i].enabled;
-				if (ImGui::Checkbox("##layer_enabled", &enabled)) {
-					segment.layers[i].enabled = enabled;
-					changed = true;
-				}
-				ImGui::SameLine();
-				char label[192];
-				std::snprintf(label, sizeof(label), "%02zu | %s | %s | %s", i + 1, segment.layers[i].name.c_str(), Capture::shape_descriptor(segment.layers[i].shape.kind).name, kBlendNames[static_cast<size_t>(segment.layers[i].blend)]);
-				if (ImGui::Selectable(label, selected_layer_ == static_cast<int>(i))) {
-					selected_layer_ = static_cast<int>(i);
-				}
-				ImGui::PopID();
-			}
-			ImGui::EndChild();
-
-			if (!segment.layers.empty()) {
-				ImGui::PushID("SelectedLayer");
-				changed |= edit_layer(segment.layers[static_cast<size_t>(selected_layer_)], orchestrator);
-				ImGui::PopID();
-			}
-		}
-
-		if (ImGui::CollapsingHeader("Orientation")) {
-			changed |= edit_orientation(segment.orientation);
-		}
-		if (ImGui::CollapsingHeader("Camera Channels")) {
-			changed |= edit_channel("Field Of View (deg)", segment.fov);
-			changed |= edit_channel("Exposure (EV)", segment.exposure);
-			changed |= edit_channel("Roll (deg)", segment.roll);
-			changed |= edit_channel("Simulation Rate Multiplier", segment.warp);
-		}
-		if (ImGui::CollapsingHeader("Camera Shake")) {
-			changed |= edit_shake(segment.shake);
+			changed |= property_vec3("Anchor Offset", segment.anchor_offset, 0.1, "%.3f", "Offset added to the anchor position.");
+			end_property_grid();
 		}
 		static_cast<void>(script);
 		return changed;
 	}
 
-	void render_segment_list(Capture::MotionScript& script, OrchestratorType& orchestrator) {
+	void render_segment_inspector(Capture::MotionScript& script, size_t index, OrchestratorType& orchestrator) {
 		using namespace CaptureWidgets;
-		ImGui::TextColored(kHeaderColor, "Segments");
-		ImGui::BeginChild("##SegmentList", ImVec2(0.0f, 150.0f), true);
-		for (size_t i = 0; i < script.segments.size(); ++i) {
-			ImGui::PushID(static_cast<int>(i));
-			bool enabled = script.segments[i].enabled;
-			if (ImGui::Checkbox("##segment_enabled", &enabled)) {
-				script.segments[i].enabled = enabled;
-				mark(true);
+		Capture::ScriptSegment& segment = script.segments[index];
+		const double start = script.segment_start_time(index);
+		ImGui::TextColored(kHeaderColor, "%02zu  %s", index + 1, segment.name.c_str());
+		ImGui::SameLine();
+		if (segment.enabled) {
+			ImGui::TextDisabled("%.3f s to %.3f s", start, start + segment.duration);
+		} else {
+			ImGui::TextColored(kWarningColor, "Disabled");
+		}
+		bool changed = false;
+		if (ImGui::BeginTabBar("##SegmentInspectorTabs")) {
+			if (ImGui::BeginTabItem("Timing")) {
+				changed |= render_timing_pane(script, segment);
+				ImGui::EndTabItem();
 			}
-			ImGui::SameLine();
-			const auto& segment = script.segments[i];
-			const char* first_shape = segment.layers.empty() ? "Empty" : Capture::shape_descriptor(segment.layers.front().shape.kind).name;
-			char label[224];
-			std::snprintf(label, sizeof(label), "%02zu | %s | %.2f s | %s | %zu layer(s)", i + 1, segment.name.c_str(), segment.duration, first_shape, segment.layers.size());
-			if (ImGui::Selectable(label, selected_segment_ == static_cast<int>(i))) {
-				select_segment(static_cast<int>(i));
+			if (ImGui::BeginTabItem("Movement")) {
+				changed |= render_movement_pane(segment, orchestrator);
+				ImGui::EndTabItem();
 			}
-			ImGui::PopID();
+			if (ImGui::BeginTabItem("Look Direction")) {
+				changed |= render_look_pane(segment, orchestrator, script);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Lens")) {
+				changed |= render_lens_pane(segment, script);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Shake")) {
+				changed |= render_shake_pane(segment.shake);
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
 		}
-		if (script.segments.empty()) {
-			ImGui::TextDisabled("No segments. Add one below or load a preset.");
-		}
-		ImGui::EndChild();
+		mark(changed);
+	}
 
-		const auto& names = Capture::shape_kind_names();
-		int add_kind = static_cast<int>(new_segment_kind_);
-		if (ImGui::Combo("New Segment Shape", &add_kind, names.data(), static_cast<int>(names.size()))) {
-			new_segment_kind_ = static_cast<uint32_t>(add_kind);
-		}
-		drag_double("New Segment Duration (s)", new_segment_duration_, 0.05, 0.05, 86400.0, "%.2f");
+	void render_path_tab(Capture::MotionScript& script, OrchestratorType& orchestrator) {
+		using namespace CaptureWidgets;
+		using namespace MotionScriptEditorDetail;
+		const float available_height = std::max(ImGui::GetContentRegionAvail().y, 350.0f);
+		float left_w = std::clamp(list_pane_width_, 180.0f, std::max(ImGui::GetContentRegionAvail().x - 250.0f, 180.0f));
 
-		if (ImGui::Button("Add Segment")) {
-			insert_segment(script, Capture::make_script_segment(static_cast<Capture::ShapeKind>(new_segment_kind_), new_segment_duration_));
+		ImGui::BeginChild("##SegmentListPane", ImVec2(left_w, available_height), true);
+		ImGui::TextColored(kHeaderColor, "Segments (%zu)", script.segments.size());
+
+		const float table_height = std::max(available_height - 110.0f, 100.0f);
+		if (ImGui::BeginTable("##SegmentTable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, table_height))) {
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+			ImGui::TableSetupColumn("Segment", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableSetupColumn("Dur", ImGuiTableColumnFlags_WidthFixed, 54.0f);
+			ImGui::TableHeadersRow();
+
+			for (size_t i = 0; i < script.segments.size(); ++i) {
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				bool enabled = script.segments[i].enabled;
+				if (ImGui::Checkbox("##segment_enabled", &enabled)) {
+					script.segments[i].enabled = enabled;
+					mark(true);
+				}
+				ImGui::TableNextColumn();
+				char label[192];
+				const char* first_shape = script.segments[i].layers.empty() ? "Empty" : Capture::shape_descriptor(script.segments[i].layers.front().shape.kind).name;
+				std::snprintf(label, sizeof(label), "%02zu  %s  (%s)", i + 1, script.segments[i].name.c_str(), first_shape);
+				if (ImGui::Selectable(label, selected_segment_ == static_cast<int>(i), ImGuiSelectableFlags_SpanAllColumns)) {
+					select_segment(static_cast<int>(i));
+				}
+				if (ImGui::BeginPopupContextItem()) {
+					if (ImGui::MenuItem("Duplicate")) apply_segment_action(script, ListAction::Duplicate, static_cast<int>(i));
+					if (ImGui::MenuItem("Delete")) apply_segment_action(script, ListAction::Delete, static_cast<int>(i));
+					ImGui::Separator();
+					if (ImGui::MenuItem("Move Up", nullptr, false, i > 0)) apply_segment_action(script, ListAction::MoveUp, static_cast<int>(i));
+					if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < script.segments.size())) apply_segment_action(script, ListAction::MoveDown, static_cast<int>(i));
+					ImGui::Separator();
+					if (ImGui::MenuItem("Insert Stop After")) apply_segment_action(script, ListAction::InsertStop, static_cast<int>(i));
+					if (ImGui::MenuItem(script.segments[i].enabled ? "Disable" : "Enable")) apply_segment_action(script, ListAction::Toggle, static_cast<int>(i));
+					ImGui::EndPopup();
+				}
+				ImGui::TableNextColumn();
+				ImGui::Text("%.2fs", script.segments[i].duration);
+				ImGui::PopID();
+			}
+			ImGui::EndTable();
 		}
-		render_setting_tooltip("Inserts a new segment after the selected one, or at the end when nothing is selected.");
+
+		if (ImGui::Button("Add Segment...")) {
+			ImGui::OpenPopup("##AddSegmentPopup");
+		}
+		if (ImGui::BeginPopup("##AddSegmentPopup")) {
+			for (const auto& group : kShapeGroups) {
+				if (ImGui::BeginMenu(group.name)) {
+					for (const Capture::ShapeKind kind : group.kinds) {
+						if (ImGui::MenuItem(Capture::shape_descriptor(kind).name)) {
+							insert_segment(script, Capture::make_script_segment(kind, new_segment_duration_));
+						}
+					}
+					ImGui::EndMenu();
+				}
+			}
+			ImGui::EndPopup();
+		}
 		ImGui::SameLine();
 		if (ImGui::Button("Add Stop")) {
 			Capture::ScriptSegment stop = Capture::make_script_segment(Capture::ShapeKind::Hold, std::min(new_segment_duration_, 3600.0));
@@ -718,9 +1347,9 @@ private:
 			stop.anchor = script.segments.empty() ? Capture::AnchorMode::World : Capture::AnchorMode::ContinuePrevious;
 			insert_segment(script, std::move(stop));
 		}
-		render_setting_tooltip("Inserts a motionless segment that holds the camera at the end of the previous one.");
-		ImGui::SameLine();
-		if (ImGui::Button("Add Leg To Camera")) {
+		render_setting_tooltip("Inserts a motionless segment holding camera pose at the previous end.");
+
+		if (ImGui::Button("Add Leg To Cam")) {
 			const auto lookup = Capture::make_body_position_lookup(orchestrator);
 			const Capture::Vec3 camera = orchestrator.camera().position;
 			Capture::Vec3 start = camera;
@@ -736,129 +1365,180 @@ private:
 			leg.layers[0].shape.controls[1] = camera;
 			insert_segment(script, std::move(leg));
 		}
-		render_setting_tooltip("Adds a straight segment from the current end of the script to the live camera position.");
+		render_setting_tooltip("Adds a linear segment from current end of the script to the live camera.");
 
 		const bool has_selection = selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size());
 		ImGui::BeginDisabled(!has_selection);
-		if (ImGui::Button("Duplicate Segment")) {
-			Capture::ScriptSegment copy = script.segments[static_cast<size_t>(selected_segment_)];
-			copy.name += " Copy";
-			insert_segment(script, std::move(copy));
+		ImGui::SameLine();
+		if (ImGui::Button("Dup")) {
+			apply_segment_action(script, ListAction::Duplicate, selected_segment_);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Delete Segment")) {
-			script.segments.erase(script.segments.begin() + selected_segment_);
-			select_segment(std::min(selected_segment_, static_cast<int>(script.segments.size()) - 1));
-			mark(true);
+		if (ImGui::Button("Del")) {
+			apply_segment_action(script, ListAction::Delete, selected_segment_);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Move Up") && selected_segment_ > 0) {
-			std::swap(script.segments[static_cast<size_t>(selected_segment_)], script.segments[static_cast<size_t>(selected_segment_ - 1)]);
-			--selected_segment_;
-			mark(true);
+		if (ImGui::Button("Up")) {
+			apply_segment_action(script, ListAction::MoveUp, selected_segment_);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Move Down") && selected_segment_ + 1 < static_cast<int>(script.segments.size())) {
-			std::swap(script.segments[static_cast<size_t>(selected_segment_)], script.segments[static_cast<size_t>(selected_segment_ + 1)]);
-			++selected_segment_;
-			mark(true);
+		if (ImGui::Button("Down")) {
+			apply_segment_action(script, ListAction::MoveDown, selected_segment_);
 		}
 		ImGui::EndDisabled();
+
+		ImGui::EndChild();
+
+		vertical_splitter("##PathSplitter", list_pane_width_, 180.0f, ImGui::GetContentRegionAvail().x - 220.0f, available_height);
+
+		ImGui::BeginChild("##SegmentInspectorPane", ImVec2(0.0f, available_height), true);
+		if (has_selection) {
+			render_segment_inspector(script, static_cast<size_t>(selected_segment_), orchestrator);
+		} else {
+			ImGui::TextDisabled("Select a segment from the list on the left to edit its parameters.");
+		}
+		ImGui::EndChild();
 	}
 
 	bool edit_event(Capture::ScriptEvent& event, size_t segment_count) {
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
 		bool changed = false;
-		changed |= input_text("Event Name", event.name);
-		changed |= ImGui::Checkbox("Event Enabled", &event.enabled);
-		changed |= enum_combo("Trigger", event.trigger, kTriggerNames);
-		if (event.trigger == Capture::EventTrigger::ScriptTime) {
-			changed |= drag_double("Time (s)", event.time_seconds, 0.02, 0.0, 86400.0, "%.3f");
-		} else {
-			changed |= slider_u32("Segment Index", event.segment, 0U, static_cast<uint32_t>(std::max<size_t>(segment_count, 1) - 1));
-			if (event.trigger == Capture::EventTrigger::SegmentFraction) {
-				changed |= drag_double("Segment Fraction", event.fraction, 0.005, 0.0, 1.0, "%.3f");
+		if (begin_property_grid("##EventGrid")) {
+			changed |= property_text("Name", event.name);
+			changed |= property_check("Enabled", event.enabled);
+			changed |= property_enum("Trigger", event.trigger, kTriggerNames, "When the event is triggered.");
+			if (event.trigger == Capture::EventTrigger::ScriptTime) {
+				changed |= property_drag("Time (s)", event.time_seconds, 0.02, 0.0, 86400.0, "%.3f", "Exact script time when the event fires.");
+			} else {
+				changed |= property_u32("Segment Index", event.segment, 0U, static_cast<uint32_t>(std::max<size_t>(segment_count, 1) - 1), 0, "Segment the trigger is attached to.");
+				if (event.trigger == Capture::EventTrigger::SegmentFraction) {
+					changed |= property_drag("Segment Fraction", event.fraction, 0.005, 0.0, 1.0, "%.3f", "Fraction of the segment progress (0 to 1).");
+				}
 			}
-		}
-		changed |= enum_combo("Action", event.action, kActionNames);
+			changed |= property_enum("Action", event.action, kActionNames, "Action executed when the event triggers.");
 
-		switch (event.action) {
-			case Capture::EventAction::SetParameter: {
-				int parameter_index = static_cast<int>(Capture::event_parameter_index(event.parameter));
-				const auto& names = event_parameter_names();
-				if (ImGui::Combo("Parameter", &parameter_index, names.data(), static_cast<int>(names.size()))) {
-					event.parameter = static_cast<uint32_t>(Capture::kEventParameters[static_cast<size_t>(parameter_index)].type);
-					changed = true;
+			switch (event.action) {
+				case Capture::EventAction::SetParameter: {
+					int parameter_index = static_cast<int>(Capture::event_parameter_index(event.parameter));
+					const auto& names = event_parameter_names();
+					if (property_row("Parameter", "Simulation parameter to modify.", [&] {
+						return ImGui::Combo("##value", &parameter_index, names.data(), static_cast<int>(names.size()));
+					})) {
+						event.parameter = static_cast<uint32_t>(Capture::kEventParameters[static_cast<size_t>(parameter_index)].type);
+						changed = true;
+					}
+					break;
 				}
-				break;
-			}
-			case Capture::EventAction::StepTicks:
-				changed |= drag_double("Tick Count", event.value, 1.0, 0.0, 100000.0, "%.0f");
-				break;
-			case Capture::EventAction::SetMetric: {
-				changed |= input_text("Metric Name", event.text);
-				int pick = -1;
-				if (ImGui::Combo("Quick Pick", &pick, kMetricNames.data(), static_cast<int>(kMetricNames.size()))) {
-					event.text = kMetricNames[static_cast<size_t>(pick)];
-					changed = true;
+				case Capture::EventAction::StepTicks:
+					changed |= property_drag("Tick Count", event.value, 1.0, 0.0, 100000.0, "%.0f");
+					break;
+				case Capture::EventAction::SetMetric: {
+					changed |= property_text("Metric Name", event.text);
+					int pick = -1;
+					if (property_row("Metric Quick Pick", nullptr, [&] {
+						return ImGui::Combo("##value", &pick, kMetricNames.data(), static_cast<int>(kMetricNames.size()));
+					})) {
+						event.text = kMetricNames[static_cast<size_t>(pick)];
+						changed = true;
+					}
+					break;
 				}
-				break;
-			}
-			case Capture::EventAction::SetIntegrator: {
-				changed |= input_text("Integrator Name", event.text);
-				int pick = -1;
-				if (ImGui::Combo("Quick Pick", &pick, kIntegratorNames.data(), static_cast<int>(kIntegratorNames.size()))) {
-					event.text = kIntegratorNames[static_cast<size_t>(pick)];
-					changed = true;
+				case Capture::EventAction::SetIntegrator: {
+					changed |= property_text("Integrator Name", event.text);
+					int pick = -1;
+					if (property_row("Integrator Quick Pick", nullptr, [&] {
+						return ImGui::Combo("##value", &pick, kIntegratorNames.data(), static_cast<int>(kIntegratorNames.size()));
+					})) {
+						event.text = kIntegratorNames[static_cast<size_t>(pick)];
+						changed = true;
+					}
+					break;
 				}
-				break;
+				case Capture::EventAction::LoadScenario:
+					changed |= property_text("Scenario Path", event.text);
+					break;
+				default:
+					break;
 			}
-			case Capture::EventAction::LoadScenario:
-				changed |= input_text("Scenario Path", event.text);
-				break;
-			default:
-				break;
+
+			if (Capture::is_ramp_action(event.action)) {
+				changed |= property_drag_free("Value / Start Value", event.value, 0.01, "%.5f", "Initial target value for this parameter.");
+				changed |= property_drag_free("End Value (Ramp)", event.value_end, 0.01, "%.5f", "Value reached at the end of the transition ramp.");
+				changed |= property_drag("Ramp Duration (s)", event.duration, 0.02, 0.0, 86400.0, "%.3f", "Duration of the linear or eased transition (0 = instant).");
+			}
+			end_property_grid();
 		}
 
-		if (Capture::is_ramp_action(event.action)) {
-			changed |= drag_double_free("Value", event.value, 0.01, "%.5f");
-			changed |= drag_double_free("Value At End Of Ramp", event.value_end, 0.01, "%.5f");
-			changed |= drag_double("Ramp Duration (s)", event.duration, 0.02, 0.0, 86400.0, "%.3f");
+		if (Capture::is_ramp_action(event.action) && event.duration > 0.0) {
 			if (ImGui::TreeNode("Ramp Easing")) {
 				changed |= edit_easing("EventEasing", event.easing);
 				ImGui::TreePop();
 			}
-			ImGui::TextDisabled("A zero ramp duration applies the first value instantly.");
 		}
 		return changed;
 	}
 
-	void render_events(Capture::MotionScript& script) {
+	void render_events_tab(Capture::MotionScript& script) {
 		using namespace CaptureWidgets;
-		ImGui::TextColored(kHeaderColor, "Events (%zu)", script.events.size());
-		ImGui::BeginChild("##EventList", ImVec2(0.0f, 110.0f), true);
-		for (size_t i = 0; i < script.events.size(); ++i) {
-			ImGui::PushID(static_cast<int>(i));
-			bool enabled = script.events[i].enabled;
-			if (ImGui::Checkbox("##event_enabled", &enabled)) {
-				script.events[i].enabled = enabled;
-				mark(true);
-			}
-			ImGui::SameLine();
-			char label[224];
-			std::snprintf(label, sizeof(label), "%02zu | %s | %s @ %.3f s", i + 1, script.events[i].display_label().c_str(), Capture::event_action_name(script.events[i].action), script.resolved_event_time(script.events[i]));
-			if (ImGui::Selectable(label, selected_event_ == static_cast<int>(i))) {
-				selected_event_ = static_cast<int>(i);
-			}
-			ImGui::PopID();
-		}
-		if (script.events.empty()) {
-			ImGui::TextDisabled("No events. Events fire markers, stills, parameter ramps and simulation commands.");
-		}
-		ImGui::EndChild();
+		using namespace MotionScriptEditorDetail;
+		const float available_height = std::max(ImGui::GetContentRegionAvail().y, 350.0f);
+		float left_w = std::clamp(list_pane_width_, 180.0f, std::max(ImGui::GetContentRegionAvail().x - 250.0f, 180.0f));
 
-		if (ImGui::Button("Add Event At Cursor")) {
+		ImGui::BeginChild("##EventListPane", ImVec2(left_w, available_height), true);
+		ImGui::TextColored(kHeaderColor, "Events (%zu)", script.events.size());
+
+		const float table_height = std::max(available_height - 80.0f, 100.0f);
+		if (ImGui::BeginTable("##EventTable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, table_height))) {
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+			ImGui::TableSetupColumn("Event", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 54.0f);
+			ImGui::TableHeadersRow();
+
+			for (size_t i = 0; i < script.events.size(); ++i) {
+				ImGui::PushID(static_cast<int>(i));
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				bool enabled = script.events[i].enabled;
+				if (ImGui::Checkbox("##event_enabled", &enabled)) {
+					script.events[i].enabled = enabled;
+					mark(true);
+				}
+				ImGui::TableNextColumn();
+				char label[192];
+				std::snprintf(label, sizeof(label), "%02zu  %s  (%s)", i + 1, script.events[i].name.c_str(), Capture::event_action_name(script.events[i].action));
+				if (ImGui::Selectable(label, selected_event_ == static_cast<int>(i), ImGuiSelectableFlags_SpanAllColumns)) {
+					selected_event_ = static_cast<int>(i);
+				}
+				if (ImGui::BeginPopupContextItem()) {
+					if (ImGui::MenuItem("Duplicate")) {
+						Capture::ScriptEvent copy = script.events[i];
+						copy.name += " Copy";
+						script.events.insert(script.events.begin() + i + 1, std::move(copy));
+						selected_event_ = static_cast<int>(i + 1);
+						mark(true);
+					}
+					if (ImGui::MenuItem("Delete")) {
+						script.events.erase(script.events.begin() + i);
+						selected_event_ = std::min(static_cast<int>(i), static_cast<int>(script.events.size()) - 1);
+						mark(true);
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem(script.events[i].enabled ? "Disable" : "Enable")) {
+						script.events[i].enabled = !script.events[i].enabled;
+						mark(true);
+					}
+					ImGui::EndPopup();
+				}
+				ImGui::TableNextColumn();
+				ImGui::Text("%.2fs", script.resolved_event_time(script.events[i]));
+				ImGui::PopID();
+			}
+			ImGui::EndTable();
+		}
+
+		if (ImGui::Button("Add At Cursor")) {
 			Capture::ScriptEvent event;
 			event.time_seconds = cursor_seconds_;
 			event.name = "Event " + std::to_string(script.events.size() + 1);
@@ -866,23 +1546,6 @@ private:
 			selected_event_ = static_cast<int>(script.events.size()) - 1;
 			mark(true);
 		}
-		ImGui::SameLine();
-		const bool has_event = selected_event_ >= 0 && selected_event_ < static_cast<int>(script.events.size());
-		ImGui::BeginDisabled(!has_event);
-		if (ImGui::Button("Duplicate Event")) {
-			Capture::ScriptEvent copy = script.events[static_cast<size_t>(selected_event_)];
-			copy.name += " Copy";
-			script.events.push_back(std::move(copy));
-			selected_event_ = static_cast<int>(script.events.size()) - 1;
-			mark(true);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Delete Event")) {
-			script.events.erase(script.events.begin() + selected_event_);
-			selected_event_ = std::min(selected_event_, static_cast<int>(script.events.size()) - 1);
-			mark(true);
-		}
-		ImGui::EndDisabled();
 		ImGui::SameLine();
 		if (ImGui::Button("Sort By Time")) {
 			std::stable_sort(script.events.begin(), script.events.end(), [&script](const Capture::ScriptEvent& a, const Capture::ScriptEvent& b) {
@@ -892,41 +1555,77 @@ private:
 			mark(true);
 		}
 
-		if (selected_event_ >= 0 && selected_event_ < static_cast<int>(script.events.size())) {
+		const bool has_event = selected_event_ >= 0 && selected_event_ < static_cast<int>(script.events.size());
+		ImGui::BeginDisabled(!has_event);
+		if (ImGui::Button("Duplicate")) {
+			Capture::ScriptEvent copy = script.events[static_cast<size_t>(selected_event_)];
+			copy.name += " Copy";
+			script.events.insert(script.events.begin() + selected_event_ + 1, std::move(copy));
+			++selected_event_;
+			mark(true);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Delete")) {
+			script.events.erase(script.events.begin() + selected_event_);
+			selected_event_ = std::min(selected_event_, static_cast<int>(script.events.size()) - 1);
+			mark(true);
+		}
+		ImGui::EndDisabled();
+
+		ImGui::EndChild();
+
+		vertical_splitter("##EventSplitter", list_pane_width_, 180.0f, ImGui::GetContentRegionAvail().x - 220.0f, available_height);
+
+		ImGui::BeginChild("##EventInspectorPane", ImVec2(0.0f, available_height), true);
+		if (has_event) {
+			ImGui::TextColored(kHeaderColor, "%02d  %s", selected_event_ + 1, script.events[static_cast<size_t>(selected_event_)].name.c_str());
 			ImGui::PushID("SelectedEvent");
 			mark(edit_event(script.events[static_cast<size_t>(selected_event_)], script.segments.size()));
 			ImGui::PopID();
+		} else {
+			ImGui::TextDisabled("Select an event from the list on the left to edit its parameters.");
 		}
+		ImGui::EndChild();
 	}
 
-	void render_script_header(Capture::MotionScript& script) {
+	void render_script_pane(Capture::MotionScript& script) {
 		using namespace CaptureWidgets;
 		using namespace MotionScriptEditorDetail;
-		mark(input_text("Script Name", script.name));
-		mark(enum_combo("End Behavior", script.end_behavior, kPathEndNames));
+		ImGui::SeparatorText("Script Properties");
+		if (begin_property_grid("##ScriptPropsGrid")) {
+			if (property_text("Script Name", script.name)) mark(true);
+			if (property_enum("End Behavior", script.end_behavior, kPathEndNames, "How the script behaves when the cursor passes beyond the total duration.")) mark(true);
+			end_property_grid();
+		}
 		if (ImGui::TreeNode("Global Time Easing")) {
-			mark(edit_easing("GlobalEasing", script.global_easing));
+			if (edit_easing("GlobalEasing", script.global_easing)) mark(true);
 			ImGui::TreePop();
 		}
-		ImGui::TextDisabled("Active segments: %zu | Events: %zu | Duration: %.3f s", script.active_segments().size(), script.events.size(), script.total_duration());
 
-		drag_double("Time Scale Factor", time_scale_factor_, 0.01, 0.01, 100.0, "%.3f");
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Scale")) {
+		ImGui::SeparatorText("Timing Adjustments");
+		if (begin_property_grid("##ScriptTimingGrid")) {
+			property_drag("Scale Factor", time_scale_factor_, 0.01, 0.01, 100.0, "%.3f", "Multiplier applied to all durations.");
+			property_drag("Target Duration (s)", fit_duration_, 0.1, 0.1, 86400.0, "%.2f", "Total length to scale the script to.");
+			end_property_grid();
+		}
+		if (ImGui::Button("Apply Time Scale")) {
 			script.scale_time(time_scale_factor_);
 			mark(true);
 		}
 		render_setting_tooltip("Multiplies every segment duration, ramp duration and timed event by the factor.");
-		drag_double("Target Duration (s)", fit_duration_, 0.1, 0.1, 86400.0, "%.2f");
 		ImGui::SameLine();
-		if (ImGui::SmallButton("Fit")) {
-			script.scale_time(fit_duration_ / script.total_duration());
-			mark(true);
+		if (ImGui::Button("Fit To Target Duration")) {
+			const double total = script.total_duration();
+			if (total > 1.0e-9) {
+				script.scale_time(fit_duration_ / total);
+				mark(true);
+			}
 		}
 		render_setting_tooltip("Rescales all timings so the whole script lasts the target duration.");
 
-		ImGui::Combo("Preset", &preset_index_, Capture::kScriptPresetNames.data(), static_cast<int>(Capture::kScriptPresetCount));
-		if (ImGui::Button("Replace With Preset")) {
+		ImGui::SeparatorText("Presets");
+		ImGui::Combo("Preset Template", &preset_index_, Capture::kScriptPresetNames.data(), static_cast<int>(Capture::kScriptPresetCount));
+		if (ImGui::Button("Replace Script With Preset")) {
 			script = Capture::MotionScript::make_preset(static_cast<Capture::ScriptPreset>(preset_index_));
 			select_segment(script.segments.empty() ? -1 : 0);
 			selected_event_ = -1;
@@ -953,20 +1652,23 @@ private:
 			selected_event_ = -1;
 			mark(true);
 		}
+
+		ImGui::SeparatorText("Import / Export & Files");
+		render_script_files(script);
 	}
 
 	void render_script_files(Capture::MotionScript& script) {
 		using namespace CaptureWidgets;
-		if (!ImGui::CollapsingHeader("Script Files And Text")) {
-			return;
+		if (begin_property_grid("##ScriptFilesGrid")) {
+			property_text("File Path", file_path_, "Target path for script loading and saving.");
+			end_property_grid();
 		}
-		input_text("Script File", file_path_);
-		if (ImGui::Button("Save Script File")) {
+		if (ImGui::Button("Save Script To File")) {
 			const std::string error = Capture::save_motion_script(file_path_, script);
 			file_message_ = error.empty() ? ("Script saved to " + file_path_) : error;
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Load Script File")) {
+		if (ImGui::Button("Load Script From File")) {
 			const std::string error = Capture::load_motion_script(file_path_, script);
 			if (error.empty()) {
 				select_segment(script.segments.empty() ? -1 : 0);
@@ -980,8 +1682,8 @@ private:
 		if (text_buffer_.empty()) {
 			text_buffer_.assign(kTextBufferCapacity, '\0');
 		}
-		ImGui::InputTextMultiline("##ScriptText", text_buffer_.data(), text_buffer_.size(), ImVec2(-1.0f, 200.0f));
-		if (ImGui::Button("Export To Text")) {
+		ImGui::InputTextMultiline("##ScriptText", text_buffer_.data(), text_buffer_.size(), ImVec2(-1.0f, 180.0f));
+		if (ImGui::Button("Export Text")) {
 			const std::string text = Capture::motion_script_to_text(script);
 			if (text.size() < text_buffer_.size()) {
 				std::memcpy(text_buffer_.data(), text.c_str(), text.size() + 1U);
@@ -991,7 +1693,7 @@ private:
 			}
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Apply Text")) {
+		if (ImGui::Button("Import Text")) {
 			auto parsed = Capture::motion_script_from_text(text_buffer_.data());
 			if (parsed.has_value()) {
 				script = std::move(*parsed);
@@ -1016,22 +1718,29 @@ public:
 		selected_segment_ = std::clamp(selected_segment_, -1, static_cast<int>(script.segments.size()) - 1);
 		selected_event_ = std::clamp(selected_event_, -1, static_cast<int>(script.events.size()) - 1);
 
-		render_script_header(script);
-		ImGui::Separator();
-		ImGui::TextColored(kHeaderColor, "Timeline");
+		render_summary(script);
 		render_timeline(script);
-		render_segment_list(script, orchestrator);
 
-		if (selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size())) {
-			ImGui::Separator();
-			ImGui::PushID("SelectedSegment");
-			mark(edit_segment(script, script.segments[static_cast<size_t>(selected_segment_)], orchestrator));
-			ImGui::PopID();
+		if (ImGui::BeginTabBar("##MotionScriptEditorTabs")) {
+			if (ImGui::BeginTabItem("Path Editor", nullptr, tab_flags(Pane::Path))) {
+				render_path_tab(script, orchestrator);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Events", nullptr, tab_flags(Pane::Events))) {
+				render_events_tab(script);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Curves", nullptr, tab_flags(Pane::Curves))) {
+				render_curves(script, orchestrator);
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Script", nullptr, tab_flags(Pane::Script))) {
+				render_script_pane(script);
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
 		}
-		ImGui::Separator();
-		render_events(script);
-		ImGui::Separator();
-		render_script_files(script);
+		pane_request_ = Pane::None;
 		script.sanitize();
 	}
 

@@ -55,6 +55,7 @@ struct PathPreview {
 	bool show_labels{true};
 	bool show_samples{false};
 	bool show_frustum{true};
+	bool show_direction{true};
 
 	[[nodiscard]] bool empty() const noexcept {
 		return vertices.empty() && !cursor.valid;

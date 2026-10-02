@@ -18,6 +18,7 @@ struct PathPreviewOptions {
 	bool show_labels{true};
 	bool show_samples{false};
 	bool show_frustum{true};
+	bool show_direction{true};
 	bool include_events{true};
 	std::optional<double> cursor_seconds{};
 	int32_t highlighted_segment{-1};
@@ -63,6 +64,7 @@ struct PathPreviewOptions {
 	preview.show_labels = options.show_labels;
 	preview.show_samples = options.show_samples;
 	preview.show_frustum = options.show_frustum;
+	preview.show_direction = options.show_direction;
 
 	const std::vector<size_t> active = script.active_segments();
 	if (active.empty()) {

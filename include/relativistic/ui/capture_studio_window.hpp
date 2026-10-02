@@ -87,7 +87,7 @@ inline constexpr std::array<const char*, 6> kRecordingPresetNames{"None", "Traje
 }
 
 class CaptureStudioWindow {
-private:
+public:
 	enum class StudioTab : int {
 		None = -1,
 		Screenshot = 0,
@@ -97,6 +97,7 @@ private:
 		Encoding = 4
 	};
 
+private:
 	static constexpr float kFooterHeight = 196.0f;
 
 	bool is_open_{false};
@@ -120,6 +121,7 @@ private:
 	bool preview_show_labels_{true};
 	bool preview_show_samples_{false};
 	bool preview_show_frustum_{true};
+	bool preview_show_direction_{true};
 	double preview_frustum_length_{10.0};
 	double preview_speed_{1.0};
 	double preview_time_{0.0};
@@ -189,7 +191,7 @@ private:
 			if (segment.enabled && segment.anchor == Capture::AnchorMode::TrackBody) {
 				return true;
 			}
-			if (segment.orientation.mode == Capture::OrientationMode::LookAtTarget && segment.orientation.target_body >= 0) {
+			if ((segment.orientation.mode == Capture::OrientationMode::LookAtTarget || segment.orientation.mode == Capture::OrientationMode::TargetPath) && segment.orientation.target_body >= 0) {
 				return true;
 			}
 		}
@@ -243,6 +245,7 @@ private:
 			options.show_labels = preview_show_labels_;
 			options.show_samples = preview_show_samples_;
 			options.show_frustum = preview_show_frustum_;
+			options.show_direction = preview_show_direction_;
 			options.cursor_seconds = preview_time_;
 			options.highlighted_segment = highlighted;
 			preview_ = Capture::build_path_preview(settings_.script, lookup, options);
@@ -506,7 +509,7 @@ private:
 		const bool session_running = coordinator.is_sequence_active();
 		const auto& script = settings_.script;
 
-		if (ImGui::Checkbox("Show Path Preview In Viewport", &preview_enabled_)) {
+		if (ImGui::Checkbox("Show Path In Viewport", &preview_enabled_)) {
 			preview_force_rebuild_ = true;
 		}
 		render_setting_tooltip("Draws the full trajectory, segment boundaries, events and the camera frustum directly on the viewport without rendering a single frame.");
@@ -516,33 +519,45 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicModeEnabled, schematic ? 1.0 : 0.0)));
 		}
 		render_setting_tooltip("Switches the main viewport to the schematic projection where the preview is drawn without ray tracing, so it updates instantly while editing.");
-
-		bool options_changed = false;
-		options_changed |= slider_u32("Samples Per Segment", preview_samples_, 16U, 2048U, ImGuiSliderFlags_Logarithmic);
-		options_changed |= ImGui::Checkbox("Markers", &preview_show_markers_);
 		ImGui::SameLine();
-		options_changed |= ImGui::Checkbox("Labels", &preview_show_labels_);
-		ImGui::SameLine();
-		options_changed |= ImGui::Checkbox("Sample Points", &preview_show_samples_);
-		ImGui::SameLine();
-		options_changed |= ImGui::Checkbox("Camera Frustum", &preview_show_frustum_);
-		options_changed |= drag_double("Frustum Length", preview_frustum_length_, 0.1, 0.5, 10000.0, "%.2f");
-		if (options_changed) {
-			preview_options_dirty_ = true;
+		if (ImGui::Button("Preview Options")) {
+			ImGui::OpenPopup("##PreviewOptionsPopup");
+		}
+		if (ImGui::BeginPopup("##PreviewOptionsPopup")) {
+			bool options_changed = false;
+			if (begin_property_grid("##PreviewOptionsGrid")) {
+				options_changed |= property_u32("Samples Per Segment", preview_samples_, 16U, 2048U, ImGuiSliderFlags_Logarithmic, "Number of points used to draw each segment.");
+				options_changed |= property_check("Markers", preview_show_markers_, "Start, end, segment boundary and event markers.");
+				options_changed |= property_check("Labels", preview_show_labels_, "Names next to the markers.");
+				options_changed |= property_check("Sample Points", preview_show_samples_, "Dots at every sampled point of the path.");
+				options_changed |= property_check("Direction Arrows", preview_show_direction_, "Arrows indicating the travel direction along the path.");
+				options_changed |= property_check("Camera Frustum", preview_show_frustum_, "Frustum drawn at the preview time.");
+				options_changed |= property_drag("Frustum Length", preview_frustum_length_, 0.1, 0.5, 10000.0, "%.2f", "Depth of the drawn frustum in world units.");
+				end_property_grid();
+			}
+			if (options_changed) {
+				preview_options_dirty_ = true;
+			}
+			ImGui::EndPopup();
 		}
 
 		ImGui::BeginDisabled(session_running || !script.is_usable());
-		const double total = script.total_duration();
-		const double zero = 0.0;
-		double time = preview_time_;
-		if (ImGui::SliderScalar("Preview Time", ImGuiDataType_Double, &time, &zero, &total, "%.3f s")) {
-			preview_time_ = time;
-		}
-		if (ImGui::Button(preview_playing_ ? "Pause Preview" : "Play Preview")) {
+		if (ImGui::Button(preview_playing_ ? "Pause" : "Play", ImVec2(64.0f, 0.0f))) {
 			preview_playing_ = !preview_playing_;
 		}
 		ImGui::SameLine();
-		drag_double("Playback Speed", preview_speed_, 0.01, 0.05, 20.0, "%.2fx");
+		const double total = script.total_duration();
+		const double zero = 0.0;
+		double time = preview_time_;
+		ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - 150.0f, 120.0f));
+		if (ImGui::SliderScalar("##PreviewTime", ImGuiDataType_Double, &time, &zero, &total, "%.3f s")) {
+			preview_time_ = time;
+		}
+		render_setting_tooltip("Preview time position along the script.");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(70.0f);
+		drag_double("##PreviewSpeed", preview_speed_, 0.01, 0.05, 20.0, "%.2fx");
+		render_setting_tooltip("Playback speed of the preview.");
 		if (ImGui::Button("Move Live Camera To Preview Pose")) {
 			if (!preview_active_) {
 				preview_restore_pose_ = current_camera_pose();
@@ -565,15 +580,14 @@ private:
 
 	void render_script_tab() {
 		using namespace CaptureWidgets;
-		ImGui::Checkbox("Drive The Camera With The Motion Script During Sequence Captures", &settings_.use_script);
+		ImGui::Checkbox("Drive The Camera With This Script During Sequence Captures", &settings_.use_script);
 		render_setting_tooltip("When enabled, sequence captures follow the script below instead of manual camera input. Script events fire during the capture.");
 		if (settings_.use_script && !settings_.script.is_usable()) {
 			wrapped_text(kWarningColor, "The script has no active segment and will be ignored until one exists.");
 		}
-		ImGui::Separator();
-		ImGui::TextColored(kHeaderColor, "Preview");
+		ImGui::SeparatorText("Viewport Preview");
 		render_preview_controls();
-		ImGui::Separator();
+		ImGui::SeparatorText("Motion Script");
 		script_editor_.render(settings_.script, orchestrator_, preview_time_);
 	}
 
@@ -830,6 +844,11 @@ public:
 		  viewport_(viewport),
 		  user_settings_(user_settings),
 		  settings_(IO::CaptureStudioSettings::load_or_default()) {}
+
+	void open_tab(StudioTab tab) noexcept {
+		is_open_ = true;
+		requested_tab_ = tab;
+	}
 
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;

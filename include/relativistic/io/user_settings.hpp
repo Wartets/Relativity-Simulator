@@ -88,6 +88,7 @@ struct UserSettings {
 	bool window_hud_manager_open{false};
 	bool window_keybind_settings_open{false};
 	bool window_constants_open{false};
+	bool window_capture_studio_open{false};
 	uint32_t constants_preset{0};
 	double constants_c{Core::SIReferenceConstants::SPEED_OF_LIGHT};
 	double constants_g{Core::SIReferenceConstants::GRAVITATIONAL_CONSTANT};
@@ -225,6 +226,7 @@ struct UserSettings {
 		result.window_hud_manager_open = get_bool("window_hud_manager_open", result.window_hud_manager_open);
 		result.window_keybind_settings_open = get_bool("window_keybind_settings_open", result.window_keybind_settings_open);
 		result.window_constants_open = get_bool("window_constants_open", result.window_constants_open);
+		result.window_capture_studio_open = get_bool("window_capture_studio_open", result.window_capture_studio_open);
 		result.constants_preset = get_u32("constants_preset", result.constants_preset);
 		result.constants_c = get_dbl("constants_c", result.constants_c);
 		result.constants_g = get_dbl("constants_g", result.constants_g);
@@ -412,6 +414,7 @@ struct UserSettings {
 		out << "window_hud_manager_open=" << (window_hud_manager_open ? 1 : 0) << "\n";
 		out << "window_keybind_settings_open=" << (window_keybind_settings_open ? 1 : 0) << "\n";
 		out << "window_constants_open=" << (window_constants_open ? 1 : 0) << "\n";
+		out << "window_capture_studio_open=" << (window_capture_studio_open ? 1 : 0) << "\n";
 		out << "constants_preset=" << constants_preset << "\n";
 		out << "constants_c=" << constants_c << "\n";
 		out << "constants_g=" << constants_g << "\n";

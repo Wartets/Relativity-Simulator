@@ -2,6 +2,7 @@
 
 #include "relativistic/capture/easing.hpp"
 #include "relativistic/capture/expression.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <array>
@@ -78,6 +79,118 @@ inline bool input_expression(const char* label, Capture::Expression& expression)
 	if (!expression.valid()) {
 		ImGui::TextColored(kWarningColor, "%s", expression.error().c_str());
 	}
+	return changed;
+}
+
+inline void help_marker(const char* text) {
+	ImGui::TextDisabled("(?)");
+	render_setting_tooltip(text);
+}
+
+inline bool begin_property_grid(const char* id, float label_share = 0.4f) {
+	if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX)) {
+		return false;
+	}
+	ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthStretch, label_share);
+	ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - label_share);
+	return true;
+}
+
+inline void end_property_grid() {
+	ImGui::EndTable();
+}
+
+template <typename Widget>
+inline bool property_row(const char* label, const char* tooltip, Widget&& widget) {
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted(label);
+	if (tooltip != nullptr) {
+		render_setting_tooltip(tooltip);
+	}
+	ImGui::TableNextColumn();
+	ImGui::PushID(label);
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	const bool changed = widget();
+	ImGui::PopID();
+	return changed;
+}
+
+inline void property_info(const char* label, const std::string& text) {
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted(label);
+	ImGui::TableNextColumn();
+	ImGui::PushStyleColor(ImGuiCol_Text, kMutedColor);
+	ImGui::TextWrapped("%s", text.c_str());
+	ImGui::PopStyleColor();
+}
+
+inline bool property_drag(const char* label, double& value, double speed, double min_value, double max_value, const char* format = "%.3f", const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return drag_double("##value", value, speed, min_value, max_value, format); });
+}
+
+inline bool property_drag_free(const char* label, double& value, double speed, const char* format = "%.3f", const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return drag_double_free("##value", value, speed, format); });
+}
+
+inline bool property_check(const char* label, bool& value, const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return ImGui::Checkbox("##value", &value); });
+}
+
+inline bool property_text(const char* label, std::string& value, const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return input_text("##value", value); });
+}
+
+inline bool property_expression(const char* label, Capture::Expression& value, const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return input_expression("##value", value); });
+}
+
+inline bool property_u32(const char* label, uint32_t& value, uint32_t min_value, uint32_t max_value, ImGuiSliderFlags flags = 0, const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return slider_u32("##value", value, min_value, max_value, flags); });
+}
+
+template <typename EnumType, size_t N>
+inline bool property_enum(const char* label, EnumType& value, const std::array<const char*, N>& names, const char* tooltip = nullptr) {
+	return property_row(label, tooltip, [&] { return enum_combo("##value", value, names); });
+}
+
+inline bool property_vec3(const char* label, std::array<double, 3>& value, double speed = 0.1, const char* format = "%.3f", const char* tooltip = nullptr, const char* action_label = nullptr, bool* action_clicked = nullptr) {
+	return property_row(label, tooltip, [&] {
+		if (action_label != nullptr) {
+			ImGui::SetNextItemWidth(-(ImGui::CalcTextSize(action_label).x + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetStyle().ItemSpacing.x));
+		}
+		const bool changed = drag_vec3("##value", value, speed, format);
+		if (action_label != nullptr) {
+			ImGui::SameLine();
+			if (ImGui::Button(action_label) && action_clicked != nullptr) {
+				*action_clicked = true;
+			}
+		}
+		return changed;
+	});
+}
+
+inline bool vertical_splitter(const char* id, float& left_width, float min_left, float max_left, float height) {
+	ImGui::SameLine(0.0f, 2.0f);
+	ImGui::InvisibleButton(id, ImVec2(6.0f, height));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool active = ImGui::IsItemActive();
+	if (hovered || active) {
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+	}
+	bool changed = false;
+	if (active) {
+		left_width = std::clamp(left_width + ImGui::GetIO().MouseDelta.x, min_left, std::max(max_left, min_left));
+		changed = true;
+	}
+	const ImVec2 minimum = ImGui::GetItemRectMin();
+	const ImVec2 maximum = ImGui::GetItemRectMax();
+	const ImU32 color = active ? IM_COL32(120, 190, 255, 230) : (hovered ? IM_COL32(120, 190, 255, 140) : IM_COL32(90, 100, 125, 120));
+	ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(minimum.x + 2.0f, minimum.y), ImVec2(minimum.x + 4.0f, maximum.y), color, 1.0f);
+	ImGui::SameLine(0.0f, 2.0f);
 	return changed;
 }
 

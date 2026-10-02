@@ -85,6 +85,7 @@ enum class InputAction : uint32_t {
 	BulkEqualizeBodyMasses,
 	BulkAverageBodyMasses,
 	BulkZeroAllSpins,
+	ToggleCaptureStudio,
 	Count
 };
 
@@ -186,6 +187,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::ToggleSpectrographWindow:
 		case InputAction::TogglePerformanceAnalysisWindow:
 		case InputAction::ToggleConstantsWindow:
+		case InputAction::ToggleCaptureStudio:
 			return InputActionCategory::InterfaceWindows;
 		case InputAction::StartStopBenchmarkCapture:
 		case InputAction::QuickSaveBenchmarkRun:
@@ -256,6 +258,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::StartStopBenchmarkCapture: return "Start/Stop Benchmark Capture";
 		case InputAction::QuickSaveBenchmarkRun: return "Quick Save Live Window As Benchmark Run";
 		case InputAction::ToggleConstantsWindow: return "Toggle Physical Constants Engine";
+		case InputAction::ToggleCaptureStudio: return "Toggle Capture Studio";
 		case InputAction::BulkInvertAllVelocities: return "Bulk: Invert All Body Velocities";
 		case InputAction::BulkScatterBodyPositions: return "Bulk: Scatter Body Positions";
 		case InputAction::BulkSnapBodiesToGrid: return "Bulk: Snap Bodies To Grid";

@@ -1381,9 +1381,25 @@ private:
 struct DepthSphere {
 		std::array<double, 3> center{0.0, 0.0, 0.0};
 		double radius{0.0};
+		bool covering{false};
+		ImVec2 screen_center{0.0f, 0.0f};
+		float screen_rx{0.0f};
+		float screen_ry{0.0f};
+		double front_depth{0.0};
+
+		[[nodiscard]] bool covers(const ProjectedPoint& point) const noexcept {
+			if (!covering || screen_rx <= 0.0f || screen_ry <= 0.0f || point.forward_depth <= front_depth) {
+				return false;
+			}
+			const float nx = (point.screen.x - screen_center.x) / screen_rx;
+			const float ny = (point.screen.y - screen_center.y) / screen_ry;
+			return nx * nx + ny * ny <= 1.0f;
+		}
 	};
 
 	enum class PathCommandKind : uint8_t { Segment, Marker, FrustumEdge, FrustumApex };
+
+	static constexpr size_t kHiddenSlot = std::numeric_limits<size_t>::max();
 
 	struct PathCommand {
 		PathCommandKind kind{PathCommandKind::Segment};
@@ -1392,6 +1408,9 @@ struct DepthSphere {
 		double depth{0.0};
 		float depth_factor{0.0f};
 		bool arrow{false};
+		uint32_t segment{0};
+		ImVec2 from{0.0f, 0.0f};
+		ImVec2 to{0.0f, 0.0f};
 	};
 
 	struct PathScene {
@@ -1402,17 +1421,55 @@ struct DepthSphere {
 		size_t cursor{0};
 	};
 
+	[[nodiscard]] DepthSphere make_depth_sphere(
+		const std::array<double, 3>& center,
+		double physical_radius,
+		double minimum_pixel_radius,
+		double maximum_pixel_radius,
+		double pixel_radius_override
+	) const noexcept {
+		DepthSphere sphere{center, physical_radius};
+		if (physical_radius <= 0.0) {
+			return sphere;
+		}
+		const auto projected = project(center);
+		if (!projected.visible) {
+			return sphere;
+		}
+		const auto ellipse = compute_screen_ellipse(center, physical_radius);
+		double radius_x = (pixel_radius_override >= 0.0) ? pixel_radius_override : static_cast<double>(ellipse.rx);
+		double radius_y = (pixel_radius_override >= 0.0) ? pixel_radius_override : static_cast<double>(ellipse.ry);
+		radius_x = std::clamp(radius_x, minimum_pixel_radius, maximum_pixel_radius);
+		radius_y = std::clamp(radius_y, minimum_pixel_radius, maximum_pixel_radius);
+		sphere.covering = true;
+		sphere.screen_center = projected.screen;
+		sphere.screen_rx = static_cast<float>(radius_x);
+		sphere.screen_ry = static_cast<float>(radius_y);
+		sphere.front_depth = projected.forward_depth - physical_radius;
+		return sphere;
+	}
+
 	[[nodiscard]] DepthSphere make_central_sphere(double central_radius, const SchematicViewConfig& cfg) const noexcept {
 		const auto& style = cfg.central_object_style;
-		return DepthSphere{{0.0, 0.0, 0.0}, (style.shape == SchematicObjectShape::Point) ? 0.0 : central_radius * style.radius_scale};
+		if (style.shape == SchematicObjectShape::Point) {
+			return DepthSphere{{0.0, 0.0, 0.0}, 0.0};
+		}
+		return make_depth_sphere({0.0, 0.0, 0.0}, central_radius * style.radius_scale, style.sphere_min_pixel_radius, style.sphere_max_pixel_radius, -1.0);
 	}
 
 	[[nodiscard]] DepthSphere make_body_sphere(const Dynamics::PostNewtonianBody& body, const SchematicViewConfig& cfg) const noexcept {
-		if (body.is_spacetime_source) {
-			return DepthSphere{body.position, body.kerr_outer_horizon_radius()};
-		}
 		const auto& style = cfg.effective_body_style(body.id);
-		return DepthSphere{body.position, (style.shape == SchematicObjectShape::Point) ? 0.0 : std::max(body.radius, 1e-4) * style.radius_scale};
+		if (body.is_spacetime_source) {
+			return make_depth_sphere(body.position, body.kerr_outer_horizon_radius(), style.sphere_min_pixel_radius, style.sphere_max_pixel_radius, -1.0);
+		}
+		if (style.shape == SchematicObjectShape::Point) {
+			return DepthSphere{body.position, 0.0};
+		}
+		double pixel_radius_override = -1.0;
+		if (style.shape == SchematicObjectShape::SphereByParameter) {
+			pixel_radius_override = std::clamp(body_parameter_source_value(body, style.parameter_source) * style.parameter_pixel_scale, style.sphere_min_pixel_radius, style.sphere_max_pixel_radius);
+		}
+		return make_depth_sphere(body.position, std::max(body.radius, 1e-4) * style.radius_scale, style.sphere_min_pixel_radius, style.sphere_max_pixel_radius, pixel_radius_override);
 	}
 
 	[[nodiscard]] PathScene build_path_scene(std::span<const DepthSphere> spheres, double hidden_radius) const {
@@ -1421,16 +1478,12 @@ struct DepthSphere {
 		if (preview.empty()) return scene;
 
 		const std::array<double, 3> origin{0.0, 0.0, 0.0};
-		const auto classify = [&](const std::array<double, 3>& point, size_t& slot) -> bool {
-			if (hidden_radius > 0.0 && is_occluded_by_sphere(point, origin, hidden_radius)) return false;
-			slot = spheres.size();
+		const auto slot_for = [&](const std::array<double, 3>& world, const ProjectedPoint& projected) -> size_t {
+			if (hidden_radius > 0.0 && is_occluded_by_sphere(world, origin, hidden_radius)) return kHiddenSlot;
 			for (size_t i = 0; i < spheres.size(); ++i) {
-				if (spheres[i].radius > 0.0 && is_occluded_by_sphere(point, spheres[i].center, spheres[i].radius)) {
-					slot = i;
-					break;
-				}
+				if (spheres[i].covers(projected)) return i;
 			}
-			return true;
+			return spheres.size();
 		};
 
 		scene.vertices.reserve(preview.vertices.size());
@@ -1447,36 +1500,98 @@ struct DepthSphere {
 		const double depth_span = std::max(depth_max - depth_min, 1e-9);
 
 		constexpr double arrow_spacing = 110.0;
+		constexpr int max_split_depth = 14;
+		constexpr float min_split_pixels = 0.6f;
 		double arrow_distance = 0.0;
+
+		struct PathPiece {
+			double t0;
+			double t1;
+			size_t slot;
+			ProjectedPoint from;
+			ProjectedPoint to;
+		};
+		struct PendingSpan {
+			double t0;
+			double t1;
+			size_t slot0;
+			size_t slot1;
+			ProjectedPoint from;
+			ProjectedPoint to;
+			int level;
+		};
+		std::vector<PathPiece> pieces;
+		std::vector<PendingSpan> pending;
+
 		for (size_t i = 1; i < scene.vertices.size(); ++i) {
 			if (preview.vertices[i].segment != preview.vertices[i - 1].segment) {
 				arrow_distance = 0.0;
 				continue;
 			}
-			const auto& from = scene.vertices[i - 1];
-			const auto& to = scene.vertices[i];
-			if (!from.visible || !to.visible) continue;
-			const auto& a = preview.vertices[i - 1].position;
-			const auto& b = preview.vertices[i].position;
-			const std::array<double, 3> mid{(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5, (a[2] + b[2]) * 0.5};
-			size_t slot = 0;
-			if (!classify(mid, slot)) continue;
+			const ProjectedPoint& start = scene.vertices[i - 1];
+			const ProjectedPoint& end = scene.vertices[i];
+			if (!start.visible || !end.visible) continue;
+			const auto& wa = preview.vertices[i - 1].position;
+			const auto& wb = preview.vertices[i].position;
+			const auto world_at = [&](double t) noexcept -> std::array<double, 3> {
+				return {wa[0] + (wb[0] - wa[0]) * t, wa[1] + (wb[1] - wa[1]) * t, wa[2] + (wb[2] - wa[2]) * t};
+			};
 
-			const double dx = static_cast<double>(to.screen.x - from.screen.x);
-			const double dy = static_cast<double>(to.screen.y - from.screen.y);
-			arrow_distance += std::sqrt(dx * dx + dy * dy);
-
-			PathCommand command;
-			command.kind = PathCommandKind::Segment;
-			command.index = i;
-			command.slot = slot;
-			command.depth = 0.5 * (from.forward_depth + to.forward_depth);
-			command.depth_factor = static_cast<float>(std::clamp((command.depth - depth_min) / depth_span, 0.0, 1.0));
-			if (arrow_distance >= arrow_spacing) {
-				command.arrow = preview.show_direction;
-				arrow_distance = 0.0;
+			pieces.clear();
+			pending.clear();
+			pending.push_back(PendingSpan{0.0, 1.0, slot_for(wa, start), slot_for(wb, end), start, end, 0});
+			while (!pending.empty()) {
+				const PendingSpan span = pending.back();
+				pending.pop_back();
+				const double tm = 0.5 * (span.t0 + span.t1);
+				const auto wm = world_at(tm);
+				const ProjectedPoint pm = project(wm);
+				const size_t sm = pm.visible ? slot_for(wm, pm) : span.slot0;
+				const float dx = span.to.screen.x - span.from.screen.x;
+				const float dy = span.to.screen.y - span.from.screen.y;
+				const bool uniform = (span.slot0 == span.slot1) && (sm == span.slot0);
+				const bool tiny = (dx * dx + dy * dy) <= min_split_pixels * min_split_pixels;
+				if (uniform || tiny || span.level >= max_split_depth || !pm.visible) {
+					pieces.push_back(PathPiece{span.t0, span.t1, uniform ? span.slot0 : sm, span.from, span.to});
+					continue;
+				}
+				pending.push_back(PendingSpan{tm, span.t1, sm, span.slot1, pm, span.to, span.level + 1});
+				pending.push_back(PendingSpan{span.t0, tm, span.slot0, sm, span.from, pm, span.level + 1});
 			}
-			scene.commands.push_back(command);
+
+			std::sort(pieces.begin(), pieces.end(), [](const PathPiece& lhs, const PathPiece& rhs) noexcept { return lhs.t0 < rhs.t0; });
+			size_t merged = 0;
+			for (size_t k = 0; k < pieces.size(); ++k) {
+				if (merged > 0 && pieces[merged - 1].slot == pieces[k].slot) {
+					pieces[merged - 1].to = pieces[k].to;
+					pieces[merged - 1].t1 = pieces[k].t1;
+				} else {
+					pieces[merged++] = pieces[k];
+				}
+			}
+			pieces.erase(pieces.begin() + static_cast<ptrdiff_t>(merged), pieces.end());
+
+			for (const PathPiece& piece : pieces) {
+				if (piece.slot == kHiddenSlot) continue;
+				const double dx = static_cast<double>(piece.to.screen.x - piece.from.screen.x);
+				const double dy = static_cast<double>(piece.to.screen.y - piece.from.screen.y);
+				arrow_distance += std::sqrt(dx * dx + dy * dy);
+
+				PathCommand command;
+				command.kind = PathCommandKind::Segment;
+				command.index = i;
+				command.segment = preview.vertices[i].segment;
+				command.slot = piece.slot;
+				command.from = piece.from.screen;
+				command.to = piece.to.screen;
+				command.depth = 0.5 * (piece.from.forward_depth + piece.to.forward_depth);
+				command.depth_factor = static_cast<float>(std::clamp((command.depth - depth_min) / depth_span, 0.0, 1.0));
+				if (arrow_distance >= arrow_spacing) {
+					command.arrow = preview.show_direction;
+					arrow_distance = 0.0;
+				}
+				scene.commands.push_back(command);
+			}
 		}
 
 		if (preview.show_markers) {
@@ -1484,8 +1599,9 @@ struct DepthSphere {
 			for (size_t i = 0; i < preview.markers.size(); ++i) {
 				const auto projected = project(preview.markers[i].position);
 				scene.markers.push_back(projected);
-				size_t slot = 0;
-				if (!projected.visible || !classify(preview.markers[i].position, slot)) continue;
+				if (!projected.visible) continue;
+				const size_t slot = slot_for(preview.markers[i].position, projected);
+				if (slot == kHiddenSlot) continue;
 				PathCommand command;
 				command.kind = PathCommandKind::Marker;
 				command.index = i;
@@ -1520,8 +1636,8 @@ struct DepthSphere {
 				const auto& wa = world[edges[e].first];
 				const auto& wb = world[edges[e].second];
 				const std::array<double, 3> mid{(wa[0] + wb[0]) * 0.5, (wa[1] + wb[1]) * 0.5, (wa[2] + wb[2]) * 0.5};
-				size_t slot = 0;
-				if (!classify(mid, slot)) continue;
+				const size_t slot = slot_for(mid, project(mid));
+				if (slot == kHiddenSlot) continue;
 				PathCommand command;
 				command.kind = PathCommandKind::FrustumEdge;
 				command.index = e;
@@ -1529,8 +1645,8 @@ struct DepthSphere {
 				command.depth = 0.5 * (pa.forward_depth + pb.forward_depth);
 				scene.commands.push_back(command);
 			}
-			size_t apex_slot = 0;
-			if (scene.frustum[0].visible && classify(world[0], apex_slot)) {
+			const size_t apex_slot = scene.frustum[0].visible ? slot_for(world[0], scene.frustum[0]) : kHiddenSlot;
+			if (apex_slot != kHiddenSlot) {
 				PathCommand command;
 				command.kind = PathCommandKind::FrustumApex;
 				command.slot = apex_slot;
@@ -1552,9 +1668,9 @@ struct DepthSphere {
 		const ImU32 frustum_color = IM_COL32(255, 245, 140, 240);
 		switch (command.kind) {
 			case PathCommandKind::Segment: {
-				const auto& from = scene.vertices[command.index - 1];
-				const auto& to = scene.vertices[command.index];
-				const uint32_t segment = preview.vertices[command.index].segment;
+				const ProjectedPoint from{true, command.from, 0.0};
+				const ProjectedPoint to{true, command.to, 0.0};
+				const uint32_t segment = command.segment;
 				const auto& rgb = Capture::kPathPreviewPalette[segment % Capture::kPathPreviewPalette.size()];
 				const bool highlighted = preview.highlighted_segment >= 0 && static_cast<uint32_t>(preview.highlighted_segment) == segment;
 				const float thickness = (highlighted ? 3.6f : 2.0f) * (0.7f + 0.3f * near_factor);

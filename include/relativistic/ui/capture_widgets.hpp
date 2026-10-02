@@ -82,6 +82,145 @@ inline bool input_expression(const char* label, Capture::Expression& expression)
 	return changed;
 }
 
+[[nodiscard]] inline float ui_unit() noexcept {
+	return ImGui::GetFontSize();
+}
+
+[[nodiscard]] inline float label_column_width() noexcept {
+	const float unit = ui_unit();
+	return std::clamp(ImGui::GetContentRegionAvail().x * 0.38f, unit * 7.0f, unit * 19.0f);
+}
+
+[[nodiscard]] inline std::string format_number(double value, int precision) {
+	char buffer[48];
+	std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
+	return buffer;
+}
+
+class FormScope {
+public:
+	FormScope() {
+		const float unit = ui_unit();
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(unit * 0.55f, unit * 0.42f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(unit * 0.45f, unit * 0.22f));
+		ImGui::PushItemWidth(-label_column_width());
+		ImGui::PushTextWrapPos(0.0f);
+	}
+
+	~FormScope() {
+		ImGui::PopTextWrapPos();
+		ImGui::PopItemWidth();
+		ImGui::PopStyleVar(2);
+	}
+
+	FormScope(const FormScope&) = delete;
+	FormScope& operator=(const FormScope&) = delete;
+};
+
+class FlowLayout {
+private:
+	float right_edge_;
+	bool first_{true};
+
+public:
+	FlowLayout() : right_edge_(ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x) {}
+
+	[[nodiscard]] static float button_width(const char* label, bool compact = false) noexcept {
+		const ImGuiStyle& style = ImGui::GetStyle();
+		const float padding = compact ? style.FramePadding.x : style.FramePadding.x;
+		return ImGui::CalcTextSize(label, nullptr, true).x + padding * 2.0f;
+	}
+
+	[[nodiscard]] static float checkbox_width(const char* label) noexcept {
+		return ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label, nullptr, true).x;
+	}
+
+	void next(float width) {
+		if (!first_ && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right_edge_) {
+			ImGui::SameLine();
+		}
+		first_ = false;
+	}
+
+	[[nodiscard]] bool button(const char* label, float minimum_width = 0.0f) {
+		const float width = std::max(button_width(label), minimum_width);
+		next(width);
+		return ImGui::Button(label, ImVec2(width, 0.0f));
+	}
+
+	[[nodiscard]] bool small_button(const char* label, bool highlighted = false) {
+		next(button_width(label, true));
+		if (highlighted) {
+			ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+		}
+		const bool pressed = ImGui::SmallButton(label);
+		if (highlighted) {
+			ImGui::PopStyleColor();
+		}
+		return pressed;
+	}
+};
+
+inline void section_header(const char* label) {
+	const float unit = ui_unit();
+	ImGui::Dummy(ImVec2(0.0f, unit * 0.3f));
+	ImGui::TextColored(kHeaderColor, "%s", label);
+	const ImVec2 cursor = ImGui::GetCursorScreenPos();
+	ImGui::GetWindowDrawList()->AddLine(
+		ImVec2(cursor.x, cursor.y),
+		ImVec2(cursor.x + ImGui::GetContentRegionAvail().x, cursor.y),
+		IM_COL32(110, 170, 230, 120),
+		1.0f
+	);
+	ImGui::Dummy(ImVec2(0.0f, unit * 0.2f));
+}
+
+inline bool begin_stat_table(const char* id, int max_columns) {
+	const int columns = std::clamp(static_cast<int>(ImGui::GetContentRegionAvail().x / (ui_unit() * 8.5f)), 1, std::max(max_columns, 1));
+	return ImGui::BeginTable(id, columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_BordersInnerV);
+}
+
+inline void end_stat_table() {
+	ImGui::EndTable();
+}
+
+inline void stat_cell(const char* label, const std::string& value, const ImVec4& color = kAccentColor) {
+	ImGui::TableNextColumn();
+	ImGui::TextDisabled("%s", label);
+	ImGui::TextColored(color, "%s", value.c_str());
+}
+
+inline bool horizontal_splitter(const char* id, float& bottom_height, float minimum_bottom, float maximum_bottom, float default_bottom) {
+	const float thickness = std::max(ui_unit() * 0.5f, 6.0f);
+	ImGui::InvisibleButton(id, ImVec2(-FLT_MIN, thickness));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool active = ImGui::IsItemActive();
+	if (hovered || active) {
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+	}
+	bool changed = false;
+	if (active) {
+		const float next = std::clamp(bottom_height - ImGui::GetIO().MouseDelta.y, minimum_bottom, std::max(maximum_bottom, minimum_bottom));
+		changed = next != bottom_height;
+		bottom_height = next;
+	}
+	if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+		bottom_height = std::clamp(default_bottom, minimum_bottom, std::max(maximum_bottom, minimum_bottom));
+		changed = true;
+	}
+	const ImVec2 low = ImGui::GetItemRectMin();
+	const ImVec2 high = ImGui::GetItemRectMax();
+	const float center_y = (low.y + high.y) * 0.5f;
+	const float center_x = (low.x + high.x) * 0.5f;
+	const ImU32 line_color = active ? IM_COL32(120, 190, 255, 230) : (hovered ? IM_COL32(120, 190, 255, 150) : IM_COL32(90, 100, 125, 110));
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddLine(ImVec2(low.x, center_y), ImVec2(high.x, center_y), line_color, 1.0f);
+	for (int k = -1; k <= 1; ++k) {
+		draw->AddCircleFilled(ImVec2(center_x + static_cast<float>(k) * ui_unit() * 0.6f, center_y), 2.0f, line_color, 8);
+	}
+	return changed;
+}
+
 inline void help_marker(const char* text) {
 	ImGui::TextDisabled("(?)");
 	render_setting_tooltip(text);

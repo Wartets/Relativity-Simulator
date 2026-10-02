@@ -1,60 +1,97 @@
 # Relativity-Simulator
 
-A deterministic, computing and raytracing engine for General Relativity, Post-Newtonian celestial mechanics, relativistic hydrodynamics, and polarized radiative transfer across curved spacetimes.
+Deterministic simulation and ray-tracing engine for General Relativity, Post-Newtonian dynamics, relativistic hydrodynamics, and polarized radiative transfer in curved spacetimes.
+
+---
+
+## Documentation Map
+
+Primary references:
+
+- [System Description](docs/DESCRIPTION.md): scientific scope, runtime modes, validation targets.
+- [Technical Architecture](docs/ARCHITECTURE.md): subsystem structure, scheduling, concurrency, precision model.
+- [Technical Manual](docs/TECHNICAL_MANUAL.md): component-level implementation and engineering constraints.
+- [Mathematical Formulation](docs/MATHEMATICAL_FORMULATION.md): equations, metrics, transport formalisms, PN terms.
+- [File Formats & I/O](docs/FILE_FORMATS.md): YAML schema, FITS/HDF5/VTK formats, SPICE/HORIZONS ingestion.
+- [CLI & REPL Reference](docs/CLI_REFERENCE.md): interactive commands and headless exporter options.
 
 ---
 
 ## Key Features
 
-- **Spacetime Geometries:**
-  - Exact electrovacuum metrics: Minkowski, Schwarzschild, Kerr, Reissner-Nordström, Kerr-Newman, Schwarzschild-de Sitter / Kottler.
-  - Regular formulations: Kerr-Schild, Eddington-Finkelstein, Painlevé-Gullstrand, Isotropic coordinates.
-  - Cosmological & Exotic metrics: FLRW ($k \in \{-1, 0, 1\}$), Morris-Thorne traversable wormholes, Alcubierre warp drive.
-  - Numerical Spacetimes: 3+1 BSSN metric grid with tricubic and quintic Hermite temporal interpolation.
+- **Spacetime Models**
+  - Analytic metrics: Minkowski, Schwarzschild, Kerr, Reissner–Nordström, Kerr–Newman, Schwarzschild–de Sitter (Kottler).
+  - Coordinate forms: Boyer–Lindquist, Kerr–Schild, Eddington–Finkelstein, Painlevé–Gullstrand, isotropic.
+  - Additional models: FLRW, Morris–Thorne, Alcubierre.
+  - Numerical spacetime support: 3+1 BSSN metric grids with spatial/temporal interpolation.
 
-- **Differential Integrators:**
-  - Adaptive explicit: Runge-Kutta 4/5 (Dormand-Prince), Cash-Karp, Vernier 9 (16 stages, 9th order).
-  - Symplectic: Gauss-Legendre (4th & 6th order), Forest-Ruth / Yoshida.
-  - Predictor-corrector: Hermite 4th-order with Aarseth variable timestep control.
+- **Geodesics and Integrators**
+  - Adaptive explicit integrators: RK45 (Dormand–Prince), Cash–Karp, Vernier 9.
+  - Symplectic integrators: Gauss–Legendre (order 4/6), Forest–Ruth / Yoshida.
+  - Predictor-corrector: Hermite4 with Aarseth timestep control.
+  - Horizon-aware stepping and adaptive step-control infrastructure.
 
-- **Post-Newtonian Celestial Dynamics:**
-  - Conservative orders: 1PN, 2PN, 3PN.
-  - Radiation reaction: 2.5PN and 3.5PN gravitational wave dissipation.
-  - Spin couplings: Spin-Orbit (Lense-Thirring / geodetic) and Spin-Spin precession.
-  - Spherical Harmonics: High-degree gravitational potential expansions ($J_2, J_3, J_4, C_{nm}, S_{nm}$).
+- **Relativistic Dynamics**
+  - Post-Newtonian N-body dynamics: conservative 1PN/2PN/3PN terms.
+  - Dissipative terms: 2.5PN and 3.5PN radiation reaction.
+  - Spin dynamics: spin-orbit and spin-spin couplings.
+  - Dedicated Hulse–Taylor pulsar module.
+  - Configurable interaction and body-action layers.
 
-- **Relativistic Hydrodynamics (GRHD / GRMHD):**
-  - High-Resolution Shock Capturing: WENO5-Z, MP5 spatial reconstruction.
-  - Riemann Solvers: HLL, HLLC, HLLD.
-  - Equations of State: Ideal gas, Synge, Mathews, Relativistic Degenerate Fermi gas, Polytropic, and 3D Tabulated Nuclear tables (SFHo, Shen, LS220, SLy4, APR4).
-  - Accretion Models: Novikov-Thorne thin disk, Fishbone-Moncrief thick torus.
-  - Divergence-Free Magnetism: 2D/3D Constrained Transport ($\nabla \cdot \mathbf{B} = 0$).
+- **Gravimetry and Large-Scale Gravity**
+  - Spherical harmonic gravity tools (\(J_n\), \(C_{nm}\), \(S_{nm}\)).
+  - Orbital precession and tidal perturbation modules.
+  - Dark matter modules: halo profiles, composite galaxy models, Barnes–Hut acceleration.
 
-- **Polarized Radiative Transfer & CIE Spectrum Pipeline:**
-  - Raytracing: GPU Compute shader pipeline with native FP64 and Double-Single arithmetic.
-  - Full Stokes transport: $\mathbf{S} = (I, Q, U, V)^T$ with Delano matrix exponential integration.
-  - Radiative processes: Relativistic synchrotron, Bremsstrahlung, inverse Compton scattering with Maxwell-Jüttner velocity sampling.
-  - Radiometry: Continuous spectral integration ($10^{-14}$ to $10^{3}$ m) convolved with CIE 1931 color matching functions and ACES HDR tonemapping.
+- **Relativistic Hydrodynamics and Compact Objects**
+  - GRHD/GRMHD solver stack with WENO5-Z and MP5 reconstructions.
+  - Riemann solvers: HLL, HLLC, HLLD.
+  - Divergence control: constrained transport.
+  - EOS support: analytic and tabulated nuclear EOS.
+  - Compact-object models: TOV solver, Novikov–Thorne disk, Fishbone–Moncrief torus.
+  - Conservative-to-primitive inversion pipeline.
 
-- **Formal Uncertainty Quantification:**
-  - Interval arithmetic (IEEE 1788) & Zonotopes with Girard order reduction.
-  - Continuous Lyapunov phase covariance propagation along geodesics.
-  - Generalized Polynomial Chaos Expansion (gPCE) on Gauss-Hermite / Gauss-Legendre quadratures.
+- **Radiative Transfer and Rendering**
+  - Backward ray tracing on curved spacetimes.
+  - Polarized transfer in full Stokes form \((I,Q,U,V)\).
+  - Processes: synchrotron, bremsstrahlung, inverse Compton.
+  - Spectral integration with CIE color matching and display mapping.
+  - Output paths for still frames and sequence export.
 
-- **Scientific I/O:**
-  - NASA JPL SPICE SPK binary kernels and HORIZONS API ingestion.
-  - FITS 2D images and 3D spectral cubes with WCS metadata.
-  - HDF5 trajectory and metric tensor series serialization.
-  - VTK PolyData XML format for ParaView/VisIt rendering.
+- **Deterministic Runtime and Reproducibility**
+  - Deterministic replay support.
+  - Engine signature and SHA-256 provenance utilities.
+  - Lock-free SPSC queue primitives and thread-pool execution.
+  - Allocation-aware hot paths with linear memory arenas.
+
+- **Scientific Data and Interoperability**
+  - Scenario serialization and locator utilities.
+  - SPICE/HORIZONS ephemeris parsing and frame transforms.
+  - FITS image/spectral cube export with WCS metadata.
+  - HDF5 serialization for trajectories and tensor fields.
+  - VTK PolyData XML export for external visualization.
+  - Image codecs and stream writers.
+
+- **Capture and Experiment Control**
+  - Scriptable camera paths with easing and expression support.
+  - Motion script I/O and scripted events.
+  - Capture coordination, progress tracking, and physics recording.
+  - Path preview generation for validation before rendering.
+
+- **Uncertainty Quantification**
+  - Interval arithmetic (IEEE 1788).
+  - Zonotope propagation and order reduction.
+  - Covariance transport along trajectories.
+  - Generalized polynomial chaos workflows.
 
 ---
 
 ## Building and Installation
 
 ### Prerequisites
-- C++23 compliant compiler: GCC 13+, Clang 16+, or MSVC 2022 (v19.36+).
+- C++23 compiler: GCC 13+, Clang 16+, or MSVC 2022 (v19.36+).
 - CMake 3.25+.
-- OpenGL and GLFW (automatically fetched via CMake FetchContent).
+- OpenGL and GLFW (via CMake FetchContent).
 
 ### Standard Build (Release with LTO)
 ```bash
@@ -64,14 +101,14 @@ cmake --build build --config Release -j $(nproc)
 
 ### Profile-Guided Optimization (PGO) Build
 
-#### 1. Generate Instrument Build:
+#### Instrumented build
 ```bash
 cmake -B build-pgo -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO_GENERATE=ON
 cmake --build build-pgo --config Release -j $(nproc)
 ./build-pgo/headless_exporter --validate-benchmarks
 ```
 
-#### 2. Build with Profile Data:
+#### Optimized build using profile data
 ```bash
 cmake -B build-opt -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO_USE=ON
 cmake --build build-opt --config Release -j $(nproc)
@@ -106,6 +143,15 @@ Run `help` to list available commands (`warp`, `step`, `set mass`, `status`, etc
 ./build/headless_exporter --validate-benchmarks
 ./build/headless_exporter --scenario scenarios/kerr_accretion_disk.yaml --output-dir ./output --width 3840 --height 2160
 ```
+
+---
+
+## Third-Party Assets and Image Licenses
+
+Sky and panorama assets:
+
+- ambientCG assets (CC0 1.0): [assets/sky/ambientcg/LICENCE.txt](assets/sky/ambientcg/LICENCE.txt)
+- ESO Milky Way panorama (CC BY 4.0): [assets/sky/eso/LICENCE.txt](assets/sky/eso/LICENCE.txt)
 
 ---
 

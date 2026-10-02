@@ -753,6 +753,14 @@ public:
 			if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
 				render_viewport_toolbar(avail);
 			}
+			if (!schematic_cfg_.show_overlay_in_raytraced_view && schematic_renderer_.has_path_preview()) {
+				const auto preview_projection = static_cast<Observer::ProjectionMode>(params.projection_mode);
+				schematic_renderer_.configure(
+					cam, preview_projection, cam.fov_deg * (std::numbers::pi / 180.0), viewport_image_pos, avail,
+					params.mass, schematic_cfg_.lens_body_overlays_in_raytraced_view
+				);
+				schematic_renderer_.render_path_preview_only(ImGui::GetWindowDrawList());
+			}
 			render_loading_indicator(avail);
 			{
 				const auto hud_overlay_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::HudOverlay);

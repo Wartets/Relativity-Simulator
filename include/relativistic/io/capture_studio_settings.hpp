@@ -1,7 +1,8 @@
 #pragma once
 
-#include "relativistic/capture/camera_path.hpp"
+#include "relativistic/capture/motion_script_file.hpp"
 #include "relativistic/io/capture_settings_io.hpp"
+#include "relativistic/io/recording_settings.hpp"
 #include "relativistic/io/capture_target_settings.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
 #include <algorithm>
@@ -21,19 +22,24 @@ struct CaptureStudioSettings {
 	VideoSequenceSettings video{};
 	std::string sequence_directory{"./captures"};
 	std::string session_name{};
-	bool use_camera_path{false};
+	bool use_script{false};
 	bool manual_stepping{false};
-	Capture::CameraPath path{};
+	Capture::MotionScript script{};
+	RecordingSettings recording{};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "capture_studio.cfg";
 	}
 
-	[[nodiscard]] static std::filesystem::path path_file_path() {
+	[[nodiscard]] static std::filesystem::path script_file_path() {
+		return std::filesystem::path("config") / "capture_script.cfg";
+	}
+
+	[[nodiscard]] static std::filesystem::path legacy_path_file_path() {
 		return std::filesystem::path("config") / "capture_path.cfg";
 	}
 
-	void sanitize() noexcept {
+	void sanitize() {
 		video.frames_per_second = std::clamp(video.frames_per_second, 1.0f, 240.0f);
 		video.duration_seconds = std::clamp(video.duration_seconds, 0.05f, 86400.0f);
 		video.fixed_frame_count = std::max<uint64_t>(video.fixed_frame_count, 1ULL);
@@ -47,6 +53,8 @@ struct CaptureStudioSettings {
 		video.crf = std::min<uint32_t>(video.crf, 51U);
 		video.target_bitrate_kbps = std::clamp<uint32_t>(video.target_bitrate_kbps, 100U, 2000000U);
 		video.encode_frames_per_second = std::clamp(video.encode_frames_per_second, 0.0f, 240.0f);
+		recording.sanitize();
+		script.sanitize();
 	}
 
 	[[nodiscard]] static CaptureStudioSettings load_or_default() {
@@ -72,16 +80,29 @@ struct CaptureStudioSettings {
 			result.video.read_settings(reader);
 			result.sequence_directory = reader.text("sequence_directory", result.sequence_directory);
 			result.session_name = reader.text("session_name", result.session_name);
-			result.use_camera_path = reader.flag("use_camera_path", result.use_camera_path);
+			result.use_script = reader.flag("use_script", reader.flag("use_camera_path", result.use_script));
 			result.manual_stepping = reader.flag("manual_stepping", result.manual_stepping);
+			result.recording.read_settings(reader, "recording_");
 		}
 
-		std::ifstream path_file(path_file_path());
-		if (path_file.is_open()) {
+		bool script_loaded = false;
+		std::ifstream script_file(script_file_path());
+		if (script_file.is_open()) {
 			std::ostringstream buffer;
-			buffer << path_file.rdbuf();
-			if (auto parsed = Capture::CameraPath::from_text(buffer.str()); parsed.has_value()) {
-				result.path = std::move(*parsed);
+			buffer << script_file.rdbuf();
+			if (auto parsed = Capture::motion_script_from_text(buffer.str()); parsed.has_value()) {
+				result.script = std::move(*parsed);
+				script_loaded = true;
+			}
+		}
+		if (!script_loaded) {
+			std::ifstream legacy_file(legacy_path_file_path());
+			if (legacy_file.is_open()) {
+				std::ostringstream buffer;
+				buffer << legacy_file.rdbuf();
+				if (auto parsed = Capture::CameraPath::from_text(buffer.str()); parsed.has_value()) {
+					result.script = Capture::MotionScript::from_legacy_path(*parsed);
+				}
 			}
 		}
 
@@ -101,14 +122,12 @@ struct CaptureStudioSettings {
 			video.write_settings(writer);
 			writer.text("sequence_directory", sequence_directory);
 			writer.text("session_name", session_name);
-			writer.flag("use_camera_path", use_camera_path);
+			writer.flag("use_script", use_script);
 			writer.flag("manual_stepping", manual_stepping);
+			recording.write_settings(writer, "recording_");
 		}
 
-		std::ofstream path_out(path_file_path(), std::ios::trunc);
-		if (path_out.is_open()) {
-			path_out << path.to_text();
-		}
+		static_cast<void>(Capture::save_motion_script(script_file_path(), script));
 	}
 };
 

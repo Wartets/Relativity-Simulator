@@ -1,29 +1,30 @@
 #pragma once
 
-#include "relativistic/capture/camera_path.hpp"
 #include "relativistic/capture/capture_coordinator.hpp"
+#include "relativistic/capture/motion_script.hpp"
+#include "relativistic/capture/path_preview_builder.hpp"
 #include "relativistic/io/capture_studio_settings.hpp"
 #include "relativistic/io/image_format.hpp"
+#include "relativistic/io/recording_settings.hpp"
 #include "relativistic/io/screenshot_capture_settings.hpp"
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
+#include "relativistic/ui/capture_widgets.hpp"
+#include "relativistic/ui/motion_script_editor.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/viewport_primary_window.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
-#include <vector>
 
 namespace Relativistic::UI {
 
@@ -49,101 +50,16 @@ inline constexpr std::array<ResolutionPreset, 10> kResolutionPresets{{
 }};
 
 inline constexpr std::array<const char*, 2> kCaptureModeNames{"Deterministic (Frame By Frame)", "Real-Time Recording"};
-inline constexpr std::array<const char*, 5> kTriggerNames{"Manual (Until Stopped)", "Fixed Duration", "Fixed Frame Count", "Continuous", "Camera Path Duration"};
+inline constexpr std::array<const char*, 5> kTriggerNames{"Manual (Until Stopped)", "Fixed Duration", "Fixed Frame Count", "Continuous", "Motion Script Duration"};
 inline constexpr std::array<const char*, 3> kAdvanceNames{"Frozen World", "Fixed Ticks Per Frame", "Simulation Seconds Per Video Second"};
 inline constexpr std::array<const char*, 2> kPacingNames{"Drop Late Frames", "Duplicate To Fill Gaps"};
 inline constexpr std::array<const char*, 9> kCodecNames{"H.264 (libx264)", "H.265 (libx265)", "VP9 (libvpx-vp9)", "ProRes 422 HQ", "Image Sequence Only", "AV1 (SVT-AV1)", "FFV1 (Lossless)", "Motion JPEG", "Animated GIF"};
 inline constexpr std::array<const char*, 6> kContainerNames{"MP4", "MKV", "MOV", "WebM", "AVI", "GIF"};
 inline constexpr std::array<const char*, 2> kRateControlNames{"Constant Quality (CRF)", "Target Bitrate"};
 inline constexpr std::array<const char*, 9> kEncoderSpeedNames{"Ultrafast", "Superfast", "Veryfast", "Faster", "Fast", "Medium", "Slow", "Slower", "Veryslow"};
-inline constexpr std::array<const char*, 7> kPathKindNames{"Keyframes", "Orbit", "Linear Fly-By", "Target Tracking Orbit", "Dolly Zoom (Vertigo)", "Logarithmic Spiral Infall", "Helical Trajectory"};
-inline constexpr std::array<const char*, 4> kInterpolationNames{"Step", "Linear", "Smoothstep", "Catmull-Rom Spline"};
-inline constexpr std::array<const char*, 5> kEasingNames{"Linear", "Ease In", "Ease Out", "Ease In Out", "Smootherstep"};
-inline constexpr std::array<const char*, 3> kOrientationNames{"Keyframed / Fixed Angles", "Look At Target", "Along Travel Direction"};
-inline constexpr std::array<const char*, 3> kPathEndNames{"Clamp At End", "Loop", "Ping-Pong"};
 inline constexpr std::array<const char*, 3> kOverwriteNames{"Auto-Increment Filename", "Overwrite Existing File", "Skip If File Exists"};
-
-inline const ImVec4 kHeaderColor(0.45f, 0.85f, 1.0f, 1.0f);
-inline const ImVec4 kWarningColor(1.0f, 0.55f, 0.35f, 1.0f);
-
-template <size_t N>
-inline bool index_combo(const char* label, uint32_t& value, const std::array<const char*, N>& names) {
-	int index = std::min(static_cast<int>(value), static_cast<int>(N) - 1);
-	if (ImGui::Combo(label, &index, names.data(), static_cast<int>(N))) {
-		value = static_cast<uint32_t>(index);
-		return true;
-	}
-	return false;
-}
-
-template <typename Enum, size_t N>
-inline bool enum_combo(const char* label, Enum& value, const std::array<const char*, N>& names) {
-	uint32_t index = static_cast<uint32_t>(value);
-	if (index_combo(label, index, names)) {
-		value = static_cast<Enum>(index);
-		return true;
-	}
-	return false;
-}
-
-inline bool slider_u32(const char* label, uint32_t& value, uint32_t min_value, uint32_t max_value, ImGuiSliderFlags flags = 0) {
-	int scratch = static_cast<int>(value);
-	if (ImGui::SliderInt(label, &scratch, static_cast<int>(min_value), static_cast<int>(max_value), "%d", flags)) {
-		value = static_cast<uint32_t>(scratch);
-		return true;
-	}
-	return false;
-}
-
-inline bool drag_double(const char* label, double& value, double speed, double min_value, double max_value, const char* format) {
-	return ImGui::DragScalar(label, ImGuiDataType_Double, &value, static_cast<float>(speed), &min_value, &max_value, format);
-}
-
-inline bool drag_double3(const char* label, std::array<double, 3>& value, double speed, const char* format) {
-	return ImGui::DragScalarN(label, ImGuiDataType_Double, value.data(), 3, static_cast<float>(speed), nullptr, nullptr, format);
-}
-
-inline void copy_to_buffer(char* buffer, size_t size, const std::string& value) {
-	std::strncpy(buffer, value.c_str(), size - 1);
-	buffer[size - 1] = '\0';
-}
-
-inline bool text_input(const char* label, char* buffer, size_t size, std::string& target) {
-	if (ImGui::InputText(label, buffer, size)) {
-		target = buffer;
-		return true;
-	}
-	return false;
-}
-
-inline void wrapped_text(const ImVec4& color, const std::string& text) {
-	ImGui::PushStyleColor(ImGuiCol_Text, color);
-	ImGui::TextWrapped("%s", text.c_str());
-	ImGui::PopStyleColor();
-}
-
-[[nodiscard]] inline std::string format_bytes(uint64_t bytes) {
-	static constexpr std::array<const char*, 5> units{"B", "KiB", "MiB", "GiB", "TiB"};
-	double value = static_cast<double>(bytes);
-	size_t unit = 0;
-	while (value >= 1024.0 && unit + 1 < units.size()) {
-		value /= 1024.0;
-		++unit;
-	}
-	char buffer[48];
-	std::snprintf(buffer, sizeof(buffer), "%.2f %s", value, units[unit]);
-	return buffer;
-}
-
-[[nodiscard]] inline std::string format_duration(double seconds) {
-	if (!(seconds >= 0.0) || seconds > 1.0e9) {
-		return "--";
-	}
-	const uint64_t total = static_cast<uint64_t>(seconds + 0.5);
-	char buffer[48];
-	std::snprintf(buffer, sizeof(buffer), "%lluh %02llum %02llus", static_cast<unsigned long long>(total / 3600ULL), static_cast<unsigned long long>((total / 60ULL) % 60ULL), static_cast<unsigned long long>(total % 60ULL));
-	return buffer;
-}
+inline constexpr std::array<const char*, 7> kRecordingFormatNames{"CSV", "TSV", "JSON (Single Document)", "JSON Lines", "Binary Columns (RCAP)", "Container (Typed Datasets)", "VTK Polyline (ParaView)"};
+inline constexpr std::array<const char*, 6> kRecordingPresetNames{"None", "Trajectory", "Camera Kinematics", "Full Kinematics", "Relativistic Physics", "Everything"};
 
 [[nodiscard]] inline ImVec4 phase_color(Capture::CapturePhase phase) noexcept {
 	switch (phase) {
@@ -172,8 +88,16 @@ inline void wrapped_text(const ImVec4& color, const std::string& text) {
 
 class CaptureStudioWindow {
 private:
+	enum class StudioTab : int {
+		None = -1,
+		Screenshot = 0,
+		Sequence = 1,
+		Script = 2,
+		Recording = 3,
+		Encoding = 4
+	};
+
 	static constexpr float kFooterHeight = 196.0f;
-	static constexpr size_t kPathTextCapacity = 65536;
 
 	bool is_open_{false};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
@@ -181,21 +105,27 @@ private:
 	IO::UserSettings& user_settings_;
 	IO::CaptureStudioSettings settings_;
 	Capture::RequestResult last_request_{};
-	bool buffers_synced_{false};
-	char directory_buffer_[256]{};
-	char pattern_buffer_[128]{};
-	char watermark_buffer_[128]{};
-	char sequence_directory_buffer_[256]{};
-	char session_buffer_[96]{};
-	char ffmpeg_buffer_[192]{};
-	char pixel_format_buffer_[32]{};
-	char path_file_buffer_[256]{"config/camera_path.txt"};
-	std::vector<char> path_text_buffer_ = std::vector<char>(kPathTextCapacity, '\0');
-	std::string path_message_{};
-	int selected_keyframe_{-1};
-	double keyframe_spacing_{2.0};
-	double preview_time_{0.0};
+	MotionScriptEditor script_editor_{};
+	StudioTab requested_tab_{StudioTab::None};
+
+	Capture::PathPreview preview_{};
+	bool preview_enabled_{true};
+	bool preview_published_{false};
+	bool preview_force_rebuild_{true};
+	bool preview_options_dirty_{false};
+	bool preview_playing_{false};
 	bool preview_active_{false};
+	uint32_t preview_samples_{128};
+	bool preview_show_markers_{true};
+	bool preview_show_labels_{true};
+	bool preview_show_samples_{false};
+	bool preview_show_frustum_{true};
+	double preview_frustum_length_{10.0};
+	double preview_speed_{1.0};
+	double preview_time_{0.0};
+	double published_time_{-1.0};
+	int32_t published_highlight_{-2};
+	double last_preview_build_{0.0};
 	Capture::CameraPose preview_restore_pose_{};
 
 	[[nodiscard]] IO::ScreenshotFormat screenshot_format() const noexcept {
@@ -233,17 +163,20 @@ private:
 		return target;
 	}
 
-	[[nodiscard]] uint64_t planned_frame_count() const noexcept {
+	[[nodiscard]] bool script_usable() const {
+		return settings_.use_script && settings_.script.is_usable();
+	}
+
+	[[nodiscard]] uint64_t planned_frame_count() const {
 		const auto& video = settings_.video;
 		const double fps = static_cast<double>(video.frames_per_second);
-		const bool path_usable = settings_.use_camera_path && settings_.path.is_usable();
 		switch (video.trigger) {
 			case IO::SequenceCaptureTrigger::FixedDuration:
 				return static_cast<uint64_t>(std::max(std::round(static_cast<double>(video.duration_seconds) * fps), 1.0));
 			case IO::SequenceCaptureTrigger::FixedFrameCount:
 				return std::max<uint64_t>(video.fixed_frame_count, 1ULL);
 			case IO::SequenceCaptureTrigger::PathDuration:
-				return static_cast<uint64_t>(std::max(std::round((path_usable ? settings_.path.effective_duration() : static_cast<double>(video.duration_seconds)) * fps), 1.0));
+				return static_cast<uint64_t>(std::max(std::round((script_usable() ? settings_.script.total_duration() : static_cast<double>(video.duration_seconds)) * fps), 1.0));
 			case IO::SequenceCaptureTrigger::Manual:
 			case IO::SequenceCaptureTrigger::Continuous:
 			default:
@@ -251,19 +184,83 @@ private:
 		}
 	}
 
-	void sync_buffers() {
-		using CaptureStudioDetail::copy_to_buffer;
-		copy_to_buffer(directory_buffer_, sizeof(directory_buffer_), user_settings_.screenshot_output_directory);
-		copy_to_buffer(pattern_buffer_, sizeof(pattern_buffer_), user_settings_.screenshot_filename_pattern);
-		copy_to_buffer(watermark_buffer_, sizeof(watermark_buffer_), user_settings_.screenshot_watermark_text);
-		copy_to_buffer(sequence_directory_buffer_, sizeof(sequence_directory_buffer_), settings_.sequence_directory);
-		copy_to_buffer(session_buffer_, sizeof(session_buffer_), settings_.session_name);
-		copy_to_buffer(ffmpeg_buffer_, sizeof(ffmpeg_buffer_), settings_.video.ffmpeg_executable);
-		copy_to_buffer(pixel_format_buffer_, sizeof(pixel_format_buffer_), settings_.video.pixel_format);
-		buffers_synced_ = true;
+	[[nodiscard]] bool script_tracks_bodies() const {
+		for (const auto& segment : settings_.script.segments) {
+			if (segment.enabled && segment.anchor == Capture::AnchorMode::TrackBody) {
+				return true;
+			}
+			if (segment.orientation.mode == Capture::OrientationMode::LookAtTarget && segment.orientation.target_body >= 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void release_preview() {
+		if (preview_published_) {
+			viewport_.set_path_preview(nullptr);
+			preview_published_ = false;
+		}
+		preview_force_rebuild_ = true;
+		published_time_ = -1.0;
+		published_highlight_ = -2;
+	}
+
+	void update_preview(double dt) {
+		auto& coordinator = viewport_.capture_coordinator();
+		if (!preview_enabled_ || !settings_.script.is_usable() || coordinator.is_sequence_active()) {
+			static_cast<void>(script_editor_.consume_modified());
+			release_preview();
+			return;
+		}
+
+		const double total = settings_.script.total_duration();
+		if (preview_playing_) {
+			preview_time_ += dt * preview_speed_;
+			if (preview_time_ > total) {
+				preview_time_ = std::fmod(preview_time_, total);
+			}
+		}
+		if (const auto request = script_editor_.take_cursor_request()) {
+			preview_time_ = *request;
+		}
+		preview_time_ = std::clamp(preview_time_, 0.0, total);
+
+		const int32_t highlighted = script_editor_.selected_slot(settings_.script);
+		const double now = ImGui::GetTime();
+		const bool edited = script_editor_.consume_modified();
+		const bool rebuild = preview_force_rebuild_ || edited || preview_options_dirty_ || (script_tracks_bodies() && (now - last_preview_build_) > 0.2);
+		if (!rebuild && preview_time_ == published_time_ && highlighted == published_highlight_ && preview_published_) {
+			return;
+		}
+
+		const auto lookup = Capture::make_body_position_lookup(orchestrator_);
+		if (rebuild) {
+			Capture::PathPreviewOptions options;
+			options.samples_per_segment = preview_samples_;
+			options.frustum_length = preview_frustum_length_;
+			options.show_markers = preview_show_markers_;
+			options.show_labels = preview_show_labels_;
+			options.show_samples = preview_show_samples_;
+			options.show_frustum = preview_show_frustum_;
+			options.cursor_seconds = preview_time_;
+			options.highlighted_segment = highlighted;
+			preview_ = Capture::build_path_preview(settings_.script, lookup, options);
+			last_preview_build_ = now;
+			preview_force_rebuild_ = false;
+			preview_options_dirty_ = false;
+		} else {
+			preview_.cursor = Capture::build_preview_cursor(settings_.script, lookup, preview_time_);
+			preview_.highlighted_segment = highlighted;
+		}
+		viewport_.set_path_preview(&preview_);
+		preview_published_ = true;
+		published_time_ = preview_time_;
+		published_highlight_ = highlighted;
 	}
 
 	void render_target_editor(IO::CaptureTargetSettings& target, IO::ScreenshotFormat format, const char* id) {
+		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
 		ImGui::PushID(id);
 
@@ -327,16 +324,16 @@ private:
 	}
 
 	void render_output_tab() {
+		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
 		ImGui::TextColored(kHeaderColor, "Destination");
-		text_input("Output Directory", directory_buffer_, sizeof(directory_buffer_), user_settings_.screenshot_output_directory);
+		input_text("Output Directory", user_settings_.screenshot_output_directory);
 		render_setting_tooltip("Folder where screenshots are written. It is created automatically when missing.");
-		text_input("Filename Pattern", pattern_buffer_, sizeof(pattern_buffer_), user_settings_.screenshot_filename_pattern);
+		input_text("Filename Pattern", user_settings_.screenshot_filename_pattern);
 		render_setting_tooltip("Tokens: %metric%, %mass%, %spin%, %width%, %height%, %tick%, plus any strftime token such as %Y %m %d %H %M %S.");
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Smart Name")) {
 			user_settings_.screenshot_filename_pattern = "%metric%_M%mass%_a%spin%_%width%x%height%_%Y%m%d_%H%M%S";
-			copy_to_buffer(pattern_buffer_, sizeof(pattern_buffer_), user_settings_.screenshot_filename_pattern);
 		}
 		render_setting_tooltip("Applies a descriptive pattern containing the metric, its parameters, the resolution and a timestamp.");
 
@@ -354,7 +351,7 @@ private:
 		ImGui::BeginDisabled(!descriptor.supports_comment);
 		ImGui::Checkbox("Embed Watermark / Comment", &user_settings_.screenshot_watermark_enabled);
 		if (user_settings_.screenshot_watermark_enabled) {
-			text_input("Watermark Text", watermark_buffer_, sizeof(watermark_buffer_), user_settings_.screenshot_watermark_text);
+			input_text("Watermark Text", user_settings_.screenshot_watermark_text);
 		}
 		ImGui::EndDisabled();
 		render_setting_tooltip("Stores the text as metadata in formats that support it (PNG, PNG16, HDR, TIFF).");
@@ -375,6 +372,7 @@ private:
 	}
 
 	void render_sequence_tab() {
+		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
 		auto& video = settings_.video;
 
@@ -382,6 +380,25 @@ private:
 		enum_combo("Mode", video.mode, kCaptureModeNames);
 		render_setting_tooltip("Deterministic renders every frame offline at the requested quality while the world is advanced under full control. Real-Time records what the viewport currently shows.");
 		const bool realtime = video.mode == IO::SequenceCaptureMode::RealTime;
+
+		ImGui::Separator();
+		ImGui::TextColored(kHeaderColor, "Camera Control");
+		if (script_usable()) {
+			ImGui::TextDisabled("Motion script '%s': %zu segment(s), %zu event(s), %.3f s", settings_.script.name.c_str(), settings_.script.active_segments().size(), settings_.script.events.size(), settings_.script.total_duration());
+		} else if (settings_.use_script) {
+			wrapped_text(kWarningColor, "The motion script is enabled but has no active segment, the live camera will be used.");
+		} else {
+			ImGui::TextDisabled("The live camera is used. Enable the motion script in the Motion Script tab to automate it.");
+		}
+		if (ImGui::SmallButton("Open Motion Script Tab")) {
+			requested_tab_ = StudioTab::Script;
+		}
+		if (script_usable() && video.trigger != IO::SequenceCaptureTrigger::PathDuration) {
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Use Script Duration")) {
+				video.trigger = IO::SequenceCaptureTrigger::PathDuration;
+			}
+		}
 
 		ImGui::Separator();
 		ImGui::TextColored(kHeaderColor, "Timing");
@@ -401,11 +418,11 @@ private:
 			ImGui::InputScalar("Frame Count", ImGuiDataType_U64, &video.fixed_frame_count);
 			video.fixed_frame_count = std::max<uint64_t>(video.fixed_frame_count, 1ULL);
 		} else if (video.trigger == IO::SequenceCaptureTrigger::PathDuration) {
-			if (settings_.use_camera_path && settings_.path.is_usable()) {
-				ImGui::TextDisabled("Follows the camera path duration: %.3f s", settings_.path.effective_duration());
+			if (script_usable()) {
+				ImGui::TextDisabled("Follows the motion script duration: %.3f s", settings_.script.total_duration());
 			} else {
 				ImGui::SliderFloat("Fallback Duration", &video.duration_seconds, 0.1f, 3600.0f, "%.2f s", ImGuiSliderFlags_Logarithmic);
-				wrapped_text(kWarningColor, "No usable camera path is enabled, the fallback duration is used.");
+				wrapped_text(kWarningColor, "No usable motion script is enabled, the fallback duration is used.");
 			}
 		}
 		const uint64_t frames = planned_frame_count();
@@ -417,8 +434,8 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(kHeaderColor, "Output");
-		text_input("Sequence Directory", sequence_directory_buffer_, sizeof(sequence_directory_buffer_), settings_.sequence_directory);
-		text_input("Session Name (empty = automatic)", session_buffer_, sizeof(session_buffer_), settings_.session_name);
+		input_text("Sequence Directory", settings_.sequence_directory);
+		input_text("Session Name (empty = automatic)", settings_.session_name);
 		render_setting_tooltip("Name of the sub-folder created for this capture. strftime tokens are supported; empty generates a timestamped name.");
 		int frame_format_index = static_cast<int>(std::min<uint32_t>(static_cast<uint32_t>(video.frame_format), IO::kScreenshotFormatCount - 1U));
 		if (ImGui::Combo("Frame Format", &frame_format_index, format_names().data(), static_cast<int>(IO::kScreenshotFormatCount))) {
@@ -483,319 +500,191 @@ private:
 		}
 	}
 
-	void render_keyframe_editor(Capture::CameraPath& path) {
-		using namespace CaptureStudioDetail;
-		auto& keys = path.keyframes;
-		selected_keyframe_ = std::clamp(selected_keyframe_, -1, static_cast<int>(keys.size()) - 1);
-
-		ImGui::BeginChild("CaptureKeyframeList", ImVec2(0.0f, 120.0f), true);
-		for (size_t i = 0; i < keys.size(); ++i) {
-			char label[192];
-			const auto& pose = keys[i].pose;
-			std::snprintf(label, sizeof(label), "%02zu | t=%.3f s | pos=(%.2f, %.2f, %.2f) | pitch=%.1f yaw=%.1f | fov=%.1f", i + 1, keys[i].time_seconds, pose.position[0], pose.position[1], pose.position[2], pose.pitch_deg, pose.yaw_deg, pose.fov_deg);
-			if (ImGui::Selectable(label, selected_keyframe_ == static_cast<int>(i))) {
-				selected_keyframe_ = static_cast<int>(i);
-			}
-		}
-		if (keys.empty()) {
-			ImGui::TextDisabled("No keyframes. Move the camera and add one.");
-		}
-		ImGui::EndChild();
-
-		const auto reselect = [&](const Capture::CameraKeyframe& reference) {
-			selected_keyframe_ = -1;
-			for (size_t i = 0; i < keys.size(); ++i) {
-				if (keys[i].time_seconds == reference.time_seconds && keys[i].pose.position == reference.pose.position) {
-					selected_keyframe_ = static_cast<int>(i);
-					break;
-				}
-			}
-		};
-
-		drag_double("Spacing For New Keyframes (s)", keyframe_spacing_, 0.05, 0.01, 3600.0, "%.2f");
-		if (ImGui::Button("Add From Current Camera")) {
-			const double time = keys.empty() ? 0.0 : keys.back().time_seconds + keyframe_spacing_;
-			const Capture::CameraPose pose = current_camera_pose();
-			path.add_keyframe(pose, time);
-			Capture::CameraKeyframe reference;
-			reference.time_seconds = time;
-			reference.pose = pose;
-			reselect(reference);
-		}
-		render_setting_tooltip("Stores the current camera pose as a new keyframe after the last one.");
-		ImGui::SameLine();
-		ImGui::BeginDisabled(selected_keyframe_ < 0);
-		if (ImGui::Button("Update Selected From Camera")) {
-			keys[static_cast<size_t>(selected_keyframe_)].pose = current_camera_pose();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Duplicate")) {
-			Capture::CameraKeyframe copy = keys[static_cast<size_t>(selected_keyframe_)];
-			copy.time_seconds += keyframe_spacing_;
-			path.keyframes.push_back(copy);
-			path.sort_keyframes();
-			reselect(copy);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Delete")) {
-			keys.erase(keys.begin() + selected_keyframe_);
-			selected_keyframe_ = std::min(selected_keyframe_, static_cast<int>(keys.size()) - 1);
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (ImGui::Button("Clear All")) {
-			keys.clear();
-			selected_keyframe_ = -1;
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Apply Default Interpolation To All")) {
-			for (auto& key : keys) {
-				key.interpolation = path.interpolation;
-			}
-		}
-
-		if (selected_keyframe_ >= 0) {
-			auto& key = keys[static_cast<size_t>(selected_keyframe_)];
-			ImGui::Separator();
-			const double previous_time = key.time_seconds;
-			if (drag_double("Time (s)", key.time_seconds, 0.02, 0.0, 86400.0, "%.3f") && key.time_seconds != previous_time) {
-				const Capture::CameraKeyframe reference = key;
-				path.sort_keyframes();
-				reselect(reference);
-			}
-			if (selected_keyframe_ >= 0) {
-				auto& edited = keys[static_cast<size_t>(selected_keyframe_)];
-				drag_double3("Position", edited.pose.position, 0.1, "%.4f");
-				drag_double("Pitch (deg)", edited.pose.pitch_deg, 0.25, -89.0, 89.0, "%.2f");
-				drag_double("Yaw (deg)", edited.pose.yaw_deg, 0.25, -36000.0, 36000.0, "%.2f");
-				drag_double("Roll (deg)", edited.pose.roll_deg, 0.25, -36000.0, 36000.0, "%.2f");
-				drag_double("Field Of View (deg)", edited.pose.fov_deg, 0.1, 5.0, 175.0, "%.2f");
-				drag_double("Exposure (EV)", edited.pose.exposure_ev, 0.02, -6.0, 6.0, "%.2f");
-				enum_combo("Interpolation To Next", edited.interpolation, kInterpolationNames);
-			}
-		}
-	}
-
-	void save_path_file(const Capture::CameraPath& path) {
-		const std::filesystem::path target(path_file_buffer_);
-		std::error_code ec;
-		if (target.has_parent_path()) {
-			std::filesystem::create_directories(target.parent_path(), ec);
-		}
-		std::ofstream out(target, std::ios::trunc);
-		if (!out.is_open()) {
-			path_message_ = "The path file could not be written: " + target.string();
-			return;
-		}
-		out << path.to_text();
-		path_message_ = "Camera path saved to " + target.string();
-	}
-
-	void load_path_file(Capture::CameraPath& path) {
-		std::ifstream in{std::filesystem::path(path_file_buffer_)};
-		if (!in.is_open()) {
-			path_message_ = std::string("The path file could not be opened: ") + path_file_buffer_;
-			return;
-		}
-		std::ostringstream buffer;
-		buffer << in.rdbuf();
-		auto parsed = Capture::CameraPath::from_text(buffer.str());
-		if (!parsed.has_value()) {
-			path_message_ = "The file does not contain a valid camera path.";
-			return;
-		}
-		path = std::move(*parsed);
-		selected_keyframe_ = -1;
-		path_message_ = "Camera path loaded.";
-	}
-
-	void render_path_tab() {
-		using namespace CaptureStudioDetail;
-		auto& path = settings_.path;
+	void render_preview_controls() {
+		using namespace CaptureWidgets;
 		auto& coordinator = viewport_.capture_coordinator();
-
-		ImGui::Checkbox("Drive The Camera With This Path During Sequence Captures", &settings_.use_camera_path);
-		render_setting_tooltip("When enabled, sequence captures move the camera along the path below instead of following manual input.");
-		if (settings_.use_camera_path && !path.is_usable()) {
-			wrapped_text(kWarningColor, "The keyframe path is empty and will be ignored until at least one keyframe exists.");
-		}
-
-		ImGui::Separator();
-		ImGui::TextColored(kHeaderColor, "Path Definition");
-		enum_combo("Path Type", path.kind, kPathKindNames);
-		const bool keyframed = path.kind == Capture::PathKind::Keyframes;
-		if (keyframed) {
-			ImGui::TextDisabled("Duration follows the last keyframe: %.3f s", path.effective_duration());
-		} else {
-			drag_double("Duration (s)", path.duration_seconds, 0.05, 0.01, 86400.0, "%.3f");
-		}
-		enum_combo("Default Keyframe Interpolation", path.interpolation, kInterpolationNames);
-		enum_combo("Time Easing", path.easing, kEasingNames);
-		enum_combo("End Behavior", path.end_behavior, kPathEndNames);
-		enum_combo("Orientation Mode", path.orientation, kOrientationNames);
-
-		if (path.orientation == Capture::PathOrientation::LookAtTarget) {
-			drag_double3("Look-At Target", path.look_target, 0.1, "%.4f");
-			if (ImGui::SmallButton("Target: Central Object")) {
-				path.look_target = {0.0, 0.0, 0.0};
-			}
-		}
-
-		if (!keyframed) {
-			drag_double("Roll (deg)", path.roll_deg, 0.25, -36000.0, 36000.0, "%.2f");
-			if (path.orientation == Capture::PathOrientation::Keyframed) {
-				drag_double("Fixed Pitch (deg)", path.fixed_pitch_yaw[0], 0.25, -89.0, 89.0, "%.2f");
-				drag_double("Fixed Yaw (deg)", path.fixed_pitch_yaw[1], 0.25, -36000.0, 36000.0, "%.2f");
-			}
-			drag_double("Field Of View Start (deg)", path.fov_start_deg, 0.1, 5.0, 175.0, "%.2f");
-			drag_double("Field Of View End (deg)", path.fov_end_deg, 0.1, 5.0, 175.0, "%.2f");
-			drag_double("Exposure Start (EV)", path.exposure_start_ev, 0.02, -6.0, 6.0, "%.2f");
-			drag_double("Exposure End (EV)", path.exposure_end_ev, 0.02, -6.0, 6.0, "%.2f");
-		}
-
-		ImGui::Separator();
-		if (path.kind == Capture::PathKind::Orbit || path.kind == Capture::PathKind::TargetTrackingOrbit) {
-			ImGui::TextColored(kHeaderColor, path.kind == Capture::PathKind::TargetTrackingOrbit ? "Target Tracking Orbit" : "Orbit");
-			if (path.kind == Capture::PathKind::TargetTrackingOrbit) {
-				const auto& bodies = orchestrator_.nbody_system().bodies();
-				std::vector<std::string> body_items;
-				body_items.push_back("Origin / Central Source");
-				int selected_body_idx = (path.tracked_body_id < 0) ? 0 : 0;
-				for (size_t bi = 0; bi < bodies.size(); ++bi) {
-					body_items.push_back("Body #" + std::to_string(bodies[bi].id) + " (M=" + std::to_string(bodies[bi].mass).substr(0, 4) + ")");
-					if (static_cast<int32_t>(bodies[bi].id) == path.tracked_body_id) {
-						selected_body_idx = static_cast<int>(bi + 1);
-					}
-				}
-				std::vector<const char*> item_ptrs;
-				item_ptrs.reserve(body_items.size());
-				for (const auto& s : body_items) item_ptrs.push_back(s.c_str());
-				if (ImGui::Combo("Tracked Celestial Body", &selected_body_idx, item_ptrs.data(), static_cast<int>(item_ptrs.size()))) {
-					if (selected_body_idx == 0) {
-						path.tracked_body_id = -1;
-					} else {
-						path.tracked_body_id = static_cast<int32_t>(bodies[static_cast<size_t>(selected_body_idx - 1)].id);
-					}
-				}
-			} else {
-				drag_double3("Orbit Center", path.orbit.center, 0.1, "%.4f");
-			}
-			drag_double("Radius Start", path.orbit.radius_start, 0.1, 0.001, 1.0e9, "%.3f");
-			drag_double("Radius End", path.orbit.radius_end, 0.1, 0.001, 1.0e9, "%.3f");
-			drag_double("Elevation Start (deg)", path.orbit.elevation_start_deg, 0.1, -89.0, 89.0, "%.2f");
-			drag_double("Elevation End (deg)", path.orbit.elevation_end_deg, 0.1, -89.0, 89.0, "%.2f");
-			drag_double("Azimuth Start (deg)", path.orbit.azimuth_start_deg, 0.25, -36000.0, 36000.0, "%.2f");
-			drag_double("Revolutions", path.orbit.revolutions, 0.01, -1000.0, 1000.0, "%.3f");
-			if (ImGui::SmallButton("Radius Start From Camera")) {
-				const auto& camera = orchestrator_.camera();
-				path.orbit.radius_start = std::max(std::sqrt(camera.position[0] * camera.position[0] + camera.position[1] * camera.position[1] + camera.position[2] * camera.position[2]), 0.001);
-			}
-		} else if (path.kind == Capture::PathKind::LogarithmicSpiral) {
-			ImGui::TextColored(kHeaderColor, "Logarithmic Spiral Infall");
-			drag_double3("Spiral Center", path.spiral.center, 0.1, "%.4f");
-			drag_double("Radius Start", path.spiral.radius_start, 0.1, 0.01, 1.0e9, "%.3f");
-			drag_double("Radius End (Infall)", path.spiral.radius_end, 0.1, 0.001, 1.0e9, "%.3f");
-			drag_double("Height Start", path.spiral.height_start, 0.1, -1.0e6, 1.0e6, "%.3f");
-			drag_double("Height End", path.spiral.height_end, 0.1, -1.0e6, 1.0e6, "%.3f");
-			drag_double("Revolutions", path.spiral.revolutions, 0.05, 0.1, 100.0, "%.3f");
-			drag_double("Expansion / Acceleration Rate", path.spiral.expansion_rate, 0.02, 0.1, 10.0, "%.2f");
-			if (ImGui::SmallButton("Start From Camera")) {
-				const auto& camera = orchestrator_.camera();
-				path.spiral.radius_start = std::max(std::sqrt(camera.position[0] * camera.position[0] + camera.position[1] * camera.position[1]), 0.01);
-				path.spiral.height_start = camera.position[2];
-			}
-		} else if (path.kind == Capture::PathKind::Helical) {
-			ImGui::TextColored(kHeaderColor, "Helical Trajectory");
-			drag_double3("Helical Start Axis", path.helical.start, 0.1, "%.4f");
-			drag_double3("Helical End Axis", path.helical.end, 0.1, "%.4f");
-			drag_double("Helix Radius", path.helical.radius, 0.1, 0.01, 1.0e6, "%.3f");
-			drag_double("Revolutions", path.helical.revolutions, 0.05, 0.1, 100.0, "%.3f");
-			drag_double("Phase Offset (deg)", path.helical.phase_deg, 0.25, -360.0, 360.0, "%.2f");
-		} else if (path.kind == Capture::PathKind::DollyZoom) {
-			ImGui::TextColored(kHeaderColor, "Dolly Zoom (Vertigo Effect)");
-			drag_double3("Start Position", path.dolly_zoom.start_position, 0.1, "%.4f");
-			drag_double3("End Position", path.dolly_zoom.end_position, 0.1, "%.4f");
-			drag_double3("Fixed Focus Target", path.dolly_zoom.target, 0.1, "%.4f");
-			drag_double("Start FOV (deg)", path.dolly_zoom.fov_start_deg, 0.1, 5.0, 170.0, "%.2f");
-			drag_double("End FOV (deg)", path.dolly_zoom.fov_end_deg, 0.1, 5.0, 170.0, "%.2f");
-			if (ImGui::SmallButton("Start From Camera")) {
-				path.dolly_zoom.start_position = orchestrator_.camera().position;
-				path.dolly_zoom.fov_start_deg = orchestrator_.camera().fov_deg;
-			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("End At Camera")) {
-				path.dolly_zoom.end_position = orchestrator_.camera().position;
-				path.dolly_zoom.fov_end_deg = orchestrator_.camera().fov_deg;
-			}
-		} else if (path.kind == Capture::PathKind::LinearFlyBy) {
-			ImGui::TextColored(kHeaderColor, "Linear Fly-By");
-			drag_double3("Start Position", path.fly_by.start, 0.1, "%.4f");
-			drag_double3("End Position", path.fly_by.end, 0.1, "%.4f");
-			if (ImGui::SmallButton("Start From Camera")) {
-				path.fly_by.start = orchestrator_.camera().position;
-			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("End At Camera")) {
-				path.fly_by.end = orchestrator_.camera().position;
-			}
-		} else {
-			ImGui::TextColored(kHeaderColor, "Keyframes");
-			render_keyframe_editor(path);
-		}
-
-		ImGui::Separator();
-		ImGui::TextColored(kHeaderColor, "Preview");
-		const double total = path.effective_duration();
-		const double zero = 0.0;
 		const bool session_running = coordinator.is_sequence_active();
-		ImGui::BeginDisabled(session_running || !path.is_usable());
-		if (ImGui::SliderScalar("Preview Time", ImGuiDataType_Double, &preview_time_, &zero, &total, "%.3f s")) {
+		const auto& script = settings_.script;
+
+		if (ImGui::Checkbox("Show Path Preview In Viewport", &preview_enabled_)) {
+			preview_force_rebuild_ = true;
+		}
+		render_setting_tooltip("Draws the full trajectory, segment boundaries, events and the camera frustum directly on the viewport without rendering a single frame.");
+		ImGui::SameLine();
+		bool schematic = orchestrator_.parameters().schematic_mode_enabled;
+		if (ImGui::Checkbox("Schematic Viewport", &schematic)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SchematicModeEnabled, schematic ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Switches the main viewport to the schematic projection where the preview is drawn without ray tracing, so it updates instantly while editing.");
+
+		bool options_changed = false;
+		options_changed |= slider_u32("Samples Per Segment", preview_samples_, 16U, 2048U, ImGuiSliderFlags_Logarithmic);
+		options_changed |= ImGui::Checkbox("Markers", &preview_show_markers_);
+		ImGui::SameLine();
+		options_changed |= ImGui::Checkbox("Labels", &preview_show_labels_);
+		ImGui::SameLine();
+		options_changed |= ImGui::Checkbox("Sample Points", &preview_show_samples_);
+		ImGui::SameLine();
+		options_changed |= ImGui::Checkbox("Camera Frustum", &preview_show_frustum_);
+		options_changed |= drag_double("Frustum Length", preview_frustum_length_, 0.1, 0.5, 10000.0, "%.2f");
+		if (options_changed) {
+			preview_options_dirty_ = true;
+		}
+
+		ImGui::BeginDisabled(session_running || !script.is_usable());
+		const double total = script.total_duration();
+		const double zero = 0.0;
+		double time = preview_time_;
+		if (ImGui::SliderScalar("Preview Time", ImGuiDataType_Double, &time, &zero, &total, "%.3f s")) {
+			preview_time_ = time;
+		}
+		if (ImGui::Button(preview_playing_ ? "Pause Preview" : "Play Preview")) {
+			preview_playing_ = !preview_playing_;
+		}
+		ImGui::SameLine();
+		drag_double("Playback Speed", preview_speed_, 0.01, 0.05, 20.0, "%.2fx");
+		if (ImGui::Button("Move Live Camera To Preview Pose")) {
 			if (!preview_active_) {
 				preview_restore_pose_ = current_camera_pose();
 				preview_active_ = true;
 			}
-			coordinator.preview_pose(path.evaluate(preview_time_));
+			const auto sample = script.sample(preview_time_, Capture::make_body_position_lookup(orchestrator_));
+			if (sample.valid) {
+				coordinator.preview_pose(sample.pose);
+			}
 		}
-		render_setting_tooltip("Moves the live camera along the path so the trajectory can be inspected before capturing.");
 		ImGui::EndDisabled();
+		ImGui::SameLine();
 		ImGui::BeginDisabled(!preview_active_ || session_running);
-		if (ImGui::Button("Restore Camera After Preview")) {
+		if (ImGui::Button("Restore Live Camera")) {
 			coordinator.preview_pose(preview_restore_pose_);
 			preview_active_ = false;
 		}
 		ImGui::EndDisabled();
+	}
+
+	void render_script_tab() {
+		using namespace CaptureWidgets;
+		ImGui::Checkbox("Drive The Camera With The Motion Script During Sequence Captures", &settings_.use_script);
+		render_setting_tooltip("When enabled, sequence captures follow the script below instead of manual camera input. Script events fire during the capture.");
+		if (settings_.use_script && !settings_.script.is_usable()) {
+			wrapped_text(kWarningColor, "The script has no active segment and will be ignored until one exists.");
+		}
+		ImGui::Separator();
+		ImGui::TextColored(kHeaderColor, "Preview");
+		render_preview_controls();
+		ImGui::Separator();
+		script_editor_.render(settings_.script, orchestrator_, preview_time_);
+	}
+
+	void render_recording_tab() {
+		using namespace CaptureWidgets;
+		using namespace CaptureStudioDetail;
+		auto& recording = settings_.recording;
+
+		ImGui::TextColored(kHeaderColor, "Physical Data Recording");
+		ImGui::Checkbox("Record Physical Data During Sequence Captures", &recording.enabled);
+		render_setting_tooltip("Samples the selected channels once per captured frame and writes them next to the frames when the sequence finishes.");
+		ImGui::TextDisabled("Rows are written at the frame rate of the sequence, reduced by the decimation factor.");
+
+		enum_combo("File Format", recording.format, kRecordingFormatNames);
+		input_text("File Name Stem", recording.file_stem);
+		slider_u32("Decimation (Keep 1 Of N Frames)", recording.decimation, 1U, 1000U, ImGuiSliderFlags_Logarithmic);
+		slider_u32("Numeric Precision (Digits)", recording.precision, 3U, 17U);
+		ImGui::Checkbox("Convert To SI Units", &recording.si_units);
+		render_setting_tooltip("Scales lengths, times, masses, energies and rates through the active physical constants preset instead of writing simulation units.");
+		ImGui::SameLine();
+		ImGui::Checkbox("Write Event Log", &recording.write_events);
 
 		ImGui::Separator();
-		ImGui::TextColored(kHeaderColor, "Files And Text");
-		ImGui::InputText("Path File", path_file_buffer_, sizeof(path_file_buffer_));
-		if (ImGui::Button("Save Path File")) {
-			save_path_file(path);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Load Path File")) {
-			load_path_file(path);
-		}
-		ImGui::InputTextMultiline("##CapturePathText", path_text_buffer_.data(), path_text_buffer_.size(), ImVec2(-1.0f, 110.0f));
-		if (ImGui::Button("Export To Text")) {
-			copy_to_buffer(path_text_buffer_.data(), path_text_buffer_.size(), path.to_text());
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Import From Text")) {
-			auto parsed = Capture::CameraPath::from_text(std::string(path_text_buffer_.data()));
-			if (parsed.has_value()) {
-				path = std::move(*parsed);
-				selected_keyframe_ = -1;
-				path_message_ = "Camera path imported from text.";
-			} else {
-				path_message_ = "The text does not contain a valid camera path.";
+		ImGui::TextColored(kHeaderColor, "Presets");
+		for (uint32_t i = 0; i < kRecordingPresetNames.size(); ++i) {
+			if (i > 0) {
+				ImGui::SameLine();
 			}
+			ImGui::PushID(static_cast<int>(i));
+			if (ImGui::SmallButton(kRecordingPresetNames[i])) {
+				recording.apply_preset(i);
+			}
+			ImGui::PopID();
 		}
-		if (!path_message_.empty()) {
-			ImGui::TextDisabled("%s", path_message_.c_str());
+
+		ImGui::Separator();
+		ImGui::TextColored(kHeaderColor, "Channels");
+		const bool vtk = recording.format == IO::RecordingFormat::VtkPolyline;
+		const auto& infos = IO::kRecordChannelInfos;
+		size_t first = 0;
+		size_t group_index = 0;
+		while (first < infos.size()) {
+			size_t last = first;
+			uint64_t group_mask = 0ULL;
+			while (last < infos.size() && std::strcmp(infos[last].group, infos[first].group) == 0) {
+				group_mask |= IO::record_channel_bit(infos[last].channel);
+				++last;
+			}
+			char header[128];
+			std::snprintf(header, sizeof(header), "%s (%d/%zu)###RecordGroup%zu", infos[first].group, std::popcount(recording.channel_mask & group_mask), last - first, group_index);
+			if (ImGui::CollapsingHeader(header)) {
+				ImGui::PushID(static_cast<int>(group_index));
+				if (ImGui::SmallButton("Select All")) {
+					recording.channel_mask |= group_mask;
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Select None")) {
+					recording.channel_mask &= ~group_mask;
+				}
+				for (size_t i = first; i < last; ++i) {
+					const uint64_t bit = IO::record_channel_bit(infos[i].channel);
+					const bool forced = vtk && (IO::kVtkRequiredRecordChannels & bit) != 0ULL;
+					bool value = recording.channel_enabled(infos[i].channel) || forced;
+					char label[128];
+					if (infos[i].unit[0] != '\0') {
+						std::snprintf(label, sizeof(label), "%s [%s]%s", infos[i].name, infos[i].unit, forced ? " (required)" : "");
+					} else {
+						std::snprintf(label, sizeof(label), "%s%s", infos[i].name, forced ? " (required)" : "");
+					}
+					ImGui::PushID(static_cast<int>(i));
+					ImGui::BeginDisabled(forced);
+					if (ImGui::Checkbox(label, &value)) {
+						recording.set_channel(infos[i].channel, value);
+					}
+					ImGui::EndDisabled();
+					ImGui::PopID();
+				}
+				ImGui::PopID();
+			}
+			first = last;
+			++group_index;
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(kHeaderColor, "Per-Body Data");
+		ImGui::Checkbox("Body Positions", &recording.body_positions);
+		ImGui::SameLine();
+		ImGui::Checkbox("Body Velocities", &recording.body_velocities);
+		ImGui::Checkbox("Distance To Camera", &recording.body_camera_distance);
+		ImGui::SameLine();
+		ImGui::Checkbox("Body Speeds", &recording.body_speeds);
+		ImGui::BeginDisabled(!recording.any_body_channel());
+		slider_u32("Maximum Bodies", recording.max_bodies, 1U, 256U);
+		ImGui::EndDisabled();
+
+		const uint64_t frames = planned_frame_count();
+		const size_t enabled_bodies = std::min<size_t>(orchestrator_.nbody_system().body_count(), recording.max_bodies);
+		const size_t body_columns = enabled_bodies * ((recording.body_positions ? 3U : 0U) + (recording.body_velocities ? 3U : 0U) + (recording.body_camera_distance ? 1U : 0U) + (recording.body_speeds ? 1U : 0U));
+		const size_t columns = static_cast<size_t>(std::popcount(recording.effective_mask())) + body_columns;
+		ImGui::Separator();
+		ImGui::TextDisabled("Columns: %zu", columns);
+		if (frames > 0) {
+			const uint64_t rows = (frames + recording.decimation - 1U) / recording.decimation;
+			const bool binary = recording.format == IO::RecordingFormat::BinaryColumns || recording.format == IO::RecordingFormat::Container;
+			const uint64_t bytes_per_value = binary ? 8ULL : static_cast<uint64_t>(recording.precision) + 4ULL;
+			ImGui::TextDisabled("Planned rows: %llu | Estimated size: %s", static_cast<unsigned long long>(rows), format_bytes(rows * columns * bytes_per_value).c_str());
 		}
 	}
 
 	void render_encoding_tab() {
+		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
 		auto& video = settings_.video;
 
@@ -822,7 +711,7 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(kHeaderColor, "Stream Options");
-		text_input("Pixel Format", pixel_format_buffer_, sizeof(pixel_format_buffer_), video.pixel_format);
+		input_text("Pixel Format", video.pixel_format);
 		render_setting_tooltip("ffmpeg pixel format such as yuv420p or yuv444p. ProRes, Motion JPEG and GIF select their own format.");
 		ImGui::SliderFloat("Output Frame Rate Override", &video.encode_frames_per_second, 0.0f, 240.0f, "%.2f fps");
 		render_setting_tooltip("Zero keeps the capture frame rate; any other value resamples the encoded video to that rate.");
@@ -835,7 +724,7 @@ private:
 		ImGui::BeginDisabled(!video.assemble_video_after_capture);
 		ImGui::Checkbox("Delete Frames After Successful Assembly", &video.delete_frames_after_assembly);
 		ImGui::EndDisabled();
-		text_input("ffmpeg Executable", ffmpeg_buffer_, sizeof(ffmpeg_buffer_), video.ffmpeg_executable);
+		input_text("ffmpeg Executable", video.ffmpeg_executable);
 
 		const std::string extension(IO::image_format_descriptor(video.frame_format).extension);
 		const std::string directory = settings_.sequence_directory + "/<session>";
@@ -853,6 +742,7 @@ private:
 	}
 
 	void render_status_panel() {
+		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
 		auto& coordinator = viewport_.capture_coordinator();
 		const auto& progress = coordinator.progress();
@@ -879,6 +769,9 @@ private:
 		}
 
 		ImGui::TextDisabled("Elapsed %s | ETA %s | Dropped %llu | Duplicated %llu", format_duration(progress.elapsed_seconds()).c_str(), busy ? format_duration(progress.eta_seconds()).c_str() : "--", static_cast<unsigned long long>(progress.frames_dropped()), static_cast<unsigned long long>(progress.frames_duplicated()));
+		if (settings_.recording.enabled) {
+			ImGui::TextDisabled("Recorded data rows: %zu", coordinator.recorded_rows());
+		}
 
 		const std::string message = progress.message();
 		if (!last_request_.ok && !last_request_.message.empty()) {
@@ -891,12 +784,12 @@ private:
 		if (ImGui::Button("Capture Screenshot", ImVec2(170.0f, 28.0f))) {
 			capture_screenshot_now();
 		}
-		render_setting_tooltip("Renders one frame offline with the Output tab settings. Disabled while another capture is running.");
+		render_setting_tooltip("Renders one frame offline with the Screenshot tab settings. Disabled while another capture is running.");
 		ImGui::SameLine();
 		if (ImGui::Button("Start Sequence", ImVec2(150.0f, 28.0f))) {
 			start_sequence();
 		}
-		render_setting_tooltip("Starts a sequence capture with the Sequence, Camera Path and Encoding tab settings.");
+		render_setting_tooltip("Starts a sequence capture with the Sequence, Motion Script, Recording and Video Encoding tab settings.");
 		ImGui::EndDisabled();
 
 		ImGui::SameLine();
@@ -922,6 +815,13 @@ private:
 			ImGui::SameLine();
 			ImGui::TextDisabled("Pending requests: %u", coordinator.manual_frames_pending());
 		}
+	}
+
+	[[nodiscard]] ImGuiTabItemFlags tab_flags(StudioTab tab) noexcept {
+		if (requested_tab_ == tab) {
+			return ImGuiTabItemFlags_SetSelected;
+		}
+		return ImGuiTabItemFlags_None;
 	}
 
 public:
@@ -951,32 +851,36 @@ public:
 	}
 
 	void start_sequence() {
+		settings_.script.sanitize();
+		settings_.recording.sanitize();
 		Capture::SequenceRequest request;
 		request.target = resolve_target(settings_.sequence_target);
 		request.settings = settings_.video;
 		request.output_directory = settings_.sequence_directory;
 		request.session_name = settings_.session_name.empty() ? std::string{} : IO::ScreenshotExporter::expand_filename_pattern(settings_.session_name);
 		request.comment = user_settings_.screenshot_watermark_enabled ? user_settings_.screenshot_watermark_text : std::string{};
-		request.use_path = settings_.use_camera_path && settings_.path.is_usable();
-		request.path = settings_.path;
+		request.use_script = script_usable();
+		request.script = settings_.script;
+		request.recording = settings_.recording;
 		request.manual_stepping = settings_.manual_stepping && settings_.video.mode == IO::SequenceCaptureMode::Deterministic;
 		last_request_ = viewport_.capture_coordinator().start_sequence(request);
 		if (last_request_.ok) {
 			preview_active_ = false;
+			preview_playing_ = false;
 		}
 	}
 
 	void render() {
 		if (!is_open_) {
+			release_preview();
 			return;
 		}
-		if (!buffers_synced_) {
-			sync_buffers();
-		}
+
+		update_preview(static_cast<double>(ImGui::GetIO().DeltaTime));
 
 		ImGui::SetNextWindowPos(viewport_.window_center(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(660.0f, 760.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSizeConstraints(ImVec2(540.0f, 460.0f), ImVec2(FLT_MAX, FLT_MAX));
+		ImGui::SetNextWindowSize(ImVec2(700.0f, 800.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSizeConstraints(ImVec2(560.0f, 480.0f), ImVec2(FLT_MAX, FLT_MAX));
 		if (!ImGui::Begin("Capture Studio", &is_open_)) {
 			ImGui::End();
 			return;
@@ -984,24 +888,29 @@ public:
 
 		ImGui::BeginChild("CaptureStudioTabs", ImVec2(0.0f, -kFooterHeight), false);
 		if (ImGui::BeginTabBar("CaptureStudioTabBar")) {
-			if (ImGui::BeginTabItem("Screenshot")) {
+			if (ImGui::BeginTabItem("Screenshot", nullptr, tab_flags(StudioTab::Screenshot))) {
 				render_output_tab();
 				ImGui::EndTabItem();
 			}
-			if (ImGui::BeginTabItem("Sequence")) {
+			if (ImGui::BeginTabItem("Sequence", nullptr, tab_flags(StudioTab::Sequence))) {
 				render_sequence_tab();
 				ImGui::EndTabItem();
 			}
-			if (ImGui::BeginTabItem("Camera Path")) {
-				render_path_tab();
+			if (ImGui::BeginTabItem("Motion Script", nullptr, tab_flags(StudioTab::Script))) {
+				render_script_tab();
 				ImGui::EndTabItem();
 			}
-			if (ImGui::BeginTabItem("Video Encoding")) {
+			if (ImGui::BeginTabItem("Data Recording", nullptr, tab_flags(StudioTab::Recording))) {
+				render_recording_tab();
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Video Encoding", nullptr, tab_flags(StudioTab::Encoding))) {
 				render_encoding_tab();
 				ImGui::EndTabItem();
 			}
 			ImGui::EndTabBar();
 		}
+		requested_tab_ = StudioTab::None;
 		ImGui::EndChild();
 
 		ImGui::Separator();

@@ -1053,7 +1053,7 @@ struct MotionScript {
 				}
 				target = ScriptMath::add(target, orient.target_offset);
 				const Vec3 dir = ScriptMath::sub(target, pos);
-				ScriptMath::angles_from_direction(dir, pitch, yaw);
+				static_cast<void>(ScriptMath::angles_from_direction(dir, pitch, yaw));
 				break;
 			}
 
@@ -1063,7 +1063,7 @@ struct MotionScript {
 				const Vec3 next_raw = evaluate_segment_raw_position(seg_idx, next_u, local_t + dt * segment.duration, global_t);
 				const Vec3 next_pos = ScriptMath::add(anchor, next_raw);
 				const Vec3 dir = ScriptMath::sub(next_pos, pos);
-				ScriptMath::angles_from_direction(dir, pitch, yaw);
+				static_cast<void>(ScriptMath::angles_from_direction(dir, pitch, yaw));
 				break;
 			}
 

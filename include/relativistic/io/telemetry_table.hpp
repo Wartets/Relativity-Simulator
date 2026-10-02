@@ -5,6 +5,7 @@
 #include "relativistic/io/vtk_exporter.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>

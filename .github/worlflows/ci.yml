@@ -28,6 +28,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Cache CMake
+        uses: actions/cache@v3
+        with:
+          path: build
+          key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-
+
       - name: Configure CMake
         run: |
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
@@ -40,3 +48,17 @@ jobs:
       - name: Run Tests
         working-directory: build
         run: ctest --build-config Release --output-on-failure -j 4
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: build/test_results.xml
+
+      - name: Publish Artifacts
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: build/

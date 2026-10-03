@@ -29,3 +29,4 @@ This directory contains the formal technical documentation for the Relativity-Si
 
 - [../assets/sky/ambientcg/LICENCE.txt](../assets/sky/ambientcg/LICENCE.txt)
 - [../assets/sky/eso/LICENCE.txt](../assets/sky/eso/LICENCE.txt)
+- [../assets/earth/solarsystemscope/LICENCE.txt](../assets/earth/solarsystemscope/LICENCE.txt)

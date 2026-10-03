@@ -16,6 +16,15 @@ Relativity-Simulator/
 │   
 │
 ├── assets/
+│   ├── earth/
+│   │   ├── solarsystemscope/
+│   │   │   ├── 1k_earth_daymap.png
+│   │   │   ├── 1k_earth_nightmap.png
+│   │   │   ├── 2k_earth_daymap.png
+│   │   │   └── 2k_earth_nightmap.png
+│   │   │
+│   │   └── LICENCE.txt
+│   │
 │   ├── media/
 │   │   ├── schwarzschild_infall.gif
 │   │   ├── schwarzschild_orbit_passby.gif

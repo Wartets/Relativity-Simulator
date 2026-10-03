@@ -191,6 +191,10 @@ Sky and panorama assets:
 - ambientCG assets (CC0 1.0): [assets/sky/ambientcg/LICENCE.txt](assets/sky/ambientcg/LICENCE.txt)
 - ESO Milky Way panorama (CC BY 4.0): [assets/sky/eso/LICENCE.txt](assets/sky/eso/LICENCE.txt)
 
+Earth and planetary assets:
+
+- Solar System Scope Earth textures (CC BY 4.0): [assets/earth/solarsystemscope/LICENCE.txt](assets/earth/solarsystemscope/LICENCE.txt)
+
 ---
 
 ## License

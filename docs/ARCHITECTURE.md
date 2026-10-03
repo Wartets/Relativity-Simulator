@@ -82,6 +82,99 @@ Every spacetime implementation satisfies the `SpacetimeMetric` concept, requirin
 - Polynomial Chaos: `PolynomialChaosExpansion` executes spectral stochastic projections on orthogonal Hermite & Legendre bases via Gauss-Hermite & Gauss-Legendre quadratures; `PceGeodesicPropagator` integrates stochastic geodesic ensembles.
 - Metrology: `MetrologyVisualizer` constructs 3D covariance ellipsoid meshes, generates 2D probability heatmaps, & extracts quantile confidence envelopes.
 
+### 2.9. Render Pipeline
+
+**`GeodesicComputePipeline`** (`include/relativistic/render/geodesic_compute_pipeline.hpp`) owns a front and a back framebuffer of `GpuPixelOutput`. In windowed mode a worker thread renders the most recent pending request (`GpuCameraPushConstants` and body list); a request arriving while a frame is rendering raises a cancellation flag, so superseded frames are abandoned. In headless mode `dispatch` renders synchronously. After each frame the pipeline classifies pixels (horizon absorbed, celestial escape, accretion disk hit, step saturated), computes iteration statistics and records tile statistics of the adaptive sky prepass.
+
+**Path selection.** The Vulkan path is attempted when GPU compute is enabled and the executor is ready, and all of the following hold:
+
+- The body count does not exceed 512.
+- The precision mode is native FP64.
+- The metric identifier is FlatMinkowski, Schwarzschild, Kerr, ReissnerNordstrom, KerrNewman or SchwarzschildDeSitter.
+- Interlacing is disabled.
+- No body requires the exact metric path (`SoftwareComputeEngine::requires_exact_metric_path`).
+
+Otherwise `SoftwareComputeEngine::dispatch_fp64` or `dispatch_double_single` renders on the CPU thread pool, with the precision taken from the custom parameter `precision_mode`. Capture rendering uses the same selection through `render_capture` and `render_capture_band`.
+
+**Vulkan execution** (`include/relativistic/render/vulkan_context.hpp`, `include/relativistic/render/vulkan_compute_executor.hpp`).
+
+- Device selection requires a compute queue and `scalarBlockLayout`, and `shaderFloat64` when FP64 is requested. The score favors discrete GPUs, vendor identifier 0x10DE and FP64 support. When no device qualifies, the context stays initialized without a compute device and the CPU path is used.
+- The shader `shaders/geodesic_tracer_fp64.comp.spv` is searched in `shaders`, `../shaders`, `./shaders` and `../../shaders`. CMake compiles it with `glslangValidator` when available.
+- Descriptor bindings: 0 camera uniform buffer, 1 output storage buffer, 2 body storage buffer (`GpuBodyGpuLayout`), 3 panorama combined image sampler, 4 persistent counter storage buffer.
+- Frames are dispatched in bands whose row count is a multiple of 16, limited to 64 MiB of output, and adapted toward 120 ms per band; cancellation is checked between bands.
+- A fence timeout of 10 s (3 s for panorama uploads) marks the device as lost; GPU compute is then disabled and the CPU renderer is used for subsequent frames.
+- When `sky_background_source` is not zero, the selected panorama (`SkyPanoramaLoader`) is uploaded as an `R8G8B8A8_SRGB` image.
+
+**Viewport frame logic** (`ViewportPrimaryWindow`, `include/relativistic/ui/viewport_primary_window.hpp`).
+
+- The internal resolution is the content size multiplied by the active scale, clamped to 64 to 3840 by 64 to 2160 pixels. The active scale is the resolution scale, replaced during navigation by the motion quality setting (disabled, automatic at 0.65 times the base scale, or fixed), and multiplied by the dynamic resolution factor (between 0.25 and 1.0, reduced by 6 % when the last frame exceeds 108 % of the target frame time and increased by 3 % when it is below 82 %).
+- A new dispatch occurs only when the camera constants, the orchestrator state version, the precision selection or the advancing simulation time change.
+- Bodies are culled by escape radius and, for perspective projections without lensing, by the view cone.
+- Post-processing (contrast, saturation, lift, gamma, gain, highlights, shadows, vignette) is applied on the CPU before upload to an `RGBA32F` texture.
+- In schematic mode the ray tracing dispatch is skipped ([Section 2.12](#212-schematic-view-and-hud)).
+
+### 2.10. Capture Subsystem
+
+**Coordinator.** `CaptureCoordinator` (`include/relativistic/capture/capture_coordinator.hpp`) manages one capture session at a time. `update(dt)` is called once per UI frame and prepares frames; a worker thread executes the queued tasks (frame rendering, file writing, ffmpeg assembly). The capture constants are derived from the last constants dispatched by the viewport, with the current camera, exposure and mass parameters substituted (`ViewportPrimaryWindow::build_capture_constants`).
+
+**Frame rendering.**
+
+- The output is rendered in horizontal bands of `clamp(2^21 / (width * k^2), 1, height)` rows, where `k` is the supersampling factor. Each band is traced at $k$ times the output resolution through `GeodesicComputePipeline::render_capture_band` and streamed to an `ImageStreamWriter`, so memory use does not depend on the output height.
+- Supersampling and temporal samples are averaged in linear light using lookup tables for sRGB decoding and encoding. A fade factor scales the result.
+- Capture constants disable interlacing, the level-of-detail flag and the adaptive tile prepass, optionally replace the step budget, and divide `step_size_factor`, `min_step_size` and `max_step_size` by the step refinement factor.
+- Limits: 65535 pixels per output axis, 262144 per traced axis, supersampling at most 8.
+
+**Deterministic mode.** For each frame the coordinator processes script events, then for each of the `temporal_samples` sub-frame times: advances the simulation (`ticks_per_frame` multiplied by the script simulation rate and divided by the sample count, accumulated as a fractional tick count), applies the script pose, and stores constants and bodies. The shutter offsets are centered on the frame time and span `shutter_fraction` of the frame interval. At most two frames are queued at once. World advance modes: frozen, fixed ticks per frame, or simulation seconds per video second (ticks per frame = `s / (fps * tick_dt)`). With the trigger `PathDuration`, the frame index is mapped linearly onto the script duration. Pause and resume events freeze and release the world. Manual stepping renders one frame per request (at most 64 pending). The live viewport render is suppressed unless `preview_in_viewport` is set.
+
+**Real-time mode.** The front framebuffer is copied at the frame interval. Pacing either drops late frames or duplicates the last frame to fill gaps; frames waiting for disk writing are limited by the queue depth. The viewport resolution multiplier is locked, and frames whose size changes are resampled by nearest neighbor to the first frame size.
+
+**Session end.** The recorder is finalized, the camera, field of view, exposure, camera mode, warp factor and pause state are restored (the camera only when `restore_camera_after_capture` is set or a script was used), `sequence_info.txt` is written, and ffmpeg is invoked through `std::system` when assembly is enabled and the session completed. Frames are deleted after a successful assembly when requested. Output files are described in [FILE_FORMATS.md](FILE_FORMATS.md#7-capture-session-directory).
+
+**Motion script** (`include/relativistic/capture/motion_script.hpp`). A script is an ordered list of segments with a global easing and an end behavior (clamp, loop, ping-pong).
+
+- Segment: duration, time easing, anchor (world, continue previous, offset from previous, track body), shape layers, orientation, scalar channels (field of view, exposure, roll, simulation warp), shake and a transition blending from the previous segment (orientation, position and lens durations).
+- Shape layers: 21 shape kinds (hold, line, quadratic and cubic Bezier, Catmull-Rom spline, polyline, B-spline, arc, helix, spherical orbit, logarithmic and Archimedean spirals, Lissajous curve, torus knot, lemniscate, rose, epitrochoid, wave, and Cartesian, cylindrical and spherical expressions) with an affine transform, combined by weight with the blend modes replace, add and add relative inside a progress window.
+- Orientation modes: free, fixed, interpolated, look at target, along travel, expression, target path.
+- Scalar channels: start and end values with easing, optional expression, wave modulation (sine, triangle, square, sawtooth, noise) and a driver that maps a measured signal (distance to target or origin, position components, speed, segment or script progress or time, event time offset, expression) onto the value with replace, add or multiply blending.
+- Easing: 46 kinds (linear, quadratic to quintic, sinusoidal, exponential, circular, back, elastic and bounce families in in, out and in-out variants, smoothstep variants, power, steps, delay window, cubic Bezier, damped spring, custom expression, custom curve, sigmoid, curvature, smooth steps, wobble) with blend, repeat, ping-pong, reversal, input and output windows, bias, gain and quantization.
+- Events: four triggers (script time, segment start, segment end, segment fraction) and 14 actions (marker, capture still, set parameter, set warp, pause, resume, step ticks, set metric, set integrator, load scenario, set tick rate, apply performance preset, set overlay, set resolution scale). Parameter, warp, tick rate and resolution events can ramp over a duration with an easing. The selectable parameters are listed in `kEventParameters` (`include/relativistic/capture/script_events.hpp`).
+- Presets: Orbit Reveal, Spiral Infall, Fly-By With Stop, Dolly Zoom, Figure Eight Survey, Helical Approach, Torus Knot Showcase, Multi-Stage Tour, Photon Sphere Skim, Handheld Drift.
+
+**Expression language** (`include/relativistic/capture/expression.hpp`). Expressions compile to a stack program. Variables: `t` (segment time), `u` (progress), `d` (duration), `g` (script time), `a`, `b`, `c`, `k` (parameters), `r` (radius), `x`, `y`, `z` (position), `v` (speed), `m` (driven measurement), `p` (script progress), `s` (segment index). Constants: `pi`, `tau`, `e`. Operators: `+ - * / % ^`, `< > <= >= == !=`. Functions: `sin cos tan asin acos atan sinh cosh tanh exp log ln log2 log10 sqrt cbrt abs floor ceil round fract sign rad deg saturate smooth noise tri saw square atan2 min max hypot step pow mod clamp mix if smoothstep`. Division by zero evaluates to 0 and non-finite results are replaced by 0.
+
+**Recording and preview.** `PhysicsRecorder` derives kinematic and relativistic channels from the live camera pose and the orchestrator state for each frame ([FILE_FORMATS.md](FILE_FORMATS.md#8-telemetry-recording-files)). `build_path_preview` (`include/relativistic/capture/path_preview_builder.hpp`) samples the script into a `PathPreview` (vertices, reference path without shake and transitions, markers, camera frustum) drawn by the schematic renderer.
+
+### 2.11. Profiling, Logging and Persistence
+
+**`PerformanceProfiler`** (`include/relativistic/orchestrator/performance_profiler.hpp`) keeps a ring of `FrameSample` records (default capacity 3600, minimum 16). Stage durations are accumulated through `ScopedStageTimer` and attached to the next recorded frame. The stages are FrameTotal, RenderDispatch, TextureUpload, HudOverlay, CameraUpdate, SchematicOverlay, PostProcessing, FramebufferReadback, GpuDispatchExecution, CpuDispatchExecution, AdaptiveTilePrepassSky, PixelClassification and CameraConstantsBuild.
+
+- `StatisticalSummary` provides mean, median, minimum, maximum, population standard deviation and the 95th and 99th percentiles (linear interpolation).
+- `analyze_bottleneck` selects the dominant stage among all stages except FrameTotal and the five render sub-stages, reports ray step saturation when the mean saturated ray fraction exceeds 0.35, and flags a window without any GPU frame.
+- Benchmark runs are captured over a duration or a frame count, store the configuration of the last captured frame together with the statistics, and are persisted ([FILE_FORMATS.md](FILE_FORMATS.md#102-configperformance_profilercfg)).
+- `EngineSignature::compute` (`include/relativistic/core/engine_signature.hpp`) is the first 8 bytes (16 hexadecimal characters) of the SHA-256 digest of the build tag `relativistic-engine-perf-abi`, the structural revision, and `sizeof(GpuCameraPushConstants)` and `sizeof(GpuPixelOutput)`. Runs with a different signature are marked as not directly comparable.
+
+**Logging.** `EngineLog` (`include/relativistic/core/engine_log.hpp`) keeps the last 4096 entries with a timestamp and severity (info, warning, error) and mirrors them to standard output or standard error.
+
+**Settings.** `UserSettings` and `CaptureStudioSettings` are loaded at startup and saved by `UiManager::export_runtime_settings`. The crash guard and load policy are described in [FILE_FORMATS.md](FILE_FORMATS.md#101-configuser_settingscfg).
+
+### 2.12. Schematic View and HUD
+
+`SchematicViewRenderer` (`include/relativistic/ui/schematic_view_renderer.hpp`) draws bodies, the central object, background grid, field lines, trails, orbit predictions, vectors and the capture path preview as a projected overlay, using the camera tetrad and the selected projection (pinhole when `human_perspective_mode` is set). Objects are depth-sorted and path segments are split at occlusion boundaries so that spheres cover the segments behind them. Orbit predictions integrate a two-body orbit around the central mass with a velocity Verlet scheme. Spacetime source bodies are drawn with a horizon disc, ISCO and disk outer rings and a spin axis. The overlay can be shown on top of the ray-traced image, optionally applying a first-order deflection $4M/b$ (limited to 0.35 rad) to body positions.
+
+The HUD (`HudLayoutConfig`, `include/relativistic/ui/hud_layout_config.hpp`) consists of 25 elements with anchor, offset, scale, color, background, display mode (compact, standard, extended), horizontal layout, draw priority, decimal precision and warning and critical color rules. Automatic arrangement stacks elements per anchor without gaps. Frame time readouts use a rolling average over `rolling_average_frame_count` samples (2 to 120).
+
+### 2.13. Physical Constants Engine
+
+`ConstantsEngine` (`include/relativistic/core/physical_constants_engine.hpp`) stores the simulation values of $c$, $G$, $h$, $k_B$, $N_A$, $K_e$ and $K_{cd}$. It is constructed with the Planck preset ($c = G = k_B = K_e = K_{cd} = 1$, $h = 2\pi$, $N_A$ unchanged); `UiManager` then applies the preset stored in the user settings (SI by default). Setting any constant switches the preset to Custom. Each value is clamped to at least $10^{-300}$. The post-Newtonian solver uses the engine values of $c$ and $G$.
+
+The scale factors between simulation units and SI units are:
+
+$$T_0 = \sqrt{\frac{G_{SI}}{G}\frac{h_{SI}}{h}\left(\frac{c}{c_{SI}}\right)^5}, \quad L_0 = \frac{c_{SI} T_0}{c}, \quad M_0 = \frac{G}{G_{SI}}\frac{L_0^3}{T_0^2}$$
+
+$$Q_0 = \sqrt{\frac{K_e}{K_{e,SI}}\frac{M_0 L_0^3}{T_0^2}}, \quad K_0 = \frac{k_B}{k_{B,SI}}\frac{M_0 L_0^2}{T_0^2}, \quad N_0 = \frac{N_A}{N_{A,SI}}, \quad I_0 = K_{cd}, \quad A_0 = \frac{Q_0}{T_0}$$
+
+Derived simulation quantities include the reduced Planck constant $h / 2\pi$, the Stefan-Boltzmann constant $2\pi^5 k_B^4 / (15 h^3 c^2)$, the vacuum permittivity $1 / (4\pi K_e)$, the vacuum permeability $4\pi K_e / c^2$, the magnetic coupling $K_e / c^2$ and astronomical quantities (solar mass, astronomical unit, Earth and Jupiter masses, parsec, light year, particle masses, solar Schwarzschild radius, Thomson cross section, Wien constant) divided by the corresponding scale. The Constants window accepts unit-aware expressions checked against the expected dimension (`Units::ExpressionEvaluator::evaluate_expect_dimension`).
+
 ---
 
 ## 3. Concurrency, Execution Pipeline & Scheduling
@@ -94,6 +187,7 @@ The execution flow is governed by `Scheduler`, maintaining a fixed logical clock
 - Nanosecond Accumulator: Real-time increments are buffered into a high-precision accumulator. Logical ticks advance when the accumulator exceeds the fixed step interval ($\Delta t = 1 / f_{\text{tick}}$).
 - Step & Warp Control: The scheduler supports pause states, single-tick stepping (`request_steps`), & continuous time dilation scaling (`warp_factor`).
 - Sub-Tick Interpolation: For visual smoothing, the scheduler exposes the fractional alpha factor $\alpha = t_{\text{accum}} / \Delta t_{\text{tick}} \in [0, 1]$.
+- Initial State & Clamping: The scheduler starts paused at 60 Hz with a warp factor of 1. The accumulator is clamped to 0.25 s so that a long frame does not produce a burst of ticks. A requested step executes regardless of the accumulator, and the scheduler pauses when the requested step count reaches zero. Each tick advances the logical time by $\Delta t_{\text{tick}} \cdot w$, where $w$ is the warp factor.
 
 ### 3.2. Asynchronous Lock-Free Command Queue
 
@@ -105,6 +199,32 @@ Communication between the master terminal/UI & the simulation core is mediated b
 
 - Persistent Thread Pool: `ThreadPool` manages a static pool of `std::jthread` workers synchronized via condition variables, executing chunked parallel loops (`parallel_for`).
 - Spatial Tiling & SIMD Bundling: Raytracing passes support both horizontal scanline slicing & 2D spatial block tiling ($32 \times 32$ pixels). Ray bundles are evaluated using 4-wide or 8-wide SIMD registers.
+
+### 3.4. Orchestrator State Advance
+
+`SimulationOrchestrator::advance_simulation(dt)` (`include/relativistic/orchestrator/simulation_orchestrator.hpp`) performs the following steps:
+
+1. The central body is synchronized: a body named `Central Object` of mass $M$, radius $2M$ and spin $(0, 0, aM)$ is registered as the spacetime source, unless an enabled body of mass above $0.5M$ already sits at the origin.
+2. The interaction configuration is passed to the N-body system.
+3. The N-body system is advanced. The step is divided into $\min(500, \lceil \Delta t / \Delta t_s \rceil)$ sub-steps with $\Delta t_s = 0.05 / \omega_{\max}$ and $\omega_{\max} = \sqrt{\max(M, 10^{-4}) / \max(r_{\min}^3, 10^{-6})}$, where $r_{\min}$ is the smallest radius of an enabled body. Each sub-step applies the symplectic Forest-Ruth post-Newtonian integrator when the integrator name contains `Symplectic` or `Gauss`, and the fourth-order Runge-Kutta post-Newtonian integrator otherwise, followed by the interaction step and the horizon absorption step. Bodies disabled before the step keep their state.
+4. In the Rocket Thrust camera mode, the camera position is integrated with the camera velocity while the scheduler is not paused.
+5. The state version counter is incremented. The user interface compares this counter to detect parameter changes and to trigger a re-render.
+
+Horizon absorption (`handle_horizon_absorption`) operates on the central mass with spin clamped to $\pm 0.999M$ and the outer horizon radius $r_h = M + \sqrt{M^2 - a^2}$:
+
+- A regular body with $r \le 1.001 r_h$ is absorbed: its mass is added to the central mass and the body is disabled.
+- A spacetime source body within $r_h + r_{h,b}$ of the origin is merged with the central object. The central spin is recomputed from the total angular momentum (central spin, body spin and orbital angular momentum), clamped to $\pm 0.999M$.
+- A regular body within $1.001$ times the horizon radius of a source body is merged into it by momentum-weighted velocity, spin and charge accumulation.
+- Two source bodies within $1.05$ times the larger horizon radius merge into the more massive one.
+- When any merger occurs, the body list is rebuilt without the disabled bodies.
+
+Command application, including the `Reset` semantics, is described in [CLI_REFERENCE.md](CLI_REFERENCE.md#25-command-processing-and-performance-presets). Changes to $c$ and $G$ in the constants engine are copied to the N-body configuration.
+
+### 3.5. Scenario Resolution and Startup
+
+`ScenarioLocator` (`include/relativistic/io/scenario_locator.hpp`) resolves files and the scenario directory relative to the working directory and up to four parent levels (`kMaxAncestorDepth`). A requested path is tried as given, then prefixed by up to four `..` components, then, when its parent directory is named `scenarios`, against the located scenario directory. `portable_path` stores paths inside the scenario directory in the form `scenarios/<file>`.
+
+At startup `UiManager::queue_startup_scenario` loads the configured `default_scenario_path` when `load_scenario_on_startup` is set. If the file cannot be resolved, parsed or validated, the built-in `scenarios/schwarzschild_accretion.yaml` is loaded instead and becomes the stored startup path; when it is also unavailable, the simulation starts empty. The Scenario Manager scans the directory for `.yaml` and `.yml` files, marks files that fail parsing or validation as incompatible, protects the built-in startup file from deletion, and saves new presets under collision-free file and scenario names (`<stem>_<n>.yaml` and `<name> (<n>)`).
 
 ---
 
@@ -119,9 +239,9 @@ The engine provides multi-tiered precision configurations to balance numerical a
 
 ### 4.2. Compensated Double-Single Arithmetic (DS / fp32-fp32)
 
-- `DoubleSingle` emulates quadrupled precision (approx. 48 bits of mantissa, matching $\approx 14$ decimal digits) using pairs of IEEE 754 single-precision floats (`hi`, `lo`).
+- `DoubleSingle` emulates extended precision (approx. 48 bits of mantissa, matching $\approx 14$ decimal digits) using pairs of IEEE 754 single-precision floats (`hi`, `lo`). The functions `ds_sin`, `ds_cos` and `ds_atan2` evaluate in `double` and split the result.
 - Exact error-free transformations via Knuth's `two_sum`, Dekker's `two_diff`, & Veltkamp-Dekker `two_prod` (using hardware `fma`).
-- Deployed on GPU compute pipelines lacking native FP64 hardware execution units to prevent coordinate quantization artifacts near event horizons.
+- Executed by `SoftwareComputeEngine::dispatch_double_single` on the CPU. The Vulkan compute path requires native FP64 and is skipped when double-single precision is selected (see [Section 2.9](#29-render-pipeline)).
 
 ### 4.3. SIMD Register Vectorization
 
@@ -137,7 +257,7 @@ The platform provides decoupled interfaces for interactive exploration & batch e
 ### 5.1. Master Terminal Loop (REPL)
 
 - `MasterTerminalRepl` provides an asynchronous, non-blocking command-line interface.
-- Direct command parsing (`CommandParser`) translates text commands into strongly-typed `Command` structures dispatched to the simulation orchestrator without graphical dependencies.
+- Direct command parsing (`CommandParser`) translates text commands into strongly-typed `Command` structures dispatched to the simulation orchestrator without graphical dependencies. A line is rejected when the queue (capacity 1024) is full; applied commands report their outcome through the result queue. Command processing rules are listed in [CLI_REFERENCE.md](CLI_REFERENCE.md#25-command-processing-and-performance-presets).
 
 ### 5.2. Graphical Multi-Window Workspace (UI Architecture)
 
@@ -148,8 +268,9 @@ When executing in interactive mode, `UiManager` coordinates GLFW windowing, Open
 - Curvature Diagnostics & Invariants (`TelemetryWindow`, `VisualDiagnosticsWindow`): Real-time numerical display & temporal history graphs of Ricci scalar curvature $R$, Kretschmann invariant $K_1$, metric tensor components $g_{\mu\nu}$, & horizon radii.
 - Spectrograph Monitor (`SpectrographWindow`): Real-time plotting of spectral radiance curves $I(\lambda)$ with $1\sigma$ confidence bands & perceived CIE sRGB color swatches.
 - Performance Settings (`PerformanceSettingsWindow`): Profiles, internal render scale adjustment, ray budget limits, & arithmetic precision toggling.
-- Interactive Camera Controller (`InteractiveCameraController`): Manages navigation modes (Free-Fly 6-DOF, Orbit Center, Spherical Boyer-Lindquist, and Cockpit Flight) with mouse-look, hotkey shortcuts, and 8 projection modes (Pinhole, AutoZoom, FisheyeStereographic, Equirectangular360, FisheyeEquidistant, FisheyeOrthographic, PaniniCylindrical, HammerAitoff).
-- Auxiliary Interface Windows: `BodyManagerWindow` (N-body catalog & interaction configuration), `HudManagerWindow` (on-screen telemetry layout), `ConstantsWindow` (physical constants presets), `KeybindSettingsWindow` (input rebinding), `LogConsoleWindow` (engine log viewer), `PerformanceAnalysisWindow` (benchmark capture & bottleneck analysis), and `SecondaryViewportManager` (auxiliary observer viewports).
+- Interactive Camera Controller (`InteractiveCameraController`): Manages navigation modes (Free-Fly 6-DOF, Orbit Center, Spherical Boyer-Lindquist, and Rocket Thrust) with mouse-look, hotkey shortcuts, and 8 projection modes (Pinhole, AutoZoom, FisheyeStereographic, Equirectangular360, FisheyeEquidistant, FisheyeOrthographic, PaniniCylindrical, HammerAitoff). Mode behaviors are listed in [CLI_REFERENCE.md](CLI_REFERENCE.md#32-navigation-modes).
+- Auxiliary Interface Windows: `BodyManagerWindow` (N-body catalog & interaction configuration), `HudManagerWindow` (on-screen telemetry layout), `ConstantsWindow` (physical constants presets), `KeybindSettingsWindow` (input rebinding), `LogConsoleWindow` (engine log viewer with severity filters and, on Windows, a system console toggle), `PerformanceAnalysisWindow` (benchmark capture & bottleneck analysis), `SecondaryViewportManager` (auxiliary observer viewports), and `CaptureStudioWindow` (screenshots, sequences, motion scripts, data recording and video encoding settings, described in [Section 2.10](#210-capture-subsystem)).
+- Layout Presets: `UiManager` provides the presets MultiWindowDetached, DockedWorkspace, ViewportFocused and DeepAnalysis, applied on the next frame; global hotkeys are processed only when no text widget captures the keyboard.
 
 ---
 
@@ -160,7 +281,7 @@ The engine interfaces with standard astronomical data formats & ephemeris servic
 ### 6.1. Ephemeris & Orbital Mechanics Ingestion
 
 - `HorizonsInterface`: Formulates REST queries & parses NASA JPL Horizons CSV vector tables, converting barycentric state vectors to SI units.
-- `SpkKernel` & `SpkChebyshevSegment`: Evaluates binary SPK ephemeris files (Type 2 position-only & Type 3 position/velocity) via Chebyshev polynomial recurrence relations.
+- `SpkKernel` & `SpkChebyshevSegment`: Evaluates Type 2 (position-only) and Type 3 (position/velocity) Chebyshev segments via polynomial recurrence relations. `parse_daf_spk_bytes` validates the file header only; segment loading from DAF records is not implemented (see [FILE_FORMATS.md](FILE_FORMATS.md#52-spice-binary-spk-kernels-bsp)).
 - `FrameTransformer`: Converts state vectors & four-vectors between ICRF J2000, Heliocentric Ecliptic, Geocentric Equatorial, & comobile boosted reference frames.
 
 ### 6.2. Scientific Data Serialization
@@ -169,3 +290,6 @@ The engine interfaces with standard astronomical data formats & ephemeris servic
 - `FitsExporter`: Generates 2D radiance images & 3D spectral data cubes $(X, Y, \lambda)$ adhering to the FITS Standard 4.0 with WCS astrometric headers & big-endian IEEE 754 formatting.
 - `Hdf5Container`: Serializes hierarchical binary datasets including worldlines, metric series, covariance matrices, & tabulated nuclear equations of state.
 - `VtkExporter`: Generates VTK XML PolyData files (`.vtp`) for polyline trajectories & event horizon surface meshes.
+- `ImageCodecs`, `ImageStreamWriter` and `ScreenshotExporter`: Encode and stream ten image formats ([FILE_FORMATS.md](FILE_FORMATS.md#6-image-output-formats)).
+- `TelemetryTable` and `write_telemetry_table`: Store and serialize recorded channels in seven formats ([FILE_FORMATS.md](FILE_FORMATS.md#8-telemetry-recording-files)).
+- `UserSettings`, `CaptureStudioSettings` and `PerformanceProfiler` persistence: Key-value configuration files under `config/` ([FILE_FORMATS.md](FILE_FORMATS.md#10-persistent-configuration-files)).

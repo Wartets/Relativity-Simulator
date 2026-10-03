@@ -548,6 +548,7 @@ public:
 			cam_consts.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
 			cam_consts.disk_color_saturation = params.disk_color_saturation;
 			cam_consts.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
+			orchestrator_.apply_lighting_constants(cam_consts);
 
 			const auto orientation = cam.orientation_basis();
 
@@ -566,7 +567,11 @@ public:
 				gpu_bodies.reserve(nbody_sys.size());
 				const bool lensing_present = params.mass > 0.0 && cam_consts.metric_type != 0U;
 				const bool perspective_view = (params.projection_mode == 0U || params.projection_mode == 1U);
-				const bool cone_culling_enabled = perspective_view && !lensing_present;
+				const bool lighting_needs_all_bodies = params.body_shadows_enabled
+					|| params.body_emission_lighting_enabled
+					|| params.light_source_mode == static_cast<uint32_t>(Render::LightSourceMode::NearestEmissiveBody)
+					|| params.light_source_mode == static_cast<uint32_t>(Render::LightSourceMode::SpecificBody);
+				const bool cone_culling_enabled = perspective_view && !lensing_present && !lighting_needs_all_bodies;
 				const double frame_aspect = static_cast<double>(current_width_) / static_cast<double>(std::max(current_height_, 1U));
 				const double frustum_half_angle = std::atan(std::tan(cam_consts.field_of_view_rad * 0.5) * std::sqrt(1.0 + frame_aspect * frame_aspect));
 				for (const auto& b : nbody_sys) {

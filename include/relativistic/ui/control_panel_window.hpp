@@ -67,6 +67,9 @@ private:
 	bool integrator_step_factor_log_mode_{false};
 	bool integrator_min_step_log_mode_{false};
 	bool integrator_max_step_log_mode_{false};
+	bool light_reference_distance_log_mode_{true};
+	bool emission_lighting_gain_log_mode_{true};
+	bool emission_lighting_reference_log_mode_{true};
 
 	float rocket_thrust_x_{0.0f};
 	float rocket_thrust_y_{0.0f};
@@ -1420,6 +1423,252 @@ private:
 		ImGui::PopID();
 	}
 
+	void enqueue_lighting_param(Orchestrator::ParameterType type, double value) noexcept {
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(type, value)));
+	}
+
+	void apply_lighting_values(const Orchestrator::PhysicalParameters& v) noexcept {
+		using PT = Orchestrator::ParameterType;
+		enqueue_lighting_param(PT::LightSourceMode, static_cast<double>(v.light_source_mode));
+		enqueue_lighting_param(PT::LightAttenuationMode, static_cast<double>(v.light_attenuation_mode));
+		enqueue_lighting_param(PT::LightSourceBodyId, static_cast<double>(v.light_source_body_id));
+		enqueue_lighting_param(PT::LightIntensity, v.light_intensity);
+		enqueue_lighting_param(PT::LightColorR, v.light_color_r);
+		enqueue_lighting_param(PT::LightColorG, v.light_color_g);
+		enqueue_lighting_param(PT::LightColorB, v.light_color_b);
+		enqueue_lighting_param(PT::LightAmbient, v.light_ambient);
+		enqueue_lighting_param(PT::LightTerminatorSoftness, v.light_terminator_softness);
+		enqueue_lighting_param(PT::LightSpecularScale, v.light_specular_scale);
+		enqueue_lighting_param(PT::LightDirectionAzimuth, v.light_direction_azimuth_deg);
+		enqueue_lighting_param(PT::LightDirectionElevation, v.light_direction_elevation_deg);
+		enqueue_lighting_param(PT::LightPositionX, v.light_position_x);
+		enqueue_lighting_param(PT::LightPositionY, v.light_position_y);
+		enqueue_lighting_param(PT::LightPositionZ, v.light_position_z);
+		enqueue_lighting_param(PT::LightReferenceDistance, v.light_reference_distance);
+		enqueue_lighting_param(PT::BodyEmissionLightingEnabled, v.body_emission_lighting_enabled ? 1.0 : 0.0);
+		enqueue_lighting_param(PT::BodyEmissionLightingGain, v.body_emission_lighting_gain);
+		enqueue_lighting_param(PT::BodyEmissionLightingReferenceDistance, v.body_emission_lighting_reference_distance);
+	}
+
+	void apply_lighting_preset(uint32_t preset) noexcept {
+		constexpr uint32_t kResetPreset = 5;
+		Orchestrator::PhysicalParameters v{};
+		if (preset != kResetPreset) {
+			const auto& current = orchestrator_.parameters();
+			v.body_emission_lighting_enabled = current.body_emission_lighting_enabled;
+			v.body_emission_lighting_gain = current.body_emission_lighting_gain;
+			v.body_emission_lighting_reference_distance = current.body_emission_lighting_reference_distance;
+		}
+		switch (preset) {
+			case 1:
+				v.light_source_mode = static_cast<uint32_t>(Render::LightSourceMode::CameraHeadlight);
+				v.light_ambient = 0.02;
+				v.light_terminator_softness = 0.0;
+				break;
+			case 2:
+				v.light_source_mode = static_cast<uint32_t>(Render::LightSourceMode::FixedDirection);
+				v.light_direction_azimuth_deg = 40.0;
+				v.light_direction_elevation_deg = 35.0;
+				v.light_intensity = 1.2;
+				v.light_ambient = 0.12;
+				v.light_terminator_softness = 0.25;
+				v.light_color_g = 0.97;
+				v.light_color_b = 0.92;
+				break;
+			case 3:
+				v.light_source_mode = static_cast<uint32_t>(Render::LightSourceMode::Unlit);
+				break;
+			case 4:
+				v.light_source_mode = static_cast<uint32_t>(Render::LightSourceMode::CentralSource);
+				v.light_intensity = 1.5;
+				v.light_ambient = 0.005;
+				v.light_terminator_softness = 0.02;
+				v.light_specular_scale = 1.5;
+				v.light_attenuation_mode = static_cast<uint32_t>(Render::LightAttenuationMode::InverseSquare);
+				break;
+			default:
+				break;
+		}
+		apply_lighting_values(v);
+	}
+
+	void render_body_lighting_controls() noexcept {
+		using PT = Orchestrator::ParameterType;
+		const auto& params = orchestrator_.parameters();
+
+		ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "Lighting System:");
+		ImGui::TextDisabled("Controls the light that illuminates every 3D body. The terminator, Earth day/night blend, city lights and day/night layer masks all follow this light.");
+
+		int mode = static_cast<int>(std::min<uint32_t>(params.light_source_mode, Render::kLightSourceModeCount - 1U));
+		if (ImGui::Combo("Light Source", &mode, Render::kLightSourceModeNames.data(), static_cast<int>(Render::kLightSourceModeNames.size()))) {
+			enqueue_lighting_param(PT::LightSourceMode, static_cast<double>(mode));
+		}
+		render_setting_tooltip("Chooses where the light illuminating the bodies comes from: the central spacetime source, the camera, a distant fixed direction, a fixed point, the nearest emissive body, a chosen body, or no lighting at all.");
+
+		const auto selected_mode = static_cast<Render::LightSourceMode>(mode);
+
+		if (ImGui::Button("Stellar Default", ImVec2(110.0f, 24.0f))) apply_lighting_preset(0);
+		render_setting_tooltip("Central source with a soft terminator and very low ambient light.");
+		ImGui::SameLine();
+		if (ImGui::Button("Headlight", ImVec2(80.0f, 24.0f))) apply_lighting_preset(1);
+		render_setting_tooltip("Light follows the camera so bodies are always lit from the viewer's side.");
+		ImGui::SameLine();
+		if (ImGui::Button("Studio Key", ImVec2(80.0f, 24.0f))) apply_lighting_preset(2);
+		render_setting_tooltip("Warm distant directional light with raised ambient and a wide terminator.");
+		ImGui::SameLine();
+		if (ImGui::Button("Unlit", ImVec2(60.0f, 24.0f))) apply_lighting_preset(3);
+		render_setting_tooltip("Uniform full brightness without shading or shadows.");
+		ImGui::SameLine();
+		if (ImGui::Button("Dramatic", ImVec2(80.0f, 24.0f))) apply_lighting_preset(4);
+		render_setting_tooltip("Intense central light with inverse-square falloff, near-zero ambient and a sharp terminator.");
+		ImGui::SameLine();
+		if (ImGui::Button("Reset", ImVec2(60.0f, 24.0f))) apply_lighting_preset(5);
+		render_setting_tooltip("Restores every lighting setting, including body emission lighting, to its default.");
+
+		ImGui::BeginDisabled(selected_mode == Render::LightSourceMode::Unlit);
+
+		if (selected_mode == Render::LightSourceMode::FixedDirection) {
+			float azimuth = static_cast<float>(params.light_direction_azimuth_deg);
+			if (slider_float_with_input("Light Azimuth", &azimuth, -180.0f, 180.0f, "%.1f deg")) {
+				enqueue_lighting_param(PT::LightDirectionAzimuth, static_cast<double>(azimuth));
+			}
+			render_setting_tooltip("Horizontal angle of the incoming light around the world Z axis, measured from +X.");
+			float elevation = static_cast<float>(params.light_direction_elevation_deg);
+			if (slider_float_with_input("Light Elevation", &elevation, -90.0f, 90.0f, "%.1f deg")) {
+				enqueue_lighting_param(PT::LightDirectionElevation, static_cast<double>(elevation));
+			}
+			render_setting_tooltip("Angle of the light above the world XY plane; 90 degrees shines straight down the +Z axis.");
+		}
+
+		if (selected_mode == Render::LightSourceMode::FixedPoint) {
+			float position_x = static_cast<float>(params.light_position_x);
+			float position_y = static_cast<float>(params.light_position_y);
+			float position_z = static_cast<float>(params.light_position_z);
+			if (slider_float_with_input("Light Position X", &position_x, -10000.0f, 10000.0f, "%.2f")) {
+				enqueue_lighting_param(PT::LightPositionX, static_cast<double>(position_x));
+			}
+			if (slider_float_with_input("Light Position Y", &position_y, -10000.0f, 10000.0f, "%.2f")) {
+				enqueue_lighting_param(PT::LightPositionY, static_cast<double>(position_y));
+			}
+			if (slider_float_with_input("Light Position Z", &position_z, -10000.0f, 10000.0f, "%.2f")) {
+				enqueue_lighting_param(PT::LightPositionZ, static_cast<double>(position_z));
+			}
+			render_setting_tooltip("World-space position of the point light in simulation units. Shadows are cast along the line from each surface point to this position.");
+		}
+
+		if (selected_mode == Render::LightSourceMode::SpecificBody) {
+			auto& sys = orchestrator_.nbody_system();
+			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+			std::vector<uint32_t> body_ids;
+			std::vector<std::string> body_labels;
+			int selected_body = -1;
+			for (const auto& b : sys.bodies()) {
+				if (!b.enabled) continue;
+				if (b.id == params.light_source_body_id) selected_body = static_cast<int>(body_ids.size());
+				body_ids.push_back(b.id);
+				body_labels.push_back(b.has_name() ? std::string(b.name_view()) : "Body #" + std::to_string(b.id));
+			}
+			if (body_ids.empty()) {
+				ImGui::TextDisabled("No enabled bodies available; the central source is used instead.");
+			} else {
+				std::vector<const char*> label_pointers;
+				label_pointers.reserve(body_labels.size());
+				for (const auto& label : body_labels) label_pointers.push_back(label.c_str());
+				if (ImGui::Combo("Light Body", &selected_body, label_pointers.data(), static_cast<int>(label_pointers.size()))) {
+					enqueue_lighting_param(PT::LightSourceBodyId, static_cast<double>(body_ids[static_cast<size_t>(selected_body)]));
+				}
+				render_setting_tooltip("The body acting as the light source. It is tinted by its primary color, never shadows itself onto others, and falls back to the central source if it is disabled or removed.");
+				if (selected_body < 0) {
+					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "No light body selected; the central source is used instead.");
+				}
+			}
+		}
+
+		float intensity = static_cast<float>(params.light_intensity);
+		if (slider_float_with_input("Light Intensity", &intensity, 0.0f, 20.0f, "%.2f")) {
+			enqueue_lighting_param(PT::LightIntensity, static_cast<double>(intensity));
+		}
+		render_setting_tooltip("Brightness multiplier of the direct light. Values above 1 overexpose the lit side.");
+
+		float light_color[3] = {static_cast<float>(params.light_color_r), static_cast<float>(params.light_color_g), static_cast<float>(params.light_color_b)};
+		if (ImGui::ColorEdit3("Light Color", light_color)) {
+			enqueue_lighting_param(PT::LightColorR, static_cast<double>(light_color[0]));
+			enqueue_lighting_param(PT::LightColorG, static_cast<double>(light_color[1]));
+			enqueue_lighting_param(PT::LightColorB, static_cast<double>(light_color[2]));
+		}
+		render_setting_tooltip("Color of the direct light. When an emissive body is the source, its primary color is multiplied in as well.");
+
+		float ambient = static_cast<float>(params.light_ambient);
+		if (slider_float_with_input("Ambient Light", &ambient, 0.0f, 0.5f, "%.3f")) {
+			enqueue_lighting_param(PT::LightAmbient, static_cast<double>(ambient));
+		}
+		render_setting_tooltip("Minimum brightness of the unlit side. Zero gives pitch-black night sides.");
+
+		float softness = static_cast<float>(params.light_terminator_softness);
+		if (slider_float_with_input("Terminator Softness", &softness, 0.0f, 1.0f, "%.2f")) {
+			enqueue_lighting_param(PT::LightTerminatorSoftness, static_cast<double>(softness));
+		}
+		render_setting_tooltip("Width of the transition between lit and unlit hemispheres. Zero is a hard Lambertian terminator; higher values wrap the light further around the body.");
+
+		float specular = static_cast<float>(params.light_specular_scale);
+		if (slider_float_with_input("Specular Strength", &specular, 0.0f, 4.0f, "%.2fx")) {
+			enqueue_lighting_param(PT::LightSpecularScale, static_cast<double>(specular));
+		}
+		render_setting_tooltip("Scales the specular highlight, which also depends on each body's Specular Roughness.");
+
+		const bool attenuation_available = selected_mode != Render::LightSourceMode::FixedDirection;
+		ImGui::BeginDisabled(!attenuation_available);
+		int attenuation = static_cast<int>(std::min<uint32_t>(params.light_attenuation_mode, Render::kLightAttenuationModeCount - 1U));
+		if (ImGui::Combo("Light Falloff", &attenuation, Render::kLightAttenuationModeNames.data(), static_cast<int>(Render::kLightAttenuationModeNames.size()))) {
+			enqueue_lighting_param(PT::LightAttenuationMode, static_cast<double>(attenuation));
+		}
+		render_setting_tooltip("Inverse-square falloff dims bodies the further they are from the light. Distant directional light has no falloff.");
+		if (attenuation == static_cast<int>(Render::LightAttenuationMode::InverseSquare)) {
+			float reference_distance = static_cast<float>(params.light_reference_distance);
+			if (slider_float_with_input("Falloff Reference Distance", &reference_distance, 1.0f, 10000.0f, "%.1f", &light_reference_distance_log_mode_, 1.0f, 10000.0f)) {
+				enqueue_lighting_param(PT::LightReferenceDistance, static_cast<double>(reference_distance));
+			}
+			render_setting_tooltip("Distance from the light at which the irradiance equals the Light Intensity.");
+		}
+		ImGui::EndDisabled();
+
+		ImGui::EndDisabled();
+
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.35f, 1.0f), "Body Emission Lighting:");
+		bool emission_lighting = params.body_emission_lighting_enabled;
+		if (ImGui::Checkbox("Bodies Emit Light Onto Other Bodies", &emission_lighting)) {
+			enqueue_lighting_param(PT::BodyEmissionLightingEnabled, emission_lighting ? 1.0 : 0.0);
+		}
+		render_setting_tooltip("Every body with a non-zero Emission Intensity also lights the other bodies, tinted by its primary color and attenuated with the inverse square of the distance. Disabled by default.");
+		if (emission_lighting) {
+			float gain = static_cast<float>(params.body_emission_lighting_gain);
+			if (slider_float_with_input("Emission Lighting Gain", &gain, 0.001f, 10000.0f, "%.3f", &emission_lighting_gain_log_mode_, 0.001f, 10000.0f)) {
+				enqueue_lighting_param(PT::BodyEmissionLightingGain, static_cast<double>(gain));
+			}
+			render_setting_tooltip("Global multiplier on the light cast by emissive bodies.");
+			float emission_reference = static_cast<float>(params.body_emission_lighting_reference_distance);
+			if (slider_float_with_input("Emission Reference Distance", &emission_reference, 1.0f, 10000.0f, "%.1f", &emission_lighting_reference_log_mode_, 1.0f, 10000.0f)) {
+				enqueue_lighting_param(PT::BodyEmissionLightingReferenceDistance, static_cast<double>(emission_reference));
+			}
+			render_setting_tooltip("Distance at which an emissive body with Emission Intensity 1 lights a facing surface with unit irradiance.");
+
+			size_t emitter_count = 0;
+			{
+				auto& sys = orchestrator_.nbody_system();
+				std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+				for (const auto& b : sys.bodies()) {
+					if (b.enabled && !b.is_spacetime_source && b.emission_intensity > 1e-3f) ++emitter_count;
+				}
+			}
+			if (emitter_count == 0) {
+				ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "No enabled body has a non-zero Emission Intensity, so nothing emits light yet.");
+			} else {
+				ImGui::TextDisabled("Emissive bodies: %zu", emitter_count);
+			}
+		}
+	}
+
 	void render_body_3d_render_tab() noexcept {
 		auto& params = orchestrator_.parameters();
 		bool enable_3d = (params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U;
@@ -1459,6 +1708,9 @@ private:
 		render_setting_tooltip("Enables analytical Rayleigh limb shell rim scattering around planetary atmospheres.");
 
 		ImGui::Separator();
+		render_body_lighting_controls();
+
+		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Performance & Level Of Detail:");
 
 		int lod_threshold = static_cast<int>(params.body_render_lod_pixel_threshold);
@@ -1487,10 +1739,10 @@ private:
 		render_setting_tooltip("Forces every celestial body to render with flat Lambert shading regardless of apparent size, for maximum performance on dense body catalogs or low-end hardware.");
 
 		bool shadows = params.body_shadows_enabled;
-		if (ImGui::Checkbox("Central-Source Directional Shading (Day/Night Terminator)", &shadows)) {
+		if (ImGui::Checkbox("Bodies Cast Shadows And Block The Light Source", &shadows)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::BodyShadowsEnabled, shadows ? 1.0 : 0.0)));
 		}
-		render_setting_tooltip("Lights each body's surface from the direction of the central spacetime source instead of the camera, producing a genuine day/night terminator that rotates with orbital position instead of always facing the viewer. This does not make bodies occlude the accretion disk; see the option below for that.");
+		render_setting_tooltip("Bodies and the central horizon occlude the active light source, casting shadows onto other bodies. The direction of the light itself is chosen in the Lighting System section above. This does not make bodies occlude the accretion disk; see the option below for that.");
 
 		bool disk_occlusion = params.body_disk_occlusion_enabled;
 		if (ImGui::Checkbox("Bodies Occlude The Accretion Disk", &disk_occlusion)) {

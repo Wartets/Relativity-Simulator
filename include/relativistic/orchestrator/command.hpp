@@ -163,7 +163,26 @@ enum class ParameterType : uint32_t {
 	SkyBackgroundSource = 120,
 	SkyPanoramaId = 121,
 	SkyPanoramaQuality = 122,
-	IntegrationStepFactor = 123
+	IntegrationStepFactor = 123,
+	LightSourceMode = 124,
+	LightAttenuationMode = 125,
+	LightSourceBodyId = 126,
+	LightIntensity = 127,
+	LightColorR = 128,
+	LightColorG = 129,
+	LightColorB = 130,
+	LightAmbient = 131,
+	LightTerminatorSoftness = 132,
+	LightSpecularScale = 133,
+	LightDirectionAzimuth = 134,
+	LightDirectionElevation = 135,
+	LightPositionX = 136,
+	LightPositionY = 137,
+	LightPositionZ = 138,
+	LightReferenceDistance = 139,
+	BodyEmissionLightingEnabled = 140,
+	BodyEmissionLightingGain = 141,
+	BodyEmissionLightingReferenceDistance = 142
 };
 
 struct Command {
@@ -678,6 +697,19 @@ public:
 			else if (iequals_sv(token2, "space_skip") || iequals_sv(token2, "space_skip_enabled")) ptype = ParameterType::SpaceSkippingEnabled;
 			else if (iequals_sv(token2, "space_skip_radius")) ptype = ParameterType::SpaceSkipRadiusScale;
 			else if (iequals_sv(token2, "pole_precision")) ptype = ParameterType::PoleGuardPrecisionScale;
+			else if (iequals_sv(token2, "light_mode")) ptype = ParameterType::LightSourceMode;
+			else if (iequals_sv(token2, "light_attenuation")) ptype = ParameterType::LightAttenuationMode;
+			else if (iequals_sv(token2, "light_body")) ptype = ParameterType::LightSourceBodyId;
+			else if (iequals_sv(token2, "light_intensity")) ptype = ParameterType::LightIntensity;
+			else if (iequals_sv(token2, "light_ambient")) ptype = ParameterType::LightAmbient;
+			else if (iequals_sv(token2, "light_softness")) ptype = ParameterType::LightTerminatorSoftness;
+			else if (iequals_sv(token2, "light_specular")) ptype = ParameterType::LightSpecularScale;
+			else if (iequals_sv(token2, "light_azimuth")) ptype = ParameterType::LightDirectionAzimuth;
+			else if (iequals_sv(token2, "light_elevation")) ptype = ParameterType::LightDirectionElevation;
+			else if (iequals_sv(token2, "light_reference")) ptype = ParameterType::LightReferenceDistance;
+			else if (iequals_sv(token2, "emission_lighting")) ptype = ParameterType::BodyEmissionLightingEnabled;
+			else if (iequals_sv(token2, "emission_lighting_gain")) ptype = ParameterType::BodyEmissionLightingGain;
+			else if (iequals_sv(token2, "emission_lighting_reference")) ptype = ParameterType::BodyEmissionLightingReferenceDistance;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

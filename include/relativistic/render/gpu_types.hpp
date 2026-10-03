@@ -130,6 +130,28 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t earth_day_width{0};
 	uint32_t earth_night_width{0};
 
+	uint32_t light_source_mode{0};
+	uint32_t light_attenuation_mode{0};
+	uint32_t light_source_body_id{0};
+	uint32_t body_emission_lighting_enabled{0};
+
+	float light_intensity{1.0f};
+	float light_color_r{1.0f};
+	float light_color_g{1.0f};
+	float light_color_b{1.0f};
+	float light_ambient{0.04f};
+	float light_terminator_softness{0.12f};
+	float light_specular_scale{1.0f};
+	float light_direction_x{0.5f};
+	float light_direction_y{0.5f};
+	float light_direction_z{0.7f};
+	float light_position_x{100.0f};
+	float light_position_y{0.0f};
+	float light_position_z{0.0f};
+	float light_reference_distance{50.0f};
+	float body_emission_lighting_gain{1.0f};
+	float body_emission_lighting_reference_distance{30.0f};
+
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
 

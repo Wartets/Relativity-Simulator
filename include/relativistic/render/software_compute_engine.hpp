@@ -4,6 +4,7 @@
 #include "relativistic/render/double_single.hpp"
 #include "relativistic/render/body_surface_shading.hpp"
 #include "relativistic/render/earth_surface_shading.hpp"
+#include "relativistic/render/body_lighting.hpp"
 #include "relativistic/render/earth_texture_requirements.hpp"
 #include "relativistic/optics/earth_texture_image.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
@@ -227,6 +228,9 @@ private:
 
 			const double view_dot_n = std::max(0.0, -(ray_dir[0] * nx + ray_dir[1] * ny + ray_dir[2] * nz));
 
+			const auto light = BodyLighting::resolve(params, std::array<double, 3>{hit_x, hit_y, hit_z}, bodies, body_index);
+			const double light_sun_facing = light.lit ? (nx * light.direction[0] + ny * light.direction[1] + nz * light.direction[2]) : 1.0;
+
 			float r_surf = static_cast<float>(body.color_primary[0]);
 			float g_surf = static_cast<float>(body.color_primary[1]);
 			float b_surf = static_cast<float>(body.color_primary[2]);
@@ -252,10 +256,7 @@ private:
 						earth_night_rgb = *sampled;
 					}
 				}
-				const double earth_origin_distance = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
-				const float earth_sun_facing = (earth_origin_distance > 1e-9)
-					? static_cast<float>(-(nx * hit_x + ny * hit_y + nz * hit_z) / earth_origin_distance)
-					: static_cast<float>(view_dot_n);
+				const float earth_sun_facing = static_cast<float>(light_sun_facing);
 				const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, body.earth_terminator_softness, earth_sun_facing, earth_day_rgb, earth_night_rgb);
 				r_surf = earth_color.albedo[0];
 				g_surf = earth_color.albedo[1];
@@ -427,10 +428,7 @@ private:
 
 			std::array<float, 3> body_emissive = earth_emissive;
 			if (shade_surface) {
-				const double origin_distance = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
-				const float sun_facing = (origin_distance > 1e-9)
-					? static_cast<float>(-(nx * hit_x + ny * hit_y + nz * hit_z) / origin_distance)
-					: static_cast<float>(view_dot_n);
+				const float sun_facing = static_cast<float>(light_sun_facing);
 				SurfaceShadingState shading_state;
 				shading_state.color = {r_surf, g_surf, b_surf};
 				shading_state.city_lights = city_lights_mode;
@@ -444,22 +442,20 @@ private:
 				body_emissive = shading_state.emissive;
 			}
 
-			const double to_light_len = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
-			double light_dir_x = 0.0, light_dir_y = 0.0, light_dir_z = 1.0;
-			const bool has_light_source = to_light_len > 1e-9;
-			if (has_light_source) {
-				light_dir_x = -hit_x / to_light_len;
-				light_dir_y = -hit_y / to_light_len;
-				light_dir_z = -hit_z / to_light_len;
-			}
+			const double to_light_len = light.distance;
+			const double light_dir_x = light.direction[0];
+			const double light_dir_y = light.direction[1];
+			const double light_dir_z = light.direction[2];
+			const bool has_light_source = light.lit;
+			const double raw_ndl = light.lit ? light_sun_facing : 1.0;
 
-			double diffuse_term = has_light_source ? std::max(0.0, nx * light_dir_x + ny * light_dir_y + nz * light_dir_z) : view_dot_n;
+			double diffuse_term = light.lit ? std::max(0.0, raw_ndl) : 1.0;
 			double specular_term = 0.0;
 			bool occluded = false;
 
 			if (!lod_point && diffuse_term > 0.0 && has_light_source && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
 				for (size_t shadow_i = 0; shadow_i < bodies.size(); ++shadow_i) {
-					if (shadow_i == body_index) continue;
+					if (shadow_i == body_index || static_cast<int>(shadow_i) == light.source_body_index) continue;
 					const auto& occluder = bodies[shadow_i];
 					const double ocx = occluder.position[0] - hit_x;
 					const double ocy = occluder.position[1] - hit_y;
@@ -476,7 +472,7 @@ private:
 						break;
 					}
 				}
-				if (!occluded && params.horizon_radius > 0.0) {
+				if (!occluded && !light.at_origin && params.horizon_radius > 0.0) {
 					const double proj_h = (-hit_x) * light_dir_x + (-hit_y) * light_dir_y + (-hit_z) * light_dir_z;
 					if (proj_h > 1e-6 && proj_h < to_light_len) {
 						const double closest_hx = hit_x + light_dir_x * proj_h;
@@ -505,15 +501,33 @@ private:
 				}
 			}
 
-			const double ambient_term = lod_point ? 1.0 : 0.04;
-			float light_factor = static_cast<float>(ambient_term + diffuse_term * (1.0 - ambient_term));
+			std::array<float, 3> light_factor{1.0f, 1.0f, 1.0f};
+			if (!lod_point) {
+				const float lit_amount = light.lit
+					? static_cast<float>(occluded ? 0.0 : BodyLighting::wrapped_diffuse(raw_ndl, params.light_terminator_softness))
+					: 1.0f;
+				const float ambient_level = light.lit ? params.light_ambient : 0.0f;
+				const float direct_level = lit_amount * light.intensity;
+				for (size_t c = 0; c < 3; ++c) {
+					light_factor[c] = ambient_level + direct_level * light.color[c];
+				}
+				if (params.body_emission_lighting_enabled != 0U) {
+					const auto emitted = BodyLighting::emitted_irradiance(params, std::array<double, 3>{hit_x, hit_y, hit_z}, std::array<double, 3>{nx, ny, nz}, bodies, body_index, light.source_body_index);
+					for (size_t c = 0; c < 3; ++c) {
+						light_factor[c] += emitted[c];
+					}
+				}
+			}
 			if (body.emission_intensity > 0.0) {
-				light_factor += static_cast<float>(body.emission_intensity);
+				for (size_t c = 0; c < 3; ++c) {
+					light_factor[c] += static_cast<float>(body.emission_intensity);
+				}
 			}
 
-			r_surf = r_surf * light_factor + static_cast<float>(specular_term) * 0.9f;
-			g_surf = g_surf * light_factor + static_cast<float>(specular_term) * 0.95f;
-			b_surf = b_surf * light_factor + static_cast<float>(specular_term);
+			const float specular_scaled = static_cast<float>(specular_term) * light.intensity * params.light_specular_scale;
+			r_surf = r_surf * light_factor[0] + specular_scaled * light.color[0] * 0.9f;
+			g_surf = g_surf * light_factor[1] + specular_scaled * light.color[1] * 0.95f;
+			b_surf = b_surf * light_factor[2] + specular_scaled * light.color[2];
 
 			r_surf += body_emissive[0];
 			g_surf += body_emissive[1];

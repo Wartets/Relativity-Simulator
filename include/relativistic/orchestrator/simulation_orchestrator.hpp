@@ -8,6 +8,7 @@
 #include "relativistic/io/scenario_serializer.hpp"
 #include "relativistic/io/scenario_locator.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/render/body_lighting.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -126,6 +127,25 @@ struct PhysicalParameters {
 	double disk_temperature_floor_k{1200.0};
 	double disk_doppler_beaming_exponent{5.32};
 	double disk_color_saturation{1.0};
+	uint32_t light_source_mode{0};
+	uint32_t light_attenuation_mode{0};
+	uint32_t light_source_body_id{0};
+	bool body_emission_lighting_enabled{false};
+	double light_intensity{1.0};
+	double light_color_r{1.0};
+	double light_color_g{1.0};
+	double light_color_b{1.0};
+	double light_ambient{0.04};
+	double light_terminator_softness{0.12};
+	double light_specular_scale{1.0};
+	double light_direction_azimuth_deg{45.0};
+	double light_direction_elevation_deg{35.0};
+	double light_position_x{100.0};
+	double light_position_y{0.0};
+	double light_position_z{0.0};
+	double light_reference_distance{50.0};
+	double body_emission_lighting_gain{1.0};
+	double body_emission_lighting_reference_distance{30.0};
 };
 
 struct CustomParameterEntry {
@@ -1302,6 +1322,63 @@ public:
 			case ParameterType::DiskColorSaturation:
 				params_.disk_color_saturation = std::clamp(val, 0.0, 3.0);
 				break;
+			case ParameterType::LightSourceMode:
+				params_.light_source_mode = std::min<uint32_t>(static_cast<uint32_t>(std::max(val, 0.0)), Relativistic::Render::kLightSourceModeCount - 1U);
+				break;
+			case ParameterType::LightAttenuationMode:
+				params_.light_attenuation_mode = std::min<uint32_t>(static_cast<uint32_t>(std::max(val, 0.0)), Relativistic::Render::kLightAttenuationModeCount - 1U);
+				break;
+			case ParameterType::LightSourceBodyId:
+				params_.light_source_body_id = static_cast<uint32_t>(std::max(val, 0.0));
+				break;
+			case ParameterType::LightIntensity:
+				params_.light_intensity = std::clamp(val, 0.0, 50.0);
+				break;
+			case ParameterType::LightColorR:
+				params_.light_color_r = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::LightColorG:
+				params_.light_color_g = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::LightColorB:
+				params_.light_color_b = std::clamp(val, 0.0, 4.0);
+				break;
+			case ParameterType::LightAmbient:
+				params_.light_ambient = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::LightTerminatorSoftness:
+				params_.light_terminator_softness = std::clamp(val, 0.0, 1.0);
+				break;
+			case ParameterType::LightSpecularScale:
+				params_.light_specular_scale = std::clamp(val, 0.0, 8.0);
+				break;
+			case ParameterType::LightDirectionAzimuth:
+				params_.light_direction_azimuth_deg = std::clamp(val, -360.0, 360.0);
+				break;
+			case ParameterType::LightDirectionElevation:
+				params_.light_direction_elevation_deg = std::clamp(val, -90.0, 90.0);
+				break;
+			case ParameterType::LightPositionX:
+				params_.light_position_x = val;
+				break;
+			case ParameterType::LightPositionY:
+				params_.light_position_y = val;
+				break;
+			case ParameterType::LightPositionZ:
+				params_.light_position_z = val;
+				break;
+			case ParameterType::LightReferenceDistance:
+				params_.light_reference_distance = std::clamp(val, 1e-3, 1.0e7);
+				break;
+			case ParameterType::BodyEmissionLightingEnabled:
+				params_.body_emission_lighting_enabled = (val > 0.5);
+				break;
+			case ParameterType::BodyEmissionLightingGain:
+				params_.body_emission_lighting_gain = std::clamp(val, 0.0, 1.0e5);
+				break;
+			case ParameterType::BodyEmissionLightingReferenceDistance:
+				params_.body_emission_lighting_reference_distance = std::clamp(val, 1e-3, 1.0e7);
+				break;
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));
 				sync_nbody_constants_with_engine();
@@ -1585,6 +1662,32 @@ public:
 		return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
 	}
 
+	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
+		constexpr double degrees_to_radians = std::numbers::pi_v<double> / 180.0;
+		push.light_source_mode = std::min<uint32_t>(params_.light_source_mode, Relativistic::Render::kLightSourceModeCount - 1U);
+		push.light_attenuation_mode = std::min<uint32_t>(params_.light_attenuation_mode, Relativistic::Render::kLightAttenuationModeCount - 1U);
+		push.light_source_body_id = params_.light_source_body_id;
+		push.body_emission_lighting_enabled = params_.body_emission_lighting_enabled ? 1U : 0U;
+		push.light_intensity = static_cast<float>(params_.light_intensity);
+		push.light_color_r = static_cast<float>(params_.light_color_r);
+		push.light_color_g = static_cast<float>(params_.light_color_g);
+		push.light_color_b = static_cast<float>(params_.light_color_b);
+		push.light_ambient = static_cast<float>(params_.light_ambient);
+		push.light_terminator_softness = static_cast<float>(params_.light_terminator_softness);
+		push.light_specular_scale = static_cast<float>(params_.light_specular_scale);
+		const double azimuth = params_.light_direction_azimuth_deg * degrees_to_radians;
+		const double elevation = params_.light_direction_elevation_deg * degrees_to_radians;
+		push.light_direction_x = static_cast<float>(std::cos(elevation) * std::cos(azimuth));
+		push.light_direction_y = static_cast<float>(std::cos(elevation) * std::sin(azimuth));
+		push.light_direction_z = static_cast<float>(std::sin(elevation));
+		push.light_position_x = static_cast<float>(params_.light_position_x);
+		push.light_position_y = static_cast<float>(params_.light_position_y);
+		push.light_position_z = static_cast<float>(params_.light_position_z);
+		push.light_reference_distance = static_cast<float>(params_.light_reference_distance);
+		push.body_emission_lighting_gain = static_cast<float>(params_.body_emission_lighting_gain);
+		push.body_emission_lighting_reference_distance = static_cast<float>(params_.body_emission_lighting_reference_distance);
+	}
+
 	[[nodiscard]] Relativistic::Render::GpuCameraPushConstants build_gpu_push_constants(
 		uint32_t screen_width = 3840,
 		uint32_t screen_height = 2160,
@@ -1693,6 +1796,8 @@ public:
 		push.body_count = static_cast<uint32_t>(nbody_system_.bodies().size());
 		push.body_noise_octaves = params_.body_noise_octaves;
 		push.body_render_point_pixel_threshold = params_.body_render_point_pixel_threshold;
+
+		apply_lighting_constants(push);
 
 		return push;
 	}

@@ -103,6 +103,28 @@ layout(scalar, binding = 0) uniform CameraParams {
 
 	uint earth_day_width;
 	uint earth_night_width;
+
+	uint light_source_mode;
+	uint light_attenuation_mode;
+	uint light_source_body_id;
+	uint body_emission_lighting_enabled;
+
+	float light_intensity;
+	float light_color_r;
+	float light_color_g;
+	float light_color_b;
+	float light_ambient;
+	float light_terminator_softness;
+	float light_specular_scale;
+	float light_direction_x;
+	float light_direction_y;
+	float light_direction_z;
+	float light_position_x;
+	float light_position_y;
+	float light_position_z;
+	float light_reference_distance;
+	float body_emission_lighting_gain;
+	float body_emission_lighting_reference_distance;
 } pc;
 
 struct PixelOutput {
@@ -954,8 +976,7 @@ vec3 shade_earth_surface(uint bi, float phi, float cos_t, float sun, float vdn, 
 		return vec3(0.0);
 	}
 
-	bool sun_lit = (pc.render_flags & (1u << 16)) != 0u;
-	float illumination = sun_lit ? sun : vdn;
+	float illumination = sun;
 	float half_width = max(bodies[bi].earth_terminator_softness * 0.5, 0.002);
 	float day_weight = smoothstep(-half_width, half_width, illumination);
 	emissive = night_rgb * (1.0 - day_weight);
@@ -1201,6 +1222,142 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 	return any_hit;
 }
 
+struct LightSample {
+	dvec3 direction;
+	double dist;
+	float intensity;
+	vec3 color;
+	bool lit;
+	bool at_origin;
+	int source_index;
+};
+
+const float EMITTER_THRESHOLD = 1e-3;
+
+dvec3 body_center(uint bi) {
+	return dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
+}
+
+vec3 body_primary_color(uint bi) {
+	return vec3(bodies[bi].color_primary_xy.x, bodies[bi].color_primary_xy.y, bodies[bi].color_primary_zw.x);
+}
+
+void place_light(inout LightSample s, dvec3 position, dvec3 hit, bool at_origin) {
+	dvec3 delta = position - hit;
+	double d = length(delta);
+	s.dist = d;
+	s.direction = (d > 1e-9) ? (delta / d) : dvec3(0.0, 0.0, 1.0);
+	s.at_origin = at_origin;
+}
+
+LightSample resolve_body_light(dvec3 hit, uint self_index) {
+	LightSample s;
+	s.direction = dvec3(0.0, 0.0, 1.0);
+	s.dist = 1.0e30;
+	s.intensity = pc.light_intensity;
+	s.color = vec3(pc.light_color_r, pc.light_color_g, pc.light_color_b);
+	s.lit = true;
+	s.at_origin = false;
+	s.source_index = -1;
+
+	uint mode = min(pc.light_source_mode, 6u);
+	if (mode == 6u) {
+		s.lit = false;
+		return s;
+	}
+
+	if (mode == 1u) {
+		place_light(s, spherical_to_cartesian(pc.observer_position.y, pc.observer_position.z, pc.observer_position.w), hit, false);
+	} else if (mode == 2u) {
+		dvec3 d = dvec3(pc.light_direction_x, pc.light_direction_y, pc.light_direction_z);
+		double dl = length(d);
+		s.direction = (dl > 1e-9) ? (d / dl) : dvec3(0.0, 0.0, 1.0);
+	} else if (mode == 3u) {
+		place_light(s, dvec3(pc.light_position_x, pc.light_position_y, pc.light_position_z), hit, false);
+	} else if (mode == 4u || mode == 5u) {
+		int found = -1;
+		double best = 1.0e30;
+		for (uint bi = 0u; bi < pc.body_count; ++bi) {
+			if (bi == self_index) continue;
+			if (mode == 5u) {
+				if (bodies[bi].body_id == pc.light_source_body_id) {
+					found = int(bi);
+					break;
+				}
+			} else if (bodies[bi].preset_3d != 8u && bodies[bi].emission_intensity > double(EMITTER_THRESHOLD)) {
+				dvec3 delta = body_center(bi) - hit;
+				double d2 = dot(delta, delta);
+				if (d2 < best) {
+					best = d2;
+					found = int(bi);
+				}
+			}
+		}
+		if (found >= 0) {
+			place_light(s, body_center(uint(found)), hit, false);
+			s.source_index = found;
+			s.color *= body_primary_color(uint(found));
+		} else {
+			place_light(s, dvec3(0.0), hit, true);
+		}
+	} else {
+		place_light(s, dvec3(0.0), hit, true);
+	}
+
+	if (pc.light_attenuation_mode == 1u && s.dist < 5.0e29) {
+		double ratio = double(pc.light_reference_distance) / max(s.dist, 1e-6);
+		s.intensity = pc.light_intensity * float(min(ratio * ratio, 64.0));
+	}
+	return s;
+}
+
+float wrapped_diffuse(float ndl, float softness) {
+	float w = clamp(softness, 0.0, 1.0);
+	return clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
+}
+
+bool light_is_occluded(dvec3 hit, LightSample s, uint self_index) {
+	if (s.dist < 1e-6) return false;
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bi == self_index || int(bi) == s.source_index) continue;
+		dvec3 to_body = body_center(bi) - hit;
+		double proj = dot(to_body, s.direction);
+		if (proj <= 1e-6 || proj >= s.dist) continue;
+		dvec3 closest = hit + s.direction * proj - body_center(bi);
+		double occluder_radius = max(bodies[bi].radius, 1e-6) * max(bodies[bi].oblateness_ratio, 1.0);
+		if (dot(closest, closest) < occluder_radius * occluder_radius) return true;
+	}
+	if (!s.at_origin && pc.horizon_radius > 0.0) {
+		double proj_h = dot(-hit, s.direction);
+		if (proj_h > 1e-6 && proj_h < s.dist) {
+			dvec3 closest_h = hit + s.direction * proj_h;
+			if (dot(closest_h, closest_h) < pc.horizon_radius * pc.horizon_radius) return true;
+		}
+	}
+	return false;
+}
+
+vec3 emitted_irradiance(dvec3 hit, dvec3 nrm, uint self_index, int excluded_index) {
+	vec3 total = vec3(0.0);
+	double reference = double(pc.body_emission_lighting_reference_distance);
+	double gain = double(pc.body_emission_lighting_gain);
+	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (bi == self_index || int(bi) == excluded_index) continue;
+		double emission = bodies[bi].emission_intensity;
+		if (bodies[bi].preset_3d == 8u || emission <= double(EMITTER_THRESHOLD)) continue;
+		dvec3 delta = body_center(bi) - hit;
+		double d = length(delta);
+		if (d < 1e-9) continue;
+		double n_dot_l = dot(nrm, delta) / d;
+		if (n_dot_l <= 0.0) continue;
+		double effective_distance = max(d, max(bodies[bi].radius, 1e-6));
+		double ratio = reference / effective_distance;
+		double weight = gain * emission * min(ratio * ratio, 16.0) * n_dot_l;
+		total += float(weight) * body_primary_color(bi);
+	}
+	return total;
+}
+
 bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 out_color, out uint out_status, out double out_hit_dist) {
 	bool hit_any = false;
 	double best_t = max_dist;
@@ -1274,28 +1431,43 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		vec3 surface_emissive = vec3(0.0);
 		float surface_city_speckle = 0.0;
 		double surface_view_dot_n = max(0.0, dot(-ray_dir, nrm));
-		double hit_origin_len = length(hit_pos);
-		double surface_sun_facing = (hit_origin_len > 1e-9) ? dot(nrm, -hit_pos / hit_origin_len) : surface_view_dot_n;
+		LightSample body_light = resolve_body_light(hit_pos, bi);
+		double surface_sun_facing = body_light.lit ? dot(nrm, body_light.direction) : 1.0;
 		bool earth_surface = (bodies[bi].surface_texture_mode == 13u) && (pc.body_render_low_power_mode == 0u);
 		if (!is_simple_lod || earth_surface) {
 			surf = shade_body_surface(bi, nrm, surface_sun_facing, surface_view_dot_n, surface_emissive, surface_city_speckle, float(coverage) * 6.28318531);
 		}
 
 		double view_dot_n = max(0.0, dot(-ray_dir, nrm));
-		double lighting = view_dot_n;
-		if (!is_point_lod && (pc.render_flags & (1u << 16)) != 0u) {
-			double to_origin_len = length(hit_pos);
-			if (to_origin_len > 1e-9) {
-				dvec3 light_dir = -hit_pos / to_origin_len;
-				lighting = max(0.0, dot(nrm, light_dir));
-			}
+		double raw_ndl = body_light.lit ? dot(nrm, body_light.direction) : 1.0;
+		bool shadowed = false;
+		if (!is_point_lod && body_light.lit && raw_ndl > 0.0 && (pc.render_flags & (1u << 16)) != 0u) {
+			shadowed = light_is_occluded(hit_pos, body_light, bi);
 		}
 
-		float light_factor = is_point_lod ? 1.0 : float(0.25 + 0.75 * lighting);
-		if (bodies[bi].emission_intensity > 0.0) {
-			light_factor += float(bodies[bi].emission_intensity);
+		vec3 light_factor = vec3(1.0);
+		vec3 specular_add = vec3(0.0);
+		if (!is_point_lod) {
+			float lit_amount = body_light.lit ? (shadowed ? 0.0 : wrapped_diffuse(float(raw_ndl), pc.light_terminator_softness)) : 1.0;
+			float ambient_level = body_light.lit ? pc.light_ambient : 0.0;
+			light_factor = vec3(ambient_level) + body_light.color * (lit_amount * body_light.intensity);
+			if (pc.body_emission_lighting_enabled != 0u) {
+				light_factor += emitted_irradiance(hit_pos, nrm, bi, body_light.source_index);
+			}
+			if (body_light.lit && !shadowed && raw_ndl > 0.0) {
+				dvec3 half_vec = body_light.direction - ray_dir;
+				double half_len = length(half_vec);
+				if (half_len > 1e-9) {
+					double spec_dot = max(0.0, dot(nrm, half_vec / half_len));
+					double rough = clamp(bodies[bi].specular_roughness, 0.0, 1.0);
+					double shininess = 4.0 + (1.0 - rough) * 80.0;
+					float spec = pow(float(spec_dot), float(shininess)) * float((1.0 - rough) * 0.6);
+					specular_add = body_light.color * (spec * body_light.intensity * pc.light_specular_scale);
+				}
+			}
 		}
-		surf *= light_factor;
+		light_factor += vec3(float(max(bodies[bi].emission_intensity, 0.0)));
+		surf = surf * light_factor + specular_add;
 		if (!is_point_lod) {
 			double night_gain = clamp(1.0 - max(0.0, surface_sun_facing) * 5.0, 0.0, 1.0);
 			float city_glow = float(night_gain * bodies[bi].night_side_light_intensity) * surface_city_speckle;

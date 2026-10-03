@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string_view>
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/render/accretion_disk_settings.hpp"
 #include "relativistic/optics/earth_texture_catalog.hpp"
 
 namespace Relativistic::Dynamics {
@@ -122,6 +123,7 @@ struct alignas(64) PostNewtonianBody {
 	Optics::EarthMapVariant earth_map_variant{Optics::EarthMapVariant::Day};
 	Optics::EarthMapQuality earth_map_quality{Optics::EarthMapQuality::Q1K};
 	float earth_terminator_softness{0.25f};
+	Render::AccretionDiskSettings accretion_disk{};
 
 	void set_name(std::string_view new_name) noexcept {
 		const size_t len = std::min(new_name.size(), name.size() - 1);
@@ -265,6 +267,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.earth_map_quality = static_cast<uint32_t>(earth_map_quality);
 		gpu.earth_terminator_softness = std::clamp(earth_terminator_softness, 0.0f, 1.0f);
 		if (is_spacetime_source) {
+			gpu.disk = accretion_disk.to_gpu_profile();
 			gpu.color_primary = {0.0, 0.0, 0.0, 1.0};
 			gpu.color_secondary = {0.01, 0.01, 0.015, 1.0};
 			gpu.color_tertiary = {0.02, 0.02, 0.025, 1.0};

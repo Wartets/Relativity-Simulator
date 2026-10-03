@@ -2,6 +2,7 @@
 
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/render/accretion_disk_model.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
 #include "relativistic/core/tensor.hpp"
 #include <array>
@@ -20,7 +21,9 @@ struct SubsidiarySourceParams {
 	double horizon_radius{0.0};
 	double equatorial_horizon_radius{0.0};
 	double isco_radius{0.0};
+	double disk_inner_radius{0.0};
 	double disk_outer_radius{0.0};
+	Render::GpuDiskProfile disk{};
 	std::array<double, 3> spin_axis{0.0, 0.0, 1.0};
 	std::array<double, 3> frame_x{1.0, 0.0, 0.0};
 	std::array<double, 3> frame_y{0.0, 1.0, 0.0};
@@ -38,7 +41,9 @@ struct SubsidiarySourceParams {
 		p.equatorial_horizon_radius = std::sqrt(p.horizon_radius * p.horizon_radius + p.spin * p.spin);
 		p.assign_spin_axis({body.spin_axis[0], body.spin_axis[1], body.spin_axis[2]});
 		p.isco_radius = Optics::DiskThermalProfile::kerr_isco_radius(p.mass, p.spin);
-		p.disk_outer_radius = Optics::DiskThermalProfile::disk_outer_radius(p.mass);
+		p.disk = body.disk;
+		p.disk_inner_radius = p.isco_radius * static_cast<double>(std::max(body.disk.inner_radius_scale, 1.0f));
+		p.disk_outer_radius = std::max(static_cast<double>(body.disk.outer_radius_mass_units) * p.mass, p.disk_inner_radius * 1.05);
 		return p;
 	}
 
@@ -94,10 +99,8 @@ struct SubsidiarySourceParams {
 
 struct DiskCrossingSample {
 	double radius{0.0};
-	double phi{0.0};
-	double doppler_factor{1.0};
-	double temperature_kelvin{0.0};
-	double normalized_flux{0.0};
+	double azimuth{0.0};
+	double redshift{1.0};
 };
 
 class SubsidiarySourceField {
@@ -138,6 +141,9 @@ public:
 		const std::array<double, 3>& seg_end,
 		const SubsidiarySourceParams& source
 	) noexcept {
+		if (source.disk.enabled < 0.5f) {
+			return std::nullopt;
+		}
 		const auto start_local = source.to_local({seg_start[0] - source.position[0], seg_start[1] - source.position[1], seg_start[2] - source.position[2]});
 		const auto end_local = source.to_local({seg_end[0] - source.position[0], seg_end[1] - source.position[1], seg_end[2] - source.position[2]});
 		const double prev_z_rel = start_local[2];
@@ -150,21 +156,20 @@ public:
 		const double cross_x = start_local[0] + s_cross * (end_local[0] - start_local[0]);
 		const double cross_y = start_local[1] + s_cross * (end_local[1] - start_local[1]);
 		const double r_cross = std::sqrt(cross_x * cross_x + cross_y * cross_y);
-		if (r_cross < source.isco_radius || r_cross > source.disk_outer_radius) {
+		if (r_cross < source.disk_inner_radius || r_cross > source.disk_outer_radius) {
 			return std::nullopt;
 		}
 
+		const double delta_x = end_local[0] - start_local[0];
+		const double delta_y = end_local[1] - start_local[1];
+		const double delta_z = end_local[2] - start_local[2];
+		const double delta_length = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
+		const double angular_momentum_ratio = -(cross_x * delta_y - cross_y * delta_x) / std::max(delta_length, 1e-30);
+
 		DiskCrossingSample sample;
 		sample.radius = r_cross;
-		sample.phi = std::atan2(cross_y, cross_x);
-
-		const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * source.mass / r_cross + 2.0 * source.spin * std::sqrt(source.mass / (r_cross * r_cross * r_cross)), 1e-4));
-		const double g_doppler = std::sqrt(std::max(1.0 - source.horizon_radius / r_cross, 1e-4)) / std::max(gamma_orb, 1e-6);
-		sample.doppler_factor = g_doppler;
-
-		const double t_norm = Optics::DiskThermalProfile::normalized_temperature(source.isco_radius, r_cross);
-		sample.normalized_flux = t_norm;
-		sample.temperature_kelvin = Optics::DiskThermalProfile::effective_temperature_kelvin(source.isco_radius, r_cross) * g_doppler;
+		sample.azimuth = std::atan2(cross_y, cross_x);
+		sample.redshift = Render::AccretionDiskModel::redshift_at(source.mass, source.spin, r_cross, angular_momentum_ratio);
 		return sample;
 	}
 

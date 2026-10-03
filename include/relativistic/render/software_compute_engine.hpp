@@ -2,6 +2,7 @@
 
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
+#include "relativistic/render/accretion_disk_model.hpp"
 #include "relativistic/render/body_surface_shading.hpp"
 #include "relativistic/render/earth_surface_shading.hpp"
 #include "relativistic/render/body_lighting.hpp"
@@ -628,7 +629,7 @@ private:
 		std::vector<GpuBodyData> culling_storage(source_bodies.begin(), source_bodies.end());
 		for (auto& culling_body : culling_storage) {
 			if (culling_body.preset_3d == 8U) {
-				culling_body.radius = std::max(culling_body.radius, 24.0 * std::max(culling_body.mass, 1e-6));
+				culling_body.radius = std::max(culling_body.radius, static_cast<double>(culling_body.disk.outer_radius_mass_units) * std::max(culling_body.mass, 1e-6));
 			}
 		}
 		const std::span<const GpuBodyData> bodies(culling_storage);
@@ -1080,6 +1081,7 @@ private:
 		double escape_radius, uint32_t max_steps,
 		bool has_accretion_disk,
 		double turbulence_aa_factor,
+		const GpuDiskProfile& disk_profile,
 		const GpuCameraPushConstants& params,
 		std::span<const GpuBodyData> bodies = {},
 		std::span<const uint32_t> body_candidates = {}
@@ -1089,7 +1091,9 @@ private:
 		Core::FourVector<double> x(0.0, r_obs, theta_obs, phi_obs);
 		Core::FourVector<double> u = tetrad.construct_light_ray(-n1, -n2, -n3);
 
-		const double disk_outer = 24.0 * m;
+		const double disk_spin = (params.metric_type == 4U) ? 0.0 : std::clamp(params.metric_spin, -0.999 * m, 0.999 * m);
+		const double disk_inner = isco * static_cast<double>(std::max(disk_profile.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(disk_profile.outer_radius_mass_units) * m, disk_inner * 1.05);
 
 		if constexpr (std::is_same_v<MetricType, Metrics::KerrMetric<double>>) {
 			const auto invariants = Metrics::compute_kerr_invariants_bl(metric, x, u);
@@ -1255,43 +1259,30 @@ private:
 			}
 
 			const double mid_plane = std::numbers::pi_v<double> * 0.5;
-			if (has_accretion_disk && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
 				const double d_th_span = std::abs(x(2) - prev_theta);
 				const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 				const double r_cross = prev_r + s_cross * (x(1) - prev_r);
 				const double phi_cross = prev_phi + s_cross * (x(3) - prev_phi);
 
-				if (r_cross >= isco && r_cross <= disk_outer && r_cross > rh * 1.02) {
+				if (r_cross >= disk_inner && r_cross <= disk_outer && r_cross > rh * 1.02) {
 					status |= PixelFlags::ACCRETION_DISK_HIT;
 
-					const double v_orb = std::sqrt(m / r_cross);
-					const double omega_orb = v_orb / r_cross;
-					const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * m / r_cross, 1e-4));
-
 					const double sin2_x = std::max(std::sin(x(2)) * std::sin(x(2)), 1e-8);
-					const double lz_val = u(3) * (r_cross * r_cross * sin2_x);
-					const double e_val = 1.0;
-					const double l_over_e = lz_val / std::max(std::abs(e_val), 1e-12);
-					const double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
-					const double g_doppler = (std::abs(denom_g) > 1e-12) ? (std::sqrt(std::max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+					const double l_over_e = u(3) * (r_cross * r_cross * sin2_x);
+					const double g_doppler = AccretionDiskModel::redshift_at(m, disk_spin, r_cross, l_over_e);
 					redshift_rec = g_doppler;
 
-					const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-					const double t_eff_k = params.disk_temperature_scale_k * t_norm + params.disk_temperature_floor_k;
-					const double t_obs = t_eff_k * g_doppler;
+					const auto shaded = AccretionDiskModel::shade(disk_profile, DiskSurfacePoint{
+						.mass = m, .spin = disk_spin, .inner_radius = disk_inner, .outer_radius = disk_outer,
+						.radius = r_cross, .azimuth = phi_cross, .redshift = g_doppler,
+						.time = params.time, .detail_scale = turbulence_aa_factor
+					});
 
-					const double g4 = std::pow(g_doppler, params.disk_doppler_beaming_exponent);
-					const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-					const double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
-					const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
-
-					const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, params.disk_color_saturation);
-					const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
-
-					accum_r += throughput * static_cast<double>(disk_rgb[0]);
-					accum_g += throughput * static_cast<double>(disk_rgb[1]);
-					accum_b += throughput * static_cast<double>(disk_rgb[2]);
-					throughput *= (1.0 - alpha_opacity);
+					accum_r += throughput * static_cast<double>(shaded.radiance[0]);
+					accum_g += throughput * static_cast<double>(shaded.radiance[1]);
+					accum_b += throughput * static_cast<double>(shaded.radiance[2]);
+					throughput *= (1.0 - shaded.opacity);
 				}
 			}
 		}
@@ -1350,6 +1341,7 @@ private:
 		double rs, double escape_radius, uint32_t max_steps,
 		bool has_accretion_disk,
 		double turbulence_aa_factor,
+		const GpuDiskProfile& disk_profile,
 		const GpuCameraPushConstants& params,
 		std::span<const GpuBodyData> bodies = {},
 		std::span<const uint32_t> body_candidates = {}
@@ -1358,18 +1350,18 @@ private:
 			const Metrics::ReissnerNordstromMetric<double> metric(m, charge, 1.0, 1.0, 1.0);
 			const double rh = metric.outer_horizon_radius();
 			const double isco = kerr_isco_radius(m, 0.0);
-			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params, bodies, body_candidates);
+			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
 		}
 		if (metric_type == 5U) {
 			const Metrics::KerrNewmanMetric<double> metric(m, a_spin, charge, 1.0, 1.0, 1.0);
 			const double rh = metric.outer_horizon_radius();
 			const double isco = kerr_isco_radius(m, a_spin);
-			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params, bodies, body_candidates);
+			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
 		}
 		const Metrics::KerrMetric<double> metric(m, a_spin, 1.0, 1.0);
 		const double rh = metric.outer_horizon_radius();
 		const double isco = kerr_isco_radius(m, a_spin);
-		return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, params, bodies, body_candidates);
+		return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
 	}
 
 	[[nodiscard]] static std::array<double, 3> rotate_direction_around_z(double x, double y, double z, double angle_rad) noexcept {
@@ -1701,31 +1693,6 @@ private:
 		return sky_rgb;
 	}
 
-	[[nodiscard]] static std::array<float, 3> temperature_to_linear_rgb(double t_kelvin, double intensity, double saturation = 1.0) noexcept {
-		const double t = std::clamp(t_kelvin, 800.0, 60000.0);
-		const auto spectrum = Optics::ContinuousSpectrum<double>::make_blackbody(t);
-		const auto xyz = Optics::CIE1931Observer::integrate_spectrum(spectrum, 380.0, 780.0, 24);
-		const auto linear = Optics::CIE1931Observer::xyz_to_linear_srgb(xyz);
-
-		double r = linear.r;
-		double g = linear.g;
-		double b = linear.b;
-
-		const double max_c = std::max({r, g, b, 1e-12});
-		r /= max_c;
-		g /= max_c;
-		b /= max_c;
-
-		const double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-		const double sat = std::clamp(saturation, 0.0, 3.0);
-		r = std::max(0.0, luma + (r - luma) * sat);
-		g = std::max(0.0, luma + (g - luma) * sat);
-		b = std::max(0.0, luma + (b - luma) * sat);
-
-		const float scale = static_cast<float>(std::max(0.0, intensity));
-		return {static_cast<float>(r) * scale, static_cast<float>(g) * scale, static_cast<float>(b) * scale};
-	}
-
 	[[nodiscard]] static std::array<float, 3> apply_tonemapping(
 		const std::array<double, 3>& linear_color,
 		uint32_t tonemap_mode,
@@ -1860,7 +1827,8 @@ private:
 	[[nodiscard]] static SubsidiarySourceHit evaluate_subsidiary_spacetime_sources(
 		const std::array<double, 3>& seg_start,
 		const std::array<double, 3>& seg_end,
-		const std::vector<Metrics::SubsidiarySourceParams>& sources
+		const std::vector<Metrics::SubsidiarySourceParams>& sources,
+		double time
 	) noexcept {
 		SubsidiarySourceHit result{};
 		for (const auto& source : sources) {
@@ -1902,12 +1870,15 @@ private:
 
 			const auto crossing = Metrics::SubsidiarySourceField::segment_crosses_disk(seg_start, seg_end, source);
 			if (crossing.has_value()) {
-				const double radial_envelope = std::clamp((source.disk_outer_radius - crossing->radius) / (1.5 * source.mass), 0.0, 1.0)
-					* std::clamp((crossing->radius - source.isco_radius) / (0.8 * source.mass), 0.0, 1.0);
-				const double flux_intensity = std::max(std::pow(crossing->doppler_factor, 4.0) * crossing->normalized_flux * radial_envelope, 0.0) * 1.5;
+				const auto shaded = AccretionDiskModel::shade(source.disk, DiskSurfacePoint{
+					.mass = source.mass, .spin = source.spin,
+					.inner_radius = source.disk_inner_radius, .outer_radius = source.disk_outer_radius,
+					.radius = crossing->radius, .azimuth = crossing->azimuth, .redshift = crossing->redshift,
+					.time = time, .detail_scale = 1.0
+				});
 				result.disk_hit = true;
-				result.color = temperature_to_linear_rgb(crossing->temperature_kelvin, flux_intensity);
-				result.opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+				result.color = shaded.radiance;
+				result.opacity = shaded.opacity;
 				return result;
 			}
 		}
@@ -2023,8 +1994,10 @@ public:
 		const double rh = (std::abs(a_spin) > 1e-12) ? (m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0))) : rs;
 		const double aspect = static_cast<double>(width) / static_cast<double>(height);
 
+		const auto primary_disk = AccretionDiskModel::resolve_primary_profile(params);
 		const double isco = (std::abs(a_spin) > 1e-12) ? std::max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
-		const double disk_outer = 24.0 * m;
+		const double disk_inner = isco * static_cast<double>(std::max(primary_disk.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(primary_disk.outer_radius_mass_units) * m, disk_inner * 1.05);
 
 		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
@@ -2147,7 +2120,7 @@ public:
 							n_r, n_th, n_ph,
 							r_obs, theta_obs, phi_obs,
 							rs, params.escape_radius, effective_max_steps,
-							has_accretion_disk, turbulence_aa_factor, params,
+							has_accretion_disk, turbulence_aa_factor, primary_disk, params,
 							bodies_need_curved_path ? bodies : std::span<const GpuBodyData>{}, body_candidates
 						);
 						continue;
@@ -2283,7 +2256,7 @@ public:
 							const double seg_dz = seg_z1 - seg_z0;
 							const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy + seg_dz * seg_dz);
 							if (seg_len > 1e-12) {
-								const auto subsidiary_hit = evaluate_subsidiary_spacetime_sources({seg_x0, seg_y0, seg_z0}, {seg_x1, seg_y1, seg_z1}, subsidiary_sources);
+								const auto subsidiary_hit = evaluate_subsidiary_spacetime_sources({seg_x0, seg_y0, seg_z0}, {seg_x1, seg_y1, seg_z1}, subsidiary_sources, params.time);
 								if (subsidiary_hit.absorbed) {
 									throughput = 0.0;
 									status |= PixelFlags::HORIZON_ABSORBED;
@@ -2509,8 +2482,10 @@ public:
 		const double rh = (std::abs(a_spin) > 1e-12) ? (m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0))) : rs;
 		const double aspect = static_cast<double>(width) / static_cast<double>(height);
 
+		const auto primary_disk = AccretionDiskModel::resolve_primary_profile(params);
 		const double isco = (std::abs(a_spin) > 1e-12) ? std::max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m);
-		const double disk_outer = 24.0 * m;
+		const double disk_inner = isco * static_cast<double>(std::max(primary_disk.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(primary_disk.outer_radius_mass_units) * m, disk_inner * 1.05);
 
 		const double fwd_x = params.tetrad_e1[1], fwd_y = params.tetrad_e1[2], fwd_z = params.tetrad_e1[3];
 		const double rgt_x = params.tetrad_e2[1], rgt_y = params.tetrad_e2[2], rgt_z = params.tetrad_e2[3];
@@ -3054,7 +3029,7 @@ public:
 							static_cast<double>(n_r), static_cast<double>(n_th), static_cast<double>(n_ph),
 							static_cast<double>(r_obs), static_cast<double>(theta_obs), static_cast<double>(phi_obs),
 							static_cast<double>(rs), params.escape_radius, effective_max_steps,
-							has_accretion_disk, static_cast<double>(turbulence_aa_factor), params
+							has_accretion_disk, static_cast<double>(turbulence_aa_factor), primary_disk, params
 						);
 						continue;
 					}

@@ -30,6 +30,45 @@ namespace SkyBackgroundLimits {
 	static constexpr double MAX_VALUE = 1.0;
 }
 
+struct GpuDiskProfile {
+	float enabled{1.0f};
+	float inner_radius_scale{1.0f};
+	float outer_radius_mass_units{24.0f};
+	float peak_temperature_k{9500.0f};
+	float floor_temperature_k{1200.0f};
+	float temperature_exponent{0.75f};
+	float zero_torque_strength{1.0f};
+	float extra_beaming_exponent{2.0f};
+	float brightness{0.45f};
+	float color_saturation{1.0f};
+	float tint_strength{0.0f};
+	float opacity_scale{1.0f};
+	float tint_r{1.0f};
+	float tint_g{1.0f};
+	float tint_b{1.0f};
+	float rotation_speed_scale{4.0f};
+	float ring_amplitude{0.35f};
+	float ring_frequency{9.0f};
+	float ring_sharpness{3.0f};
+	float spiral_arm_count{2.0f};
+	float spiral_pitch{1.2f};
+	float spiral_amplitude{0.25f};
+	float turbulence_amplitude{0.45f};
+	float turbulence_scale{5.0f};
+	float turbulence_octaves{4.0f};
+	float radial_stretch{3.0f};
+	float grain_amplitude{0.2f};
+	float grain_scale{40.0f};
+	float reference_luminance{1.0f};
+	float noise_seed{1.0f};
+	float temperature_normalization{1.0f};
+	float edge_softness{1.0f};
+
+	[[nodiscard]] bool operator==(const GpuDiskProfile&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuDiskProfile) == 128);
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -151,6 +190,8 @@ struct alignas(16) GpuCameraPushConstants {
 	float light_reference_distance{50.0f};
 	float body_emission_lighting_gain{1.0f};
 	float body_emission_lighting_reference_distance{30.0f};
+
+	GpuDiskProfile primary_disk{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
@@ -295,6 +336,7 @@ struct alignas(16) GpuBodyData {
 
 	uint32_t surface_layer_count{0};
 	std::array<GpuSurfaceLayer, kMaxSurfaceLayers> surface_layers{};
+	GpuDiskProfile disk{};
 };
 
 struct alignas(16) GpuBodyGpuLayout {
@@ -342,6 +384,7 @@ struct alignas(16) GpuBodyGpuLayout {
 	float earth_terminator_softness{0.25f};
 	uint32_t layer_pad2{0};
 	GpuSurfaceLayer surface_layers[kMaxSurfaceLayers]{};
+	GpuDiskProfile disk{};
 
 	[[nodiscard]] static GpuBodyGpuLayout from(const GpuBodyData& b) noexcept {
 		GpuBodyGpuLayout g{};
@@ -389,10 +432,11 @@ struct alignas(16) GpuBodyGpuLayout {
 		for (size_t i = 0; i < kMaxSurfaceLayers; ++i) {
 			g.surface_layers[i] = b.surface_layers[i];
 		}
+		g.disk = b.disk;
 		return g;
 	}
 };
 
-static_assert(sizeof(GpuBodyGpuLayout) == 704);
+static_assert(sizeof(GpuBodyGpuLayout) == 832);
 
 }

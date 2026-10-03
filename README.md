@@ -46,7 +46,7 @@ Primary references:
   - [Bulk body actions](docs/TECHNICAL_MANUAL.md#24-post-newtonian-multi-body-subsystem) (velocity and spin assignment, grid snapping, scattering, mass equalization, parameter equalization, culling; [Keybinds](docs/CLI_REFERENCE.md#34-additional-rebindable-actions)).
 
 - **Gravimetry and Large-Scale Gravity**
-  - [Spherical harmonic gravity expansions](docs/DESCRIPTION.md#52-spherical-harmonics--high-degree-geodesy) up to degree and order 32 (\(J_n\), \(C_{nm}\), \(S_{nm}\); [Architecture](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry)).
+  - [Spherical harmonic gravity expansions](docs/DESCRIPTION.md#52-spherical-harmonics--high-degree-geodesy) up to degree and order 32 ($J_n$, $C_{nm}$, $S_{nm}$); [Architecture](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry)).
   - [Analytical orbital precession](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry) and [tidal Love number perturbations](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry).
   - Dark matter modules: [NFW, Einasto, Burkert, and Hernquist profiles](docs/DESCRIPTION.md#53-dark-matter-halos--alternative-gravitational-theories), [Barnes–Hut octree acceleration](docs/DESCRIPTION.md#53-dark-matter-halos--alternative-gravitational-theories), [MOND, TeVeS, and \(f(R)\) Chameleon models](docs/ARCHITECTURE.md#25-dark-matter--modified-gravity).
 

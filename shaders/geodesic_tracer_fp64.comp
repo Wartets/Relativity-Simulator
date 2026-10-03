@@ -4,6 +4,41 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
+struct DiskProfile {
+	float enabled;
+	float inner_radius_scale;
+	float outer_radius_mass_units;
+	float peak_temperature_k;
+	float floor_temperature_k;
+	float temperature_exponent;
+	float zero_torque_strength;
+	float extra_beaming_exponent;
+	float brightness;
+	float color_saturation;
+	float tint_strength;
+	float opacity_scale;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float rotation_speed_scale;
+	float ring_amplitude;
+	float ring_frequency;
+	float ring_sharpness;
+	float spiral_arm_count;
+	float spiral_pitch;
+	float spiral_amplitude;
+	float turbulence_amplitude;
+	float turbulence_scale;
+	float turbulence_octaves;
+	float radial_stretch;
+	float grain_amplitude;
+	float grain_scale;
+	float reference_luminance;
+	float noise_seed;
+	float temperature_normalization;
+	float edge_softness;
+};
+
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
@@ -125,6 +160,8 @@ layout(scalar, binding = 0) uniform CameraParams {
 	float light_reference_distance;
 	float body_emission_lighting_gain;
 	float body_emission_lighting_reference_distance;
+
+	DiskProfile primary_disk;
 } pc;
 
 struct PixelOutput {
@@ -192,6 +229,7 @@ struct GpuBody {
 	float earth_terminator_softness;
 	uint layer_pad2;
 	SurfaceLayer surface_layers[4];
+	DiskProfile disk;
 };
 
 layout(std430, binding = 2) readonly buffer BodyBuffer {
@@ -822,6 +860,158 @@ dvec3 temperature_to_linear_rgb(double t_kelvin, double intensity, double satura
 	return dvec3(double(r * scale), double(g * scale), double(b * scale));
 }
 
+float disk_lattice_value(ivec3 p, uint seed) {
+	uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + uint(p.z) * 2147483647u + seed * 1274126177u;
+	return float(hash_u32(h) & 0x00FFFFFFu) * (1.0 / 16777216.0) * 2.0 - 1.0;
+}
+
+float disk_value_noise(vec3 p, uint seed) {
+	vec3 base = floor(p);
+	ivec3 i0 = ivec3(base);
+	vec3 f = p - base;
+	vec3 u = f * f * (3.0 - 2.0 * f);
+
+	float c000 = disk_lattice_value(i0, seed);
+	float c100 = disk_lattice_value(i0 + ivec3(1, 0, 0), seed);
+	float c010 = disk_lattice_value(i0 + ivec3(0, 1, 0), seed);
+	float c110 = disk_lattice_value(i0 + ivec3(1, 1, 0), seed);
+	float c001 = disk_lattice_value(i0 + ivec3(0, 0, 1), seed);
+	float c101 = disk_lattice_value(i0 + ivec3(1, 0, 1), seed);
+	float c011 = disk_lattice_value(i0 + ivec3(0, 1, 1), seed);
+	float c111 = disk_lattice_value(i0 + ivec3(1, 1, 1), seed);
+
+	float c00 = mix(c000, c100, u.x);
+	float c10 = mix(c010, c110, u.x);
+	float c01 = mix(c001, c101, u.x);
+	float c11 = mix(c011, c111, u.x);
+	return mix(mix(c00, c10, u.y), mix(c01, c11, u.y), u.z);
+}
+
+float disk_fractal_noise(vec3 p, int octaves, uint seed) {
+	float total = 0.0;
+	float amplitude = 1.0;
+	float frequency = 1.0;
+	float normalization = 0.0;
+	for (int octave = 0; octave < octaves; ++octave) {
+		total += disk_value_noise(p * frequency, seed + uint(octave) * 7919u) * amplitude;
+		normalization += amplitude;
+		amplitude *= 0.5;
+		frequency *= 2.0;
+	}
+	return total / max(normalization, 1e-5);
+}
+
+vec3 disk_blackbody_rgb(float temperature_k, float reference_luminance) {
+	const int samples = 32;
+	float t = clamp(temperature_k, 300.0, 400000.0);
+	vec3 xyz = vec3(0.0);
+	for (int i = 0; i <= samples; ++i) {
+		float lambda_nm = 380.0 + float(i) * (400.0 / float(samples));
+		float lambda_um = lambda_nm * 1e-3;
+		float exponent = 14387.76877 / (lambda_um * t);
+		if (exponent > 80.0) continue;
+		float lambda_sq = lambda_um * lambda_um;
+		float radiance = 1.0 / (lambda_sq * lambda_sq * lambda_um * (exp(exponent) - 1.0));
+		float weight = (i == 0 || i == samples) ? 0.5 : 1.0;
+		xyz += weight * radiance * vec3(cie_x_bar(lambda_nm), cie_y_bar(lambda_nm), cie_z_bar(lambda_nm));
+	}
+	xyz /= max(reference_luminance, 1e-30);
+	vec3 rgb = vec3(
+		3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
+		-0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
+		0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z
+	);
+	return max(rgb, vec3(0.0));
+}
+
+void disk_orbital_frame(double mass, double spin, double radius, out double omega, out double dilation) {
+	double spin_magnitude = abs(spin);
+	double sqrt_mass = sqrt(max(mass, 1e-12));
+	double sqrt_radius = sqrt(max(radius, 1e-12));
+	double radius_pow_1_5 = radius * sqrt_radius;
+	double angular = sqrt_mass / (radius_pow_1_5 + spin_magnitude * sqrt_mass);
+	double bracket = max(radius_pow_1_5 - 3.0 * mass * sqrt_radius + 2.0 * spin_magnitude * sqrt_mass, 1e-9);
+	omega = (spin < 0.0) ? -angular : angular;
+	dilation = (radius_pow_1_5 + spin_magnitude * sqrt_mass) / (sqrt(radius_pow_1_5) * sqrt(bracket));
+}
+
+double disk_redshift(double mass, double spin, double radius, double angular_momentum_ratio) {
+	double omega;
+	double dilation;
+	disk_orbital_frame(mass, spin, radius, omega, dilation);
+	double denominator = dilation * (1.0 - omega * angular_momentum_ratio);
+	return (abs(denominator) > 1e-9) ? clamp(1.0 / denominator, 0.05, 4.0) : 1.0;
+}
+
+float disk_smooth_unit(float x) {
+	float t = clamp(x, 0.0, 1.0);
+	return t * t * (3.0 - 2.0 * t);
+}
+
+double disk_reduce_angle(double angle) {
+	const double two_pi = 6.283185307179586;
+	return angle - two_pi * floor(angle / two_pi);
+}
+
+void disk_shade(DiskProfile disk, double mass_in, double spin, double inner_in, double outer_in, double radius_in, double azimuth, double redshift_in, double time, double detail_scale, out vec3 radiance, out double opacity) {
+	double mass = max(mass_in, 1e-9);
+	double radius = max(radius_in, 1e-9);
+	double inner = max(inner_in, 1e-9);
+	double outer = max(outer_in, inner * 1.0001);
+
+	float u = float(clamp(inner / radius, 1e-4, 1.0));
+	float boundary = max(1.0 - disk.zero_torque_strength * sqrt(u), 0.0);
+	float base = pow(u, disk.temperature_exponent) * pow(boundary, 0.25) * disk.temperature_normalization;
+
+	float softness = max(disk.edge_softness, 0.05);
+	float mass_f = float(mass);
+	float envelope = disk_smooth_unit(float(radius - inner) / (0.8 * softness * mass_f)) * disk_smooth_unit(float(outer - radius) / (1.5 * softness * mass_f));
+
+	double rotation = double(disk.rotation_speed_scale) * time;
+	double omega_local;
+	double omega_pattern;
+	double unused_dilation;
+	disk_orbital_frame(mass, spin, radius, omega_local, unused_dilation);
+	disk_orbital_frame(mass, spin, sqrt(inner * outer), omega_pattern, unused_dilation);
+	double shear_phase = disk_reduce_angle(azimuth - omega_local * rotation);
+	double pattern_phase = disk_reduce_angle(azimuth - omega_pattern * rotation);
+
+	float log_ratio = log(float(max(radius / inner, 1.0)));
+	float log_span = max(log(float(max(outer / inner, 1.0001))), 1e-4);
+	float radial_coordinate = log_ratio / log_span;
+
+	float ring_wave = 0.5 + 0.5 * cos(6.28318531 * disk.ring_frequency * radial_coordinate);
+	float ring_sharpness = max(disk.ring_sharpness, 1.0);
+	float ring = max(1.0 + disk.ring_amplitude * (pow(ring_wave, ring_sharpness) * sqrt(3.14159265 * ring_sharpness) - 1.0), 0.0);
+
+	float arms = floor(disk.spiral_arm_count + 0.5);
+	float spiral = (arms > 0.5) ? max(1.0 + disk.spiral_amplitude * cos(arms * (float(pattern_phase) - disk.spiral_pitch * log_ratio)), 0.0) : 1.0;
+
+	float shear_cos = cos(float(shear_phase));
+	float shear_sin = sin(float(shear_phase));
+	int octaves = clamp(int(disk.turbulence_octaves + 0.5), 1, 6);
+	uint seed = uint(max(disk.noise_seed, 0.0));
+	float detail = float(clamp(detail_scale, 0.0, 1.0));
+
+	float turbulence_noise = disk_fractal_noise(vec3(log_ratio * disk.turbulence_scale * disk.radial_stretch, shear_cos * disk.turbulence_scale, shear_sin * disk.turbulence_scale), octaves, seed);
+	float turbulence = exp(1.5 * disk.turbulence_amplitude * detail * turbulence_noise);
+	float grain_noise = disk_value_noise(vec3(log_ratio * disk.grain_scale * disk.radial_stretch, shear_cos * disk.grain_scale, shear_sin * disk.grain_scale), seed + 104729u);
+	float grain = max(1.0 + disk.grain_amplitude * detail * grain_noise, 0.0);
+
+	float flux_modulation = clamp(ring * spiral * turbulence * grain, 0.0, 8.0);
+	float temperature_span = max(disk.peak_temperature_k - disk.floor_temperature_k, 0.0);
+	float local_temperature = (disk.floor_temperature_k + temperature_span * base) * pow(max(flux_modulation, 1e-4), 0.25);
+	float redshift = float(max(redshift_in, 1e-3));
+
+	vec3 color = disk_blackbody_rgb(local_temperature * redshift, disk.reference_luminance) * (disk.brightness * pow(redshift, disk.extra_beaming_exponent) * envelope);
+	float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	color = max(vec3(0.0), vec3(luma) + (color - vec3(luma)) * disk.color_saturation);
+	color *= vec3(1.0) + (vec3(disk.tint_r, disk.tint_g, disk.tint_b) - vec3(1.0)) * disk.tint_strength;
+
+	radiance = color;
+	opacity = double(clamp(envelope * 0.95 * disk.opacity_scale * clamp(sqrt(min(flux_modulation, 1.0)), 0.15, 1.0), 0.0, 0.98));
+}
+
 vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	float exp_scale = exp2(float(exposure_ev));
 	vec3 col = max(linear_color * exp_scale, vec3(0.0));
@@ -1191,26 +1381,23 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 		double z_span = curr_z_rel - prev_z_rel;
 		if (prev_z_rel * curr_z_rel <= 0.0 && abs(z_span) > 1e-15) {
 			double isco = kerr_isco_radius_prograde_retrograde(m, a_spin);
-			double disk_outer = 24.0 * m;
+			double disk_inner = isco * double(max(bodies[bi].disk.inner_radius_scale, 1.0));
+			double disk_outer = max(double(bodies[bi].disk.outer_radius_mass_units) * m, disk_inner * 1.05);
 			double s_cross = clamp(abs(prev_z_rel) / abs(z_span), 0.0, 1.0);
 			dvec3 cross_pos = lo + s_cross * lv;
-			double r_cross = length(dvec2(cross_pos.x * req, cross_pos.y * req));
-			if (r_cross >= isco && r_cross <= disk_outer) {
-				double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
-				double g_doppler = sqrt(max(1.0 - rh / r_cross, 1e-4)) / gamma_orb;
-				double q_ratio = isco / r_cross;
-				double q_quarter = sqrt(sqrt(q_ratio));
-				double q_three_quarter = q_quarter * q_quarter * q_quarter;
-				double w_ratio = max(1.0 - sqrt(q_ratio), 0.0);
-				double w_quarter = sqrt(sqrt(w_ratio));
-				double t_norm = q_three_quarter * w_quarter;
-				double t_eff_k = (18000.0 * t_norm + 1200.0) * g_doppler;
-				double g_doppler2 = g_doppler * g_doppler;
-				double g_doppler4 = g_doppler2 * g_doppler2;
-				double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-				double flux_intensity = max(g_doppler4 * t_norm * radial_envelope, 0.0) * 1.5;
-				out_color = vec3(temperature_to_linear_rgb(t_eff_k, flux_intensity, 1.0));
-				out_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
+			double cross_x = cross_pos.x * req;
+			double cross_y = cross_pos.y * req;
+			double r_cross = length(dvec2(cross_x, cross_y));
+			if (bodies[bi].disk.enabled > 0.5 && r_cross >= disk_inner && r_cross <= disk_outer) {
+				dvec3 segment_local = dvec3(lv.x * req, lv.y * req, lv.z * rh);
+				double l_over_e = -(cross_x * segment_local.y - cross_y * segment_local.x) / max(length(segment_local), 1e-30);
+				double g_doppler = disk_redshift(m, a_spin, r_cross, l_over_e);
+				double azimuth = double(atan(float(cross_y), float(cross_x)));
+				vec3 shaded_rgb;
+				double shaded_opacity;
+				disk_shade(bodies[bi].disk, m, a_spin, disk_inner, disk_outer, r_cross, azimuth, g_doppler, pc.time, 1.0, shaded_rgb, shaded_opacity);
+				out_color = shaded_rgb;
+				out_opacity = shaded_opacity;
 				any_hit = true;
 			}
 		}
@@ -1980,7 +2167,8 @@ void main() {
 			bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
 			bool use_kerr_newman_metric = (pc.metric_type == 2u || pc.metric_type == 4u || pc.metric_type == 5u) && (abs(a_spin) > 1e-9 * m || kn_charge_sq > 1e-18 * m * m);
 			double isco = use_kerr_newman_metric ? kerr_isco_radius_prograde_retrograde(m, a_spin) : ((abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m));
-			double disk_outer = 24.0 * m;
+			double disk_inner = isco * double(max(pc.primary_disk.inner_radius_scale, 1.0));
+			double disk_outer = max(double(pc.primary_disk.outer_radius_mass_units) * m, disk_inner * 1.05);
 
 			double r_obs = max(pc.observer_position.y, rh * 1.02);
 			double theta_obs = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
@@ -2157,40 +2345,20 @@ void main() {
 					double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
 					double pphi_cross = prev_pphi + s_cross * (ray_pphi - prev_pphi);
 
-					if (r_cross >= isco && r_cross <= disk_outer) {
+					if (pc.primary_disk.enabled > 0.5 && r_cross >= disk_inner && r_cross <= disk_outer) {
 						status |= 4u;
 
 						double lz_at_cross = use_kerr_newman_metric ? (pphi_cross * r_cross * r_cross) : Lz_cons;
-						double v_orb = sqrt(m / r_cross);
-						double omega_orb = v_orb / r_cross;
-						double gamma_orb = 1.0 / sqrt(max(1.0 - 3.0 * m / r_cross, 1e-4));
 						double l_over_e = lz_at_cross / max(abs(E_cons), 1e-12);
-						double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
-						double g_doppler = (abs(denom_g) > 1e-12) ? (sqrt(max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+						double g_doppler = disk_redshift(m, use_kerr_newman_metric ? a_spin : 0.0, r_cross, l_over_e);
 						redshift_rec = g_doppler;
 
-						double q_ratio = isco / r_cross;
-						double q_quarter = sqrt(sqrt(q_ratio));
-						double q_three_quarter = q_quarter * q_quarter * q_quarter;
-						double sqrt_q_ratio = sqrt(q_ratio);
-						double w_ratio = max(1.0 - sqrt_q_ratio, 0.0);
-						double w_quarter = sqrt(sqrt(w_ratio));
-						double t_norm = q_three_quarter * w_quarter;
-						double t_eff_k = pc.disk_temperature_scale_k * t_norm + pc.disk_temperature_floor_k;
-						double t_obs = t_eff_k * g_doppler;
+						vec3 shaded_rgb;
+						double shaded_opacity;
+						disk_shade(pc.primary_disk, m, use_kerr_newman_metric ? a_spin : 0.0, disk_inner, disk_outer, r_cross, phi_cross, g_doppler, pc.time, turbulence_aa_factor, shaded_rgb, shaded_opacity);
 
-						double g4 = double(pow(float(g_doppler), float(pc.disk_doppler_beaming_exponent)));
-						double radial_envelope = clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-						double log_ratio = double(log(float(r_cross / isco)));
-						double turbulence_phase = 8.0 * phi_cross - 4.0 * log_ratio;
-						double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * double(sin(float(turbulence_phase)));
-						double flux_intensity = max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
-
-						dvec3 disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, pc.disk_color_saturation);
-						double alpha_opacity = clamp(radial_envelope * 0.95, 0.0, 0.98);
-
-						accum += throughput * disk_rgb;
-						throughput *= (1.0 - alpha_opacity);
+						accum += throughput * dvec3(shaded_rgb);
+						throughput *= (1.0 - shaded_opacity);
 					}
 				}
 				if (body_segment_hit && throughput > 0.01) {

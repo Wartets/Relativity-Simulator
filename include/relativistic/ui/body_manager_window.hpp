@@ -14,6 +14,7 @@
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
+#include "relativistic/ui/accretion_disk_editor.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -59,8 +60,9 @@ namespace BodyEditorSection {
 	inline constexpr uint32_t Multipoles = 1U << 3;
 	inline constexpr uint32_t Material = 1U << 4;
 	inline constexpr uint32_t Surface = 1U << 5;
-	inline constexpr uint32_t Complete = Identity | SourceToggle | Physical | Multipoles | Material | Surface;
-	inline constexpr uint32_t SpacetimeSource = Identity | Physical;
+	inline constexpr uint32_t AccretionDisk = 1U << 6;
+	inline constexpr uint32_t Complete = Identity | SourceToggle | Physical | Multipoles | Material | Surface | AccretionDisk;
+	inline constexpr uint32_t SpacetimeSource = Identity | Physical | AccretionDisk;
 }
 
 struct BodyEditorViewState {
@@ -1445,12 +1447,17 @@ private:
 		BodyEditResult result;
 		if (b.is_spacetime_source) {
 			sections &= ~(BodyEditorSection::Multipoles | BodyEditorSection::Material | BodyEditorSection::Surface);
+		} else {
+			sections &= ~BodyEditorSection::AccretionDisk;
 		}
 		if ((sections & BodyEditorSection::Identity) != 0U && ImGui::CollapsingHeader("Identity & State", ImGuiTreeNodeFlags_DefaultOpen)) {
 			result.body_changed = render_identity_section(b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
 		}
 		if ((sections & BodyEditorSection::Physical) != 0U && ImGui::CollapsingHeader("Physical State & Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
 			result.body_changed = (b.is_spacetime_source ? render_spacetime_source_physical_section(b, view) : render_physical_section(b, view)) || result.body_changed;
+		}
+		if ((sections & BodyEditorSection::AccretionDisk) != 0U && ImGui::CollapsingHeader("Accretion Disk Appearance")) {
+			result.body_changed = render_accretion_disk_editor(b.accretion_disk, true) || result.body_changed;
 		}
 		if ((sections & BodyEditorSection::Multipoles) != 0U && ImGui::CollapsingHeader("Gravitational Multipoles")) {
 			result.body_changed = render_multipole_section(b, view) || result.body_changed;
@@ -1646,6 +1653,11 @@ private:
 		if (ImGui::Checkbox("Track Central Object", &tracking_central)) {
 			tracking_enabled_ = tracking_central;
 			tracked_body_id_ = tracking_central ? kCentralObjectIndex : -1;
+		}
+
+		ImGui::Separator();
+		if (ImGui::CollapsingHeader("Accretion Disk Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
+			render_primary_accretion_disk_editor(orchestrator_);
 		}
 	}
 

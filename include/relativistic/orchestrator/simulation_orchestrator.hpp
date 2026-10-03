@@ -9,6 +9,7 @@
 #include "relativistic/io/scenario_locator.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/body_lighting.hpp"
+#include "relativistic/render/accretion_disk_settings.hpp"
 #include "relativistic/dynamics/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -123,10 +124,11 @@ struct PhysicalParameters {
 	bool body_disk_occlusion_enabled{true};
 	uint32_t body_render_point_pixel_threshold{2};
 	uint32_t body_noise_octaves{4};
-	double disk_temperature_scale_k{23796.0};
+	double disk_temperature_scale_k{12546.0};
 	double disk_temperature_floor_k{1200.0};
-	double disk_doppler_beaming_exponent{5.32};
+	double disk_doppler_beaming_exponent{0.0};
 	double disk_color_saturation{1.0};
+	Render::AccretionDiskSettings primary_disk{};
 	uint32_t light_source_mode{0};
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
@@ -1317,7 +1319,7 @@ public:
 				params_.disk_temperature_floor_k = std::clamp(val, 0.0, 20000.0);
 				break;
 			case ParameterType::DiskDopplerBeamingExponent:
-				params_.disk_doppler_beaming_exponent = std::clamp(val, 0.0, 8.0);
+				params_.disk_doppler_beaming_exponent = std::clamp(val, -2.0, 8.0);
 				break;
 			case ParameterType::DiskColorSaturation:
 				params_.disk_color_saturation = std::clamp(val, 0.0, 3.0);
@@ -1662,6 +1664,11 @@ public:
 		return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
 	}
 
+	void apply_primary_disk_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
+		push.primary_disk = params_.primary_disk.to_gpu_profile();
+		push.primary_disk = Relativistic::Render::AccretionDiskModel::resolve_primary_profile(push);
+	}
+
 	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
 		constexpr double degrees_to_radians = std::numbers::pi_v<double> / 180.0;
 		push.light_source_mode = std::min<uint32_t>(params_.light_source_mode, Relativistic::Render::kLightSourceModeCount - 1U);
@@ -1798,6 +1805,7 @@ public:
 		push.body_render_point_pixel_threshold = params_.body_render_point_pixel_threshold;
 
 		apply_lighting_constants(push);
+		apply_primary_disk_constants(push);
 
 		return push;
 	}

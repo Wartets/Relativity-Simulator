@@ -2293,29 +2293,20 @@ public:
 							const double r_cross = prev_r + s_cross * (ray_r - prev_r);
 							const double phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
 
-							if (r_cross >= isco && r_cross <= disk_outer) {
+							if (primary_disk.enabled > 0.5f && r_cross >= disk_inner && r_cross <= disk_outer) {
 								status |= PixelFlags::ACCRETION_DISK_HIT;
 
-								const double v_orb = std::sqrt(m / r_cross);
-								const double omega_orb = v_orb / r_cross;
-								const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * m / r_cross, 1e-4));
-
 								const double l_over_e = Lz_cons / std::max(std::abs(E_cons), 1e-12);
-								const double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
-								const double g_doppler = (std::abs(denom_g) > 1e-12) ? (std::sqrt(std::max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+								const double g_doppler = AccretionDiskModel::redshift_at(m, 0.0, r_cross, l_over_e);
 								redshift_rec = g_doppler;
 
-								const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-								const double t_eff_k = 18000.0 * t_norm + 1200.0;
-								const double t_obs = t_eff_k * g_doppler;
-
-								const double g4 = g_doppler * g_doppler * g_doppler * g_doppler;
-								const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-								const double turbulence = 1.0 - (0.12 * turbulence_aa_factor) + (0.12 * turbulence_aa_factor) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
-								const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
-
-								const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
-								const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+								const auto shaded = AccretionDiskModel::shade(primary_disk, DiskSurfacePoint{
+									.mass = m, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+									.radius = r_cross, .azimuth = phi_cross, .redshift = g_doppler,
+									.time = params.time, .detail_scale = turbulence_aa_factor
+								});
+								const auto& disk_rgb = shaded.radiance;
+								const double alpha_opacity = shaded.opacity;
 
 								bool skip_this_crossing = false;
 								if (has_deferred_body) {
@@ -2659,31 +2650,21 @@ public:
 								const double r_cross = prev_r[l] + s_cross * (bundle.x1[l] - prev_r[l]);
 								const double phi_cross = prev_phi[l] + s_cross * (bundle.x3[l] - prev_phi[l]);
 
-								if (r_cross >= isco && r_cross <= disk_outer) {
+								if (primary_disk.enabled > 0.5f && r_cross >= disk_inner && r_cross <= disk_outer) {
 									status[l] |= PixelFlags::ACCRETION_DISK_HIT;
 
-									const double v_orb = std::sqrt(m / r_cross);
-									const double omega_orb = v_orb / r_cross;
-									const double gamma_orb = 1.0 / std::sqrt(std::max(1.0 - 3.0 * m / r_cross, 1e-4));
-
-									const double Lz_val = bundle.p3[l] * (bundle.x1[l] * bundle.x1[l] * std::max(std::sin(bundle.x2[l]) * std::sin(bundle.x2[l]), 1e-6));
-									const double E_val = 1.0;
-									const double l_over_e = Lz_val / std::max(std::abs(E_val), 1e-12);
-									const double denom_g = gamma_orb * (1.0 - omega_orb * l_over_e);
-									const double g_doppler = (std::abs(denom_g) > 1e-12) ? (std::sqrt(std::max(1.0 - rs / r_cross, 1e-4)) / denom_g) : 1.0;
+									const double sin_cross = std::sin(bundle.x2[l]);
+									const double l_over_e = bundle.p3[l] * (bundle.x1[l] * bundle.x1[l] * std::max(sin_cross * sin_cross, 1e-6));
+									const double g_doppler = AccretionDiskModel::redshift_at(m, 0.0, r_cross, l_over_e);
 									redshift_rec[l] = g_doppler;
 
-									const double t_norm = std::pow(isco / r_cross, 0.75) * std::pow(std::max(1.0 - std::sqrt(isco / r_cross), 0.0), 0.25);
-									const double t_eff_k = params.disk_temperature_scale_k * t_norm + params.disk_temperature_floor_k;
-									const double t_obs = t_eff_k * g_doppler;
-
-									const double g4 = std::pow(g_doppler, params.disk_doppler_beaming_exponent);
-									const double radial_envelope = std::clamp((disk_outer - r_cross) / (1.5 * m), 0.0, 1.0) * std::clamp((r_cross - isco) / (0.8 * m), 0.0, 1.0);
-									const double turbulence = 1.0 - (0.12 * turbulence_aa_factor_simd) + (0.12 * turbulence_aa_factor_simd) * std::sin(8.0 * phi_cross - 4.0 * std::log(r_cross / isco));
-									const double flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0) * 1.5;
-
-									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity, params.disk_color_saturation);
-									const double alpha_opacity = std::clamp(radial_envelope * 0.95, 0.0, 0.98);
+									const auto shaded = AccretionDiskModel::shade(primary_disk, DiskSurfacePoint{
+										.mass = m, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+										.radius = r_cross, .azimuth = phi_cross, .redshift = g_doppler,
+										.time = params.time, .detail_scale = turbulence_aa_factor_simd
+									});
+									const auto& disk_rgb = shaded.radiance;
+									const double alpha_opacity = shaded.opacity;
 
 									accum_r[l] += throughput[l] * static_cast<double>(disk_rgb[0]);
 									accum_g[l] += throughput[l] * static_cast<double>(disk_rgb[1]);
@@ -2916,7 +2897,9 @@ public:
 		const float aspect = static_cast<float>(width) / static_cast<float>(height);
 
 		const float isco = (std::abs(a_spin) > 1e-6f) ? std::max(rh * 1.05f, 6.0f * m - 4.0f * a_spin) : (6.0f * m);
-		const float disk_outer = 24.0f * m;
+		const auto primary_disk = AccretionDiskModel::resolve_primary_profile(params);
+		const float disk_inner = isco * std::max(primary_disk.inner_radius_scale, 1.0f);
+		const float disk_outer = std::max(primary_disk.outer_radius_mass_units * m, disk_inner * 1.05f);
 
 		const float fwd_x = static_cast<float>(params.tetrad_e1[1]), fwd_y = static_cast<float>(params.tetrad_e1[2]), fwd_z = static_cast<float>(params.tetrad_e1[3]);
 		const float rgt_x = static_cast<float>(params.tetrad_e2[1]), rgt_y = static_cast<float>(params.tetrad_e2[2]), rgt_z = static_cast<float>(params.tetrad_e2[3]);
@@ -3148,29 +3131,20 @@ public:
 							const float r_cross = prev_r + s_cross * (ray_r - prev_r);
 							const float phi_cross = prev_phi + s_cross * (ray_phi - prev_phi);
 
-							if (r_cross >= isco && r_cross <= disk_outer) {
+							if (primary_disk.enabled > 0.5f && r_cross >= disk_inner && r_cross <= disk_outer) {
 								status |= PixelFlags::ACCRETION_DISK_HIT;
 
-								const float v_orb = std::sqrt(m / r_cross);
-								const float omega_orb = v_orb / r_cross;
-								const float gamma_orb = 1.0f / std::sqrt(std::max(1.0f - 3.0f * m / r_cross, 1e-4f));
+								const double l_over_e = static_cast<double>(Lz_cons) / std::max(std::abs(static_cast<double>(E_cons)), 1e-12);
+								const double g_doppler = AccretionDiskModel::redshift_at(static_cast<double>(m), 0.0, static_cast<double>(r_cross), l_over_e);
+								redshift_rec = static_cast<float>(g_doppler);
 
-								const float l_over_e = Lz_cons / std::max(std::abs(E_cons), 1e-8f);
-								const float denom_g = gamma_orb * (1.0f - omega_orb * l_over_e);
-								const float g_doppler = (std::abs(denom_g) > 1e-8f) ? (std::sqrt(std::max(1.0f - rs / r_cross, 1e-4f)) / denom_g) : 1.0f;
-								redshift_rec = g_doppler;
-
-								const float t_norm = std::pow(isco / r_cross, 0.75f) * std::pow(std::max(1.0f - std::sqrt(isco / r_cross), 0.0f), 0.25f);
-								const float t_eff_k = 18000.0f * t_norm + 1200.0f;
-								const float t_obs = t_eff_k * g_doppler;
-
-								const float g4 = g_doppler * g_doppler * g_doppler * g_doppler;
-								const float radial_envelope = std::clamp((disk_outer - r_cross) / (1.5f * m), 0.0f, 1.0f) * std::clamp((r_cross - isco) / (0.8f * m), 0.0f, 1.0f);
-								const float turbulence = 1.0f - (0.12f * turbulence_aa_factor) + (0.12f * turbulence_aa_factor) * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
-								const float flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0f) * 1.5f;
-
-								const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
-								const float alpha_opacity = std::clamp(radial_envelope * 0.95f, 0.0f, 0.98f);
+								const auto shaded = AccretionDiskModel::shade(primary_disk, DiskSurfacePoint{
+									.mass = static_cast<double>(m), .spin = 0.0, .inner_radius = static_cast<double>(disk_inner), .outer_radius = static_cast<double>(disk_outer),
+									.radius = static_cast<double>(r_cross), .azimuth = static_cast<double>(phi_cross), .redshift = g_doppler,
+									.time = params.time, .detail_scale = static_cast<double>(turbulence_aa_factor)
+								});
+								const auto& disk_rgb = shaded.radiance;
+								const float alpha_opacity = static_cast<float>(shaded.opacity);
 
 								accumulated_r += throughput * disk_rgb[0];
 								accumulated_g += throughput * disk_rgb[1];
@@ -3334,7 +3308,9 @@ public:
 		const float aspect = static_cast<float>(width) / static_cast<float>(height);
 
 		const float isco = (std::abs(a_spin) > 1e-6f) ? std::max(rh * 1.05f, 6.0f * m - 4.0f * a_spin) : (6.0f * m);
-		const float disk_outer = 24.0f * m;
+		const auto primary_disk = AccretionDiskModel::resolve_primary_profile(params);
+		const float disk_inner = isco * std::max(primary_disk.inner_radius_scale, 1.0f);
+		const float disk_outer = std::max(primary_disk.outer_radius_mass_units * m, disk_inner * 1.05f);
 
 		const float fwd_x = static_cast<float>(params.tetrad_e1[1]), fwd_y = static_cast<float>(params.tetrad_e1[2]), fwd_z = static_cast<float>(params.tetrad_e1[3]);
 		const float rgt_x = static_cast<float>(params.tetrad_e2[1]), rgt_y = static_cast<float>(params.tetrad_e2[2]), rgt_z = static_cast<float>(params.tetrad_e2[3]);
@@ -3499,32 +3475,21 @@ public:
 								const float r_cross = prev_r[l] + s_cross * (bundle.x1[l] - prev_r[l]);
 								const float phi_cross = prev_phi[l] + s_cross * (bundle.x3[l] - prev_phi[l]);
 
-								if (r_cross >= isco && r_cross <= disk_outer) {
+								if (primary_disk.enabled > 0.5f && r_cross >= disk_inner && r_cross <= disk_outer) {
 									status[l] |= PixelFlags::ACCRETION_DISK_HIT;
 
-									const float v_orb = std::sqrt(m / r_cross);
-									const float omega_orb = v_orb / r_cross;
-									const float gamma_orb = 1.0f / std::sqrt(std::max(1.0f - 3.0f * m / r_cross, 1e-4f));
-
 									const float sin_x_l = std::sin(bundle.x2[l]);
-									const float Lz_val = bundle.p3[l] * (bundle.x1[l] * bundle.x1[l] * std::max(sin_x_l * sin_x_l, 1e-6f));
-									const float E_val = 1.0f;
-									const float l_over_e = Lz_val / std::max(std::abs(E_val), 1e-8f);
-									const float denom_g = gamma_orb * (1.0f - omega_orb * l_over_e);
-									const float g_doppler = (std::abs(denom_g) > 1e-8f) ? (std::sqrt(std::max(1.0f - rs / r_cross, 1e-4f)) / denom_g) : 1.0f;
-									redshift_rec[l] = g_doppler;
+									const double l_over_e = static_cast<double>(bundle.p3[l] * (bundle.x1[l] * bundle.x1[l] * std::max(sin_x_l * sin_x_l, 1e-6f)));
+									const double g_doppler = AccretionDiskModel::redshift_at(static_cast<double>(m), 0.0, static_cast<double>(r_cross), l_over_e);
+									redshift_rec[l] = static_cast<float>(g_doppler);
 
-									const float t_norm = std::pow(isco / r_cross, 0.75f) * std::pow(std::max(1.0f - std::sqrt(isco / r_cross), 0.0f), 0.25f);
-									const float t_eff_k = 18000.0f * t_norm + 1200.0f;
-									const float t_obs = t_eff_k * g_doppler;
-
-									const float g4 = g_doppler * g_doppler * g_doppler * g_doppler;
-									const float radial_envelope = std::clamp((disk_outer - r_cross) / (1.5f * m), 0.0f, 1.0f) * std::clamp((r_cross - isco) / (0.8f * m), 0.0f, 1.0f);
-									const float turbulence = 1.0f - (0.12f * turbulence_aa_factor_simd_f) + (0.12f * turbulence_aa_factor_simd_f) * std::sin(8.0f * phi_cross - 4.0f * std::log(r_cross / isco));
-									const float flux_intensity = std::max(g4 * t_norm * radial_envelope * turbulence, 0.0f) * 1.5f;
-
-									const auto disk_rgb = temperature_to_linear_rgb(t_obs, flux_intensity);
-									const float alpha_opacity = std::clamp(radial_envelope * 0.95f, 0.0f, 0.98f);
+									const auto shaded = AccretionDiskModel::shade(primary_disk, DiskSurfacePoint{
+										.mass = static_cast<double>(m), .spin = 0.0, .inner_radius = static_cast<double>(disk_inner), .outer_radius = static_cast<double>(disk_outer),
+										.radius = static_cast<double>(r_cross), .azimuth = static_cast<double>(phi_cross), .redshift = g_doppler,
+										.time = params.time, .detail_scale = static_cast<double>(turbulence_aa_factor_simd_f)
+									});
+									const auto& disk_rgb = shaded.radiance;
+									const float alpha_opacity = static_cast<float>(shaded.opacity);
 
 									accum_r[l] += throughput[l] * disk_rgb[0];
 									accum_g[l] += throughput[l] * disk_rgb[1];

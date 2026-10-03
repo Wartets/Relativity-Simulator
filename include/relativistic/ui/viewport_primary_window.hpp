@@ -286,6 +286,11 @@ public:
 		constants.metric_charge = params.charge;
 		constants.horizon_radius = 2.0 * params.mass;
 		constants.time = orchestrator_.scheduler().snapshot().logical_time;
+		constants.disk_temperature_scale_k = params.disk_temperature_scale_k;
+		constants.disk_temperature_floor_k = params.disk_temperature_floor_k;
+		constants.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
+		constants.disk_color_saturation = params.disk_color_saturation;
+		orchestrator_.apply_primary_disk_constants(constants);
 
 		constexpr double kUnboundedRenderDistance = 1.0e7;
 		const double configured_distance = (params.render_distance_scale > 0.0) ? (params.render_distance_scale * params.mass) : kUnboundedRenderDistance;
@@ -549,6 +554,7 @@ public:
 			cam_consts.disk_color_saturation = params.disk_color_saturation;
 			cam_consts.observer_position = {0.0, obs_sph[0], obs_sph[1], obs_sph[2]};
 			orchestrator_.apply_lighting_constants(cam_consts);
+			orchestrator_.apply_primary_disk_constants(cam_consts);
 
 			const auto orientation = cam.orientation_basis();
 

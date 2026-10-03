@@ -179,7 +179,7 @@ public:
 	static void finalize(GpuDiskProfile& profile) noexcept {
 		profile.peak_temperature_k = std::clamp(profile.peak_temperature_k, 1000.0f, 200000.0f);
 		profile.floor_temperature_k = std::clamp(profile.floor_temperature_k, 0.0f, profile.peak_temperature_k);
-		const double peak = temperature_shape_peak(profile.temperature_exponent, profile.zero_torque_strength);
+		const double peak = temperature_shape_peak(static_cast<double>(profile.temperature_exponent), static_cast<double>(profile.zero_torque_strength));
 		profile.temperature_normalization = static_cast<float>(1.0 / std::max(peak, 1e-6));
 		profile.reference_luminance = static_cast<float>(std::max(integrate_xyz(static_cast<double>(profile.peak_temperature_k))[1], 1e-30));
 	}
@@ -231,7 +231,7 @@ public:
 		const double outer = std::max(point.outer_radius, inner * 1.0001);
 
 		const double u = std::clamp(inner / radius, 1e-4, 1.0);
-		const double base = temperature_shape(u, profile.temperature_exponent, profile.zero_torque_strength) * profile.temperature_normalization;
+		const double base = temperature_shape(u, static_cast<double>(profile.temperature_exponent), static_cast<double>(profile.zero_torque_strength)) * static_cast<double>(profile.temperature_normalization);
 
 		const double softness = std::max(static_cast<double>(profile.edge_softness), 0.05);
 		const double envelope = smooth_unit((radius - inner) / (0.8 * softness * mass)) * smooth_unit((outer - radius) / (1.5 * softness * mass));

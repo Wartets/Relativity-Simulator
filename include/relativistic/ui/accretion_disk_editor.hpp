@@ -4,8 +4,11 @@
 #include "relativistic/render/accretion_disk_settings.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
+#include "relativistic/orchestrator/simulation_orchestrator.hpp"
+#include "relativistic/orchestrator/command.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <string_view>
 
 namespace Relativistic::UI {
 
@@ -107,6 +110,52 @@ namespace Relativistic::UI {
 	}
 	ImGui::PopID();
 	return changed;
+}
+
+[[nodiscard]] inline bool metric_supports_accretion_disk(std::string_view metric_name) noexcept {
+	if (metric_name.find("de Sitter") != std::string_view::npos || metric_name.find("DeSitter") != std::string_view::npos) {
+		return false;
+	}
+	return metric_name.find("Schwarzschild") != std::string_view::npos
+		|| metric_name.find("Kerr") != std::string_view::npos
+		|| metric_name.find("Reissner") != std::string_view::npos;
+}
+
+inline void render_primary_accretion_disk_editor(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
+	if (!metric_supports_accretion_disk(orchestrator.active_metric_name())) {
+		ImGui::TextDisabled("The active spacetime metric does not render an accretion disk.");
+		return;
+	}
+	auto& params = orchestrator.parameters();
+	ImGui::PushID("PrimaryAccretionDisk");
+
+	ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Spectral Color Model");
+	float peak_temperature = static_cast<float>(params.disk_temperature_scale_k);
+	if (slider_float_with_input("Disk Peak Temperature Scale (K)", &peak_temperature, 1000.0f, 60000.0f, "%.0f")) {
+		static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskTemperatureScale, static_cast<double>(peak_temperature))));
+	}
+	render_setting_tooltip("Blackbody temperature at the hottest radius of the primary disk before Doppler and gravitational shifting. The color is obtained by integrating the shifted Planck spectrum through the CIE 1931 color matching functions.");
+	float floor_temperature = static_cast<float>(params.disk_temperature_floor_k);
+	if (slider_float_with_input("Disk Temperature Floor (K)", &floor_temperature, 0.0f, 20000.0f, "%.0f")) {
+		static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskTemperatureFloor, static_cast<double>(floor_temperature))));
+	}
+	render_setting_tooltip("Minimum blackbody temperature retained in the cool gaps and at the outer edge of the primary disk.");
+	float beaming_boost = static_cast<float>(params.disk_doppler_beaming_exponent);
+	if (slider_float_with_input("Additional Doppler Boost", &beaming_boost, -2.0f, 8.0f, "%.2f")) {
+		static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskDopplerBeamingExponent, static_cast<double>(beaming_boost))));
+	}
+	render_setting_tooltip("Extra power of the redshift factor applied on top of the physical spectral shift, which already reproduces the exact relativistic beaming of the specific intensity. Zero is purely physical.");
+	float color_saturation = static_cast<float>(params.disk_color_saturation);
+	if (slider_float_with_input("Disk Color Saturation", &color_saturation, 0.0f, 3.0f, "%.2fx")) {
+		static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskColorSaturation, static_cast<double>(color_saturation))));
+	}
+	render_setting_tooltip("Chroma multiplier around the computed luminance. One keeps the CIE derived color.");
+
+	ImGui::Spacing();
+	if (render_accretion_disk_editor(params.primary_disk, false)) {
+		orchestrator.notify_state_changed();
+	}
+	ImGui::PopID();
 }
 
 }

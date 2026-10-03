@@ -11,6 +11,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
+#include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/optics/sky_panorama_catalog.hpp"
@@ -376,6 +377,11 @@ private:
 		if (!has_any_param) {
 			ImGui::TextDisabled("This spacetime model exposes no adjustable parameters here.");
 		}
+
+		ImGui::Separator();
+		if (ImGui::CollapsingHeader("Primary Accretion Disk", ImGuiTreeNodeFlags_DefaultOpen)) {
+			render_primary_accretion_disk_editor(orchestrator_);
+		}
 	}
 
 	void render_camera_tab() noexcept {
@@ -406,30 +412,6 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(tonemapping_mode_))));
 		}
 		render_setting_tooltip("Tone mapping operator compressing high dynamic range extreme radiant flux down to standard 8-bit sRGB display gamuts.");
-
-		ImGui::Spacing();
-		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Accretion Disk Spectral Color Model:");
-		auto& disk_params = orchestrator_.parameters();
-		float disk_temp_scale = static_cast<float>(disk_params.disk_temperature_scale_k);
-		if (ImGui::SliderFloat("Disk Peak Temperature Scale (K)", &disk_temp_scale, 2000.0f, 40000.0f, "%.0f K")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskTemperatureScale, static_cast<double>(disk_temp_scale))));
-		}
-		render_setting_tooltip("Blackbody temperature at the innermost edge of the accretion disk before Doppler shifting. The visible disk color is computed by integrating this exact blackbody spectrum through CIE 1931 color matching functions, so higher values push the inner disk toward blue-white and lower values toward orange-red.");
-		float disk_temp_floor = static_cast<float>(disk_params.disk_temperature_floor_k);
-		if (ImGui::SliderFloat("Disk Outer Edge Temperature Floor (K)", &disk_temp_floor, 0.0f, 6000.0f, "%.0f K")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskTemperatureFloor, static_cast<double>(disk_temp_floor))));
-		}
-		render_setting_tooltip("Minimum blackbody temperature retained at the outer disk edge, preventing the coolest visible disk radius from going fully dark.");
-		float disk_beaming = static_cast<float>(disk_params.disk_doppler_beaming_exponent);
-		if (ImGui::SliderFloat("Doppler Beaming Exponent", &disk_beaming, 0.0f, 8.0f, "%.2f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskDopplerBeamingExponent, static_cast<double>(disk_beaming))));
-		}
-		render_setting_tooltip("Power applied to the relativistic Doppler factor g when brightening the approaching side of the disk and dimming the receding side. The physically exact value for specific intensity is 4; lower values soften the asymmetry for a more balanced look.");
-		float disk_saturation = static_cast<float>(disk_params.disk_color_saturation);
-		if (ImGui::SliderFloat("Disk Color Saturation", &disk_saturation, 0.0f, 3.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::DiskColorSaturation, static_cast<double>(disk_saturation))));
-		}
-		render_setting_tooltip("Post-spectral chroma multiplier applied around the disk's computed luminance. 1.0 keeps the physically derived CIE color; higher values intensify the color contrast between hot and cool disk regions.");
 
 		ImGui::Spacing();
 		ImGui::TextColored(ImVec4(0.85f, 0.6f, 1.0f, 1.0f), "Color Grading (Post-Tonemap):");

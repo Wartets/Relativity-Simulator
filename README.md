@@ -105,6 +105,21 @@ Primary references:
 
 ---
 
+## Visual Overview
+
+The visual renders and trajectory sequences below were recorded and generated using the integrated [Capture Studio](docs/ARCHITECTURE.md#210-capture-subsystem) workspace widget.
+
+<p align="center">
+  <img src="../assets/media/schwarzschild_preview.png" alt="Curved Spacetime Null Geodesic Ray-Tracing (Schwarzschild Metric, M = 60.00)" width="100%">
+</p>
+
+<p align="center">
+  <img src="../assets/media/schwarzschild_orbit_passby.gif" alt="Schwarzschild Metric Flyby Trajectory (M = 60.00)" width="49.5%">
+  <img src="../assets/media/schwarzschild_infall.gif" alt="Schwarzschild Metric Infall Trajectory (M = 60.00)" width="49.5%">
+</p>
+
+---
+
 ## Building and Installation
 
 ### Prerequisites

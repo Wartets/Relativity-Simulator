@@ -16,6 +16,11 @@ Relativity-Simulator/
 │   
 │
 ├── assets/
+│   ├── media/
+│   │   ├── schwarzschild_infall.gif
+│   │   ├── schwarzschild_orbit_passby.gif
+│   │   └── schwarzschild_preview.png
+│   │
 │   └── sky/
 │       ├── ambientcg/
 │       │   ├── NightSkyHDRI001_1K/

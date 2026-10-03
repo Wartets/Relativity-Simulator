@@ -316,6 +316,28 @@ struct UserSettings {
 		result.camera_controls.rocket.invert_lateral = get_u32("cam_rocket_invert_lateral", 0) != 0;
 		result.camera_controls.rocket.requires_time_running = get_u32("cam_rocket_requires_time", 1) != 0;
 
+		auto& walk = result.camera_controls.surface_walk;
+		walk.scale_with_body = get_bool("cam_walk_scale_with_body", walk.scale_with_body);
+		walk.walker_height = get_dbl("cam_walk_height", walk.walker_height);
+		walk.eye_height_fraction = get_dbl("cam_walk_eye_fraction", walk.eye_height_fraction);
+		walk.crouch_fraction = get_dbl("cam_walk_crouch_fraction", walk.crouch_fraction);
+		walk.crouch_speed_multiplier = get_dbl("cam_walk_crouch_speed", walk.crouch_speed_multiplier);
+		walk.walk_speed = get_dbl("cam_walk_speed", walk.walk_speed);
+		walk.sprint_multiplier = get_dbl("cam_walk_sprint", walk.sprint_multiplier);
+		walk.crawl_multiplier = get_dbl("cam_walk_crawl", walk.crawl_multiplier);
+		walk.step_length = get_dbl("cam_walk_step_length", walk.step_length);
+		walk.jump_height = get_dbl("cam_walk_jump_height", walk.jump_height);
+		walk.automatic_gravity = get_bool("cam_walk_auto_gravity", walk.automatic_gravity);
+		walk.gravity_scale = get_dbl("cam_walk_gravity_scale", walk.gravity_scale);
+		walk.manual_gravity = get_dbl("cam_walk_manual_gravity", walk.manual_gravity);
+		walk.maximum_airtime_seconds = get_dbl("cam_walk_max_airtime", walk.maximum_airtime_seconds);
+		walk.ground_response_seconds = get_dbl("cam_walk_ground_response", walk.ground_response_seconds);
+		walk.air_control = get_dbl("cam_walk_air_control", walk.air_control);
+		walk.head_bob_enabled = get_bool("cam_walk_head_bob", walk.head_bob_enabled);
+		walk.head_bob_amplitude = get_dbl("cam_walk_head_bob_amplitude", walk.head_bob_amplitude);
+		walk.follow_surface_rotation = get_bool("cam_walk_follow_rotation", walk.follow_surface_rotation);
+		walk.sanitize();
+
 		const auto loaded_layout = static_cast<UI::KeyboardLayout>(get_u32("cam_keyboard_layout", static_cast<uint32_t>(UI::KeyboardLayout::Qwerty)));
 		result.camera_controls.apply_keyboard_layout(loaded_layout);
 
@@ -492,6 +514,25 @@ struct UserSettings {
 		out << "cam_rocket_invert_vertical=" << (camera_controls.rocket.invert_vertical ? 1 : 0) << "\n";
 		out << "cam_rocket_invert_lateral=" << (camera_controls.rocket.invert_lateral ? 1 : 0) << "\n";
 		out << "cam_rocket_requires_time=" << (camera_controls.rocket.requires_time_running ? 1 : 0) << "\n";
+		out << "cam_walk_scale_with_body=" << (camera_controls.surface_walk.scale_with_body ? 1 : 0) << "\n";
+		out << "cam_walk_height=" << camera_controls.surface_walk.walker_height << "\n";
+		out << "cam_walk_eye_fraction=" << camera_controls.surface_walk.eye_height_fraction << "\n";
+		out << "cam_walk_crouch_fraction=" << camera_controls.surface_walk.crouch_fraction << "\n";
+		out << "cam_walk_crouch_speed=" << camera_controls.surface_walk.crouch_speed_multiplier << "\n";
+		out << "cam_walk_speed=" << camera_controls.surface_walk.walk_speed << "\n";
+		out << "cam_walk_sprint=" << camera_controls.surface_walk.sprint_multiplier << "\n";
+		out << "cam_walk_crawl=" << camera_controls.surface_walk.crawl_multiplier << "\n";
+		out << "cam_walk_step_length=" << camera_controls.surface_walk.step_length << "\n";
+		out << "cam_walk_jump_height=" << camera_controls.surface_walk.jump_height << "\n";
+		out << "cam_walk_auto_gravity=" << (camera_controls.surface_walk.automatic_gravity ? 1 : 0) << "\n";
+		out << "cam_walk_gravity_scale=" << camera_controls.surface_walk.gravity_scale << "\n";
+		out << "cam_walk_manual_gravity=" << camera_controls.surface_walk.manual_gravity << "\n";
+		out << "cam_walk_max_airtime=" << camera_controls.surface_walk.maximum_airtime_seconds << "\n";
+		out << "cam_walk_ground_response=" << camera_controls.surface_walk.ground_response_seconds << "\n";
+		out << "cam_walk_air_control=" << camera_controls.surface_walk.air_control << "\n";
+		out << "cam_walk_head_bob=" << (camera_controls.surface_walk.head_bob_enabled ? 1 : 0) << "\n";
+		out << "cam_walk_head_bob_amplitude=" << camera_controls.surface_walk.head_bob_amplitude << "\n";
+		out << "cam_walk_follow_rotation=" << (camera_controls.surface_walk.follow_surface_rotation ? 1 : 0) << "\n";
 		out << "cam_keyboard_layout=" << static_cast<uint32_t>(camera_controls.keyboard_layout) << "\n";
 
 		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {

@@ -71,6 +71,12 @@ private:
 	bool light_reference_distance_log_mode_{true};
 	bool emission_lighting_gain_log_mode_{true};
 	bool emission_lighting_reference_log_mode_{true};
+	bool collision_clearance_log_mode_{true};
+	bool walk_height_log_mode_{true};
+	bool walk_speed_log_mode_{true};
+	bool walk_step_log_mode_{true};
+	bool walk_jump_log_mode_{true};
+	bool walk_gravity_log_mode_{true};
 
 	float rocket_thrust_x_{0.0f};
 	float rocket_thrust_y_{0.0f};
@@ -470,7 +476,7 @@ private:
 
 		ImGui::Separator();
 
-		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust"};
+		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust", "Surface Walk On Body"};
 		int mode = static_cast<int>(orchestrator_.parameters().camera_mode);
 		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
@@ -506,6 +512,17 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraExposure, static_cast<double>(camera_exposure_))));
 		}
 		render_setting_tooltip("Logarithmic optical sensitivity compensation in Exposure Values (EV). Higher values brighten dim accretion emission.");
+
+		bool collision_enabled = orchestrator_.parameters().camera_collision_enabled;
+		if (ImGui::Checkbox("Camera Collision With Bodies And Horizons", &collision_enabled)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraCollisionEnabled, collision_enabled ? 1.0 : 0.0)));
+		}
+		render_setting_tooltip("Prevents the camera from entering black hole event horizons and celestial bodies in every navigation mode, and also constrains scripted capture paths. The camera slides along surfaces instead of passing through. Surface Walk mode is already bound to the surface of its body.");
+		float collision_clearance = static_cast<float>(orchestrator_.parameters().camera_collision_clearance);
+		if (slider_float_with_input("Collision Clearance", &collision_clearance, 1e-4f, 100.0f, "%.4f", &collision_clearance_log_mode_, 1e-4f, 100.0f)) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraCollisionClearance, static_cast<double>(collision_clearance))));
+		}
+		render_setting_tooltip("Minimum distance kept between the camera and any obstacle surface, in simulation length units.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
@@ -663,6 +680,9 @@ private:
 		render_setting_tooltip("When enabled, thrust forces only alter velocity when the simulation clock is actively running.");
 
 		ImGui::Separator();
+		render_surface_walk_section();
+
+		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Configuration:");
 		ImGui::TextDisabled("Full rebinding, conflict handling, and keyboard layout presets (QWERTY/AZERTY) are managed in the dedicated Keybind Settings window.");
 		const bool keybind_window_already_open = keybind_settings_open_;
@@ -680,6 +700,129 @@ private:
 				ImGui::SetWindowFocus("Keybind Settings");
 			}
 			render_setting_tooltip("Brings the already opened Keybind Settings window to the front.");
+		}
+	}
+
+	void render_surface_walk_section() noexcept {
+		auto& profile = camera_controller_.config().surface_walk;
+		auto& params = orchestrator_.parameters();
+		auto& system = orchestrator_.nbody_system();
+
+		struct WalkTarget {
+			uint32_t id;
+			std::string label;
+			double radius;
+		};
+		std::vector<WalkTarget> targets;
+		{
+			std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+			for (const auto& body : system.bodies()) {
+				if (!body.enabled || body.is_spacetime_source) continue;
+				const std::string base = body.has_name() ? std::string(body.name_view()) : ("Body #" + std::to_string(body.id));
+				targets.push_back(WalkTarget{body.id, base + " (#" + std::to_string(body.id) + ")", Observer::SurfaceWalker::mean_radius(Observer::SurfaceGeometry::body_semi_axes(body))});
+			}
+		}
+
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Surface Walk Mode:");
+		ImGui::TextDisabled("Walk on the surface of a celestial body. Movement keys walk, the up key jumps, the down key crouches, sprint and crawl modifiers apply. The walker cannot leave the body.");
+
+		int selection = -1;
+		for (size_t i = 0; i < targets.size(); ++i) {
+			if (targets[i].id == params.surface_walk_body_id) {
+				selection = static_cast<int>(i);
+				break;
+			}
+		}
+
+		if (targets.empty()) {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "No celestial body is available. Create a body in the Celestial Body & N-Body Manager first.");
+		} else {
+			std::vector<const char*> labels;
+			labels.reserve(targets.size());
+			for (const auto& target : targets) labels.push_back(target.label.c_str());
+			if (ImGui::Combo("Walk Target Body", &selection, labels.data(), static_cast<int>(labels.size())) && selection >= 0) {
+				params.surface_walk_body_id = targets[static_cast<size_t>(selection)].id;
+				orchestrator_.notify_state_changed();
+				if (params.camera_mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk)) {
+					camera_controller_.enter_surface_walk(params.surface_walk_body_id);
+				}
+			}
+			render_setting_tooltip("Celestial body to walk on. Independent black holes cannot be walked on. Changing the target while walking teleports the walker to the new body.");
+			ImGui::BeginDisabled(selection < 0);
+			if (ImGui::Button("Start Walking On Selected Body", ImVec2(250.0f, 26.0f)) && selection >= 0) {
+				camera_controller_.enter_surface_walk(targets[static_cast<size_t>(selection)].id);
+			}
+			ImGui::EndDisabled();
+			render_setting_tooltip("Places the walker on the surface of the selected body, below the current camera position, and switches to Surface Walk navigation.");
+			ImGui::SameLine();
+			if (ImGui::Button("Stop Walking", ImVec2(120.0f, 26.0f))) {
+				camera_controller_.leave_surface_walk();
+			}
+			render_setting_tooltip("Returns to Free Fly navigation at the current position.");
+		}
+
+		const double reference_length = (selection >= 0) ? targets[static_cast<size_t>(selection)].radius : 1.0;
+		const auto& telemetry = camera_controller_.surface_walk_telemetry();
+		if (telemetry.active) {
+			ImGui::TextDisabled("Walking on body #%u | Gravity: %.4e | Altitude: %.4e | Speed: %.4e | %s", telemetry.body_id, telemetry.gravity, telemetry.altitude, telemetry.speed, telemetry.grounded ? "Grounded" : "Airborne");
+		}
+
+		if (ImGui::CollapsingHeader("Surface Walk Settings")) {
+			bool relative = profile.scale_with_body;
+			if (ImGui::Checkbox("Scale Walker With Body Radius", &relative)) {
+				profile.convert_scale_mode(relative, reference_length);
+			}
+			render_setting_tooltip("When enabled, height, speed, step length and jump height are expressed in body radii so the walker always fits the chosen body. When disabled they are absolute simulation units. Toggling converts the current values using the selected body radius.");
+			const char* unit_label = relative ? "body radii" : "world units";
+			const double unit = relative ? 1.0 : std::max(reference_length, 1e-9);
+			ImGui::TextDisabled("Length values are expressed in %s.", unit_label);
+
+			slider_double_with_input("Walker Height", &profile.walker_height, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_height_log_mode_);
+			render_setting_tooltip("Total height of the walker. The camera sits at the eye height fraction below.");
+			float eye_fraction = static_cast<float>(profile.eye_height_fraction);
+			if (slider_float_with_input("Eye Height Fraction", &eye_fraction, 0.5f, 1.0f, "%.3f")) profile.eye_height_fraction = eye_fraction;
+			render_setting_tooltip("Fraction of the walker height at which the camera is placed.");
+			slider_double_with_input("Walking Speed", &profile.walk_speed, 1e-4 * unit, 10.0 * unit, "%.6g", &walk_speed_log_mode_);
+			render_setting_tooltip("Ground speed per second while walking.");
+			slider_double_with_input("Step Length", &profile.step_length, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_step_log_mode_);
+			render_setting_tooltip("Distance covered by one step. It sets the cadence of the head bob.");
+			slider_double_with_input("Jump Height", &profile.jump_height, 1e-4 * unit, 2.0 * unit, "%.6g", &walk_jump_log_mode_);
+			render_setting_tooltip("Apex height reached by a jump under the effective gravity.");
+			slider_double_with_input("Sprint Multiplier", &profile.sprint_multiplier, 1.0, 20.0, "%.2f");
+			slider_double_with_input("Crawl Multiplier", &profile.crawl_multiplier, 0.01, 1.0, "%.2f");
+			slider_double_with_input("Crouch Height Fraction", &profile.crouch_fraction, 0.2, 1.0, "%.2f");
+			render_setting_tooltip("Fraction of the eye height kept while crouching.");
+			slider_double_with_input("Crouch Speed Multiplier", &profile.crouch_speed_multiplier, 0.05, 1.0, "%.2f");
+
+			ImGui::Separator();
+			ImGui::Checkbox("Automatic Gravity From Body", &profile.automatic_gravity);
+			render_setting_tooltip("Derives gravity from the mass and local radius of the body using the active gravitational constant. Gravity is always raised to the value needed for every jump to end within the maximum airtime, so bodies with negligible mass remain walkable.");
+			if (profile.automatic_gravity) {
+				slider_double_with_input("Gravity Scale", &profile.gravity_scale, 0.0, 100.0, "%.3f");
+				render_setting_tooltip("Multiplier applied to the automatically derived gravity.");
+			} else {
+				slider_double_with_input("Manual Gravity", &profile.manual_gravity, 1e-9, 1e6, "%.6g", &walk_gravity_log_mode_);
+				render_setting_tooltip("Gravitational acceleration in simulation units, independent of the body.");
+			}
+			slider_double_with_input("Maximum Jump Airtime (s)", &profile.maximum_airtime_seconds, 0.5, 600.0, "%.1f");
+			render_setting_tooltip("Upper bound on the duration of a jump; gravity is raised when necessary to respect it.");
+			slider_double_with_input("Ground Response Time (s)", &profile.ground_response_seconds, 0.0, 2.0, "%.3f");
+			render_setting_tooltip("Time constant of the acceleration towards the requested ground speed. Zero gives instant response.");
+			slider_double_with_input("Air Control", &profile.air_control, 0.0, 1.0, "%.2f");
+			render_setting_tooltip("Fraction of the ground response available while airborne. Momentum is preserved when no key is held.");
+
+			ImGui::Separator();
+			ImGui::Checkbox("Head Bob", &profile.head_bob_enabled);
+			if (profile.head_bob_enabled) {
+				slider_double_with_input("Head Bob Amplitude", &profile.head_bob_amplitude, 0.0, 0.2, "%.3f");
+				render_setting_tooltip("Vertical oscillation per step as a fraction of the eye height.");
+			}
+			ImGui::Checkbox("Follow Surface Rotation", &profile.follow_surface_rotation);
+			render_setting_tooltip("Carries the walker with the rotation of the body surface texture so the ground never slides under the feet.");
+			if (ImGui::Button("Reset Surface Walk Settings", ImVec2(240.0f, 24.0f))) {
+				profile = Observer::SurfaceWalkerParameters{};
+			}
+			profile.sanitize();
 		}
 	}
 

@@ -32,8 +32,8 @@ namespace MotionScriptEditorDetail {
 
 inline constexpr std::array<const char*, 4> kAnchorNames{"World (Absolute)", "Continue From Previous End", "Offset From Previous End", "Track Body"};
 inline constexpr std::array<const char*, 3> kBlendNames{"Replace", "Add", "Add Relative To Layer Start"};
-inline constexpr std::array<const char*, 7> kOrientationNames{
-	"Free (Keep Current View)", "Fixed Angles", "Interpolated Angles", "Look At Target", "Along Travel Direction", "Pitch And Yaw Expressions", "Look At Moving Target"
+inline constexpr std::array<const char*, 8> kOrientationNames{
+	"Free (Keep Current View)", "Fixed Angles", "Interpolated Angles", "Look At Target", "Along Travel Direction", "Pitch And Yaw Expressions", "Look At Moving Target", "Surface Walker (Upright On Body)"
 };
 inline constexpr std::array<const char*, 5> kWaveNames{"Sine", "Triangle", "Square", "Sawtooth", "Smooth Noise"};
 inline constexpr std::array<const char*, 3> kPathEndNames{"Clamp At End", "Loop", "Ping-Pong"};
@@ -62,18 +62,20 @@ inline constexpr std::array<Capture::ShapeKind, 3> kWaypointShapes{Capture::Shap
 inline constexpr std::array<Capture::ShapeKind, 5> kRotationShapes{Capture::ShapeKind::Arc, Capture::ShapeKind::Helix, Capture::ShapeKind::Orbit, Capture::ShapeKind::LogarithmicSpiral, Capture::ShapeKind::ArchimedeanSpiral};
 inline constexpr std::array<Capture::ShapeKind, 6> kCurveShapes{Capture::ShapeKind::Lissajous, Capture::ShapeKind::TorusKnot, Capture::ShapeKind::Lemniscate, Capture::ShapeKind::Rose, Capture::ShapeKind::Epitrochoid, Capture::ShapeKind::Wave};
 inline constexpr std::array<Capture::ShapeKind, 3> kEquationShapes{Capture::ShapeKind::ExpressionCartesian, Capture::ShapeKind::ExpressionCylindrical, Capture::ShapeKind::ExpressionSpherical};
+inline constexpr std::array<Capture::ShapeKind, 1> kSurfaceShapes{Capture::ShapeKind::SurfaceWalk};
 
 struct ShapeGroup {
 	const char* name;
 	std::span<const Capture::ShapeKind> kinds;
 };
 
-inline constexpr std::array<ShapeGroup, 5> kShapeGroups{{
+inline constexpr std::array<ShapeGroup, 6> kShapeGroups{{
 	{"Static And Straight", kBasicShapes},
 	{"Through Waypoints", kWaypointShapes},
 	{"Rotations And Orbits", kRotationShapes},
 	{"Closed And Periodic Curves", kCurveShapes},
-	{"Equations", kEquationShapes}
+	{"Equations", kEquationShapes},
+	{"Surface Walking", kSurfaceShapes}
 }};
 
 struct ExpressionPreset {
@@ -196,6 +198,7 @@ inline void apply_driver_source_defaults(Capture::DriverSpec& driver) noexcept {
 		case Mode::AlongTravel: return "The camera looks in the direction it is moving.";
 		case Mode::Expression: return "Pitch and yaw in degrees are computed by expressions every frame.";
 		case Mode::TargetPath: return "The camera faces a target that itself moves along a scripted trajectory.";
+		case Mode::SurfaceWalker: return "The camera stays upright relative to the chosen body and faces the walking direction, as in the live Surface Walk mode.";
 	}
 	return "";
 }
@@ -261,6 +264,8 @@ private:
 	struct BodyChoice {
 		int32_t id{0};
 		std::string label{};
+		double radius{1.0};
+		Capture::Vec3 position{0.0, 0.0, 0.0};
 	};
 
 	struct CurveSet {
@@ -296,6 +301,7 @@ private:
 	static constexpr size_t kCurveSamples = 512;
 
 	int selected_segment_{-1};
+	int32_t surface_walk_body_{Capture::kOriginReference};
 	int selected_layer_{0};
 	int selected_event_{-1};
 	float list_pane_width_{300.0f};
@@ -335,7 +341,7 @@ private:
 			if (body.has_name()) {
 				label += " (" + std::string(body.name_view()) + ")";
 			}
-			bodies_.push_back(BodyChoice{static_cast<int32_t>(body.id), std::move(label)});
+			bodies_.push_back(BodyChoice{static_cast<int32_t>(body.id), std::move(label), body.effective_radius(), body.position});
 		}
 	}
 
@@ -403,6 +409,50 @@ private:
 			accumulated += segment.duration;
 		}
 		return last_active;
+	}
+
+	[[nodiscard]] Capture::ScriptSegment make_surface_walk_segment(OrchestratorType& orchestrator) const {
+		namespace Geometry = Observer::SurfaceGeometry;
+		Capture::Vec3 center{0.0, 0.0, 0.0};
+		double radius = std::max(2.0 * orchestrator.parameters().mass, 1.0);
+		const bool on_body = surface_walk_body_ >= 0;
+		if (on_body) {
+			for (const BodyChoice& choice : bodies_) {
+				if (choice.id == surface_walk_body_) {
+					center = choice.position;
+					radius = std::max(choice.radius, 1e-6);
+					break;
+				}
+			}
+		}
+		const auto& camera = orchestrator.camera();
+		const Capture::Vec3 direction = Geometry::normalized(Geometry::subtract(camera.position, center), {1.0, 0.0, 0.0});
+		const double latitude = std::asin(std::clamp(direction[2], -1.0, 1.0));
+		const double longitude = std::atan2(direction[1], direction[0]);
+		const Capture::Vec3 north{-std::sin(latitude) * std::cos(longitude), -std::sin(latitude) * std::sin(longitude), std::cos(latitude)};
+		const Capture::Vec3 east{-std::sin(longitude), std::cos(longitude), 0.0};
+		const Capture::Vec3 forward = camera.orientation_basis().forward;
+		const double heading = std::atan2(Geometry::dot(forward, east), Geometry::dot(forward, north)) * Capture::PathDetail::kRadToDeg;
+
+		Capture::ScriptSegment segment = Capture::make_script_segment(Capture::ShapeKind::SurfaceWalk, std::max(new_segment_duration_, 1.0));
+		segment.name = "Surface Walk";
+		segment.time_easing = Capture::EasingSpec::make(Capture::EasingKind::Linear);
+		const double eye_height = radius * 0.02;
+		auto& shape = segment.layers.front().shape;
+		shape.controls[0] = {0.0, 0.0, 0.0};
+		shape.controls[1] = {eye_height * 0.3, std::max(segment.duration * 1.6, 1.0), 0.0};
+		shape.values = {latitude * Capture::PathDetail::kRadToDeg, longitude * Capture::PathDetail::kRadToDeg, heading, heading, radius * 0.5, radius, eye_height, 0.0};
+		if (on_body) {
+			segment.anchor = Capture::AnchorMode::TrackBody;
+			segment.anchor_body = surface_walk_body_;
+		} else {
+			segment.anchor = Capture::AnchorMode::World;
+			segment.anchor_offset = center;
+		}
+		segment.orientation.mode = Capture::OrientationMode::SurfaceWalker;
+		segment.orientation.target_body = surface_walk_body_;
+		segment.orientation.look_ahead = 0.03;
+		return segment;
 	}
 
 	void apply_segment_action(Capture::MotionScript& script, ListAction action, int index) {
@@ -1272,6 +1322,14 @@ private:
 				changed |= edit_shape(orientation.target_path, orchestrator);
 				ImGui::PopID();
 				break;
+			case Capture::OrientationMode::SurfaceWalker:
+				if (begin_property_grid("##LookSurfaceWalkerGrid")) {
+					changed |= property_row("Walked Body", "Body whose surface defines the local vertical. The world origin uses the primary source.", [&] { return edit_body_reference("##value", orientation.target_body); });
+					changed |= property_vec3("Center Offset", orientation.target_offset, 0.1, "%.3f", "Offset added to the body center when it matches a shape center offset.");
+					changed |= property_drag("Look-Ahead (Progress)", orientation.look_ahead, 0.001, 0.001, 0.5, "%.4f", "How far ahead along the path the facing direction is sampled, as a fraction of the segment.");
+					end_property_grid();
+				}
+				break;
 			case Capture::OrientationMode::Free:
 			default:
 				break;
@@ -1524,6 +1582,15 @@ private:
 			insert_segment(script, std::move(leg));
 		}
 		render_setting_tooltip("Adds a linear segment from current end of the script to the live camera.");
+
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+		static_cast<void>(edit_body_reference("##SurfaceWalkBody", surface_walk_body_));
+		render_setting_tooltip("Body on whose surface the new walk segment is placed. The world origin selects the primary source radius. The segment follows the body when it moves.");
+		ImGui::SameLine();
+		if (ImGui::Button("Add Surface Walk")) {
+			insert_segment(script, make_surface_walk_segment(orchestrator));
+		}
+		render_setting_tooltip("Adds a walking segment on the chosen body, starting below the live camera in its viewing direction.");
 
 		const bool has_selection = selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size());
 		ImGui::BeginDisabled(!has_selection);

@@ -182,7 +182,9 @@ enum class ParameterType : uint32_t {
 	LightReferenceDistance = 139,
 	BodyEmissionLightingEnabled = 140,
 	BodyEmissionLightingGain = 141,
-	BodyEmissionLightingReferenceDistance = 142
+	BodyEmissionLightingReferenceDistance = 142,
+	CameraCollisionEnabled = 143,
+	CameraCollisionClearance = 144
 };
 
 struct Command {
@@ -710,6 +712,8 @@ public:
 			else if (iequals_sv(token2, "emission_lighting")) ptype = ParameterType::BodyEmissionLightingEnabled;
 			else if (iequals_sv(token2, "emission_lighting_gain")) ptype = ParameterType::BodyEmissionLightingGain;
 			else if (iequals_sv(token2, "emission_lighting_reference")) ptype = ParameterType::BodyEmissionLightingReferenceDistance;
+			else if (iequals_sv(token2, "camera_collision") || iequals_sv(token2, "collision")) ptype = ParameterType::CameraCollisionEnabled;
+			else if (iequals_sv(token2, "camera_collision_clearance") || iequals_sv(token2, "collision_clearance")) ptype = ParameterType::CameraCollisionClearance;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

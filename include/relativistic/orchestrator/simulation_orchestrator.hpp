@@ -59,6 +59,9 @@ struct PhysicalParameters {
 	uint32_t max_ray_steps{2048};
 	uint32_t performance_preset{1};
 	uint32_t camera_mode{0};
+	bool camera_collision_enabled{false};
+	double camera_collision_clearance{0.05};
+	uint32_t surface_walk_body_id{0};
 	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING | Relativistic::Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING};
 	double sky_star_density{0.78};
 	double sky_star_brightness{1.0};
@@ -1479,6 +1482,12 @@ public:
 				break;
 			case ParameterType::TickRate:
 				scheduler_.set_tick_rate(val);
+				break;
+			case ParameterType::CameraCollisionEnabled:
+				params_.camera_collision_enabled = (val > 0.5);
+				break;
+			case ParameterType::CameraCollisionClearance:
+				params_.camera_collision_clearance = std::clamp(val, 0.0, 1.0e3);
 				break;
 			case ParameterType::Custom:
 				if (custom_name != nullptr && custom_name[0] != '\0') {

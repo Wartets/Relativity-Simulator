@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/ui/input_actions.hpp"
+#include "relativistic/observer/surface_walker.hpp"
 #include <cstdint>
 
 namespace Relativistic::UI {
@@ -49,6 +50,7 @@ struct CameraControlConfig {
 	AxisSpeedProfile free_fly{};
 	AxisSpeedProfile orbit{};
 	RocketControlProfile rocket{};
+	Observer::SurfaceWalkerParameters surface_walk{};
 	ZoomConfig zoom{};
 
 	void apply_keyboard_layout(KeyboardLayout layout) noexcept {

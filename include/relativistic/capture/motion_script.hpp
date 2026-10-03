@@ -3,6 +3,7 @@
 #include "relativistic/capture/camera_path.hpp"
 #include "relativistic/capture/easing.hpp"
 #include "relativistic/capture/expression.hpp"
+#include "relativistic/observer/surface_geometry.hpp"
 #include "relativistic/io/capture_settings_io.hpp"
 #include <algorithm>
 #include <array>
@@ -184,10 +185,10 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 
 enum class ShapeKind : uint32_t {
 	Hold = 0, Linear, QuadraticBezier, CubicBezier, Spline, Polyline, BSpline, Arc, Helix, Orbit, LogarithmicSpiral, ArchimedeanSpiral,
-	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical
+	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk
 };
 
-inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::ExpressionSpherical) + 1;
+inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::SurfaceWalk) + 1;
 
 struct ShapeDescriptor {
 	const char* name;
@@ -218,7 +219,8 @@ inline constexpr std::array<ShapeDescriptor, kShapeKindCount> kShapeDescriptors{
 	{"Wave Along Line", {"Start", "End", "Amplitude A", "Amplitude B"}, {"Frequency A", "Phase A (deg)", "Damping", "Frequency B", "Phase B (deg)"}, false, false},
 	{"Equation (Cartesian)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
 	{"Equation (Cylindrical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
-	{"Equation (Spherical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true}
+	{"Equation (Spherical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
+	{"Surface Walk", {"Body Center Offset", "Hop (Amplitude, Cycles, Unused)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "Heading At Start (deg)", "Heading At End (deg)", "Distance Walked", "Body Radius", "Eye Height"}, false, false}
 }};
 
 [[nodiscard]] inline const ShapeDescriptor& shape_descriptor(ShapeKind kind) noexcept {
@@ -296,6 +298,7 @@ struct ShapeSpec {
 			case ShapeKind::ExpressionCartesian: expressions = {Expression{"40*cos(2*pi*u)"}, Expression{"40*sin(2*pi*u)"}, Expression{"10*sin(4*pi*u)"}}; break;
 			case ShapeKind::ExpressionCylindrical: expressions = {Expression{"40-25*u"}, Expression{"4*pi*u"}, Expression{"10+10*u"}}; break;
 			case ShapeKind::ExpressionSpherical: expressions = {Expression{"50-30*u"}, Expression{"pi/2+0.4*sin(2*pi*u)"}, Expression{"6*pi*u"}}; break;
+			case ShapeKind::SurfaceWalk: controls[1] = {0.0, 2.0, 0.0}; values = {0.0, 0.0, 90.0, 90.0, 20.0, 10.0, 0.2, 0.0}; break;
 		}
 	}
 
@@ -402,6 +405,32 @@ struct ShapeSpec {
 				const double wave_a = std::sin(tau * v[0] * u + v[1] * deg) * envelope;
 				const double wave_b = std::sin(tau * v[3] * u + v[4] * deg) * envelope;
 				for (size_t i = 0; i < 3; ++i) raw[i] = base[i] + c2[i] * wave_a + c3[i] * wave_b;
+				break;
+			}
+			case ShapeKind::SurfaceWalk: {
+				const double eye_radius = std::max(v[5] + v[6], 1e-9);
+				const double total_angle = v[4] / eye_radius;
+				const double latitude = v[0] * deg;
+				const double longitude = v[1] * deg;
+				const double start_heading = v[2] * deg;
+				const double heading_change = (v[3] - v[2]) * deg * u;
+				Vec3 direction{std::cos(latitude) * std::cos(longitude), std::cos(latitude) * std::sin(longitude), std::sin(latitude)};
+				const Vec3 north{-std::sin(latitude) * std::cos(longitude), -std::sin(latitude) * std::sin(longitude), std::cos(latitude)};
+				const Vec3 east{-std::sin(longitude), std::cos(longitude), 0.0};
+				Vec3 tangent = ScriptMath::add(ScriptMath::scaled(north, std::cos(start_heading)), ScriptMath::scaled(east, std::sin(start_heading)));
+				const int steps = std::clamp(static_cast<int>(std::ceil(u * 96.0)), 1, 96);
+				const double step_angle = total_angle * u / static_cast<double>(steps);
+				const double step_turn = heading_change / static_cast<double>(steps);
+				for (int i = 0; i < steps; ++i) {
+					const double cosine = std::cos(step_angle);
+					const double sine = std::sin(step_angle);
+					const Vec3 next_direction = ScriptMath::add(ScriptMath::scaled(direction, cosine), ScriptMath::scaled(tangent, sine));
+					const Vec3 next_tangent = ScriptMath::sub(ScriptMath::scaled(tangent, cosine), ScriptMath::scaled(direction, sine));
+					direction = ScriptMath::normalized(next_direction, direction);
+					tangent = Observer::SurfaceGeometry::rotate_about_axis(next_tangent, direction, -step_turn);
+				}
+				const double hop = c1[0] * std::abs(std::sin(std::numbers::pi_v<double> * c1[1] * u));
+				raw = ScriptMath::add(c0, ScriptMath::scaled(direction, eye_radius + hop));
 				break;
 			}
 			case ShapeKind::ExpressionCartesian:
@@ -790,7 +819,7 @@ struct ShakeSpec {
 	}
 };
 
-enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression, TargetPath };
+enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression, TargetPath, SurfaceWalker };
 
 struct OrientationSpec {
 	OrientationMode mode{OrientationMode::LookAtTarget};
@@ -827,7 +856,7 @@ struct OrientationSpec {
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::TargetPath);
+		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::SurfaceWalker);
 		start = {reader.real(prefix + "s0", start[0]), reader.real(prefix + "s1", start[1])};
 		end = {reader.real(prefix + "e0", end[0]), reader.real(prefix + "e1", end[1])};
 		easing.read(reader, prefix + "ease.");
@@ -1057,13 +1086,13 @@ struct ScriptSample {
 };
 
 enum class ScriptPreset : uint32_t {
-	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift
+	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift, SurfaceStroll
 };
 
-inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::HandheldDrift) + 1;
+inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::SurfaceStroll) + 1;
 
 inline constexpr std::array<const char*, kScriptPresetCount> kScriptPresetNames{
-	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift"
+	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift", "Planetary Stroll"
 };
 
 struct MotionScript {
@@ -1365,6 +1394,7 @@ struct MotionScript {
 		double pitch = 0.0;
 		double yaw = 0.0;
 		const OrientationSpec& orient = segment.orientation;
+		double surface_roll = 0.0;
 
 		SignalContext signals;
 		signals.position = pos;
@@ -1434,6 +1464,27 @@ struct MotionScript {
 				break;
 			}
 
+			case OrientationMode::SurfaceWalker: {
+				Vec3 center{0.0, 0.0, 0.0};
+				if (const auto bpos = ScriptMath::resolve_body(body_lookup, orient.target_body, pos)) {
+					center = *bpos;
+				}
+				center = ScriptMath::add(center, orient.target_offset);
+				const Vec3 normal = ScriptMath::normalized(ScriptMath::sub(pos, center), {0.0, 0.0, 1.0});
+				const double lead = std::clamp(orient.look_ahead, 0.001, 0.5);
+				const bool forward_sample = (u + lead) <= 1.0;
+				const double sample_u = forward_sample ? (u + lead) : std::max(u - lead, 0.0);
+				const Vec3 sample_pos = ScriptMath::add(anchor, evaluate_segment_raw_position(seg_idx, sample_u, local_t + (sample_u - u) * segment.duration, global_t));
+				Vec3 travel = forward_sample ? ScriptMath::sub(sample_pos, pos) : ScriptMath::sub(pos, sample_pos);
+				travel = ScriptMath::sub(travel, ScriptMath::scaled(normal, ScriptMath::dot(travel, normal)));
+				const Vec3 north_tangent = ScriptMath::normalized(ScriptMath::sub({0.0, 0.0, 1.0}, ScriptMath::scaled(normal, normal[2])), {1.0, 0.0, 0.0});
+				const auto angles = Observer::SurfaceGeometry::euler_from_frame(ScriptMath::normalized(travel, north_tangent), normal, 0.0);
+				pitch = angles.pitch_deg;
+				yaw = angles.yaw_deg;
+				surface_roll = angles.roll_deg;
+				break;
+			}
+
 			case OrientationMode::Free:
 			default:
 				break;
@@ -1441,7 +1492,7 @@ struct MotionScript {
 
 		pitch += orient.pitch_offset + shake_rot[0];
 		yaw += orient.yaw_offset + shake_rot[1];
-		double roll = shake_rot[2];
+		double roll = shake_rot[2] + surface_roll;
 
 		ChannelContext ch_ctx{u, local_t, segment.duration, global_t};
 		ch_ctx.signals = &signals;
@@ -1585,6 +1636,19 @@ struct MotionScript {
 				seg.shake.enabled = true;
 				seg.shake.position_amplitude = {0.05, 0.05, 0.05};
 				seg.shake.frequency = 4.0;
+				script.segments.push_back(std::move(seg));
+				break;
+			}
+			case ScriptPreset::SurfaceStroll: {
+				script.name = "Planetary Stroll";
+				ScriptSegment seg = make_script_segment(ShapeKind::SurfaceWalk, 24.0);
+				seg.time_easing = EasingSpec::make(EasingKind::Linear);
+				seg.layers[0].shape.values = {10.0, 0.0, 90.0, 60.0, 22.0, 10.0, 0.25, 0.0};
+				seg.layers[0].shape.controls[1] = {0.012, 24.0, 0.0};
+				seg.orientation.mode = OrientationMode::SurfaceWalker;
+				seg.orientation.target_body = kOriginReference;
+				seg.orientation.look_ahead = 0.03;
+				seg.orientation.pitch_offset = -4.0;
 				script.segments.push_back(std::move(seg));
 				break;
 			}

@@ -1002,9 +1002,9 @@ public:
 		}
 
 		if (tb.camera_mode_combo) {
-			const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket"};
+			const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket", "Surface Walk"};
 			int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
-			ImGui::SetNextItemWidth(95.0f);
+			ImGui::SetNextItemWidth(115.0f);
 			if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
 			}

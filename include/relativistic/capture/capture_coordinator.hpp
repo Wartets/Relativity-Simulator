@@ -12,6 +12,7 @@
 #include "relativistic/io/screenshot_exporter.hpp"
 #include "relativistic/io/video_capture_settings.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
+#include "relativistic/observer/camera_collision.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include <algorithm>
 #include <array>
@@ -177,6 +178,7 @@ private:
 	CaptureProgress progress_{};
 	SequenceSession session_{};
 	PhysicsRecorder recorder_{};
+	Observer::CameraCollisionField collision_field_{};
 	std::string recording_summary_{};
 	std::atomic<uint32_t> pending_tasks_{0};
 	std::atomic<bool> sequence_failed_{false};
@@ -576,7 +578,12 @@ private:
 
 	void apply_pose(const CameraPose& pose) noexcept {
 		auto& camera = orchestrator_.camera();
-		camera.position = pose.position;
+		std::array<double, 3> resolved_position = pose.position;
+		if (orchestrator_.parameters().camera_collision_enabled) {
+			collision_field_.rebuild(orchestrator_);
+			resolved_position = collision_field_.resolve(camera.position, pose.position, orchestrator_.parameters().camera_collision_clearance).position;
+		}
+		camera.position = resolved_position;
 		camera.pitch = std::clamp(pose.pitch_deg, -89.0, 89.0);
 		camera.yaw = pose.yaw_deg;
 		camera.roll = pose.roll_deg;
@@ -788,6 +795,7 @@ private:
 			info << "frames_per_second=" << settings.frames_per_second << '\n';
 			info << "frame_format=" << IO::image_format_descriptor(settings.frame_format).display_name << '\n';
 			info << "start_frame_index=" << settings.start_frame_index << '\n';
+			info << "camera_collision=" << (orchestrator_.parameters().camera_collision_enabled ? 1 : 0) << '\n';
 			if (!recording_summary_.empty()) {
 				info << "recording=" << recording_summary_ << '\n';
 			}

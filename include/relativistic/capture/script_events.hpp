@@ -16,7 +16,7 @@ struct EventParameterEntry {
 	Orchestrator::ParameterType type;
 };
 
-inline constexpr std::array<EventParameterEntry, 50> kEventParameters{{
+inline constexpr std::array<EventParameterEntry, 52> kEventParameters{{
 	{"Central Mass", Orchestrator::ParameterType::Mass},
 	{"Spin Parameter", Orchestrator::ParameterType::Spin},
 	{"Electric Charge", Orchestrator::ParameterType::Charge},
@@ -66,7 +66,9 @@ inline constexpr std::array<EventParameterEntry, 50> kEventParameters{{
 	{"Pole Guard Precision Scale", Orchestrator::ParameterType::PoleGuardPrecisionScale},
 	{"Collision Restitution Multiplier", Orchestrator::ParameterType::InteractionCollisionRestitutionMultiplier},
 	{"Radiative Coupling Scale", Orchestrator::ParameterType::InteractionRadiativeCouplingScale},
-	{"Schematic View Enabled", Orchestrator::ParameterType::SchematicModeEnabled}
+	{"Schematic View Enabled", Orchestrator::ParameterType::SchematicModeEnabled},
+	{"Camera Collision Enabled", Orchestrator::ParameterType::CameraCollisionEnabled},
+	{"Camera Collision Clearance", Orchestrator::ParameterType::CameraCollisionClearance}
 }};
 
 struct EventOverlayEntry {

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "relativistic/core/engine_log.hpp"
+#include "relativistic/observer/camera_collision.hpp"
+#include "relativistic/observer/surface_walker.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/ui/camera_control_config.hpp"
 #include <GLFW/glfw3.h>
@@ -7,6 +10,9 @@
 #include <numbers>
 #include <array>
 #include <algorithm>
+#include <limits>
+#include <mutex>
+#include <optional>
 
 namespace Relativistic::UI {
 
@@ -14,7 +20,19 @@ enum class CameraNavigationMode : uint32_t {
 	FreeFly6DOF = 0,
 	OrbitCenter = 1,
 	SphericalBoyerLindquist = 2,
-	RocketThrust = 3
+	RocketThrust = 3,
+	SurfaceWalk = 4
+};
+
+struct SurfaceWalkTelemetry {
+	bool active{false};
+	bool grounded{true};
+	uint32_t body_id{0};
+	double gravity{0.0};
+	double altitude{0.0};
+	double speed{0.0};
+	double surface_radius{0.0};
+	double reference_length{0.0};
 };
 
 class InteractiveCameraController {
@@ -29,6 +47,12 @@ private:
 	double press_mouse_y_{0.0};
 	bool drag_threshold_exceeded_{false};
 	static constexpr double kClickDragThresholdPixels = 4.0;
+	CameraNavigationMode previous_mode_{CameraNavigationMode::FreeFly6DOF};
+	Observer::SurfaceWalkerState walker_state_{};
+	Observer::CameraCollisionField collision_field_{};
+	SurfaceWalkTelemetry walk_telemetry_{};
+	double look_delta_yaw_deg_{0.0};
+	double look_delta_pitch_deg_{0.0};
 
 public:
 	explicit InteractiveCameraController(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept
@@ -147,12 +171,35 @@ public:
 		orchestrator_.camera().roll = 0.0;
 	}
 
+	void enter_surface_walk(uint32_t body_id) noexcept {
+		orchestrator_.parameters().surface_walk_body_id = body_id;
+		walker_state_.active = false;
+		set_navigation_mode(CameraNavigationMode::SurfaceWalk);
+	}
+
+	void leave_surface_walk() noexcept {
+		set_navigation_mode(CameraNavigationMode::FreeFly6DOF);
+	}
+
+	[[nodiscard]] const SurfaceWalkTelemetry& surface_walk_telemetry() const noexcept {
+		return walk_telemetry_;
+	}
+
 	void update(GLFWwindow* window, double dt, bool is_hovered) noexcept {
 		if (window == nullptr || dt <= 0.0) return;
 
 		handle_global_shortcuts(window);
 
-		navigation_mode_ = static_cast<CameraNavigationMode>(orchestrator_.parameters().camera_mode);
+		const auto requested_mode = static_cast<CameraNavigationMode>(orchestrator_.parameters().camera_mode);
+		if (requested_mode != previous_mode_) {
+			if (previous_mode_ == CameraNavigationMode::SurfaceWalk) {
+				release_surface_walk_state();
+			}
+			walker_state_.active = false;
+			previous_mode_ = requested_mode;
+		}
+		navigation_mode_ = requested_mode;
+		const std::array<double, 3> previous_position = orchestrator_.camera().position;
 
 		double boost_multiplier = 1.0;
 		if (config_.keybinds.is_active(InputAction::Sprint, window)) {
@@ -171,10 +218,17 @@ public:
 			case CameraNavigationMode::RocketThrust:
 				update_rocket_mode(window, dt, is_hovered);
 				break;
+			case CameraNavigationMode::SurfaceWalk:
+				update_surface_walk_mode(window, dt, is_hovered);
+				break;
 			case CameraNavigationMode::FreeFly6DOF:
 			default:
 				update_free_fly_mode(window, dt, boost_multiplier, is_hovered);
 				break;
+		}
+
+		if (orchestrator_.parameters().camera_collision_enabled && navigation_mode_ != CameraNavigationMode::SurfaceWalk) {
+			apply_view_collision(previous_position);
 		}
 	}
 
@@ -276,6 +330,144 @@ private:
 		}
 
 		handle_mouse_look(window, is_hovered);
+	}
+
+	void release_surface_walk_state() noexcept {
+		walker_state_ = Observer::SurfaceWalkerState{};
+		walk_telemetry_ = SurfaceWalkTelemetry{};
+		auto& cam = orchestrator_.camera();
+		cam.roll = 0.0;
+		cam.pitch = std::clamp(cam.pitch, -89.0, 89.0);
+		cam.velocity = {0.0, 0.0, 0.0};
+		orchestrator_.notify_state_changed();
+	}
+
+	[[nodiscard]] std::optional<Observer::SurfaceWalkerEnvironment> resolve_walker_environment(uint32_t body_id) const noexcept {
+		if (body_id == 0U) {
+			return std::nullopt;
+		}
+		auto& system = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+		for (const auto& body : system.bodies()) {
+			if (body.id != body_id || !body.enabled || body.is_spacetime_source) {
+				continue;
+			}
+			Observer::SurfaceWalkerEnvironment environment;
+			environment.center = body.position;
+			environment.axes = Observer::SurfaceGeometry::body_semi_axes(body);
+			environment.mass = body.mass;
+			environment.gravitational_constant = orchestrator_.physical_gravitational_constant();
+			environment.surface_rotation_rate = static_cast<double>(body.rotation_speed_3d);
+			environment.logical_time = orchestrator_.scheduler().snapshot().logical_time;
+			return environment;
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] uint32_t nearest_walkable_body_id(const std::array<double, 3>& position) const noexcept {
+		auto& system = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+		uint32_t best_id = 0U;
+		double best_distance = std::numeric_limits<double>::max();
+		for (const auto& body : system.bodies()) {
+			if (!body.enabled || body.is_spacetime_source) {
+				continue;
+			}
+			const double distance = Observer::SurfaceGeometry::length(Observer::SurfaceGeometry::subtract(position, body.position))
+				- Observer::SurfaceWalker::mean_radius(Observer::SurfaceGeometry::body_semi_axes(body));
+			if (distance < best_distance) {
+				best_distance = distance;
+				best_id = body.id;
+			}
+		}
+		return best_id;
+	}
+
+	void update_surface_walk_mode(GLFWwindow* window, double dt, bool is_hovered) noexcept {
+		auto& params = orchestrator_.parameters();
+		auto& cam = orchestrator_.camera();
+		auto& profile = config_.surface_walk;
+		profile.sanitize();
+
+		auto environment = resolve_walker_environment(params.surface_walk_body_id);
+		if (!environment.has_value()) {
+			const uint32_t fallback_id = nearest_walkable_body_id(cam.position);
+			if (fallback_id != 0U) {
+				params.surface_walk_body_id = fallback_id;
+				walker_state_.active = false;
+				environment = resolve_walker_environment(fallback_id);
+			}
+		}
+		if (!environment.has_value()) {
+			Core::log_warning("Surface walk requires at least one enabled celestial body; returning to free fly navigation.");
+			set_navigation_mode(CameraNavigationMode::FreeFly6DOF);
+			return;
+		}
+
+		if (!walker_state_.active || walker_state_.body_id != params.surface_walk_body_id) {
+			Observer::SurfaceWalker::initialize(walker_state_, *environment, profile, params.surface_walk_body_id, cam.position, cam.orientation_basis().forward);
+		}
+
+		const double reference_length = Observer::SurfaceWalker::mean_radius(environment->axes);
+		const auto dimensions = profile.resolve(reference_length);
+
+		handle_mouse_look(window, is_hovered);
+
+		const auto& keys = config_.keybinds;
+		const auto& free_fly = config_.free_fly;
+		Observer::SurfaceWalkerInput input;
+		input.move_forward = (keys.is_pressed(InputAction::MoveForward, window) ? 1.0 : 0.0) - (keys.is_pressed(InputAction::MoveBackward, window) ? 1.0 : 0.0);
+		input.move_right = (keys.is_pressed(InputAction::MoveRight, window) ? 1.0 : 0.0) - (keys.is_pressed(InputAction::MoveLeft, window) ? 1.0 : 0.0);
+		if (free_fly.invert_forward) input.move_forward = -input.move_forward;
+		if (free_fly.invert_lateral) input.move_right = -input.move_right;
+		input.jump = keys.is_pressed(InputAction::MoveUp, window);
+		input.crouch = keys.is_pressed(InputAction::MoveDown, window);
+		input.sprint = keys.is_active(InputAction::Sprint, window);
+		input.crawl = keys.is_active(InputAction::Crawl, window);
+		input.look_yaw_delta_deg = look_delta_yaw_deg_;
+		input.look_pitch_delta_deg = look_delta_pitch_deg_;
+
+		Observer::SurfaceWalker::advance(walker_state_, *environment, profile, dimensions, input, dt);
+		const auto pose = Observer::SurfaceWalker::evaluate(walker_state_, *environment, profile, dimensions);
+
+		cam.position = pose.position;
+		cam.pitch = pose.angles.pitch_deg;
+		cam.yaw = pose.angles.yaw_deg;
+		cam.roll = pose.angles.roll_deg;
+		cam.velocity = {0.0, 0.0, 0.0};
+		cam.target = environment->center;
+		walker_state_.last_yaw_deg = pose.angles.yaw_deg;
+		sync_spherical_from_cartesian();
+		cam.orbit_distance = cam.radius;
+
+		walk_telemetry_.active = true;
+		walk_telemetry_.grounded = pose.grounded;
+		walk_telemetry_.body_id = walker_state_.body_id;
+		walk_telemetry_.gravity = pose.gravity;
+		walk_telemetry_.altitude = pose.altitude;
+		walk_telemetry_.speed = std::hypot(walker_state_.velocity_forward, walker_state_.velocity_right);
+		walk_telemetry_.surface_radius = pose.surface_radius;
+		walk_telemetry_.reference_length = reference_length;
+	}
+
+	void apply_view_collision(const std::array<double, 3>& previous_position) noexcept {
+		auto& cam = orchestrator_.camera();
+		collision_field_.rebuild(orchestrator_);
+		const auto resolution = collision_field_.resolve(previous_position, cam.position, orchestrator_.parameters().camera_collision_clearance);
+		if (!resolution.adjusted) {
+			return;
+		}
+		cam.position = resolution.position;
+		const double inward = Observer::SurfaceGeometry::dot(cam.velocity, resolution.normal);
+		if (inward < 0.0) {
+			for (size_t i = 0; i < 3; ++i) {
+				cam.velocity[i] -= inward * resolution.normal[i];
+			}
+		}
+		if (navigation_mode_ == CameraNavigationMode::OrbitCenter) {
+			cam.orbit_distance = Observer::SurfaceGeometry::length(Observer::SurfaceGeometry::subtract(cam.position, cam.target));
+		}
+		sync_spherical_from_cartesian();
 	}
 
 	void update_rocket_mode(GLFWwindow* window, double dt, bool is_hovered) noexcept {
@@ -424,6 +616,8 @@ private:
 	}
 
 	void handle_mouse_look(GLFWwindow* window, bool is_hovered) noexcept {
+		look_delta_yaw_deg_ = 0.0;
+		look_delta_pitch_deg_ = 0.0;
 		double mx = 0.0, my = 0.0;
 		glfwGetCursorPos(window, &mx, &my);
 
@@ -455,8 +649,10 @@ private:
 					const auto& prof = config_.free_fly;
 					const double x_sign = prof.invert_mouse_x ? -1.0 : 1.0;
 					const double y_sign = prof.invert_mouse_y ? -1.0 : 1.0;
-					cam.yaw -= dx * prof.mouse_sensitivity * x_sign;
-					cam.pitch = std::clamp(cam.pitch - dy * prof.mouse_sensitivity * y_sign, -89.0, 89.0);
+					look_delta_yaw_deg_ = -dx * prof.mouse_sensitivity * x_sign;
+					look_delta_pitch_deg_ = -dy * prof.mouse_sensitivity * y_sign;
+					cam.yaw += look_delta_yaw_deg_;
+					cam.pitch = std::clamp(cam.pitch + look_delta_pitch_deg_, -89.0, 89.0);
 				}
 			}
 		} else {

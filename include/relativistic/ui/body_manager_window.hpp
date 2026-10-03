@@ -1691,6 +1691,14 @@ private:
 			remove_requested = true;
 		}
 		render_setting_tooltip("Permanently removes this body from the N-body system.");
+		if (b.enabled && !b.is_spacetime_source) {
+			ImGui::SameLine();
+			if (ImGui::Button("Walk On Surface", ImVec2(120.0f, 24.0f))) {
+				orchestrator_.parameters().surface_walk_body_id = body_id;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(4U)));
+			}
+			render_setting_tooltip("Places the camera on the surface of this body and switches to Surface Walk navigation.");
+		}
 		ImGui::Separator();
 
 		Dynamics::BodySurfaceLayerSet layers = orchestrator_.surface_layers().get(body_id);

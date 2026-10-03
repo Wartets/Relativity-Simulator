@@ -61,11 +61,11 @@ The metric identifiers are those of `Render::MetricId` (`include/relativistic/re
 
 ### 2.3. Differential Solvers & Integrators
 
-- `RK45AdaptiveIntegrator`: Dormand-Prince 5(4) adaptive Runge-Kutta integrator with algebraic invariant constraint projection ($g_{\mu\nu}u^\mu u^\nu = \text{const}$).
-- `CashKarpIntegrator`: Embedded 5(4) Runge-Kutta scheme for high-stability trajectory integration.
-- `Vernier9Integrator`: 16-stage 9(8) high-order adaptive integrator for long orbital baselines.
-- `GaussLegendreIntegrator`: Implicit symplectic Runge-Kutta integrator (orders 4 & 6) guaranteeing preservation of Hamiltonian phase-space invariants.
-- `Hermite4AarsethIntegrator`: Predictor-corrector variable-step scheme evaluating jerk derivatives for gravitational multi-body interactions.
+- `RK45AdaptiveIntegrator` (`include/relativistic/integrators/rk45_adaptive.hpp`): Dormand-Prince 5(4) adaptive Runge-Kutta integrator with algebraic invariant constraint projection ($g_{\mu\nu}u^\mu u^\nu = \text{const}$; see [MATHEMATICAL_FORMULATION.md Section 2.2](MATHEMATICAL_FORMULATION.md#22-second-order-geodesic-differential-equations)).
+- `CashKarpIntegrator` (`include/relativistic/integrators/cash_karp.hpp`): Embedded 5(4) Runge-Kutta scheme for high-stability trajectory integration.
+- `Vernier9Integrator` (`include/relativistic/integrators/vernier9.hpp`): 16-stage 9(8) high-order adaptive integrator for long orbital baselines.
+- `GaussLegendreIntegrator` (`include/relativistic/integrators/symplectic_gauss_legendre.hpp`): Implicit symplectic Runge-Kutta integrator (orders 4 and 6) guaranteeing preservation of Hamiltonian phase-space invariants.
+- `Hermite4AarsethIntegrator` (`include/relativistic/integrators/hermite4_aarseth.hpp`): Predictor-corrector variable-step scheme evaluating jerk derivatives for gravitational multi-body interactions.
 
 #### Runtime Use of the Integrator Selection
 
@@ -153,10 +153,10 @@ The metric identifiers are those of `Render::MetricId` (`include/relativistic/re
 
 ### 2.10. Capture Modules
 
-- `CaptureCoordinator` (`include/relativistic/capture/capture_coordinator.hpp`) and `CaptureProgress`: screenshot and sequence sessions, deterministic and real-time modes, banded rendering, supersampling and temporal averaging, event execution, ffmpeg assembly. Behavior is specified in [ARCHITECTURE.md](ARCHITECTURE.md#210-capture-subsystem) and the output files in [FILE_FORMATS.md](FILE_FORMATS.md#7-capture-session-directory).
-- `MotionScript`, `ScriptSegment`, `ShapeSpec`, `ScalarChannel`, `DriverSpec`, `ShakeSpec`, `SegmentTransition`, `ScriptEvent` (`include/relativistic/capture/motion_script.hpp`) with `EasingSpec` (`easing.hpp`), `Expression` (`expression.hpp`), `ScriptEventDispatcher` (`script_events.hpp`) and the text serialization of `motion_script_file.hpp`. `CameraPath` (`camera_path.hpp`) is the legacy keyframe and parametric path format; `MotionScript::from_legacy_path` converts it.
-- `build_path_preview` and `make_body_position_lookup` (`path_preview_builder.hpp`) with the data structures of `path_preview.hpp`: trajectory, reference trajectory without shake and transitions, markers and camera frustum drawn by `SchematicViewRenderer`.
-- `PhysicsRecorder` (`physics_recorder.hpp`) with `TelemetryTable` and `RecordingSettings`: derived kinematic and relativistic channels ([FILE_FORMATS.md](FILE_FORMATS.md#8-telemetry-recording-files)).
+- `CaptureCoordinator` (`include/relativistic/capture/capture_coordinator.hpp`) and `CaptureProgress`: screenshot and sequence sessions, deterministic and real-time modes, banded rendering, supersampling and temporal averaging ([MATHEMATICAL_FORMULATION.md Section 9.3](MATHEMATICAL_FORMULATION.md#93-sampling-and-averaging)), event execution, ffmpeg assembly. Behavior is specified in [ARCHITECTURE.md](ARCHITECTURE.md#210-capture-subsystem) and the output files in [FILE_FORMATS.md](FILE_FORMATS.md#7-capture-session-directory).
+- `MotionScript`, `ScriptSegment`, `ShapeSpec`, `ScalarChannel`, `DriverSpec`, `ShakeSpec`, `SegmentTransition`, `ScriptEvent` (`include/relativistic/capture/motion_script.hpp`) with `EasingSpec` (`easing.hpp`, [MATHEMATICAL_FORMULATION.md Section 9.1](MATHEMATICAL_FORMULATION.md#91-easing-pipeline)), `Expression` (`expression.hpp`), `ScriptEventDispatcher` (`script_events.hpp`) and the text serialization of `motion_script_file.hpp` ([FILE_FORMATS.md Section 9](FILE_FORMATS.md#9-motion-script-and-capture-settings-files)). `CameraPath` (`camera_path.hpp`) is the legacy keyframe and parametric path format; `MotionScript::from_legacy_path` converts it.
+- `build_path_preview` and `make_body_position_lookup` (`path_preview_builder.hpp`) with the data structures of `path_preview.hpp`: trajectory, reference trajectory without shake and transitions, markers and camera frustum drawn by `SchematicViewRenderer` ([Section 2.8](#28-orchestration-scheduling--user-interface)).
+- `PhysicsRecorder` (`physics_recorder.hpp`) with `TelemetryTable` and `RecordingSettings`: derived kinematic and relativistic channels ([FILE_FORMATS.md Section 8](FILE_FORMATS.md#8-telemetry-recording-files)).
 - `CaptureStudioWindow` (`include/relativistic/ui/capture_studio_window.hpp`): tabs Screenshot, Sequence, Motion Script, Data Recording and Video Encoding, a summary bar, a status footer with a resizable splitter, and the viewport path preview controls. `MotionScriptEditor` (`motion_script_editor.hpp`) provides the timeline and the panes Path Editor, Events, Curves and Script; the Curves pane plots 513 samples of each evaluated quantity.
 
 ### 2.11. Constants, Units and Expressions

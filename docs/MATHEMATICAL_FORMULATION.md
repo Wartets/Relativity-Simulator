@@ -25,6 +25,8 @@ $$ds^2 = -c^2 \left(1 - \frac{r_s}{r}\right) dt^2 + 2c \, dt dr + r^2 \left(d\th
 
 ### 1.3. Kerr Metric (Rotating Black Hole)
 
+The Kerr geometry is implemented in `include/relativistic/metrics/kerr.hpp` and `include/relativistic/metrics/kerr_schild.hpp` ([Technical Manual](TECHNICAL_MANUAL.md#22-spacetime-metric-implementations)).
+
 #### Boyer-Lindquist Coordinates $(t, r, \theta, \phi)$
 $$ds^2 = -\left(1 - \frac{2 r_g r}{\rho^2}\right) c^2 dt^2 - \frac{4 r_g r a \sin^2\theta}{\rho^2} c \, dt d\phi + \frac{\rho^2}{\Delta} dr^2 + \rho^2 d\theta^2 + \frac{\Sigma \sin^2\theta}{\rho^2} d\phi^2$$
 where:
@@ -42,7 +44,7 @@ $$H = \frac{r_g r^3}{r^4 + a^2 z^2}$$
 $$k_\mu = \left(c, \frac{r x + a y}{r^2 + a^2}, \frac{r y - a x}{r^2 + a^2}, \frac{z}{r}\right), \quad k^\mu = \left(-\frac{1}{c}, \frac{r x + a y}{r^2 + a^2}, \frac{r y - a x}{r^2 + a^2}, \frac{z}{r}\right)$$
 The radial coordinate $r$ is determined from the positive root of:
 $$r^4 - (x^2 + y^2 + z^2 - a^2) r^2 - a^2 z^2 = 0 \implies r^2 = \frac{1}{2}\left(R^2 - a^2 + \sqrt{(R^2 - a^2)^2 + 4 a^2 z^2}\right)$$
-where $R^2 = x^2 + y^2 + z^2$.
+where $R^2 = x^2 + y^2 + z^2$. Metric selection rules in the rendering pipeline are detailed in [TECHNICAL_MANUAL.md](TECHNICAL_MANUAL.md#metric-usage-in-softwarecomputeengine).
 
 ### 1.4. Reissner-Nordström Metric (Charged Black Hole)
 
@@ -137,6 +139,8 @@ The recorder channel `grav_redshift` is $\sqrt{\max(1 - 2M/r, 0)}$ for every spi
 
 ## 3. Post-Newtonian (PN) N-Body Dynamics
 
+Post-Newtonian accelerations are evaluated by `PostNewtonianSolver` (`include/relativistic/dynamics/pn_acceleration.hpp`) and integrated by `PostNewtonianSystem` (`include/relativistic/dynamics/pn_nbody_system.hpp`; see [Technical Manual](TECHNICAL_MANUAL.md#24-post-newtonian-multi-body-subsystem) and [State Advance](ARCHITECTURE.md#34-orchestrator-state-advance)).
+
 Equations of motion for $N$ gravitationally interacting bodies:
 $$\mathbf{a}_i = \mathbf{a}_i^{\text{Newton}} + \frac{1}{c^2}\mathbf{a}_i^{\text{1PN}} + \frac{1}{c^4}\mathbf{a}_i^{\text{2PN}} + \frac{1}{c^5}\mathbf{a}_i^{\text{2.5PN}} + \frac{1}{c^6}\mathbf{a}_i^{\text{3PN}} + \frac{1}{c^7}\mathbf{a}_i^{\text{3.5PN}} + \mathbf{a}_i^{\text{SO}} + \mathbf{a}_i^{\text{SS}} + \mathbf{a}_i^{\text{Harmonics}}$$
 
@@ -201,16 +205,16 @@ Lorentz factor: $W = (1 - v^2)^{-1/2}$.
 
 ### 5.1. Novikov-Thorne Thin Disk Profile
 
-Radiative surface flux $F(r)$:
+Radiative surface flux $F(r)$ around a Kerr black hole ([Section 1.3](#13-kerr-metric-rotating-black-hole)):
 $$F(r) = \frac{3GM\dot{M}}{8\pi r^3} \frac{f(x)}{x(x^3 + a_*)}, \quad x = \sqrt{\frac{r}{r_g}}$$
 Page-Thorne analytical integral $f(x)$:
 $$f(x) = x - x_0 - \frac{3}{2}a_* \ln\left(\frac{x}{x_0}\right) - \sum_{i=1}^3 \frac{3(x_i - a_*)^2}{x_i(x_i - x_j)(x_i - x_k)} \ln\left(\frac{x - x_i}{x_0 - x_i}\right)$$
-where $x_0 = \sqrt{r_{\text{ISCO}}/r_g}$ & $x_1, x_2, x_3$ are roots of $x^3 - 3x + 2a_* = 0$.
+where $x_0 = \sqrt{r_{\text{ISCO}}/r_g}$ and $x_1, x_2, x_3$ are roots of $x^3 - 3x + 2a_* = 0$ ([Section 2.4](#24-kerr-characteristic-radii-and-horizon-quantities)).
 
 Effective blackbody emission temperature:
 $$T_{\text{eff}}(r) = \left( \frac{F(r)}{\sigma_{\text{SB}}} \right)^{1/4}$$
 
-`NovikovThorneDisk` implements this profile. The ray tracer does not evaluate it and uses the parametrized model of [Section 8.2](#82-step-control-termination-and-space-skipping).
+`NovikovThorneDisk` (`include/relativistic/hydro/novikov_thorne.hpp`) implements this profile. The ray tracer uses the parametrized model of [Section 8.2](#82-step-control-termination-and-space-skipping) described in [Technical Manual](TECHNICAL_MANUAL.md#25-relativistic-hydrodynamics-grhdgrmhd--stellar-physics).
 
 ---
 

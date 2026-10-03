@@ -3,17 +3,17 @@
 ## 1. Architectural Principles & System Paradigms
 
 The Relativistic Engine is an ISO C++23 simulation and visualization framework for relativistic mechanics and raytracing. The system is structured into four functional layers:
-- Core Analytical & Numerical Physics Engine: Stateless, thread-parallel libraries executing tensor algebra, geodesic integration, gravitational multi-body dynamics, relativistic hydrodynamics, and uncertainty quantification.
-- Simulation Runtime & State Orchestrator: A synchronous deterministic state machine driven by a fixed logical time-step scheduler, communicating with external control layers via lock-free queues.
-- Render & Compute Pipeline: Hardware-accelerated GPU compute pipelines & multithreaded SIMD software compute engines performing backward null geodesic raytracing, polarized radiative transfer, & spectral reduction.
-- Presentation, Instrumentation & Workspace Layer: An interactive multi-window graphical user interface with docking workspaces, real-time telemetry dashboards, spectrographs, & a non-blocking master command-line interpreter (REPL).
+- Core Analytical & Numerical Physics Engine: Stateless, thread-parallel libraries executing [tensor algebra](TECHNICAL_MANUAL.md#21-static-tensor--simd-algebra-layer), [geodesic integration](TECHNICAL_MANUAL.md#23-differential-solvers--integrators), [post-Newtonian multi-body dynamics](MATHEMATICAL_FORMULATION.md#3-post-newtonian-pn-n-body-dynamics), [relativistic hydrodynamics](MATHEMATICAL_FORMULATION.md#4-relativistic-hydrodynamics-grhdgrmhd), and [uncertainty quantification](MATHEMATICAL_FORMULATION.md#7-uncertainty-quantification-formulation).
+- Simulation Runtime & State Orchestrator: A synchronous deterministic state machine driven by a [fixed logical time-step scheduler](#31-deterministic-simulation-scheduler), communicating with external control layers via [lock-free SPSC queues](#32-asynchronous-lock-free-command-queue).
+- Render & Compute Pipeline: Hardware-accelerated GPU compute pipelines ([Vulkan compute](#29-render-pipeline)) and multithreaded SIMD software compute engines ([SoftwareComputeEngine](TECHNICAL_MANUAL.md#29-rendering-back-ends)) performing [backward null geodesic raytracing](MATHEMATICAL_FORMULATION.md#8-image-formation-in-the-renderer), [polarized radiative transfer](MATHEMATICAL_FORMULATION.md#6-polarized-radiative-transfer), and [spectral reduction](DESCRIPTION.md#93-continuous-spectral-pipeline--cie-1931-integration).
+- Presentation, Instrumentation & Workspace Layer: An interactive multi-window graphical user interface with docking workspaces ([UI Architecture](#52-graphical-multi-window-workspace-ui-architecture)), real-time telemetry dashboards ([Telemetry & Diagnostics](TECHNICAL_MANUAL.md#28-orchestration-scheduling--user-interface)), spectrographs, and a non-blocking [master command-line interpreter (REPL)](#51-master-terminal-loop-repl).
 
 ### Fundamental Design Paradigms
 
-- Zero-Allocation Hot Path: Differential equations, tensor contractions, raytracing passes, and uncertainty loops execute without dynamic heap allocations. Core structures utilize pre-allocated memory arenas (`LinearMemoryArena`) aligned to 64-byte and 128-byte cache boundaries.
-- Static Compile-Time Polymorphism: Elimination of virtual table dispatch across inner loops through C++23 concepts (`SpacetimeMetric`) and template specializations.
-- Explicit SIMD Register Vectorization: Use of explicit vectorization abstractions (`SimdVec<T, Width>`, `SimdMask<T, Width>`, & `GeodesicBundle<T, Width>`) processing multiple geodesic rays & phase states concurrently across AVX2, AVX-512, & ARM Neon architectures.
-- Strict Bit-Level Determinism: Guaranteed reproducibility across identical hardware targets via explicit-state pseudo-random number generators (`PCG64Engine`) & fixed-step temporal scheduling.
+- Zero-Allocation Hot Path: Differential equations, tensor contractions, raytracing passes, and uncertainty loops execute without dynamic heap allocations. Core structures utilize pre-allocated memory arenas (`LinearMemoryArena`, `include/relativistic/core/memory_arena.hpp`) aligned to 64-byte and 128-byte cache boundaries ([Technical Manual](TECHNICAL_MANUAL.md#11-design-constraints)).
+- Static Compile-Time Polymorphism: Elimination of virtual table dispatch across inner loops through C++23 concepts (`SpacetimeMetric`, `include/relativistic/metrics/spacetime_concept.hpp`) and template specializations.
+- Explicit SIMD Register Vectorization: Use of explicit vectorization abstractions (`SimdVec<T, Width>`, `SimdMask<T, Width>`, `include/relativistic/core/simd.hpp`, and `GeodesicBundle<T, Width>`, `include/relativistic/core/geodesic_bundle.hpp`) processing multiple geodesic rays and phase states concurrently across AVX2, AVX-512, and ARM Neon architectures ([Section 4.3](#43-simd-register-vectorization)).
+- Strict Bit-Level Determinism: Guaranteed reproducibility across identical hardware targets via explicit-state pseudo-random number generators (`PCG64Engine`, `include/relativistic/core/pcg64.hpp`) and fixed-step temporal scheduling ([Section 3.1](#31-deterministic-simulation-scheduler)).
 
 ---
 
@@ -23,64 +23,66 @@ The system architecture is organized into modular subsystems operating across de
 
 ### 2.1. Tensor Algebra & Curvature Evaluation Layer
 
-- Static Tensor Primitives: `Tensor<T, Rank, Dim>` defines cache-aligned multidimensional tensor storage with compile-time rank, dimension, & flat index resolution.
-- Metric Inversion & Contraction: `inverse_metric_4x4` & `determinant_4x4` perform analytical cofactor inversions for 4D spacetime metrics; `contract` & `contract_tensors` execute general Einstein summation contractions.
-- Christoffel Evaluation: `compute_christoffel` dynamically dispatches to exact analytical formulations when provided by the metric or evaluates numerical derivatives via 8th-order centered finite difference stencils (`compute_christoffel_numerical`).
-- Curvature Invariants: `RiemannComputer` computes the Riemann tensor $R^\rho_{\phantom{\rho}\sigma\mu\nu}$, Ricci tensor $R_{\mu\nu}$, Ricci scalar $R$, & Kretschmann invariant $K_1 = R^{\alpha\beta\gamma\delta} R_{\alpha\beta\gamma\delta}$.
+- Static Tensor Primitives: `Tensor<T, Rank, Dim>` (`include/relativistic/core/tensor.hpp`) defines cache-aligned multidimensional tensor storage with compile-time rank, dimension, and flat index resolution ([Technical Manual](TECHNICAL_MANUAL.md#21-static-tensor--simd-algebra-layer)).
+- Metric Inversion & Contraction: `inverse_metric_4x4` and `determinant_4x4` perform analytical cofactor inversions for 4D spacetime metrics; `contract` and `contract_tensors` (`include/relativistic/core/tensor_ops.hpp`) execute general Einstein summation contractions.
+- Christoffel Evaluation: `compute_christoffel` (`include/relativistic/core/christoffel.hpp`) dynamically dispatches to exact analytical formulations when provided by the metric or evaluates numerical derivatives via 8th-order centered finite difference stencils (`compute_christoffel_numerical`; see [Mathematical Formulation](MATHEMATICAL_FORMULATION.md#21-christoffel-symbols-of-the-second-kind)).
+- Curvature Invariants: `RiemannComputer` (`include/relativistic/core/riemann.hpp`) computes the Riemann tensor $R^\rho_{\phantom{\rho}\sigma\mu\nu}$, Ricci tensor $R_{\mu\nu}$, Ricci scalar $R$, and Kretschmann invariant $K_1 = R^{\alpha\beta\gamma\delta} R_{\alpha\beta\gamma\delta}$ ([Mathematical Formulation](MATHEMATICAL_FORMULATION.md#23-riemann-tensor-ricci-tensor--kretschmann-scalar)).
 
 ### 2.2. Spacetime Metric Modules
 
-Every spacetime implementation satisfies the `SpacetimeMetric` concept, requiring `metric_tensor`, `inverse_metric`, `christoffel_symbols`, & `speed_of_light`:
-- Analytical Vacuum Spacetimes: `FlatMinkowskiMetric`, `SchwarzschildMetric`, & `KerrMetric`.
-- Regularized Coordinate Gauges: `SchwarzschildIsotropicMetric`, `PainleveGullstrandMetric`, `EddingtonFinkelsteinMetric`, & Cartesian `KerrSchildMetric`.
-- Electrovacuum & Cosmological Spacetimes: `ReissnerNordstromMetric`, `KerrNewmanMetric`, `SchwarzschildDeSitterMetric`, & `FLRWMetric`.
-- Exotic Spacetimes: `MorrisThorneWormholeMetric` & `AlcubierreWarpMetric`.
-- Conformal 3+1 Numerical Relativity: `BssnGrid` manages 3D spatial field representations ($\phi, K, \tilde{\gamma}_{ij}, \tilde{A}_{ij}, \tilde{\Gamma}^i, \alpha, \beta^i$), `BssnEvolution` implements 4th-order spatial finite differencing with RK4 time stepping, `BssnConstraints` evaluates Hamiltonian constraint residuals, and `TricubicInterpolator` / `QuinticHermiteTimeInterpolator` provide spatial and temporal metric field evaluations.
+Every spacetime implementation satisfies the `SpacetimeMetric` concept (`include/relativistic/metrics/spacetime_concept.hpp`), requiring `metric_tensor`, `inverse_metric`, `christoffel_symbols`, and `speed_of_light`:
+- Analytical Vacuum Spacetimes: `FlatMinkowskiMetric` ([MATHEMATICAL_FORMULATION.md Section 1.1](MATHEMATICAL_FORMULATION.md#11-minkowski-metric-flat-spacetime)), `SchwarzschildMetric` ([Section 1.2](MATHEMATICAL_FORMULATION.md#12-schwarzschild-metric)), and `KerrMetric` ([Section 1.3](MATHEMATICAL_FORMULATION.md#13-kerr-metric-rotating-black-hole)).
+- Regularized Coordinate Gauges: `SchwarzschildIsotropicMetric`, `PainleveGullstrandMetric`, `EddingtonFinkelsteinMetric`, and Cartesian `KerrSchildMetric` ([Section 1.3](MATHEMATICAL_FORMULATION.md#13-kerr-metric-rotating-black-hole)).
+- Electrovacuum & Cosmological Spacetimes: `ReissnerNordstromMetric` ([Section 1.4](MATHEMATICAL_FORMULATION.md#14-reissner-nordström-metric-charged-black-hole)), `KerrNewmanMetric` ([Section 1.5](MATHEMATICAL_FORMULATION.md#15-kerr-newman-metric-charged-rotating-black-hole)), `SchwarzschildDeSitterMetric` ([Section 1.6](MATHEMATICAL_FORMULATION.md#16-schwarzschild-de-sitter--kottler-metric)), and `FLRWMetric` ([Section 1.7](MATHEMATICAL_FORMULATION.md#17-flrw-metric-cosmological-spacetime)).
+- Exotic Spacetimes: `MorrisThorneWormholeMetric` ([Section 1.8](MATHEMATICAL_FORMULATION.md#18-morris-thorne-traversable-wormhole)) and `AlcubierreWarpMetric` ([Section 1.9](MATHEMATICAL_FORMULATION.md#19-alcubierre-warp-drive-metric)).
+- Conformal 3+1 Numerical Relativity: `BssnGrid` (`include/relativistic/metrics/bssn_grid.hpp`) manages 3D spatial field representations ($\phi, K, \tilde{\gamma}_{ij}, \tilde{A}_{ij}, \tilde{\Gamma}^i, \alpha, \beta^i$), `BssnEvolution` (`include/relativistic/metrics/bssn_evolution.hpp`) implements 4th-order spatial finite differencing with RK4 time stepping, `BssnConstraints` (`include/relativistic/metrics/bssn_constraints.hpp`) evaluates Hamiltonian constraint residuals, and `TricubicInterpolator` / `QuinticHermiteTimeInterpolator` (`include/relativistic/metrics/bssn_interpolation.hpp`) provide spatial and temporal metric field evaluations ([Description](DESCRIPTION.md#44-31-numerical-relativity-grids-bssn)).
+- Runtime tracer dispatch per metric is tabulated in [TECHNICAL_MANUAL.md](TECHNICAL_MANUAL.md#metric-usage-in-softwarecomputeengine).
 
 ### 2.3. Differential Solvers & Geodesic Integrators
 
-- Embedded Adaptive Solvers: `RK45AdaptiveIntegrator` (Dormand-Prince 5(4)) & `CashKarpIntegrator` provide step-size regulation with constraint projection ensuring $u_\mu u^\mu = \text{const}$.
-- High-Order Extended Solvers: `Vernier9Integrator` implements a 16-stage 9(8) embedded Runge-Kutta scheme for high-precision orbit tracking.
-- Symplectic Solvers: `GaussLegendreIntegrator` provides implicit Runge-Kutta schemes (orders 4 & 6) guaranteeing preservation of phase-space symplectic 2-forms & Killing invariants.
-- Predictor-Corrector Solvers: `Hermite4AarsethIntegrator` evaluates analytical jerk terms $\dot{\mathbf{a}}$ & higher derivatives for gravitational multi-body interactions.
-- Horizon Boundary Handling: `HorizonDetector` monitors trajectory progression & executes absorption or interior continuation based on configured boundary modes.
+- Embedded Adaptive Solvers: `RK45AdaptiveIntegrator` (Dormand-Prince 5(4), `include/relativistic/integrators/rk45_adaptive.hpp`) and `CashKarpIntegrator` (`include/relativistic/integrators/cash_karp.hpp`) provide step-size regulation with constraint projection ensuring $u_\mu u^\mu = \text{const}$.
+- High-Order Extended Solvers: `Vernier9Integrator` (`include/relativistic/integrators/vernier9.hpp`) implements a 16-stage 9(8) embedded Runge-Kutta scheme for high-precision orbit tracking.
+- Symplectic Solvers: `GaussLegendreIntegrator` (`include/relativistic/integrators/symplectic_gauss_legendre.hpp`) provides implicit Runge-Kutta schemes (orders 4 and 6) guaranteeing preservation of phase-space symplectic 2-forms and Killing invariants.
+- Predictor-Corrector Solvers: `Hermite4AarsethIntegrator` (`include/relativistic/integrators/hermite4_aarseth.hpp`) evaluates analytical jerk terms $\dot{\mathbf{a}}$ and higher derivatives for gravitational multi-body interactions.
+- Horizon Boundary Handling: `HorizonDetector` (`include/relativistic/integrators/horizon_manager.hpp`) monitors trajectory progression and executes absorption or interior continuation based on configured boundary modes ([Description](DESCRIPTION.md#32-strong-gravity--curved-spacetime-phenomena)).
+- Runtime integration selection rules for N-body dynamics versus image ray tracing are detailed in [TECHNICAL_MANUAL.md](TECHNICAL_MANUAL.md#runtime-use-of-the-integrator-selection).
 
 ### 2.4. Post-Newtonian Dynamics & Gravimetry
 
-- Multi-Body Formulations: `PostNewtonianSolver` & `PostNewtonianSystem` evaluate multi-body equations of motion from Newtonian up to 3.5PN order, including 2.5PN radiation damping, spin-orbit, spin-spin, & self-spin interactions.
-- Gravitational Radiation: `GravitationalWaveCalculator` extracts trace-free quadrupole moments & evaluates radiation reaction power $P_{\text{GW}}$ & waveform strain polarizations $(h_+, h_\times)$.
-- Planetary Gravimetry: `SphericalHarmonicsGravityModel` & `AssociatedLegendreTable` execute fully normalized spherical harmonic potential & acceleration evaluations up to degree & order 32, coupled with `TidalPerturbationModel` Love number modifications.
-- Analytical Precession: `OrbitalPrecessionAnalytic` computes secular nodal & apsidal drift rates ($J_2, J_4$).
+- Multi-Body Formulations: `PostNewtonianSolver` (`include/relativistic/dynamics/pn_acceleration.hpp`) and `PostNewtonianSystem` (`include/relativistic/dynamics/pn_nbody_system.hpp`) evaluate multi-body equations of motion from Newtonian up to 3.5PN order, including 2.5PN radiation damping, spin-orbit, spin-spin, and self-spin interactions ([Mathematical Formulation](MATHEMATICAL_FORMULATION.md#3-post-newtonian-pn-n-body-dynamics)).
+- Gravitational Radiation: `GravitationalWaveCalculator` (`include/relativistic/dynamics/pn_gravitational_waves.hpp`) extracts trace-free quadrupole moments and evaluates radiation reaction power $P_{\text{GW}}$ and waveform strain polarizations $(h_+, h_\times)$ ([MATHEMATICAL_FORMULATION.md Section 3.4](MATHEMATICAL_FORMULATION.md#34-gravitational-wave-quadrupole-emission)).
+- Planetary Gravimetry: `SphericalHarmonicsGravityModel` (`include/relativistic/gravimetry/spherical_harmonics.hpp`) and `AssociatedLegendreTable` (`include/relativistic/gravimetry/legendre_table.hpp`) execute fully normalized spherical harmonic potential and acceleration evaluations up to degree and order 32, coupled with `TidalPerturbationModel` (`include/relativistic/gravimetry/tidal_perturbations.hpp`) Love number modifications ([Description](DESCRIPTION.md#52-spherical-harmonics--high-degree-geodesy)).
+- Analytical Precession: `OrbitalPrecessionAnalytic` (`include/relativistic/gravimetry/orbital_precession.hpp`) computes secular nodal and apsidal drift rates ($J_2, J_4$).
 
 ### 2.5. Dark Matter & Modified Gravity
 
-- Density Profiles: `NFWProfile`, `EinastoProfile`, `BurkertProfile`, & `HernquistProfile` compute enclosed mass, potential, & rotation curves.
-- N-Body Collisionless Dynamics: `BarnesHutOctree` executes hierarchical octree spatial partitioning with quadrupole multipole expansions & symplectic leapfrog advancement.
-- Modified Gravity Solvers: `MondFramework` implements non-linear MOND interpolation functions ($\mu, \nu$), `TeVeSSpacetimeMetric` solves the covariant Tensor-Vector-Scalar metric, & `FRChameleonModel` computes scalar-tensor field screening.
+- Density Profiles: `NFWProfile`, `EinastoProfile`, `BurkertProfile`, and `HernquistProfile` (`include/relativistic/dark_matter/dark_matter_profiles.hpp`) compute enclosed mass, potential, and rotation curves ([Description](DESCRIPTION.md#53-dark-matter-halos--alternative-gravitational-theories)).
+- N-Body Collisionless Dynamics: `BarnesHutOctree` (`include/relativistic/dark_matter/barnes_hut.hpp`) executes hierarchical octree spatial partitioning with quadrupole multipole expansions and symplectic leapfrog advancement.
+- Modified Gravity Solvers: `MondFramework` (`include/relativistic/modified_gravity/mond.hpp`) implements non-linear MOND interpolation functions ($\mu, \nu$), `TeVeSSpacetimeMetric` (`include/relativistic/modified_gravity/teves.hpp`) solves the covariant Tensor-Vector-Scalar metric, and `FRChameleonModel` (`include/relativistic/modified_gravity/f_r_gravity.hpp`) computes scalar-tensor field screening.
 
 ### 2.6. Relativistic Hydrodynamics (GRHD/GRMHD)
 
-- State & Flux Containers: `PrimitiveVariables`, `ConservedVariables`, & `FluxVariables` encapsulate fluid states & magnetic vectors.
-- Reconstruction & Riemann Solvers: `WENO5Reconstructor` (JS & Z variants), `MP5Reconstructor`, & `TVDReconstructor` compute cell interface states; `HLLRiemannSolver`, `HLLCRiemannSolver`, & `HLLDRiemannSolver` resolve interface fluxes.
-- Inversion & Divergence Control: `Con2PrimSolver` executes 1D/2D root-finding inversions from conserved to primitive variables, & `ConstrainedTransport2D` enforces the solenoidal magnetic constraint $\nabla \cdot \mathbf{B} = 0$.
-- Equations of State & Solvers: `IdealGasEOS`, `SyngeEOS`, `MathewsEOS`, `RelativisticFermiGasEOS`, `PolytropicEOS`, `PiecewisePolytropicEOS`, and `TabulatedNuclearEOS` model fluid thermodynamics; `RelativisticHydroSolver1D` integrates 1D relativistic fluids using SSP-RK3 time stepping; `TOVSolver` integrates the Tolman-Oppenheimer-Volkoff equations; `NovikovThorneDisk` and `FishboneMoncriefTorus` model thin and thick accretion systems.
+- State & Flux Containers: `PrimitiveVariables`, `ConservedVariables`, and `FluxVariables` (`include/relativistic/hydro/hydro_types.hpp`) encapsulate fluid states and magnetic vectors ([Mathematical Formulation](MATHEMATICAL_FORMULATION.md#42-conservative-31-form)).
+- Reconstruction & Riemann Solvers: `WENO5Reconstructor` (JS and Z variants), `MP5Reconstructor`, and `TVDReconstructor` (`include/relativistic/hydro/reconstruction.hpp`) compute cell interface states; `HLLRiemannSolver`, `HLLCRiemannSolver`, and `HLLDRiemannSolver` (`include/relativistic/hydro/riemann_solvers.hpp`) resolve interface fluxes ([Description](DESCRIPTION.md#61-curved-spacetime-hydrodynamics)).
+- Inversion & Divergence Control: `Con2PrimSolver` (`include/relativistic/hydro/con2prim.hpp`) executes 1D/2D root-finding inversions from conserved to primitive variables, and `ConstrainedTransport2D` (`include/relativistic/hydro/constrained_transport.hpp`) enforces the solenoidal magnetic constraint $\nabla \cdot \mathbf{B} = 0$.
+- Equations of State & Solvers: `IdealGasEOS`, `SyngeEOS`, `MathewsEOS`, `RelativisticFermiGasEOS`, `PolytropicEOS`, `PiecewisePolytropicEOS`, and `TabulatedNuclearEOS` (`include/relativistic/hydro/eos.hpp`) model fluid thermodynamics ([MATHEMATICAL_FORMULATION.md Section 4.3](MATHEMATICAL_FORMULATION.md#43-equations-of-state-eos)); `RelativisticHydroSolver1D` (`include/relativistic/hydro/grhd_solver.hpp`) integrates 1D relativistic fluids using SSP-RK3 time stepping; `TOVSolver` (`include/relativistic/hydro/tov_solver.hpp`) integrates the Tolman-Oppenheimer-Volkoff equations; `NovikovThorneDisk` (`include/relativistic/hydro/novikov_thorne.hpp`, [MATHEMATICAL_FORMULATION.md Section 5.1](MATHEMATICAL_FORMULATION.md#51-novikov-thorne-thin-disk-profile)) and `FishboneMoncriefTorus` (`include/relativistic/hydro/fishbone_moncrief.hpp`) model thin and thick accretion systems.
 
 ### 2.7. Polarized Radiative Transfer & Optics
 
-- Polarimetric Representation: `StokesVector`, `StokesEmissivity`, & `StokesTransferMatrix` represent full-Stokes polarized transport.
-- Radiative Processes: `RadiativeProcessEngine` computes non-thermal synchrotron emission/absorption, thermal synchrotron with Faraday rotation ($\rho_V$) & conversion ($\rho_Q$), & relativistic Bremsstrahlung.
-- Polarized Solver: `PolarizedRadiativeTransfer` executes exact analytical matrix exponential integration along ray segments via Delano's method.
-- Kinetic Models: `MaxwellJuttnerDistribution` samples thermal relativistic electron distributions; `InverseComptonEngine` performs Monte Carlo photon packet scatterings via the Klein-Nishina cross section.
-- Spectral Integration & Colorimetry: `ContinuousSpectrum` manages multi-wavelength discretized radiances; `CIE1931Observer` convolves radiances to XYZ & linear sRGB; `Tonemapper` applies ACES & logarithmic HDR tonemapping curves.
+- Polarimetric Representation: `StokesVector` (`include/relativistic/optics/stokes_vector.hpp`), `StokesEmissivity`, and `StokesTransferMatrix` represent full-Stokes polarized transport ([Mathematical Formulation](MATHEMATICAL_FORMULATION.md#62-full-stokes-polarized-transfer-equations)).
+- Radiative Processes: `RadiativeProcessEngine` (`include/relativistic/optics/radiative_processes.hpp`) computes non-thermal synchrotron emission/absorption, thermal synchrotron with Faraday rotation ($\rho_V$) and conversion ($\rho_Q$), and relativistic Bremsstrahlung ([Description](DESCRIPTION.md#64-radiative-processes--local-emission)).
+- Polarized Solver: `PolarizedRadiativeTransfer` (`include/relativistic/optics/polarized_radiative_transfer.hpp`) executes exact analytical matrix exponential integration along ray segments via Delano's method.
+- Kinetic Models: `MaxwellJuttnerDistribution` (`include/relativistic/optics/maxwell_juttner.hpp`) samples thermal relativistic electron distributions; `InverseComptonEngine` (`include/relativistic/optics/inverse_compton.hpp`) performs Monte Carlo photon packet scatterings via the Klein-Nishina cross section.
+- Spectral Integration & Colorimetry: `ContinuousSpectrum` (`include/relativistic/optics/spectrum.hpp`) manages multi-wavelength discretized radiances; `CIE1931Observer` (`include/relativistic/optics/cie_observer.hpp`) convolves radiances to XYZ and linear sRGB ([MATHEMATICAL_FORMULATION.md Section 8.2](MATHEMATICAL_FORMULATION.md#82-step-control-termination-and-space-skipping)); `Tonemapper` (`include/relativistic/optics/tonemapping.hpp`) applies ACES and logarithmic HDR tonemapping curves ([MATHEMATICAL_FORMULATION.md Section 8.3](MATHEMATICAL_FORMULATION.md#83-tone-mapping-and-color-grading)).
 
 ### 2.8. Uncertainty Quantification & Metrology
 
-- Interval Arithmetic: `Interval<Scalar>` implements IEEE 1788 interval arithmetic operations, transcendental functions, & inclusion checks.
-- Zonotopes: `Zonotope<Scalar, Dim>` manages multidimensional generator sets with Girard order reduction to eliminate wrapping effects.
-- Continuous Covariance: `CovarianceMatrix<Scalar, Dim>` implements continuous Jacobi-Lyapunov differential propagation, eigensystem decompositions, & confidence hypervolume calculations.
-- Variational Integration: `VariationalGeodesicIntegrator` propagates 8D phase states $(\mathbf{x}, \mathbf{p})$ along with variational transition matrices & covariance envelopes.
-- Polynomial Chaos: `PolynomialChaosExpansion` executes spectral stochastic projections on orthogonal Hermite & Legendre bases via Gauss-Hermite & Gauss-Legendre quadratures; `PceGeodesicPropagator` integrates stochastic geodesic ensembles.
-- Metrology: `MetrologyVisualizer` constructs 3D covariance ellipsoid meshes, generates 2D probability heatmaps, & extracts quantile confidence envelopes.
+- Interval Arithmetic: `Interval<Scalar>` (`include/relativistic/uncertainty/interval.hpp`) implements IEEE 1788 interval arithmetic operations, transcendental functions, and inclusion checks ([MATHEMATICAL_FORMULATION.md Section 7.1](MATHEMATICAL_FORMULATION.md#71-interval-arithmetic-ieee-1788)).
+- Zonotopes: `Zonotope<Scalar, Dim>` (`include/relativistic/uncertainty/zonotope.hpp`) manages multidimensional generator sets with Girard order reduction to eliminate wrapping effects ([Section 7.2](MATHEMATICAL_FORMULATION.md#72-zonotope-enclosure)).
+- Continuous Covariance: `CovarianceMatrix<Scalar, Dim>` (`include/relativistic/uncertainty/covariance.hpp`) implements continuous Jacobi-Lyapunov differential propagation, eigensystem decompositions, and confidence hypervolume calculations ([Section 7.3](MATHEMATICAL_FORMULATION.md#73-lyapunov-covariance-matrix-propagation)).
+- Variational Integration: `VariationalGeodesicIntegrator` (`include/relativistic/uncertainty/variational_geodesic.hpp`) propagates 8D phase states $(\mathbf{x}, \mathbf{p})$ along with variational transition matrices and covariance envelopes.
+- Polynomial Chaos: `PolynomialChaosExpansion` (`include/relativistic/uncertainty/polynomial_chaos.hpp`) executes spectral stochastic projections on orthogonal Hermite and Legendre bases via Gauss-Hermite and Gauss-Legendre quadratures ([Section 7.4](MATHEMATICAL_FORMULATION.md#74-generalized-polynomial-chaos-expansion-gpce)); `PceGeodesicPropagator` (`include/relativistic/uncertainty/pce_geodesic.hpp`) integrates stochastic geodesic ensembles.
+- Metrology: `MetrologyVisualizer` (`include/relativistic/uncertainty/metrology.hpp`) constructs 3D covariance ellipsoid meshes, generates 2D probability heatmaps, and extracts quantile confidence envelopes ([Description](DESCRIPTION.md#73-metrology--visual-representation)).
 
 ### 2.9. Render Pipeline
 
@@ -239,14 +241,14 @@ The engine provides multi-tiered precision configurations to balance numerical a
 
 ### 4.2. Compensated Double-Single Arithmetic (DS / fp32-fp32)
 
-- `DoubleSingle` emulates extended precision (approx. 48 bits of mantissa, matching $\approx 14$ decimal digits) using pairs of IEEE 754 single-precision floats (`hi`, `lo`). The functions `ds_sin`, `ds_cos` and `ds_atan2` evaluate in `double` and split the result.
-- Exact error-free transformations via Knuth's `two_sum`, Dekker's `two_diff`, & Veltkamp-Dekker `two_prod` (using hardware `fma`).
-- Executed by `SoftwareComputeEngine::dispatch_double_single` on the CPU. The Vulkan compute path requires native FP64 and is skipped when double-single precision is selected (see [Section 2.9](#29-render-pipeline)).
+- `DoubleSingle` (`include/relativistic/render/double_single.hpp`) emulates extended precision (approx. 48 bits of mantissa, matching $\approx 14$ decimal digits) using pairs of IEEE 754 single-precision floats (`hi`, `lo`). The functions `ds_sin`, `ds_cos` and `ds_atan2` evaluate in `double` and split the result.
+- Exact error-free transformations via Knuth's `two_sum`, Dekker's `two_diff`, and Veltkamp-Dekker `two_prod` (using hardware `fma`).
+- Executed by `SoftwareComputeEngine::dispatch_double_single` on the CPU ([Technical Manual](TECHNICAL_MANUAL.md#29-rendering-back-ends)). The Vulkan compute path requires native FP64 and is skipped when double-single precision is selected (see [Section 2.9](#29-render-pipeline)).
 
 ### 4.3. SIMD Register Vectorization
 
-- `SimdVec<T, Width>` & `SimdMask<T, Width>` map to native SIMD registers across AVX2, AVX-512, & ARM Neon.
-- `GeodesicBundle` formats ray coordinates & four-momenta in Structure-of-Arrays (SoA) layout, executing vectorized RK4 updates across concurrent ray lanes.
+- `SimdVec<T, Width>` and `SimdMask<T, Width>` (`include/relativistic/core/simd.hpp`) map to native SIMD registers across AVX2, AVX-512, and ARM Neon ([Technical Manual](TECHNICAL_MANUAL.md#21-static-tensor--simd-algebra-layer)).
+- `GeodesicBundle` (`include/relativistic/core/geodesic_bundle.hpp`) formats ray coordinates and four-momenta in Structure-of-Arrays (SoA) layout, executing vectorized RK4 updates across concurrent ray lanes (`GeodesicBundle4d` and `GeodesicBundle8f`; see [TECHNICAL_MANUAL.md Section 2.9](TECHNICAL_MANUAL.md#29-rendering-back-ends)).
 
 ---
 

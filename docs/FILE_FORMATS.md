@@ -112,20 +112,20 @@ observers:
 - Unknown keys are ignored.
 - Values must not carry trailing comments: a quoted string followed by a comment is not unquoted. The comments in the schema above are descriptive only.
 
-**Validation.** `ScenarioSerializer::validate` rejects a scenario when:
+**Validation.** `ScenarioSerializer::validate` (`include/relativistic/io/scenario_serializer.hpp`) rejects a scenario when:
 
 - `format_version` is 0 or greater than 1.
 - `scenario_name` or `metric_type` is empty.
-- `metric_type` is none of the names listed in the schema and contains none of the substrings `Schwarzschild`, `Kerr`, `Minkowski`, `Wormhole`, `Warp`.
-- A Schwarzschild or Kerr family metric (excluding wormhole and warp names) has `central_mass <= 0`.
-- A Kerr metric without `Newman` in its name has `|central_spin| > 1.0001 * central_mass`.
-- A Morris-Thorne metric has `wormhole_throat <= 0`.
-- An Alcubierre metric has `warp_velocity < 0`.
+- `metric_type` is none of the names listed in the schema and contains none of the substrings `Schwarzschild`, `Kerr`, `Minkowski`, `Wormhole`, `Warp` ([CLI Reference](CLI_REFERENCE.md#23-spacetime-metric--integrator-selection)).
+- A Schwarzschild or Kerr family metric (excluding wormhole and warp names) has `central_mass <= 0` ([MATHEMATICAL_FORMULATION.md Section 1.2](MATHEMATICAL_FORMULATION.md#12-schwarzschild-metric)).
+- A Kerr metric without `Newman` in its name has `|central_spin| > 1.0001 * central_mass` ([Section 1.3](MATHEMATICAL_FORMULATION.md#13-kerr-metric-rotating-black-hole)).
+- A Morris-Thorne metric has `wormhole_throat <= 0` ([Section 1.8](MATHEMATICAL_FORMULATION.md#18-morris-thorne-traversable-wormhole)).
+- An Alcubierre metric has `warp_velocity < 0` ([Section 1.9](MATHEMATICAL_FORMULATION.md#19-alcubierre-warp-drive-metric)).
 - `speed_of_light` or `gravitational_constant` is not strictly positive.
 - An observer field of view is outside the open interval (0, 180) degrees.
 - A body has a negative mass or radius.
 
-**Application on load** (`SimulationOrchestrator::load_scenario_file`). The loader applies the scenario name and path, the metric name, `central_mass`, `central_spin`, `central_charge`, `cosmological_lambda`, `wormhole_throat`, `warp_velocity`, the integrator `scheme`, the complete `interactions` block, the first observer (position, field of view, orientation) and all bodies, which replace the existing body list. Surface layers are cleared. The fields `speed_of_light`, `gravitational_constant`, the numeric integrator fields, additional observers and the `output` block are parsed but not applied to the simulation state.
+**Application on load** (`SimulationOrchestrator::load_scenario_file` in `include/relativistic/orchestrator/simulation_orchestrator.hpp`). The loader applies the scenario name and path, the metric name, `central_mass`, `central_spin`, `central_charge`, `cosmological_lambda`, `wormhole_throat`, `warp_velocity`, the integrator `scheme`, the complete `interactions` block ([DESCRIPTION.md Section 5.4](DESCRIPTION.md#54-body-interactions--spacetime-source-bodies)), the first observer (position, field of view, orientation) and all bodies, which replace the existing body list. Surface layers are cleared. The fields `speed_of_light`, `gravitational_constant`, the numeric integrator fields, additional observers and the `output` block are parsed but not applied to the simulation state.
 
 **Content of saved files.** `SimulationOrchestrator::save_scenario_file` writes the live central parameters, the integrator name and the current `integration_rtol` and `integration_atol`, the interaction configuration, one observer built from the live camera, and all bodies. Rendering and performance settings are never written. Paths are resolved as described in [ARCHITECTURE.md](ARCHITECTURE.md#35-scenario-resolution-and-startup).
 
@@ -413,12 +413,12 @@ The VTK format forces the channels `session_time`, `camera_x`, `camera_y`, `came
 
 - Velocity and acceleration are finite differences of the camera position between consecutive captured frames, evaluated for every frame before decimation.
 - `camera_angular_rate` is the root of the squared differences of pitch, yaw and roll divided by the elapsed time.
-- `static_lapse` is $\sqrt{-g_{tt}}$ of the Kerr metric at $\max(r, 2.05M)$.
+- `static_lapse` is $\sqrt{-g_{tt}}$ of the Kerr metric at $\max(r, 2.05M)$ ([MATHEMATICAL_FORMULATION.md Section 2.4](MATHEMATICAL_FORMULATION.md#24-kerr-characteristic-radii-and-horizon-quantities)).
 - `grav_redshift` is $\sqrt{\max(1 - 2M/r, 0)}$ for every spin.
 - `static_proper_time` accumulates the lapse multiplied by the elapsed logical time.
-- `disk_doppler_factor` is 1 outside the disk band.
+- `disk_doppler_factor` is 1 outside the disk band ([MATHEMATICAL_FORMULATION.md Section 8.2](MATHEMATICAL_FORMULATION.md#82-step-control-termination-and-space-skipping)).
 - `on_disk_band` is 1 when the camera radius lies between the ISCO and the disk outer radius.
-- The horizon, ISCO and photon orbit radii are evaluated with the spin clamped to $\pm 0.999 M$.
+- The horizon, ISCO and photon orbit radii are evaluated with the spin clamped to $\pm 0.999 M$ ([MATHEMATICAL_FORMULATION.md Section 2.4](MATHEMATICAL_FORMULATION.md#24-kerr-characteristic-radii-and-horizon-quantities)).
 - All metric-dependent channels are 0 or 1 when the central mass is not larger than $10^{-9}$.
 
 **Per-body columns.** When any per-body option is enabled, the recorder selects up to `max_bodies` (at most 256) enabled bodies present at the start of the session and appends, per body, the columns `body<id>_x`, `body<id>_y`, `body<id>_z` (positions), `body<id>_vx`, `body<id>_vy`, `body<id>_vz` (velocities), `body<id>_camera_distance` and `body<id>_speed`, each only when the corresponding option is enabled. Values are NaN when the body is absent or disabled. Presets: 0 none, 1 trajectory, 2 camera kinematics, 3 full kinematics, 4 relativistic physics, 5 all channels and all per-body options.

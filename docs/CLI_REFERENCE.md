@@ -52,14 +52,14 @@ Supported metric names: `FlatMinkowski` (alias `Minkowski`), `Schwarzschild`, `K
 
 The `metric` command stores the name without validating it. Two resolvers consume it:
 
-- `SimulationOrchestrator::metric_name_to_id` (`include/relativistic/orchestrator/simulation_orchestrator.hpp`) matches the exact names above; any other string resolves to Schwarzschild.
-- The viewport (`ViewportPrimaryWindow::get_metric_id_from_name` in `include/relativistic/ui/viewport_primary_window.hpp`) matches substrings in this order: `Minkowski`, `Schwarzschild` together with `de Sitter`, `Schwarzschild`, `Kerr-Newman`, `Kerr`, `Reissner`, `FLRW`, `Morris` or `Wormhole`, `Alcubierre` or `Warp`. The compact names `KerrNewman` and `SchwarzschildDeSitter` therefore resolve to Kerr and Schwarzschild in the viewport. The display names used by the metric cycle action (`Kerr-Newman Charged Rotating`, `Schwarzschild-de Sitter (Lambda)`, `Morris-Thorne Traversable Wormhole`, `Alcubierre Warp Drive Bubble`, `BSSN 3+1 Numerical Grid`, among others) resolve correctly. Names without a match, including `BSSN`, are traced as Schwarzschild.
+- `SimulationOrchestrator::metric_name_to_id` (`include/relativistic/orchestrator/simulation_orchestrator.hpp`) matches the exact names above; any other string resolves to Schwarzschild ([Architecture](ARCHITECTURE.md#22-spacetime-metric-modules)).
+- The viewport (`ViewportPrimaryWindow::get_metric_id_from_name` in `include/relativistic/ui/viewport_primary_window.hpp`) matches substrings in this order: `Minkowski`, `Schwarzschild` together with `de Sitter`, `Schwarzschild`, `Kerr-Newman`, `Kerr`, `Reissner`, `FLRW`, `Morris` or `Wormhole`, `Alcubierre` or `Warp`. The compact names `KerrNewman` and `SchwarzschildDeSitter` therefore resolve to Kerr and Schwarzschild in the viewport. The display names used by the metric cycle action (`Kerr-Newman Charged Rotating`, `Schwarzschild-de Sitter (Lambda)`, `Morris-Thorne Traversable Wormhole`, `Alcubierre Warp Drive Bubble`, `BSSN 3+1 Numerical Grid`, among others) resolve correctly. Names without a match, including `BSSN`, are traced as Schwarzschild ([Technical Manual](TECHNICAL_MANUAL.md#metric-usage-in-softwarecomputeengine)).
 
-Scenario files accept both forms; see the validation rules in [FILE_FORMATS.md](FILE_FORMATS.md#12-parsing-validation-and-application-rules). Execution path selection by metric is described in [ARCHITECTURE.md](ARCHITECTURE.md#29-render-pipeline).
+Metric mathematical definitions are provided in [MATHEMATICAL_FORMULATION.md Section 1](MATHEMATICAL_FORMULATION.md#1-spacetime-metrics--line-elements). Scenario files accept both forms; see the validation rules in [FILE_FORMATS.md](FILE_FORMATS.md#12-parsing-validation-and-application-rules). Execution path selection by metric is described in [ARCHITECTURE.md](ARCHITECTURE.md#29-render-pipeline).
 
 Supported integrator names: `RK45`, `CashKarp`, `Vernier9`, `GaussLegendre4`, `GaussLegendre6`, `Hermite4`.
 
-The `integrator` command stores the name without validating it. The N-body integration uses the symplectic Forest-Ruth post-Newtonian integrator when the name contains `Symplectic` or `Gauss`, and the fourth-order Runge-Kutta post-Newtonian integrator otherwise (see [ARCHITECTURE.md](ARCHITECTURE.md#34-orchestrator-state-advance)). The integrator cycle action uses the names `Dormand-Prince RK45 (Adaptive)`, `Cash-Karp 5(4) (Adaptive)`, `Vernier 9(8) High-Order`, `Symplectic Gauss-Legendre 4th`, `Symplectic Gauss-Legendre 6th`, and `Hermite 4th-Order (Aarseth)`.
+The `integrator` command stores the name without validating it. The N-body integration uses the symplectic Forest-Ruth post-Newtonian integrator when the name contains `Symplectic` or `Gauss`, and the fourth-order Runge-Kutta post-Newtonian integrator otherwise (see [ARCHITECTURE.md](ARCHITECTURE.md#34-orchestrator-state-advance) and [TECHNICAL_MANUAL.md](TECHNICAL_MANUAL.md#runtime-use-of-the-integrator-selection)). The integrator cycle action uses the names `Dormand-Prince RK45 (Adaptive)`, `Cash-Karp 5(4) (Adaptive)`, `Vernier 9(8) High-Order`, `Symplectic Gauss-Legendre 4th`, `Symplectic Gauss-Legendre 6th`, and `Hermite 4th-Order (Aarseth)`.
 
 ### 2.4. Parameter Modification Commands (`set`)
 
@@ -74,18 +74,18 @@ The `set` command updates physical properties, optical settings, & solver tolera
 | `lambda` | Float | Cosmological constant $\Lambda$. | `set lambda 1.1e-52` |
 | `throat` | Float | Morris-Thorne wormhole throat radius $b_0$. | `set throat 5.0` |
 | `warp_velocity`, `warp_vel` | Float | Alcubierre metric apparent velocity $v_s$. | `set warp_velocity 2.0` |
-| `projection`, `proj` | Integer | Projection (0: Pinhole, 1: AutoZoom, 2: FisheyeStereographic, 3: Equirectangular360, 4: FisheyeEquidistant, 5: FisheyeOrthographic, 6: PaniniCylindrical, 7: HammerAitoff). The default is 3. | `set projection 1` |
+| `projection`, `proj` | Integer | Projection (0: Pinhole, 1: AutoZoom, 2: FisheyeStereographic, 3: Equirectangular360, 4: FisheyeEquidistant, 5: FisheyeOrthographic, 6: PaniniCylindrical, 7: HammerAitoff; see [DESCRIPTION.md Section 8.3](DESCRIPTION.md#83-optical-projections--field-of-view)). The default is 3. | `set projection 1` |
 | `timeflow`, `time_flow` | Integer | Time frame (0: Proper time $\tau$, 1: Coordinate time $t$). | `set timeflow 0` |
 | `speed`, `cameran_speed` | Float | Navigation movement rate. | `set speed 15.0` |
 | `fov` | Float | Field of view in degrees. | `set fov 75.0` |
-| `exposure` | Float | Exposure compensation in EV units. | `set exposure 1.5` |
-| `tonemapper`, `tonemap` | Integer | Operator (0: Linear, 1: ACES, 2: Logarithmic, 3: Reinhard). | `set tonemapper 1` |
+| `exposure` | Float | Exposure compensation in EV units ([MATHEMATICAL_FORMULATION.md Section 8.3](MATHEMATICAL_FORMULATION.md#83-tone-mapping-and-color-grading)). | `set exposure 1.5` |
+| `tonemapper`, `tonemap` | Integer | Operator (0: Linear, 1: ACES, 2: Logarithmic, 3: Reinhard; see [MATHEMATICAL_FORMULATION.md Section 8.3](MATHEMATICAL_FORMULATION.md#83-tone-mapping-and-color-grading)). | `set tonemapper 1` |
 | `rtol` | Float | Relative integration tolerance. | `set rtol 1e-12` |
 | `atol` | Float | Absolute integration tolerance. | `set atol 1e-15` |
-| `min_step` | Float | Minimum integration step size bound. | `set min_step 1e-10` |
+| `min_step` | Float | Minimum integration step size bound ([MATHEMATICAL_FORMULATION.md Section 8.2](MATHEMATICAL_FORMULATION.md#82-step-control-termination-and-space-skipping)). | `set min_step 1e-10` |
 | `max_step` | Float | Maximum integration step size bound (clamped to 0.01 to 50). | `set max_step 1.0` |
-| `step_factor`, `step_scale` | Float | Step size scaling factor of the adaptive controller (clamped to 0.002 to 0.5). | `set step_factor 0.45` |
-| `render_scale`, `scale` | Float | Internal raster resolution scaling factor (0.1 to 2.0). | `set scale 1.0` |
+| `step_factor`, `step_scale` | Float | Step size scaling factor of the adaptive controller (clamped to 0.002 to 0.5; see [MATHEMATICAL_FORMULATION.md Section 8.2](MATHEMATICAL_FORMULATION.md#82-step-control-termination-and-space-skipping)). | `set step_factor 0.45` |
+| `render_scale`, `scale` | Float | Internal raster resolution scaling factor (0.1 to 2.0; see [ARCHITECTURE.md Section 2.9](ARCHITECTURE.md#29-render-pipeline)). | `set scale 1.0` |
 | `ray_steps`, `steps_limit` | Integer | Maximum integration steps per ray (64 to 65536). | `set ray_steps 2048` |
 | `performance`, `perf` | Integer | Performance profile preset (0 to 5; 6 denotes Custom and leaves the current values unchanged). Preset contents are listed in [Section 2.5](#25-command-processing-and-performance-presets). | `set performance 2` |
 | `camera_mode`, `cam_mode` | Integer | Mode (0: Free Fly, 1: Orbit Center, 2: Spherical, 3: Rocket Thrust). Behaviors are described in [Section 3.2](#32-navigation-modes). | `set camera_mode 0` |
@@ -250,7 +250,7 @@ The Capture Studio, its sequence modes and its output files are described in [AR
 
 ## 4. Headless Batch Exporter (`headless_exporter`)
 
-The `headless_exporter` binary processes declarative simulation scenarios without graphical dependencies.
+The `headless_exporter` binary (`apps/headless_exporter/main.cpp`) processes declarative simulation scenarios without graphical dependencies.
 
 ### 4.1. Command Line Syntax
 
@@ -262,16 +262,16 @@ The `headless_exporter` binary processes declarative simulation scenarios withou
 
 | Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `--scenario` | `<path>` | Path to declarative YAML scenario file. | None |
-| `--output-dir` | `<path>` | Output directory for scientific exports. | `./output` |
-| `--format` | `<fmt>` | Export format filter: `fits`, `hdf5`, `vtk`, `all`. | `all` |
+| `--scenario` | `<path>` | Path to declarative YAML scenario file ([FILE_FORMATS.md Section 1](FILE_FORMATS.md#1-declarative-scenario-definition-yaml)). | None |
+| `--output-dir` | `<path>` | Output directory for scientific exports ([FILE_FORMATS.md Section 1.1](FILE_FORMATS.md#11-schema-specification)). | `./output` |
+| `--format` | `<fmt>` | Export format filter: `fits` ([Section 2](FILE_FORMATS.md#2-flexible-image-transport-system-fits)), `hdf5` ([Section 3](FILE_FORMATS.md#3-hierarchical-data-format-h5)), `vtk` ([Section 4](FILE_FORMATS.md#4-visualization-toolkit-polydata-vtp)), `all`. | `all` |
 | `--steps` | `<N>` | Number of discrete integration cycles. | `1000` |
 | `--dt` | `<value>` | Discrete physical time step per cycle. | `0.01` |
 | `--width` | `<pixels>` | Horizontal raytracing raster resolution. | `1920` |
 | `--height` | `<pixels>` | Vertical raytracing raster resolution. | `1080` |
-| `--validate-benchmarks` | None | Executes the formal analytical test suite. | Disabled |
+| `--validate-benchmarks` | None | Executes the formal analytical test suite ([DESCRIPTION.md Section 12](DESCRIPTION.md#12-verification-criteria--benchmark-protocols)). | Disabled |
 | `--verbose` | None | Enables per-step constraint telemetry logging. | Disabled |
-| `--help`, `-h` | None | Prints CLI argument syntax & exits. | None |
+| `--help`, `-h` | None | Prints CLI argument syntax and exits. | None |
 
 ### 4.3. Execution Examples
 

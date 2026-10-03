@@ -770,6 +770,245 @@ namespace PanoramaDecodeDetail {
 		return result;
 	}
 
+[[nodiscard]] inline std::optional<DecodedPanorama> decode_png(std::span<const uint8_t> data) {
+		static constexpr std::array<uint8_t, 8> kSignature{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+		if (data.size() < kSignature.size() + 12 || !std::equal(kSignature.begin(), kSignature.end(), data.begin())) {
+			return std::nullopt;
+		}
+
+		const auto read_u32 = [&data](size_t offset) noexcept -> uint32_t {
+			return (static_cast<uint32_t>(data[offset]) << 24) | (static_cast<uint32_t>(data[offset + 1]) << 16) | (static_cast<uint32_t>(data[offset + 2]) << 8) | static_cast<uint32_t>(data[offset + 3]);
+		};
+
+		uint32_t image_width = 0;
+		uint32_t image_height = 0;
+		uint32_t bit_depth = 0;
+		uint32_t color_type = 0;
+		uint32_t interlace_method = 0;
+		bool header_seen = false;
+		std::array<std::array<uint8_t, 3>, 256> palette{};
+		size_t palette_entries = 0;
+		std::vector<uint8_t> compressed;
+
+		size_t pos = kSignature.size();
+		while (pos + 12 <= data.size()) {
+			const uint32_t length = read_u32(pos);
+			const size_t body = pos + 8;
+			if (static_cast<size_t>(length) + 4 > data.size() - body) {
+				break;
+			}
+			const char* type = reinterpret_cast<const char*>(data.data() + pos + 4);
+			if (std::memcmp(type, "IHDR", 4) == 0) {
+				if (length != 13 || data[body + 10] != 0 || data[body + 11] != 0) {
+					return std::nullopt;
+				}
+				image_width = read_u32(body);
+				image_height = read_u32(body + 4);
+				bit_depth = data[body + 8];
+				color_type = data[body + 9];
+				interlace_method = data[body + 12];
+				header_seen = true;
+			} else if (std::memcmp(type, "PLTE", 4) == 0) {
+				palette_entries = std::min<size_t>(length / 3, 256);
+				for (size_t i = 0; i < palette_entries; ++i) {
+					palette[i] = {data[body + i * 3], data[body + i * 3 + 1], data[body + i * 3 + 2]};
+				}
+			} else if (std::memcmp(type, "IDAT", 4) == 0) {
+				compressed.insert(compressed.end(), data.data() + body, data.data() + body + length);
+			} else if (std::memcmp(type, "IEND", 4) == 0) {
+				break;
+			}
+			pos = body + length + 4;
+		}
+
+		if (!header_seen || image_width == 0 || image_height == 0 || compressed.empty() || interlace_method > 1U) {
+			return std::nullopt;
+		}
+		if (static_cast<uint64_t>(image_width) * image_height > kMaxPanoramaPixels) {
+			return std::nullopt;
+		}
+
+		uint32_t channels = 0;
+		bool depth_valid = false;
+		switch (color_type) {
+			case 0:
+				channels = 1;
+				depth_valid = (bit_depth == 1 || bit_depth == 2 || bit_depth == 4 || bit_depth == 8 || bit_depth == 16);
+				break;
+			case 2:
+				channels = 3;
+				depth_valid = (bit_depth == 8 || bit_depth == 16);
+				break;
+			case 3:
+				channels = 1;
+				depth_valid = (bit_depth == 1 || bit_depth == 2 || bit_depth == 4 || bit_depth == 8);
+				break;
+			case 4:
+				channels = 2;
+				depth_valid = (bit_depth == 8 || bit_depth == 16);
+				break;
+			case 6:
+				channels = 4;
+				depth_valid = (bit_depth == 8 || bit_depth == 16);
+				break;
+			default:
+				return std::nullopt;
+		}
+		if (!depth_valid || (color_type == 3 && palette_entries == 0)) {
+			return std::nullopt;
+		}
+
+		const uint32_t bits_per_pixel = channels * bit_depth;
+		const size_t filter_stride = (bits_per_pixel + 7U) / 8U;
+
+		struct PngPass {
+			uint32_t x0;
+			uint32_t y0;
+			uint32_t dx;
+			uint32_t dy;
+		};
+		static constexpr std::array<PngPass, 7> kAdam7Passes{{{0, 0, 8, 8}, {4, 0, 8, 8}, {0, 4, 4, 8}, {2, 0, 4, 4}, {0, 2, 2, 4}, {1, 0, 2, 2}, {0, 1, 1, 2}}};
+		static constexpr std::array<PngPass, 1> kSinglePass{{{0, 0, 1, 1}}};
+		const PngPass* passes = (interlace_method != 0U) ? kAdam7Passes.data() : kSinglePass.data();
+		const size_t pass_count = (interlace_method != 0U) ? kAdam7Passes.size() : kSinglePass.size();
+
+		const auto pass_extent = [&](const PngPass& pass, uint32_t& pass_width, uint32_t& pass_height) noexcept {
+			pass_width = (image_width > pass.x0) ? (image_width - pass.x0 + pass.dx - 1U) / pass.dx : 0U;
+			pass_height = (image_height > pass.y0) ? (image_height - pass.y0 + pass.dy - 1U) / pass.dy : 0U;
+		};
+
+		size_t raw_total = 0;
+		for (size_t pass_index = 0; pass_index < pass_count; ++pass_index) {
+			uint32_t pass_width = 0;
+			uint32_t pass_height = 0;
+			pass_extent(passes[pass_index], pass_width, pass_height);
+			if (pass_width == 0U || pass_height == 0U) {
+				continue;
+			}
+			raw_total += ((static_cast<size_t>(pass_width) * bits_per_pixel + 7U) / 8U + 1U) * pass_height;
+		}
+
+		std::vector<uint8_t> raw(raw_total);
+		if (inflate_zlib(std::span<const uint8_t>(compressed), raw.data(), raw_total) < raw_total) {
+			return std::nullopt;
+		}
+
+		const uint32_t sample_mask = (bit_depth >= 8U) ? 0xFFU : ((1U << bit_depth) - 1U);
+		const auto read_sample = [&](const uint8_t* row, size_t sample_index) noexcept -> uint32_t {
+			if (bit_depth == 16U) {
+				return (static_cast<uint32_t>(row[sample_index * 2]) << 8) | row[sample_index * 2 + 1];
+			}
+			if (bit_depth == 8U) {
+				return row[sample_index];
+			}
+			const size_t bit_offset = sample_index * bit_depth;
+			const uint32_t shift = 8U - bit_depth - static_cast<uint32_t>(bit_offset & 7U);
+			return (static_cast<uint32_t>(row[bit_offset >> 3]) >> shift) & sample_mask;
+		};
+		const auto to_byte = [&](uint32_t value) noexcept -> uint8_t {
+			if (bit_depth == 16U) return static_cast<uint8_t>(value >> 8);
+			if (bit_depth == 8U) return static_cast<uint8_t>(value);
+			return static_cast<uint8_t>(value * 255U / sample_mask);
+		};
+
+		DecodedPanorama result;
+		result.width = image_width;
+		result.height = image_height;
+		result.texels.assign(static_cast<size_t>(image_width) * image_height, 0U);
+
+		std::vector<uint8_t> previous_row;
+		std::vector<uint8_t> current_row;
+		size_t offset = 0;
+		for (size_t pass_index = 0; pass_index < pass_count; ++pass_index) {
+			const PngPass& pass = passes[pass_index];
+			uint32_t pass_width = 0;
+			uint32_t pass_height = 0;
+			pass_extent(pass, pass_width, pass_height);
+			if (pass_width == 0U || pass_height == 0U) {
+				continue;
+			}
+			const size_t row_bytes = (static_cast<size_t>(pass_width) * bits_per_pixel + 7U) / 8U;
+			previous_row.assign(row_bytes, 0);
+
+			for (uint32_t row = 0; row < pass_height; ++row) {
+				const uint8_t filter = raw[offset++];
+				current_row.assign(raw.begin() + static_cast<std::ptrdiff_t>(offset), raw.begin() + static_cast<std::ptrdiff_t>(offset + row_bytes));
+				offset += row_bytes;
+
+				for (size_t i = 0; i < row_bytes; ++i) {
+					const int left = (i >= filter_stride) ? current_row[i - filter_stride] : 0;
+					const int up = previous_row[i];
+					const int up_left = (i >= filter_stride) ? previous_row[i - filter_stride] : 0;
+					int predictor = 0;
+					switch (filter) {
+						case 0:
+							break;
+						case 1:
+							predictor = left;
+							break;
+						case 2:
+							predictor = up;
+							break;
+						case 3:
+							predictor = (left + up) / 2;
+							break;
+						case 4: {
+							const int estimate = left + up - up_left;
+							const int distance_left = std::abs(estimate - left);
+							const int distance_up = std::abs(estimate - up);
+							const int distance_up_left = std::abs(estimate - up_left);
+							if (distance_left <= distance_up && distance_left <= distance_up_left) {
+								predictor = left;
+							} else if (distance_up <= distance_up_left) {
+								predictor = up;
+							} else {
+								predictor = up_left;
+							}
+							break;
+						}
+						default:
+							return std::nullopt;
+					}
+					current_row[i] = static_cast<uint8_t>(current_row[i] + predictor);
+				}
+
+				const uint8_t* row_data = current_row.data();
+				const uint32_t dest_y = pass.y0 + row * pass.dy;
+				for (uint32_t px = 0; px < pass_width; ++px) {
+					const uint32_t dest_x = pass.x0 + px * pass.dx;
+					const size_t first_sample = static_cast<size_t>(px) * channels;
+					uint8_t r = 0;
+					uint8_t g = 0;
+					uint8_t b = 0;
+					switch (color_type) {
+						case 0:
+						case 4:
+							r = g = b = to_byte(read_sample(row_data, first_sample));
+							break;
+						case 3: {
+							const uint32_t palette_index = read_sample(row_data, first_sample);
+							if (palette_index < palette_entries) {
+								r = palette[palette_index][0];
+								g = palette[palette_index][1];
+								b = palette[palette_index][2];
+							}
+							break;
+						}
+						default:
+							r = to_byte(read_sample(row_data, first_sample));
+							g = to_byte(read_sample(row_data, first_sample + 1));
+							b = to_byte(read_sample(row_data, first_sample + 2));
+							break;
+					}
+					result.texels[static_cast<size_t>(dest_y) * image_width + dest_x] = DecodedPanorama::pack_texel(r, g, b);
+				}
+				previous_row.swap(current_row);
+			}
+		}
+
+		return result;
+	}
+
 	[[nodiscard]] inline std::optional<std::vector<uint8_t>> read_asset_file(std::string_view relative_path) {
 		namespace fs = std::filesystem;
 		std::error_code ec;
@@ -851,6 +1090,8 @@ namespace PanoramaDecodeDetail {
 			decoded = decode_jpeg(std::span<const uint8_t>(*bytes));
 		} else if (ext == "tif" || ext == "tiff") {
 			decoded = decode_tiff(std::span<const uint8_t>(*bytes));
+		} else if (ext == "png") {
+			decoded = decode_png(std::span<const uint8_t>(*bytes));
 		}
 		if (decoded.has_value() && decoded->is_valid()) {
 			return downscale_panorama_to_budget(std::move(*decoded), kMaxPanoramaBudgetWidth);

@@ -3,6 +3,9 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
 #include "relativistic/render/body_surface_shading.hpp"
+#include "relativistic/render/earth_surface_shading.hpp"
+#include "relativistic/render/earth_texture_requirements.hpp"
+#include "relativistic/optics/earth_texture_image.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
 #include "relativistic/optics/spectrum.hpp"
 #include "relativistic/optics/cie_observer.hpp"
@@ -213,6 +216,9 @@ private:
 			const double pixel_coverage_ratio_lod = apparent_angular_radius_lod / std::max(angular_pixel_size_lod, 1e-12);
 			const bool lod_point = (params.body_render_low_power_mode == 0U) && (pixel_coverage_ratio_lod < static_cast<double>(std::max(params.body_render_point_pixel_threshold, 1U)));
 			const bool lod_simple = (params.body_render_low_power_mode != 0U) || lod_point || (pixel_coverage_ratio_lod < static_cast<double>(params.body_render_lod_pixel_threshold));
+			const bool earth_shading = (body.surface_texture_mode == Optics::kEarthSurfaceTextureMode) && (params.body_render_low_power_mode == 0U);
+			const bool shade_surface = !lod_simple || earth_shading;
+			std::array<float, 3> earth_emissive{0.0f, 0.0f, 0.0f};
 
 			const double norm_lz = std::clamp(lz / scale_c, -1.0, 1.0);
 			const double theta = std::acos(norm_lz);
@@ -228,7 +234,34 @@ private:
 			bool city_lights_mode = false;
 			float city_lights_speckle = 0.0f;
 
-			if (!lod_simple) {
+			if (earth_shading) {
+				const auto earth_variant = Optics::earth_map_variant_from_index(body.earth_map_variant);
+				const auto earth_quality = Optics::earth_map_quality_from_index(body.earth_map_quality);
+				const double earth_u = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
+				const double earth_v = theta * (1.0 / std::numbers::pi_v<double>);
+				auto& earth_loader = Optics::EarthTextureLoader::instance();
+				std::array<float, 3> earth_day_rgb{r_surf, g_surf, b_surf};
+				std::array<float, 3> earth_night_rgb{0.0f, 0.0f, 0.0f};
+				if (Optics::earth_variant_uses_day_map(earth_variant)) {
+					if (const auto sampled = earth_loader.sample(Optics::EarthMapKind::Day, earth_quality, earth_u, earth_v)) {
+						earth_day_rgb = *sampled;
+					}
+				}
+				if (Optics::earth_variant_uses_night_map(earth_variant)) {
+					if (const auto sampled = earth_loader.sample(Optics::EarthMapKind::Night, earth_quality, earth_u, earth_v)) {
+						earth_night_rgb = *sampled;
+					}
+				}
+				const double earth_origin_distance = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
+				const float earth_sun_facing = (earth_origin_distance > 1e-9)
+					? static_cast<float>(-(nx * hit_x + ny * hit_y + nz * hit_z) / earth_origin_distance)
+					: static_cast<float>(view_dot_n);
+				const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, body.earth_terminator_softness, earth_sun_facing, earth_day_rgb, earth_night_rgb);
+				r_surf = earth_color.albedo[0];
+				g_surf = earth_color.albedo[1];
+				b_surf = earth_color.albedo[2];
+				earth_emissive = earth_color.emissive;
+			} else if (!lod_simple) {
 				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1) * std::max(body.texture_detail_scale, 0.1));
 				const float roughness_f = static_cast<float>(std::clamp(body.noise_roughness, 0.05, 1.0));
 				const float sample_x = static_cast<float>(std::sin(theta) * std::cos(phi)) * noise_scale_f;
@@ -392,8 +425,8 @@ private:
 				}
 			}
 
-			std::array<float, 3> body_emissive{0.0f, 0.0f, 0.0f};
-			if (!lod_simple) {
+			std::array<float, 3> body_emissive = earth_emissive;
+			if (shade_surface) {
 				const double origin_distance = std::sqrt(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z);
 				const float sun_facing = (origin_distance > 1e-9)
 					? static_cast<float>(-(nx * hit_x + ny * hit_y + nz * hit_z) / origin_distance)
@@ -3630,6 +3663,7 @@ public:
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
 		static_cast<void>(stage_stats);
+		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
@@ -3667,6 +3701,7 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr,
 		RenderStageStats* stage_stats = nullptr
 	) noexcept {
+		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);

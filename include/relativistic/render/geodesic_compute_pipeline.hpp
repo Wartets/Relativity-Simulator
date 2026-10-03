@@ -110,6 +110,30 @@ private:
 		}
 	}
 
+	void await_earth_textures(std::span<const GpuBodyData> bodies) noexcept {
+		const auto requirements = EarthTextureRequirements::gather(bodies);
+		if (!requirements.any()) {
+			return;
+		}
+		constexpr std::chrono::seconds timeout{30};
+		try {
+			if (use_gpu_compute_.load(std::memory_order_relaxed) && gpu_executor_ != nullptr && gpu_executor_->is_ready()) {
+				std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
+				static_cast<void>(gpu_executor_->await_earth_textures(requirements, timeout));
+				return;
+			}
+			auto& loader = Optics::EarthTextureLoader::instance();
+			if (requirements.day) {
+				static_cast<void>(loader.await(Optics::EarthMapKind::Day, requirements.quality, timeout));
+			}
+			if (requirements.night) {
+				static_cast<void>(loader.await(Optics::EarthMapKind::Night, requirements.quality, timeout));
+			}
+		} catch (...) {
+			Core::log_error("Waiting for the Earth textures failed; the capture continues with the fallback surface color.");
+		}
+	}
+
 	[[nodiscard]] bool try_gpu_dispatch(const GpuCameraPushConstants& params, std::vector<GpuPixelOutput>& output, std::span<const GpuBodyData> bodies, const std::atomic<bool>* cancel = nullptr) noexcept {
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
@@ -470,6 +494,7 @@ public:
 		}
 
 		try {
+			await_earth_textures(bodies);
 			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
 				if (try_gpu_dispatch(camera_constants, output, bodies) && output.size() == pixel_count) {
 					return true;
@@ -513,6 +538,7 @@ public:
 		band_constants.dispatch_row_count = rows;
 
 		try {
+			await_earth_textures(bodies);
 			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
 				if (try_gpu_dispatch(band_constants, output, bodies, cancel) && output.size() == pixel_count) {
 					return true;

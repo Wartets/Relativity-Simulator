@@ -199,11 +199,19 @@ inline constexpr std::array<const char*, 10> kBodySurfacePresetNames{
 	"Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"
 };
 
-inline constexpr std::array<const char*, 13> kBodyTextureModeNames{
+inline constexpr std::array<const char*, 14> kBodyTextureModeNames{
 	"Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
 	"Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
 	"Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
-	"City Lights (Night Side)", "Nebulous Gas Cloud"
+	"City Lights (Night Side)", "Nebulous Gas Cloud", "Earth Photographic Map (Blue Marble)"
+};
+
+inline constexpr std::array<const char*, 3> kEarthMapVariantNames{
+	"Day Map", "Night Map", "Automatic Day/Night Blend"
+};
+
+inline constexpr std::array<const char*, 2> kEarthMapQualityNames{
+	"1K (1024x512, lowest GPU cost)", "2K (2048x1024, highest detail)"
 };
 
 inline constexpr std::array<const char*, 6> kBodyAtmosphereModeNames{
@@ -859,6 +867,7 @@ private:
 			case 10U: return "Volcanic magma: tertiary color glowing cracks over primary crust with secondary patches.";
 			case 11U: return "City lights: primary/secondary land with a speckled night side driven by Night Side City Lights.";
 			case 12U: return "Nebulous cloud: three-color wisps mixing primary, secondary and tertiary colors.";
+			case 13U: return "Earth photographic map: real day and night imagery with an automatic lit-side mask. Only the texture layers stay editable on top, and the images are loaded only while a body uses this mode.";
 			default: return "Unknown texture mode.";
 		}
 	}
@@ -1222,6 +1231,34 @@ private:
 		return changed;
 	}
 
+	[[nodiscard]] bool render_earth_texture_controls(Dynamics::PostNewtonianBody& b) noexcept {
+		bool changed = false;
+
+		int variant_idx = std::min(static_cast<int>(b.earth_map_variant), static_cast<int>(kEarthMapVariantNames.size()) - 1);
+		if (ImGui::Combo("Earth Map Version", &variant_idx, kEarthMapVariantNames.data(), static_cast<int>(kEarthMapVariantNames.size()))) {
+			b.earth_map_variant = Optics::earth_map_variant_from_index(static_cast<uint32_t>(variant_idx));
+			changed = true;
+		}
+		render_setting_tooltip("Day shows the sunlit photographic map, Night shows the city-lights map as self-illumination, and Automatic masks both by the lit side of the body for a continuous blue-marble transition.");
+
+		int quality_idx = std::min(static_cast<int>(b.earth_map_quality), static_cast<int>(kEarthMapQualityNames.size()) - 1);
+		if (ImGui::Combo("Earth Map Quality", &quality_idx, kEarthMapQualityNames.data(), static_cast<int>(kEarthMapQualityNames.size()))) {
+			b.earth_map_quality = Optics::earth_map_quality_from_index(static_cast<uint32_t>(quality_idx));
+			changed = true;
+		}
+		render_setting_tooltip("Resolution of the Earth images decoded and uploaded to the GPU. When several Earth bodies request different qualities, the highest one is used on the GPU.");
+
+		if (b.earth_map_variant == Optics::EarthMapVariant::Automatic) {
+			if (ImGui::SliderFloat("Terminator Blend Softness", &b.earth_terminator_softness, 0.0f, 1.0f, "%.2f")) {
+				changed = true;
+			}
+			render_setting_tooltip("Width of the transition between the day and night images around the terminator. Low values give a sharp line, high values hide the mask with a wide twilight blend.");
+		}
+
+		render_wrapped_colored_text(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "While the Earth texture is active, colors, noise, roughness, detail, polar caps, city lights and ring shadow are locked. Surface texture layers remain fully editable so clouds and other details can still be added.");
+		return changed;
+	}
+
 	[[nodiscard]] bool render_base_surface_tab(Dynamics::PostNewtonianBody& b) noexcept {
 		bool changed = false;
 
@@ -1232,6 +1269,8 @@ private:
 		}
 		render_setting_tooltip("Defines the ray-traced 3D shape. Oblate and prolate spheroids deform from the J2 moment, and the triaxial ellipsoid adds a flattened second axis.");
 
+		const bool earth_texture_active = (b.surface_texture_mode == Dynamics::Body3DSurfaceTextureMode::EarthBlueMarble);
+		ImGui::BeginDisabled(earth_texture_active);
 		int preset_idx = std::min(static_cast<int>(b.preset_3d), static_cast<int>(kBodySurfacePresetNames.size()) - 1);
 		if (ImGui::Combo("Surface Preset", &preset_idx, kBodySurfacePresetNames.data(), static_cast<int>(kBodySurfacePresetNames.size()))) {
 			apply_body_preset_defaults(b, static_cast<Dynamics::Body3DPreset>(preset_idx));
@@ -1244,6 +1283,10 @@ private:
 			changed = true;
 		}
 		render_setting_tooltip("Restores the base appearance parameters of the current preset without touching texture layers.");
+		ImGui::EndDisabled();
+		if (earth_texture_active) {
+			ImGui::TextDisabled("Surface presets are locked while the Earth texture is active; change the Base Texture Mode to leave it.");
+		}
 
 		int texture_idx = std::min(static_cast<int>(b.surface_texture_mode), static_cast<int>(kBodyTextureModeNames.size()) - 1);
 		if (ImGui::Combo("Base Texture Mode", &texture_idx, kBodyTextureModeNames.data(), static_cast<int>(kBodyTextureModeNames.size()))) {
@@ -1251,6 +1294,10 @@ private:
 			changed = true;
 		}
 		render_wrapped_colored_text(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), texture_mode_description(static_cast<uint32_t>(texture_idx)));
+
+		if (earth_texture_active) {
+			return render_earth_texture_controls(b) || changed;
+		}
 
 		if (ImGui::ColorEdit4("Primary Color", b.color.data())) changed = true;
 		if (ImGui::ColorEdit4("Secondary Color", b.color_secondary.data())) changed = true;

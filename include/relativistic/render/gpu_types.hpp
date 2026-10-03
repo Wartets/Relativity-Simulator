@@ -127,6 +127,9 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t dispatch_row_offset{0};
 	uint32_t dispatch_row_count{0};
 
+	uint32_t earth_day_width{0};
+	uint32_t earth_night_width{0};
+
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
 
@@ -263,6 +266,9 @@ struct alignas(16) GpuBodyData {
 	double polar_cap_strength{0.0};
 	double ring_system_enabled{0.0};
 	double night_side_light_intensity{0.0};
+	uint32_t earth_map_variant{0};
+	uint32_t earth_map_quality{0};
+	float earth_terminator_softness{0.25f};
 	std::array<double, 4> spin_axis{0.0, 0.0, 1.0, 0.0};
 
 	uint32_t surface_layer_count{0};
@@ -297,7 +303,7 @@ struct alignas(16) GpuBodyGpuLayout {
 	uint32_t surface_texture_mode{0};
 	uint32_t atmosphere_mode{0};
 	uint32_t preset_3d{0};
-	uint32_t pad0{0};
+	uint32_t earth_map_variant{0};
 	double color_tertiary_r{0.9};
 	double color_tertiary_g{0.85};
 	double color_tertiary_b{0.6};
@@ -310,8 +316,8 @@ struct alignas(16) GpuBodyGpuLayout {
 	double spin_axis_z{1.0};
 	double spin_axis_reserved{0.0};
 	uint32_t surface_layer_count{0};
-	uint32_t layer_pad0{0};
-	uint32_t layer_pad1{0};
+	uint32_t earth_map_quality{0};
+	float earth_terminator_softness{0.25f};
 	uint32_t layer_pad2{0};
 	GpuSurfaceLayer surface_layers[kMaxSurfaceLayers]{};
 
@@ -344,7 +350,7 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.surface_texture_mode = b.surface_texture_mode;
 		g.atmosphere_mode = b.atmosphere_mode;
 		g.preset_3d = b.preset_3d;
-		g.pad0 = 0U;
+		g.earth_map_variant = b.earth_map_variant;
 		g.color_tertiary_r = b.color_tertiary[0];
 		g.color_tertiary_g = b.color_tertiary[1];
 		g.color_tertiary_b = b.color_tertiary[2];
@@ -356,6 +362,8 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.spin_axis_y = b.spin_axis[1];
 		g.spin_axis_z = b.spin_axis[2];
 		g.surface_layer_count = std::min<uint32_t>(b.surface_layer_count, static_cast<uint32_t>(kMaxSurfaceLayers));
+		g.earth_map_quality = b.earth_map_quality;
+		g.earth_terminator_softness = b.earth_terminator_softness;
 		for (size_t i = 0; i < kMaxSurfaceLayers; ++i) {
 			g.surface_layers[i] = b.surface_layers[i];
 		}

@@ -3,6 +3,7 @@
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
+#include "relativistic/optics/earth_texture_image.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/input_actions.hpp"
@@ -74,6 +75,7 @@ private:
 	double last_logical_time_{-1.0};
 	double last_precision_selector_{-1.0};
 	uint64_t last_synced_version_{0};
+	uint64_t last_earth_texture_revision_{0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
 	uint32_t interlace_phase_{0};
@@ -592,6 +594,11 @@ public:
 			if (current_ver != last_synced_version_) {
 				force_rerender_ = true;
 				last_synced_version_ = current_ver;
+			}
+			const uint64_t earth_texture_revision = Optics::EarthTextureLoader::instance().revision();
+			if (earth_texture_revision != last_earth_texture_revision_) {
+				force_rerender_ = true;
+				last_earth_texture_revision_ = earth_texture_revision;
 			}
 			const auto snap = orchestrator_.scheduler().snapshot();
 			const bool is_time_progressing = !snap.is_paused || snap.remaining_steps > 0;

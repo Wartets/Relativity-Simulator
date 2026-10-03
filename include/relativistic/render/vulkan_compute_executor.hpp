@@ -3,6 +3,9 @@
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/optics/sky_panorama_image.hpp"
+#include "relativistic/optics/earth_texture_image.hpp"
+#include "relativistic/render/earth_texture_requirements.hpp"
+#include <thread>
 #include "relativistic/core/engine_log.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
@@ -71,6 +74,25 @@ private:
 	VkFence fence_{VK_NULL_HANDLE};
 	VkPhysicalDeviceMemoryProperties memory_properties_{};
 	bool staging_is_coherent_{false};
+
+	struct EarthTextureSlot {
+		VkImage image{VK_NULL_HANDLE};
+		VkDeviceMemory memory{VK_NULL_HANDLE};
+		VkImageView view{VK_NULL_HANDLE};
+		uint32_t width{0};
+		uint32_t height{0};
+		Optics::EarthMapQuality quality{Optics::EarthMapQuality::Q1K};
+		bool resident{false};
+		bool rejected{false};
+	};
+
+	static constexpr uint32_t kEarthDescriptorBinding = 5;
+
+	VkSampler earth_sampler_{VK_NULL_HANDLE};
+	EarthTextureSlot earth_placeholder_{};
+	std::array<EarthTextureSlot, Optics::kEarthMapKindCount> earth_slots_{};
+	Optics::EarthTextureIdleGate earth_idle_gate_{};
+	bool earth_supported_{false};
 
 	bool ready_{false};
 	bool device_lost_{false};
@@ -273,13 +295,13 @@ private:
 		return true;
 	}
 
-	[[nodiscard]] bool create_panorama_image(uint32_t width, uint32_t height, VkImage& out_image, VkDeviceMemory& out_memory) const noexcept {
+	[[nodiscard]] bool create_panorama_image(uint32_t width, uint32_t height, VkImage& out_image, VkDeviceMemory& out_memory, uint32_t mip_levels = 1U) const noexcept {
 		VkImageCreateInfo image_info{};
 		image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 		image_info.imageType = VK_IMAGE_TYPE_2D;
 		image_info.format = VK_FORMAT_R8G8B8A8_SRGB;
 		image_info.extent = VkExtent3D{width, height, 1};
-		image_info.mipLevels = 1;
+		image_info.mipLevels = mip_levels;
 		image_info.arrayLayers = 1;
 		image_info.samples = VK_SAMPLE_COUNT_1_BIT;
 		image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -349,7 +371,7 @@ private:
 		vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
 	}
 
-	[[nodiscard]] bool submit_panorama_upload(VkBuffer source, VkImage destination, uint32_t width, uint32_t height) noexcept {
+	[[nodiscard]] bool submit_texture_upload(VkBuffer source, VkImage destination, std::span<const VkBufferImageCopy> regions, uint32_t mip_levels) noexcept {
 		if (vkResetCommandBuffer(command_buffer_, 0) != VK_SUCCESS) {
 			return false;
 		}
@@ -369,7 +391,7 @@ private:
 		to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		to_transfer.image = destination;
 		to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		to_transfer.subresourceRange.levelCount = 1;
+		to_transfer.subresourceRange.levelCount = mip_levels;
 		to_transfer.subresourceRange.layerCount = 1;
 		to_transfer.srcAccessMask = 0;
 		to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -380,11 +402,7 @@ private:
 			0, 0, nullptr, 0, nullptr, 1, &to_transfer
 		);
 
-		VkBufferImageCopy region{};
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.layerCount = 1;
-		region.imageExtent = VkExtent3D{width, height, 1};
-		vkCmdCopyBufferToImage(command_buffer_, source, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		vkCmdCopyBufferToImage(command_buffer_, source, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(regions.size()), regions.data());
 
 		VkImageMemoryBarrier to_shader_read{};
 		to_shader_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -394,7 +412,7 @@ private:
 		to_shader_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		to_shader_read.image = destination;
 		to_shader_read.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		to_shader_read.subresourceRange.levelCount = 1;
+		to_shader_read.subresourceRange.levelCount = mip_levels;
 		to_shader_read.subresourceRange.layerCount = 1;
 		to_shader_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		to_shader_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -417,7 +435,7 @@ private:
 		submit_info.commandBufferCount = 1;
 		submit_info.pCommandBuffers = &command_buffer_;
 		if (vkQueueSubmit(compute_queue_, 1, &submit_info, fence_) != VK_SUCCESS) {
-			Core::log_error("GPU sky panorama upload submission failed; falling back to the procedural sky.");
+			Core::log_error("GPU texture upload submission failed; falling back to the CPU renderer for subsequent frames.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;
@@ -425,7 +443,7 @@ private:
 		constexpr uint64_t kPanoramaUploadTimeoutNs = 3000000000ULL;
 		const VkResult panorama_fence_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kPanoramaUploadTimeoutNs);
 		if (panorama_fence_result != VK_SUCCESS) {
-			Core::log_error("GPU sky panorama upload timed out or the device was lost; falling back to the procedural sky.");
+			Core::log_error("GPU texture upload timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;
@@ -484,7 +502,11 @@ private:
 		std::memcpy(mapped, pixels, static_cast<size_t>(required_bytes));
 		vkUnmapMemory(device_, upload_memory);
 
-		const bool copied = submit_panorama_upload(upload_buffer, new_image, width, height);
+		VkBufferImageCopy copy_region{};
+		copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy_region.imageSubresource.layerCount = 1;
+		copy_region.imageExtent = VkExtent3D{width, height, 1};
+		const bool copied = submit_texture_upload(upload_buffer, new_image, std::span<const VkBufferImageCopy>(&copy_region, 1), 1U);
 		destroy_buffer(upload_buffer, upload_memory);
 
 		if (!copied) {
@@ -530,6 +552,206 @@ private:
 		return true;
 	}
 
+	void destroy_earth_texture(EarthTextureSlot& slot) noexcept {
+		if (slot.view != VK_NULL_HANDLE) {
+			vkDestroyImageView(device_, slot.view, nullptr);
+			slot.view = VK_NULL_HANDLE;
+		}
+		if (slot.image != VK_NULL_HANDLE) {
+			vkDestroyImage(device_, slot.image, nullptr);
+			slot.image = VK_NULL_HANDLE;
+		}
+		if (slot.memory != VK_NULL_HANDLE) {
+			vkFreeMemory(device_, slot.memory, nullptr);
+			slot.memory = VK_NULL_HANDLE;
+		}
+		slot.width = 0;
+		slot.height = 0;
+		slot.resident = false;
+	}
+
+	void write_earth_descriptor(size_t kind_index, VkImageView view) noexcept {
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = earth_sampler_;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = descriptor_set_;
+		write.dstBinding = kEarthDescriptorBinding + static_cast<uint32_t>(kind_index);
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+	}
+
+	[[nodiscard]] bool upload_earth_texture(const Optics::EarthTextureImage& image, EarthTextureSlot& destination) {
+		if (!image.is_valid()) {
+			return false;
+		}
+
+		const auto& base = image.levels.front();
+		VkPhysicalDeviceProperties device_properties{};
+		vkGetPhysicalDeviceProperties(physical_device_, &device_properties);
+		if (base.width > device_properties.limits.maxImageDimension2D || base.height > device_properties.limits.maxImageDimension2D) {
+			return false;
+		}
+
+		const uint32_t level_count = static_cast<uint32_t>(image.levels.size());
+		std::vector<VkBufferImageCopy> regions;
+		regions.reserve(level_count);
+		VkDeviceSize total_bytes = 0;
+		for (uint32_t level = 0; level < level_count; ++level) {
+			const auto& mip = image.levels[level];
+			if (!mip.is_valid()) {
+				return false;
+			}
+			VkBufferImageCopy region{};
+			region.bufferOffset = total_bytes;
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.mipLevel = level;
+			region.imageSubresource.layerCount = 1;
+			region.imageExtent = VkExtent3D{mip.width, mip.height, 1};
+			regions.push_back(region);
+			total_bytes += static_cast<VkDeviceSize>(mip.texels.size()) * sizeof(uint32_t);
+		}
+
+		VkImage new_image{VK_NULL_HANDLE};
+		VkDeviceMemory new_memory{VK_NULL_HANDLE};
+		if (!create_panorama_image(base.width, base.height, new_image, new_memory, level_count)) {
+			return false;
+		}
+
+		VkImageViewCreateInfo view_info{};
+		view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		view_info.image = new_image;
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+		view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		view_info.subresourceRange.levelCount = level_count;
+		view_info.subresourceRange.layerCount = 1;
+
+		VkImageView new_view{VK_NULL_HANDLE};
+		if (vkCreateImageView(device_, &view_info, nullptr, &new_view) != VK_SUCCESS) {
+			vkDestroyImage(device_, new_image, nullptr);
+			vkFreeMemory(device_, new_memory, nullptr);
+			return false;
+		}
+
+		const auto discard_new_resources = [&]() noexcept {
+			vkDestroyImageView(device_, new_view, nullptr);
+			vkDestroyImage(device_, new_image, nullptr);
+			vkFreeMemory(device_, new_memory, nullptr);
+		};
+
+		VkBuffer upload_buffer{VK_NULL_HANDLE};
+		VkDeviceMemory upload_memory{VK_NULL_HANDLE};
+		if (!create_buffer(
+			total_bytes,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			upload_buffer,
+			upload_memory
+		)) {
+			discard_new_resources();
+			return false;
+		}
+
+		void* mapped = nullptr;
+		if (vkMapMemory(device_, upload_memory, 0, total_bytes, 0, &mapped) != VK_SUCCESS) {
+			destroy_buffer(upload_buffer, upload_memory);
+			discard_new_resources();
+			return false;
+		}
+		for (uint32_t level = 0; level < level_count; ++level) {
+			const auto& mip = image.levels[level];
+			std::memcpy(static_cast<uint8_t*>(mapped) + regions[level].bufferOffset, mip.texels.data(), mip.texels.size() * sizeof(uint32_t));
+		}
+		vkUnmapMemory(device_, upload_memory);
+
+		const bool copied = submit_texture_upload(upload_buffer, new_image, regions, level_count);
+		destroy_buffer(upload_buffer, upload_memory);
+		if (!copied) {
+			discard_new_resources();
+			return false;
+		}
+
+		destroy_earth_texture(destination);
+		destination.image = new_image;
+		destination.memory = new_memory;
+		destination.view = new_view;
+		destination.width = base.width;
+		destination.height = base.height;
+		destination.resident = true;
+		return true;
+	}
+
+	void release_earth_slot(size_t index) noexcept {
+		EarthTextureSlot& slot = earth_slots_[index];
+		slot.rejected = false;
+		if (!slot.resident) {
+			return;
+		}
+		write_earth_descriptor(index, earth_placeholder_.view);
+		destroy_earth_texture(slot);
+	}
+
+	[[nodiscard]] bool synchronize_earth_textures(const EarthTextureRequirements& requirements) {
+		if (!earth_supported_) {
+			return false;
+		}
+
+		auto& loader = Optics::EarthTextureLoader::instance();
+		if (earth_idle_gate_.should_release(requirements.any())) {
+			for (size_t index = 0; index < earth_slots_.size(); ++index) {
+				release_earth_slot(index);
+			}
+			loader.release_all();
+			return false;
+		}
+
+		const std::array<bool, Optics::kEarthMapKindCount> demanded{requirements.day, requirements.night};
+		bool pending = false;
+		for (size_t index = 0; index < earth_slots_.size(); ++index) {
+			const auto kind = static_cast<Optics::EarthMapKind>(index);
+			EarthTextureSlot& slot = earth_slots_[index];
+
+			if (!demanded[index]) {
+				if (requirements.any()) {
+					release_earth_slot(index);
+					loader.release_kind(kind);
+				}
+				continue;
+			}
+			if (slot.resident && slot.quality == requirements.quality) {
+				continue;
+			}
+			if (slot.rejected && slot.quality == requirements.quality) {
+				continue;
+			}
+
+			const auto image = loader.try_acquire(kind, requirements.quality);
+			if (image == nullptr) {
+				pending = pending || loader.is_decoding(kind, requirements.quality);
+				continue;
+			}
+
+			if (upload_earth_texture(*image, slot)) {
+				slot.quality = requirements.quality;
+				slot.rejected = false;
+				write_earth_descriptor(index, slot.view);
+			} else {
+				slot.quality = requirements.quality;
+				slot.rejected = true;
+				Core::log_error("Earth texture could not be uploaded to the GPU, the body keeps its base color.");
+			}
+			loader.release(kind, requirements.quality);
+		}
+		return pending;
+	}
+
 public:
 	VulkanComputeExecutor() = default;
 
@@ -568,7 +790,7 @@ public:
 			return false;
 		}
 
-		std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+		std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		bindings[0].descriptorCount = 1;
@@ -593,6 +815,16 @@ public:
 		bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		bindings[4].descriptorCount = 1;
 		bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[5].binding = 5;
+		bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		bindings[5].descriptorCount = 1;
+		bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[6].binding = 6;
+		bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		bindings[6].descriptorCount = 1;
+		bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -630,7 +862,7 @@ public:
 		std::array<VkDescriptorPoolSize, 3> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
 		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
-		pool_sizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+		pool_sizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3};
 
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -750,12 +982,45 @@ public:
 			(void)ensure_panorama_placeholder();
 		}
 
+		VkSamplerCreateInfo earth_sampler_info{};
+		earth_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		earth_sampler_info.magFilter = VK_FILTER_LINEAR;
+		earth_sampler_info.minFilter = VK_FILTER_LINEAR;
+		earth_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		earth_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		earth_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		earth_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		earth_sampler_info.minLod = 0.0f;
+		earth_sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+		earth_sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+		earth_supported_ = (vkCreateSampler(device_, &earth_sampler_info, nullptr, &earth_sampler_) == VK_SUCCESS);
+		if (earth_supported_) {
+			earth_supported_ = upload_earth_texture(Optics::EarthTextureImage::make_placeholder(), earth_placeholder_);
+		}
+		if (!earth_supported_) {
+			return false;
+		}
+		for (size_t index = 0; index < earth_slots_.size(); ++index) {
+			write_earth_descriptor(index, earth_placeholder_.view);
+		}
+
 		ready_ = true;
 		return true;
 	}
 
 	[[nodiscard]] bool is_ready() const noexcept {
 		return ready_ && !device_lost_;
+	}
+
+	[[nodiscard]] bool await_earth_textures(const EarthTextureRequirements& requirements, std::chrono::milliseconds timeout) {
+		const auto deadline = std::chrono::steady_clock::now() + timeout;
+		while (synchronize_earth_textures(requirements)) {
+			if (!is_ready() || std::chrono::steady_clock::now() >= deadline) {
+				return false;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+		return true;
 	}
 
 	void shutdown() noexcept {
@@ -779,6 +1044,15 @@ public:
 		destroy_buffer(body_buffer_, body_memory_, &body_mapped_);
 		destroy_buffer(persistent_counter_buffer_, persistent_counter_memory_, &persistent_counter_mapped_);
 		destroy_panorama_texture();
+		for (auto& earth_slot : earth_slots_) {
+			destroy_earth_texture(earth_slot);
+		}
+		destroy_earth_texture(earth_placeholder_);
+		if (earth_sampler_ != VK_NULL_HANDLE) {
+			vkDestroySampler(device_, earth_sampler_, nullptr);
+			earth_sampler_ = VK_NULL_HANDLE;
+		}
+		earth_supported_ = false;
 		if (panorama_sampler_ != VK_NULL_HANDLE) {
 			vkDestroySampler(device_, panorama_sampler_, nullptr);
 			panorama_sampler_ = VK_NULL_HANDLE;
@@ -956,6 +1230,9 @@ private:
 		} else {
 			last_panorama_key_ = 0xFFFFFFFFU;
 		}
+		static_cast<void>(synchronize_earth_textures(EarthTextureRequirements::gather(bodies)));
+		actual_params.earth_day_width = earth_slots_[0].resident ? earth_slots_[0].width : 0U;
+		actual_params.earth_night_width = earth_slots_[1].resident ? earth_slots_[1].width : 0U;
 		std::memcpy(uniform_mapped_, &actual_params, sizeof(GpuCameraPushConstants));
 		if (!bodies.empty() && body_mapped_ != nullptr) {
 			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));

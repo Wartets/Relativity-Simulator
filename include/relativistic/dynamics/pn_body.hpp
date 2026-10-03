@@ -7,17 +7,18 @@
 #include <algorithm>
 #include <string_view>
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/optics/earth_texture_catalog.hpp"
 
 namespace Relativistic::Dynamics {
 
 enum class Body3DGeometryModel : uint32_t {
-	OblateSpheroid  = 0,
-	RigidSphere     = 1,
-	Sphere          = 1, // alias
-	ProlateSpheroid = 2,
+	OblateSpheroid    = 0,
+	RigidSphere       = 1,
+	Sphere            = 1, // alias
+	ProlateSpheroid   = 2,
 	TriaxialEllipsoid = 3,
-	Toroid          = 4,
-	Mesh            = 5
+	Toroid            = 4,
+	Mesh              = 5
 };
 
 enum class Body3DSurfaceTextureMode : uint32_t {
@@ -33,33 +34,36 @@ enum class Body3DSurfaceTextureMode : uint32_t {
 	IcyCracked          = 9,
 	VolcanicMagma       = 10,
 	CityLightsNightSide = 11,
-	NebulousGas         = 12
+	NebulousGas         = 12,
+	EarthBlueMarble     = 13
 };
 
 enum class Body3DAtmosphereMode : uint32_t {
-	RayleighLimbShell   = 0,
+	RayleighLimbShell    = 0,
 	VolumetricScattering = 1,
-	Off                 = 2,
-	None                = 2, // alias
-	ThickHaze           = 3,
-	VolumetricMie       = 4,
-	GlowingCorona       = 5
+	Off                  = 2,
+	None                 = 2, // alias
+	ThickHaze            = 3,
+	VolumetricMie        = 4,
+	GlowingCorona        = 5
 };
 
 enum class Body3DPreset : uint32_t {
-	Star             = 0,
-	Terrestrial      = 1,
+	Star              = 0,
+	Terrestrial       = 1,
 	TerrestrialPlanet = 1, // alias
-	GasGiant         = 2,
-	IceGiant         = 3,
-	Metallic         = 4,
-	Moon             = 4, // alias
-	Asteroid         = 5,
-	NeutronStar      = 6,
-	Pulsar           = 7,
-	BlackHole        = 8,
-	Custom           = 9
+	GasGiant          = 2,
+	IceGiant          = 3,
+	Metallic          = 4,
+	Moon              = 4, // alias
+	Asteroid          = 5,
+	NeutronStar       = 6,
+	Pulsar            = 7,
+	BlackHole         = 8,
+	Custom            = 9
 };
+
+static_assert(static_cast<uint32_t>(Body3DSurfaceTextureMode::EarthBlueMarble) == Optics::kEarthSurfaceTextureMode);
 
 struct alignas(64) PostNewtonianBody {
 	uint32_t id{0};
@@ -115,6 +119,9 @@ struct alignas(64) PostNewtonianBody {
 	float polar_cap_strength{0.0f};
 	bool ring_system_enabled{false};
 	float night_side_light_intensity{0.0f};
+	Optics::EarthMapVariant earth_map_variant{Optics::EarthMapVariant::Day};
+	Optics::EarthMapQuality earth_map_quality{Optics::EarthMapQuality::Q1K};
+	float earth_terminator_softness{0.25f};
 
 	void set_name(std::string_view new_name) noexcept {
 		const size_t len = std::min(new_name.size(), name.size() - 1);
@@ -254,6 +261,9 @@ struct alignas(64) PostNewtonianBody {
 		gpu.surface_texture_mode = static_cast<uint32_t>(surface_texture_mode);
 		gpu.atmosphere_mode = static_cast<uint32_t>(atmosphere_mode);
 		gpu.preset_3d = static_cast<uint32_t>(preset_3d);
+		gpu.earth_map_variant = static_cast<uint32_t>(earth_map_variant);
+		gpu.earth_map_quality = static_cast<uint32_t>(earth_map_quality);
+		gpu.earth_terminator_softness = std::clamp(earth_terminator_softness, 0.0f, 1.0f);
 		if (is_spacetime_source) {
 			gpu.color_primary = {0.0, 0.0, 0.0, 1.0};
 			gpu.color_secondary = {0.01, 0.01, 0.015, 1.0};

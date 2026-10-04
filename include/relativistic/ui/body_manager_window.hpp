@@ -139,13 +139,13 @@ inline constexpr std::array<BodyTemplateSpec, 9> kBodyTemplateSpecs{{
 
 struct BodyCreationArchetype {
 	std::string_view label;
-	double mass_min;
-	double mass_max;
-	double radius_min;
-	double radius_max;
-	double orbit_min;
-	double orbit_max;
-	double spin_scale;
+	double mass_ratio_min;
+	double mass_ratio_max;
+	double size_factor_min;
+	double size_factor_max;
+	double orbit_gravitational_radii_min;
+	double orbit_gravitational_radii_max;
+	double breakup_spin_fraction;
 	double quadrupole_min;
 	double quadrupole_max;
 	double j2_min;
@@ -172,17 +172,17 @@ struct BodyCreationArchetype {
 };
 
 inline constexpr std::array<BodyCreationArchetype, 6> kCreationArchetypes{{
-	BodyCreationArchetype{"Probe", 1e-8, 1e-3, 1e-3, 5e-2, 12.0, 120.0, 1e-4, 1e-12, 1e-8, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
+	BodyCreationArchetype{"Probe", 1e-12, 1e-9, 4e-4, 2e-3, 12.0, 120.0, 0.05, 1e-12, 1e-8, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
 		Dynamics::Body3DPreset::Asteroid, 0.55, 0.08, 0.10, 0.75, 6.0, 14.0, 0.6, 0.95, 0.0, 0.0, 0.0, 0.0, 0.05, 0.4},
-	BodyCreationArchetype{"Shard", 1e-4, 1.0, 5e-2, 1.5, 16.0, 220.0, 1e-3, 1e-10, 1e-6, 1e-8, 1e-4, 1e-10, 1e-5, 1e-10, 1e-5,
+	BodyCreationArchetype{"Shard", 1e-10, 1e-7, 1e-3, 5e-3, 10.0, 150.0, 0.1, 1e-10, 1e-6, 1e-8, 1e-4, 1e-10, 1e-5, 1e-10, 1e-5,
 		Dynamics::Body3DPreset::Metallic, 0.08, 0.06, 0.30, 0.55, 4.0, 10.0, 0.5, 0.85, 0.0, 0.0, 0.0, 0.0, 0.05, 0.35},
-	BodyCreationArchetype{"World", 1.0, 50.0, 0.8, 6.0, 30.0, 350.0, 5e-3, 1e-9, 1e-5, 1e-6, 1e-3, 1e-8, 1e-5, 1e-9, 1e-5,
+	BodyCreationArchetype{"World", 1e-7, 1e-5, 4e-3, 1.5e-2, 10.0, 200.0, 0.05, 1e-9, 1e-5, 1e-4, 3e-3, 1e-8, 1e-5, 1e-9, 1e-5,
 		Dynamics::Body3DPreset::TerrestrialPlanet, 0.42, 0.14, 0.55, 0.75, 3.0, 8.0, 0.3, 0.6, 0.08, 0.3, 0.0, 0.0, 0.05, 0.2},
-	BodyCreationArchetype{"Giant", 10.0, 1e4, 4.0, 20.0, 60.0, 900.0, 8e-3, 1e-8, 1e-4, 1e-4, 2e-2, 1e-7, 1e-4, 1e-7, 1e-4,
+	BodyCreationArchetype{"Giant", 1e-5, 1e-3, 1.2e-2, 4e-2, 15.0, 250.0, 0.25, 1e-8, 1e-4, 1e-3, 2e-2, 1e-7, 1e-4, 1e-7, 1e-4,
 		Dynamics::Body3DPreset::GasGiant, 0.10, 0.16, 0.45, 0.85, 2.0, 6.0, 0.2, 0.5, 0.2, 0.4, 0.0, 0.0, 0.1, 0.5},
-	BodyCreationArchetype{"Compact", 1.0, 1e6, 1e-4, 0.5, 40.0, 400.0, 2e-2, 1e-12, 1e-7, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
+	BodyCreationArchetype{"Compact", 1e-3, 2e-2, 4.0, 8.0, 12.0, 250.0, 0.4, 1e-12, 1e-7, 1e-10, 1e-6, 1e-12, 1e-7, 1e-12, 1e-7,
 		Dynamics::Body3DPreset::NeutronStar, 0.58, 0.05, 0.08, 0.9, 1.5, 5.0, 0.15, 0.4, 0.0, 0.0, 0.5, 2.5, 0.5, 2.0},
-	BodyCreationArchetype{"Astral", 1e2, 1e8, 5.0, 100.0, 80.0, 1000.0, 1e-2, 1e-8, 1e-3, 1e-5, 5e-2, 1e-7, 1e-4, 1e-7, 1e-4,
+	BodyCreationArchetype{"Astral", 2e-3, 4e-2, 1.5e-2, 4e-2, 25.0, 300.0, 0.05, 1e-8, 1e-3, 1e-7, 1e-4, 1e-7, 1e-4, 1e-7, 1e-4,
 		Dynamics::Body3DPreset::Star, 0.13, 0.10, 0.35, 1.0, 3.0, 12.0, 0.4, 0.85, 0.0, 0.0, 1.5, 3.5, 0.02, 0.2}
 }};
 
@@ -235,6 +235,10 @@ private:
 	Dynamics::PostNewtonianBody creation_draft_{};
 	Dynamics::BodySurfaceLayerSet creation_layers_{};
 	Dynamics::PostNewtonianBody black_hole_draft_{};
+	bool creation_draft_pristine_{true};
+	double creation_reference_mass_{-1.0};
+	bool black_hole_draft_pristine_{true};
+	double black_hole_reference_mass_{-1.0};
 	BodyEditorViewState selected_view_{};
 	BodyEditorViewState creation_view_{};
 	BodyEditorViewState source_view_{};
@@ -537,6 +541,49 @@ private:
 		return name;
 	}
 
+	static void apply_material_defaults(Dynamics::PostNewtonianBody& b, Dynamics::Body3DPreset preset) noexcept {
+		double specific_heat = 900.0;
+		b.friction_coefficient = 0.4;
+		b.restitution = 0.5;
+		b.absorption_factor = 0.7;
+		b.integrity = 1.0;
+		switch (preset) {
+			case Dynamics::Body3DPreset::Star:
+				b.temperature = 5772.0;
+				b.absorption_factor = 1.0;
+				b.restitution = 0.0;
+				b.friction_coefficient = 0.0;
+				specific_heat = 1.2e4;
+				break;
+			case Dynamics::Body3DPreset::TerrestrialPlanet:
+				b.temperature = 288.0;
+				specific_heat = 1000.0;
+				break;
+			case Dynamics::Body3DPreset::GasGiant:
+			case Dynamics::Body3DPreset::IceGiant:
+				b.temperature = 130.0;
+				b.restitution = 0.1;
+				specific_heat = 1.2e4;
+				break;
+			case Dynamics::Body3DPreset::Metallic:
+				b.temperature = 220.0;
+				specific_heat = 600.0;
+				break;
+			case Dynamics::Body3DPreset::NeutronStar:
+			case Dynamics::Body3DPreset::Pulsar:
+				b.temperature = 1.0e6;
+				b.restitution = 0.0;
+				b.friction_coefficient = 0.0;
+				specific_heat = 1.0e3;
+				break;
+			default:
+				b.temperature = 180.0;
+				specific_heat = 800.0;
+				break;
+		}
+		b.heat_capacity = std::max(b.mass, 1e-9) * specific_heat;
+	}
+
 	void reset_creation_view() noexcept {
 		creation_view_.mass_log_mode = true;
 		creation_view_.radius_log_mode = true;
@@ -550,16 +597,26 @@ private:
 		d = Dynamics::PostNewtonianBody{};
 		apply_body_preset_defaults(d, profile.preset);
 
-		d.mass = sample_log_uniform(profile.mass_min, profile.mass_max);
-		d.radius = sample_log_uniform(profile.radius_min, profile.radius_max);
-		d.reference_radius = std::max(d.radius * random_real(0.85, 1.25), 1e-6);
+		const double reference_mass = std::max(central_mass, 1.0);
+		const double orbit_radius = reference_mass * sample_log_uniform(profile.orbit_gravitational_radii_min, profile.orbit_gravitational_radii_max);
+		const double mass_ratio = sample_log_uniform(profile.mass_ratio_min, profile.mass_ratio_max);
+		const double mass_percentile = std::clamp(std::log(mass_ratio / profile.mass_ratio_min) / std::log(profile.mass_ratio_max / profile.mass_ratio_min), 0.0, 1.0);
+		d.mass = reference_mass * mass_ratio;
+		if (profile.preset == Dynamics::Body3DPreset::NeutronStar) {
+			d.radius = d.mass * random_real(profile.size_factor_min, profile.size_factor_max);
+		} else {
+			const double size_fraction = profile.size_factor_min * std::pow(profile.size_factor_max / profile.size_factor_min, mass_percentile) * random_real(0.85, 1.15);
+			d.radius = std::max(orbit_radius * size_fraction, 4.0 * d.mass);
+		}
+		d.radius = std::max(d.radius, 1e-6);
+		d.reference_radius = d.radius;
 		d.quadrupole_moment = sample_signed_uniform(profile.quadrupole_min, profile.quadrupole_max);
-		d.j2 = sample_signed_uniform(profile.j2_min, profile.j2_max);
+		d.j2 = sample_log_uniform(profile.j2_min, profile.j2_max);
 		d.j3 = sample_signed_uniform(profile.j3_min, profile.j3_max);
 		d.j4 = sample_signed_uniform(profile.j4_min, profile.j4_max);
 
-		const double orbit_radius = sample_log_uniform(profile.orbit_min, profile.orbit_max);
-		const double theta = std::acos(std::clamp(random_real(-1.0, 1.0), -1.0, 1.0));
+		const double inclination = random_real(-0.35, 0.35);
+		const double theta = std::numbers::pi * 0.5 - inclination;
 		const double phi = random_real(0.0, 2.0 * std::numbers::pi);
 		const double sin_theta = std::sin(theta);
 		d.position = {orbit_radius * sin_theta * std::cos(phi), orbit_radius * sin_theta * std::sin(phi), orbit_radius * std::cos(theta)};
@@ -570,11 +627,18 @@ private:
 		}
 		const double speed_scale = random_real(0.82, 1.18);
 		d.velocity = {velocity[0] * speed_scale, velocity[1] * speed_scale, velocity[2] * speed_scale};
+		const double breakup_rate = std::sqrt(std::max(orchestrator_.physical_gravitational_constant() * d.mass / (d.radius * d.radius * d.radius), 0.0));
+		const double spin_rate = breakup_rate * profile.breakup_spin_fraction * random_real(0.1, 1.0);
+		const double axis_tilt = random_real(0.0, 0.5);
+		const double axis_azimuth = random_real(0.0, 2.0 * std::numbers::pi);
+		const double angular_momentum = 0.4 * d.mass * d.radius * d.radius * spin_rate;
+		d.rotation_speed = spin_rate;
 		d.spin = {
-			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale),
-			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale),
-			sample_signed_uniform(profile.spin_scale * 0.2, profile.spin_scale)
+			angular_momentum * std::sin(axis_tilt) * std::cos(axis_azimuth),
+			angular_momentum * std::sin(axis_tilt) * std::sin(axis_azimuth),
+			angular_momentum * std::cos(axis_tilt)
 		};
+		apply_material_defaults(d, profile.preset);
 
 		const float primary_hue = static_cast<float>(std::fmod(profile.hue_center + random_real(-profile.hue_spread, profile.hue_spread) + 1.0, 1.0));
 		const auto primary_rgb = hsv_to_rgb(primary_hue, static_cast<float>(profile.saturation), static_cast<float>(profile.value));
@@ -599,6 +663,8 @@ private:
 		d.ring_system_enabled = is_giant && (random_int(0, 1) == 0);
 
 		d.set_name(unique_name(synthesize_creation_name(profile.label, d.mass, d.radius, orbit_radius)));
+		creation_draft_pristine_ = true;
+		creation_reference_mass_ = orchestrator_.parameters().mass;
 		creation_layers_ = Dynamics::BodySurfaceLayerSet{};
 		creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
 		reset_creation_view();
@@ -607,10 +673,14 @@ private:
 	void reset_black_hole_draft() noexcept {
 		auto& d = black_hole_draft_;
 		d = Dynamics::PostNewtonianBody{};
-		d.mass = 50.0;
-		d.radius = 100.0;
+		const double central_mass = std::max(orchestrator_.parameters().mass, 1.0);
+		d.mass = 0.25 * central_mass;
+		d.radius = 2.0 * d.mass;
 		d.reference_radius = d.radius;
-		d.position = {40.0, 0.0, 0.0};
+		d.position = {30.0 * central_mass, 0.0, 0.0};
+		d.velocity = compute_circular_orbit_velocity(d.position, central_mass + d.mass);
+		black_hole_draft_pristine_ = true;
+		black_hole_reference_mass_ = orchestrator_.parameters().mass;
 		d.is_spacetime_source = true;
 		apply_body_preset_defaults(d, Dynamics::Body3DPreset::BlackHole);
 		d.set_name(unique_name("New Black Hole"));
@@ -656,6 +726,8 @@ private:
 				static_cast<void>(creation_layers_.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(layer_template))));
 			}
 		}
+		d.velocity = compute_circular_orbit_velocity(d.position, std::max(orchestrator_.parameters().mass, 1e-12));
+		creation_draft_pristine_ = false;
 		reset_creation_view();
 	}
 
@@ -1724,6 +1796,9 @@ private:
 	}
 
 	void render_creation_tab() noexcept {
+		if (creation_draft_pristine_ && std::abs(orchestrator_.parameters().mass - creation_reference_mass_) > 1e-9 * std::max(std::abs(creation_reference_mass_), 1.0)) {
+			randomize_creation_defaults();
+		}
 		ImGui::TextWrapped("Every property of a body is configured here with the same editor used for existing bodies, then spawned into the running system.");
 
 		int template_idx = creation_preset_;
@@ -1756,6 +1831,7 @@ private:
 				creation_draft_.acceleration = {0.0, 0.0, 0.0};
 				creation_draft_.set_name(unique_name(display_name(*selected)));
 				creation_preset_ = static_cast<int>(BodyPresetTemplate::Custom);
+				creation_draft_pristine_ = false;
 			}
 			ImGui::EndDisabled();
 			render_setting_tooltip("Loads every property, the appearance and all texture layers of the body selected in the catalog into the draft.");
@@ -1763,7 +1839,10 @@ private:
 
 		ImGui::Separator();
 		ImGui::PushID("BodyCreationEditor");
-		static_cast<void>(render_body_editor(creation_draft_, &creation_layers_, creation_view_, BodyEditorSection::Complete));
+		const BodyEditResult creation_edit = render_body_editor(creation_draft_, &creation_layers_, creation_view_, BodyEditorSection::Complete);
+		if (creation_edit.body_changed || creation_edit.layers_changed) {
+			creation_draft_pristine_ = false;
+		}
 		ImGui::PopID();
 
 		ImGui::Separator();
@@ -1849,8 +1928,14 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Create New Black Hole");
+		if (black_hole_draft_pristine_ && std::abs(orchestrator_.parameters().mass - black_hole_reference_mass_) > 1e-9 * std::max(std::abs(black_hole_reference_mass_), 1.0)) {
+			reset_black_hole_draft();
+		}
 		ImGui::PushID("BlackHoleCreationEditor");
-		static_cast<void>(render_body_editor(black_hole_draft_, nullptr, source_view_, BodyEditorSection::SpacetimeSource));
+		const BodyEditResult black_hole_edit = render_body_editor(black_hole_draft_, nullptr, source_view_, BodyEditorSection::SpacetimeSource);
+		if (black_hole_edit.body_changed) {
+			black_hole_draft_pristine_ = false;
+		}
 		ImGui::PopID();
 		if (ImGui::Button("Spawn Black Hole", ImVec2(-1.0f, 30.0f))) {
 			black_hole_draft_.is_spacetime_source = true;
@@ -2223,16 +2308,20 @@ private:
 		orchestrator_.surface_layers().clear();
 		sys.clear_bodies();
 
-		const double central_mass = orchestrator_.parameters().mass;
-		const auto spawn_planet = [&](std::string_view name, double mass, double radius, double orbit_radius) noexcept {
+		const double central_mass = std::max(orchestrator_.parameters().mass, 1.0);
+		const auto spawn_planet = [&](std::string_view name, Dynamics::Body3DPreset preset, double mass_ratio, double size_fraction, double orbit_in_central_masses) noexcept {
+			const double mass = central_mass * mass_ratio;
+			const double orbit_radius = central_mass * orbit_in_central_masses;
+			const double radius = std::max(orbit_radius * size_fraction, 4.0 * mass);
 			const std::array<double, 3> position{orbit_radius, 0.0, 0.0};
 			Dynamics::PostNewtonianBody planet(0, mass, radius, position, compute_circular_orbit_velocity(position, central_mass), {0.0, 0.0, 0.0});
-			apply_body_preset_defaults(planet, Dynamics::Body3DPreset::TerrestrialPlanet);
+			apply_body_preset_defaults(planet, preset);
+			apply_material_defaults(planet, preset);
 			planet.set_name(name);
 			static_cast<void>(spawn_body(planet, Dynamics::BodySurfaceLayerSet{}));
 		};
-		spawn_planet("Inner Planet", 1e-4, 0.05, 10.0);
-		spawn_planet("Outer Planet", 3e-4, 0.08, 25.0);
+		spawn_planet("Inner Planet", Dynamics::Body3DPreset::TerrestrialPlanet, 3e-7, 0.006, 14.0);
+		spawn_planet("Outer Planet", Dynamics::Body3DPreset::GasGiant, 4e-5, 0.02, 32.0);
 		selected_body_index_ = -1;
 	}
 };

@@ -25,6 +25,8 @@
 #include "relativistic/ui/log_console_window.hpp"
 #include "relativistic/ui/secondary_viewport_manager.hpp"
 #include "relativistic/ui/capture_studio_window.hpp"
+#include "relativistic/ui/window_chrome.hpp"
+#include "relativistic/orchestrator/session_state.hpp"
 #include "relativistic/core/system_console.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 
@@ -59,6 +61,7 @@ private:
 	GLFWwindow* main_window_{nullptr};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	IO::UserSettings& user_settings_;
+	WindowChromeController window_chrome_;
 	InteractiveCameraController camera_controller_;
 	KeybindSettingsWindow keybind_window_;
 	HudManagerWindow hud_manager_window_;
@@ -85,11 +88,14 @@ private:
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
+	double autosave_elapsed_seconds_{0.0};
+	static constexpr double kAutosaveIntervalSeconds = 20.0;
 
 public:
 	explicit UiManager(Orchestrator::SimulationOrchestrator<1024>& orchestrator, IO::UserSettings& user_settings)
 		: orchestrator_(orchestrator),
 		  user_settings_(user_settings),
+		  window_chrome_(user_settings.window_chrome),
 		  camera_controller_(orchestrator),
 		  keybind_window_(camera_controller_.config()),
 		  hud_manager_window_(user_settings_.hud_layout),
@@ -247,9 +253,9 @@ public:
 		}
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
-		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_performance_preset(user_settings_.default_performance_preset)));
 
 		queue_startup_scenario();
+		queue_session_restore();
 
 		if (secondary_viewport_manager_) {
 			for (const auto& saved : user_settings_.secondary_views) {
@@ -259,7 +265,10 @@ public:
 			}
 		}
 
-		apply_multi_window_layout_preset(static_cast<UiLayoutPreset>(user_settings_.last_window_layout));
+		current_layout_ = static_cast<UiLayoutPreset>(std::min(user_settings_.last_window_layout, static_cast<uint32_t>(UiLayoutPreset::DeepAnalysis)));
+		if (user_settings_.window_chrome.geometries.empty()) {
+			pending_layout_reset_ = true;
+		}
 	}
 
 	void add_secondary_view(const std::string& name) {
@@ -315,7 +324,8 @@ public:
 		user_settings_.multi_window_mode = multi_window_mode_;
 		user_settings_.last_window_layout = static_cast<uint32_t>(current_layout_);
 		user_settings_.default_camera_mode = orchestrator_.parameters().camera_mode;
-		user_settings_.default_performance_preset = orchestrator_.parameters().performance_preset;
+		window_chrome_.capture_geometries();
+		Orchestrator::SessionStateStore::capture(orchestrator_, user_settings_.session_values);
 		user_settings_.window_control_panel_open = control_panel_window_.open_state();
 		user_settings_.window_performance_open = performance_window_.open_state();
 		user_settings_.window_scenario_open = scenario_window_ ? scenario_window_->open_state() : user_settings_.window_scenario_open;
@@ -417,9 +427,17 @@ public:
 		glfwPollEvents();
 		process_global_hotkeys();
 
+		autosave_elapsed_seconds_ += dt;
+		if (autosave_elapsed_seconds_ >= kAutosaveIntervalSeconds) {
+			autosave_elapsed_seconds_ = 0.0;
+			export_runtime_settings();
+			user_settings_.save();
+		}
+
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
+		window_chrome_.begin_frame();
 
 		render_main_menu_bar();
 
@@ -436,6 +454,7 @@ public:
 		show_viewport_ = true;
 		if (viewport_window_) {
 			try {
+				auto theme = window_chrome_.scope(WindowThemeId::Viewport);
 				viewport_window_->render(main_window_, dt, multi_window_mode_);
 			} catch (const std::exception& ex) {
 				Core::log_error(std::string("Viewport render frame failed and was skipped: ") + ex.what());
@@ -449,57 +468,73 @@ public:
 		}
 
 		if (scenario_window_ && scenario_window_->open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Scenarios);
 			scenario_window_->render();
 		}
 
 		if (control_panel_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Controls);
 			control_panel_window_.render();
 		}
 
 		if (telemetry_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Telemetry);
 			telemetry_window_.render(orchestrator_);
 		}
 
 		if (spectrograph_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Spectrograph);
 			spectrograph_window_.render(orchestrator_);
 		}
 
 		if (performance_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Performance);
 			performance_window_.render();
 		}
 
 		if (performance_analysis_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Analysis);
 			performance_analysis_window_.render();
 		}
 
 		if (diagnostics_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Diagnostics);
 			diagnostics_window_.render();
 		}
 
 		if (body_manager_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Bodies);
 			body_manager_window_.render();
 		}
 
 		if (keybind_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Keybinds);
 			keybind_window_.render(main_window_);
 		}
 
 		if (constants_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::Constants);
 			constants_window_.render();
 		}
 
 		if (log_console_window_.open_state()) {
+			auto theme = window_chrome_.scope(WindowThemeId::LogConsole);
 			log_console_window_.render();
 		}
 
 		if (capture_studio_window_) {
+			auto theme = window_chrome_.scope(WindowThemeId::CaptureStudio);
 			capture_studio_window_->render();
 		}
 
 		if (secondary_viewport_manager_) {
+			auto theme = window_chrome_.scope(WindowThemeId::SecondaryViews);
 			secondary_viewport_manager_->render_all();
 			secondary_viewport_manager_->render_management_panel(secondary_viewport_manager_panel_open_);
 		}
+
+		window_chrome_.process_context_requests();
+		window_chrome_.render_popup();
 
 		ImGui::Render();
 
@@ -547,6 +582,15 @@ public:
 	}
 
 private:
+	void queue_session_restore() {
+		if (user_settings_.session_values.empty()) {
+			return;
+		}
+		orchestrator_.queue_post_command_action([values = user_settings_.session_values](Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
+			Orchestrator::SessionStateStore::apply(orchestrator, values);
+		});
+	}
+
 	void queue_startup_scenario() {
 		if (!user_settings_.load_scenario_on_startup) {
 			return;
@@ -800,11 +844,8 @@ private:
 			const float top_h = std::clamp(screen_h * 0.68f, 450.0f, 780.0f);
 			const float bottom_h = screen_h - top_h - 45.0f;
 
-			auto set_window_rect = [](const char* name, ImVec2 pos, ImVec2 size) noexcept {
-				if (ImGui::FindWindowByName(name) != nullptr) {
-					ImGui::SetWindowPos(name, pos);
-					ImGui::SetWindowSize(name, size);
-				}
+			auto set_window_rect = [this](const char* name, ImVec2 pos, ImVec2 size) {
+				window_chrome_.place(name, WindowGeometry{pos.x, pos.y, size.x, size.y});
 			};
 
 			set_window_rect("Scenario Manager & Presets", ImVec2(offset_x + 15.0f, offset_y + 30.0f), ImVec2(left_col_w, top_h * 0.50f));

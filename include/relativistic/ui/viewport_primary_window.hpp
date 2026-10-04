@@ -8,6 +8,7 @@
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/input_actions.hpp"
 #include "relativistic/ui/schematic_view_renderer.hpp"
+#include "relativistic/ui/schematic_primary_source_overlay.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
@@ -460,7 +461,16 @@ public:
 				{
 					const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
 					schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
+					const bool central_object_requested = schematic_cfg_.show_central_object;
+					schematic_cfg_.show_central_object = false;
 					schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
+					schematic_cfg_.show_central_object = central_object_requested;
+					if (central_object_requested) {
+						SchematicPrimarySourceOverlay::draw(
+							ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_,
+							SchematicPrimarySourceOverlay::ViewRegion{schematic_pos, avail, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0)}
+						);
+					}
 				}
 				ImGui::Dummy(avail);
 
@@ -940,6 +950,8 @@ public:
 		const float toolbar_pad_scale = std::clamp(hud_layout_.toolbar_padding_scale, 0.4f, 3.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f * toolbar_pad_scale, 4.0f * toolbar_pad_scale));
 		ImGui::BeginGroup();
+		ImGui::Dummy(ImVec2(0.0f, 0.0f));
+		ImGui::SameLine(0.0f, 0.0f);
 
 		const auto& toolbar_keybinds = camera_controller_.config().keybinds;
 		auto toolbar_key_hint = [&](InputAction action) noexcept -> std::string {

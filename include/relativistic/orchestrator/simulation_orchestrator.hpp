@@ -26,6 +26,8 @@
 #include <fstream>
 #include <sstream>
 #include <mutex>
+#include <functional>
+#include <vector>
 
 namespace Relativistic::Orchestrator {
 
@@ -220,6 +222,7 @@ class SimulationOrchestrator {
 public:
 	static constexpr uint32_t CUSTOM_PERFORMANCE_PRESET = 6;
 	static constexpr const char* CUSTOM_SCENARIO_NAME = "Custom Spacetime";
+	using PostCommandAction = std::function<void(SimulationOrchestrator&)>;
 
 private:
 	Core::SpscQueue<Command, QueueCapacity> command_queue_;
@@ -240,6 +243,9 @@ private:
 	Dynamics::InteractionConfig interaction_config_{};
 	Units::UnitDisplayPreferences unit_preferences_{};
 	std::array<CustomParameterEntry, 32> custom_params_{};
+	std::mutex post_command_mutex_{};
+	std::vector<PostCommandAction> post_command_actions_{};
+	std::atomic<bool> post_command_pending_{false};
 
 	std::atomic<bool> is_running_{true};
 	std::atomic<uint64_t> commands_processed_{0};
@@ -534,7 +540,37 @@ public:
 			commands_processed_.fetch_add(1, std::memory_order_relaxed);
 			static_cast<void>(result_queue_.try_push(result));
 		}
+		run_post_command_actions();
 	}
+
+	void queue_post_command_action(PostCommandAction action) {
+		std::lock_guard<std::mutex> lock(post_command_mutex_);
+		post_command_actions_.push_back(std::move(action));
+		post_command_pending_.store(true, std::memory_order_release);
+	}
+
+private:
+	void run_post_command_actions() noexcept {
+		if (!post_command_pending_.load(std::memory_order_acquire)) {
+			return;
+		}
+		std::vector<PostCommandAction> actions;
+		{
+			std::lock_guard<std::mutex> lock(post_command_mutex_);
+			actions.swap(post_command_actions_);
+			post_command_pending_.store(false, std::memory_order_release);
+		}
+		for (auto& action : actions) {
+			try {
+				action(*this);
+			} catch (...) {
+				Core::log_error("A deferred orchestrator action failed and was skipped.");
+			}
+		}
+		state_version_.fetch_add(1, std::memory_order_release);
+	}
+
+public:
 
 	void apply_command(const Command& cmd, CommandResult& res) noexcept {
 		res.success = true;

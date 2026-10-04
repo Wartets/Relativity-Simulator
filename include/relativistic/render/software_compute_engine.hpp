@@ -5,6 +5,7 @@
 #include "relativistic/render/accretion_disk_model.hpp"
 #include "relativistic/render/body_surface_shading.hpp"
 #include "relativistic/render/earth_surface_shading.hpp"
+#include "relativistic/render/earth_terminator.hpp"
 #include "relativistic/render/body_lighting.hpp"
 #include "relativistic/render/earth_texture_requirements.hpp"
 #include "relativistic/optics/earth_texture_image.hpp"
@@ -258,7 +259,7 @@ private:
 					}
 				}
 				const float earth_sun_facing = static_cast<float>(light_sun_facing);
-				const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, body.earth_terminator_softness, earth_sun_facing, earth_day_rgb, earth_night_rgb);
+				const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, EarthTerminator::blend_softness(body.earth_terminator_softness), earth_sun_facing, earth_day_rgb, earth_night_rgb);
 				r_surf = earth_color.albedo[0];
 				g_surf = earth_color.albedo[1];
 				b_surf = earth_color.albedo[2];
@@ -504,8 +505,9 @@ private:
 
 			std::array<float, 3> light_factor{1.0f, 1.0f, 1.0f};
 			if (!lod_point) {
+				const float terminator_softness = earth_shading ? std::max(params.light_terminator_softness, body.earth_terminator_softness) : params.light_terminator_softness;
 				const float lit_amount = light.lit
-					? static_cast<float>(occluded ? 0.0 : BodyLighting::wrapped_diffuse(raw_ndl, params.light_terminator_softness))
+					? static_cast<float>(occluded ? 0.0 : BodyLighting::wrapped_diffuse(raw_ndl, terminator_softness))
 					: 1.0f;
 				const float ambient_level = light.lit ? params.light_ambient : 0.0f;
 				const float direct_level = lit_amount * light.intensity;

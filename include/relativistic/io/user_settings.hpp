@@ -4,6 +4,8 @@
 #include "relativistic/ui/camera_control_config.hpp"
 #include "relativistic/ui/hud_layout_config.hpp"
 #include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/ui/window_chrome.hpp"
+#include "relativistic/ui/interface_persistence.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include <cstdint>
@@ -68,6 +70,9 @@ struct UserSettings {
 	uint32_t body_manager_bulk_parameter_index{0};
 	bool body_manager_new_body_mass_log_mode{true};
 	bool body_manager_new_body_radius_log_mode{true};
+
+	UI::WindowChromeSettings window_chrome{};
+	std::unordered_map<std::string, std::string> session_values{};
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
@@ -147,7 +152,6 @@ struct UserSettings {
 
 	[[nodiscard]] static UserSettings load_or_default() {
 		UserSettings result{};
-		const bool crashed = previous_session_crashed();
 
 		std::ifstream file(settings_file_path());
 		if (!file.is_open()) {
@@ -191,7 +195,7 @@ struct UserSettings {
 		result.format_version = file_version;
 		result.load_policy = static_cast<SettingsLoadPolicy>(get_u32("load_policy", static_cast<uint32_t>(SettingsLoadPolicy::RestorePreviousSession)));
 
-		if (result.load_policy == SettingsLoadPolicy::AlwaysResetToDefaults || crashed) {
+		if (result.load_policy == SettingsLoadPolicy::AlwaysResetToDefaults) {
 			const auto preserved_policy = result.load_policy;
 			const auto preserved_dir = get_str("screenshot_output_directory", result.screenshot_output_directory);
 			result = UserSettings{};
@@ -398,6 +402,14 @@ struct UserSettings {
 			style.background_opacity = static_cast<float>(get_dbl((prefix + "background_opacity").c_str(), style.background_opacity));
 		}
 
+		result.window_chrome.read(kv);
+		UI::InterfacePersistence::read(kv, result.hud_layout, result.schematic_view);
+		for (const auto& [key, value] : kv) {
+			if (key.rfind("session_", 0) == 0) {
+				result.session_values[key.substr(8)] = value;
+			}
+		}
+
 		for (size_t i = 0; i < kMaxSecondaryViews; ++i) {
 			const std::string prefix = "secview_" + std::to_string(i) + "_";
 			auto& slot = result.secondary_views[i];
@@ -590,6 +602,12 @@ struct UserSettings {
 			out << prefix << "color_a=" << style.text_color[3] << "\n";
 			out << prefix << "show_background=" << (style.show_background ? 1 : 0) << "\n";
 			out << prefix << "background_opacity=" << style.background_opacity << "\n";
+		}
+
+		window_chrome.write(out);
+		UI::InterfacePersistence::write(out, hud_layout, schematic_view);
+		for (const auto& [key, value] : session_values) {
+			out << "session_" << key << "=" << value << "\n";
 		}
 
 		for (size_t i = 0; i < kMaxSecondaryViews; ++i) {

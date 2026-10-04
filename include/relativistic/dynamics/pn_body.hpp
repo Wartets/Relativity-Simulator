@@ -122,7 +122,7 @@ struct alignas(64) PostNewtonianBody {
 	float night_side_light_intensity{0.0f};
 	Optics::EarthMapVariant earth_map_variant{Optics::EarthMapVariant::Day};
 	Optics::EarthMapQuality earth_map_quality{Optics::EarthMapQuality::Q1K};
-	float earth_terminator_softness{0.25f};
+	float earth_terminator_softness{0.45f};
 	Render::AccretionDiskSettings accretion_disk{};
 
 	void set_name(std::string_view new_name) noexcept {

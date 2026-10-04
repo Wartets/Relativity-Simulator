@@ -557,7 +557,7 @@ public:
 		return false;
 	}
 
-	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0) {
+	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0, bool preserve_in_flight_render = false) {
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
 			{
@@ -629,7 +629,7 @@ public:
 
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
-			if (is_rendering_.load(std::memory_order_relaxed)) {
+			if (is_rendering_.load(std::memory_order_relaxed) && !preserve_in_flight_render) {
 				cancel_render_.store(true, std::memory_order_relaxed);
 			}
 			pending_constants_ = camera_constants;

@@ -612,13 +612,14 @@ public:
 			cam_consts.body_count = static_cast<uint32_t>(gpu_bodies.size());
 
 			const bool is_surface_walking_motion = (params.camera_mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk)) && camera_controller_.is_in_motion();
+			const bool walk_refresh_suppressed = is_surface_walking_motion && !params.camera_motion_live_refresh;
 
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
 			const bool precision_changed = (precision_selector != last_precision_selector_);
 
 			const uint64_t current_ver = orchestrator_.state_version();
 			if (current_ver != last_synced_version_) {
-				if (!is_surface_walking_motion) {
+				if (!walk_refresh_suppressed) {
 					force_rerender_ = true;
 				}
 				last_synced_version_ = current_ver;
@@ -637,12 +638,19 @@ public:
 			const double dispatch_clock = ImGui::GetTime();
 			const double minimum_time_interval = std::clamp(pipeline_.telemetry().execution_time_ms * 0.0012, 1.0 / 60.0, 0.25);
 			const bool time_refresh_due = is_time_progressing && time_changed && (is_navigating || !pipeline_.is_rendering()) && (dispatch_clock - last_dispatch_clock_) >= minimum_time_interval;
-			const bool is_dirty = ((!is_surface_walking_motion && (force_rerender_ || params_changed)) || precision_changed || time_refresh_due || (force_rerender_ && !is_surface_walking_motion));
+			const bool camera_pose_changed = comparable_consts.observer_position != last_camera_constants_.observer_position
+				|| comparable_consts.tetrad_e1 != last_camera_constants_.tetrad_e1
+				|| comparable_consts.tetrad_e2 != last_camera_constants_.tetrad_e2
+				|| comparable_consts.tetrad_e3 != last_camera_constants_.tetrad_e3
+				|| comparable_consts.field_of_view_rad != last_camera_constants_.field_of_view_rad;
+			const bool preserve_in_flight_render = params.camera_motion_live_refresh
+				&& (is_navigating || camera_pose_changed || camera_controller_.is_in_motion());
+			const bool is_dirty = (!walk_refresh_suppressed && (force_rerender_ || params_changed)) || precision_changed || time_refresh_due;
 
 			if (is_dirty && !capture_coordinator_->suppresses_live_render()) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);
 				pipeline_.set_projection_mode(static_cast<Observer::ProjectionMode>(params.projection_mode));
-				pipeline_.dispatch(cam_consts, gpu_bodies, total_enabled_bodies_this_frame);
+				pipeline_.dispatch(cam_consts, gpu_bodies, total_enabled_bodies_this_frame, preserve_in_flight_render);
 				last_camera_constants_ = cam_consts;
 				last_dispatch_clock_ = dispatch_clock;
 				capture_constants_valid_ = true;

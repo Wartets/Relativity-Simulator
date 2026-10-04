@@ -51,8 +51,8 @@ struct PhysicalParameters {
 	double integration_rtol{1e-01};
 	double integration_atol{1e-04};
 	double initial_step_size{-0.05};
-	double integration_min_step{0.004};
-	double integration_max_step{3.5};
+	double integration_min_step{0.0008};
+	double integration_max_step{38.0};
 	double integration_step_factor{0.45};
 	double escape_radius{100.0};
 	double resolution_scale{0.5};
@@ -61,6 +61,7 @@ struct PhysicalParameters {
 	uint32_t camera_mode{0};
 	bool camera_collision_enabled{false};
 	double camera_collision_clearance{0.05};
+	bool camera_motion_live_refresh{true};
 	uint32_t surface_walk_body_id{0};
 	uint32_t visual_overlays_flags{Relativistic::Render::RenderFlags::SKYBOX_STARS | Relativistic::Render::RenderFlags::USE_TILED_DISTRIBUTION | Relativistic::Render::RenderFlags::ENABLE_BODY_DOPPLER_BEAMING | Relativistic::Render::RenderFlags::ENABLE_BODY_GRAV_REDSHIFT | Relativistic::Render::RenderFlags::ENABLE_ATMOSPHERE_SCATTERING | Relativistic::Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING};
 	double sky_star_density{0.78};
@@ -103,7 +104,7 @@ struct PhysicalParameters {
 	uint32_t step_controller_mode{1};
 	bool space_skipping_enabled{false};
 	double space_skip_radius_scale{140.0};
-	double pole_guard_precision_scale{4.0};
+	double pole_guard_precision_scale{5.5};
 	double far_field_step_scale{7.8};
 	bool schematic_mode_enabled{false};
 	bool schematic_allow_simulation{true};
@@ -483,9 +484,21 @@ public:
 		}
 
 		if (params_.camera_mode == 3 && !scheduler_.is_paused()) {
-			camera_.position[0] += camera_.velocity[0] * dt;
-			camera_.position[1] += camera_.velocity[1] * dt;
-			camera_.position[2] += camera_.velocity[2] * dt;
+			constexpr double position_limit = 1.0e12;
+			const std::array<double, 3> advanced{
+				camera_.position[0] + camera_.velocity[0] * dt,
+				camera_.position[1] + camera_.velocity[1] * dt,
+				camera_.position[2] + camera_.velocity[2] * dt
+			};
+			if (std::isfinite(advanced[0]) && std::isfinite(advanced[1]) && std::isfinite(advanced[2])) {
+				camera_.position = {
+					std::clamp(advanced[0], -position_limit, position_limit),
+					std::clamp(advanced[1], -position_limit, position_limit),
+					std::clamp(advanced[2], -position_limit, position_limit)
+				};
+			} else {
+				camera_.velocity = {0.0, 0.0, 0.0};
+			}
 			sync_camera_spherical_from_cartesian();
 		}
 
@@ -568,17 +581,37 @@ public:
 				std::strncpy(res.message, "Parameter updated", sizeof(res.message) - 1);
 				break;
 			case CommandType::CameraMove:
-				camera_.position[0] += cmd.vec_values[0];
-				camera_.position[1] += cmd.vec_values[1];
-				camera_.position[2] += cmd.vec_values[2];
-				sync_camera_spherical_from_cartesian();
-				std::strncpy(res.message, "Camera translated", sizeof(res.message) - 1);
+				{
+					const std::array<double, 3> moved{
+						camera_.position[0] + cmd.vec_values[0],
+						camera_.position[1] + cmd.vec_values[1],
+						camera_.position[2] + cmd.vec_values[2]
+					};
+					constexpr double position_limit = 1.0e12;
+					if (std::isfinite(moved[0]) && std::isfinite(moved[1]) && std::isfinite(moved[2])) {
+						camera_.position = {
+							std::clamp(moved[0], -position_limit, position_limit),
+							std::clamp(moved[1], -position_limit, position_limit),
+							std::clamp(moved[2], -position_limit, position_limit)
+						};
+						sync_camera_spherical_from_cartesian();
+						std::strncpy(res.message, "Camera translated", sizeof(res.message) - 1);
+					} else {
+						res.success = false;
+						std::strncpy(res.message, "Camera translation rejected: non-finite result", sizeof(res.message) - 1);
+					}
+				}
 				break;
 			case CommandType::CameraRotate:
-				camera_.pitch = std::clamp(camera_.pitch + cmd.vec_values[0], -89.0, 89.0);
-				camera_.yaw += cmd.vec_values[1];
-				camera_.roll += cmd.vec_values[2];
-				std::strncpy(res.message, "Camera rotated", sizeof(res.message) - 1);
+				if (std::isfinite(cmd.vec_values[0]) && std::isfinite(cmd.vec_values[1]) && std::isfinite(cmd.vec_values[2])) {
+					camera_.pitch = std::clamp(camera_.pitch + cmd.vec_values[0], -89.0, 89.0);
+					camera_.yaw = std::remainder(camera_.yaw + cmd.vec_values[1], 360.0);
+					camera_.roll = std::remainder(camera_.roll + cmd.vec_values[2], 360.0);
+					std::strncpy(res.message, "Camera rotated", sizeof(res.message) - 1);
+				} else {
+					res.success = false;
+					std::strncpy(res.message, "Camera rotation rejected: non-finite input", sizeof(res.message) - 1);
+				}
 				break;
 			case CommandType::CameraSetFov:
 				camera_.fov_deg = std::clamp(cmd.numeric_value, 5.0, 175.0);
@@ -1488,6 +1521,9 @@ public:
 				break;
 			case ParameterType::CameraCollisionClearance:
 				params_.camera_collision_clearance = std::clamp(val, 0.0, 1.0e3);
+				break;
+			case ParameterType::CameraMotionLiveRefresh:
+				params_.camera_motion_live_refresh = (val > 0.5);
 				break;
 			case ParameterType::Custom:
 				if (custom_name != nullptr && custom_name[0] != '\0') {

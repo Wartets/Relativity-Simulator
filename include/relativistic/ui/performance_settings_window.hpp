@@ -310,6 +310,12 @@ public:
 				render_setting_tooltip("Fixed internal resolution scale multiplier used strictly during active camera translation.");
 			}
 
+			bool motion_live_refresh = orchestrator_.parameters().camera_motion_live_refresh;
+			if (ImGui::Checkbox("Live Refresh While Camera Moves", &motion_live_refresh)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraMotionLiveRefresh, motion_live_refresh ? 1.0 : 0.0)));
+			}
+			render_setting_tooltip("Keeps the frame being rendered instead of cancelling it whenever the camera moves or turns, so the image keeps updating during translation and rotation in every navigation mode. Only the newest pending camera pose is rendered after the current frame completes. Disable to restore the cancel-on-every-change behavior.");
+
 			ImGui::Spacing();
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Adaptive Step-Size Controller");

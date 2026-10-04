@@ -116,7 +116,8 @@ public:
 	}
 
 	void follow_active_target(double dt) noexcept {
-		if (!(dt > 0.0)) return;
+		if (!(dt > 0.0) || !std::isfinite(dt)) return;
+		dt = std::min(dt, kMaximumFrameSeconds);
 		synchronize_navigation_mode();
 		const auto prev_pos = orchestrator_.camera().position;
 		const double prev_pitch = orchestrator_.camera().pitch;
@@ -131,6 +132,7 @@ public:
 				orchestrator_.notify_state_changed();
 			}
 		}
+		restore_camera_if_invalid(prev_pos, prev_pitch, prev_yaw, prev_roll);
 	}
 
 	void reset_follow_state() noexcept {
@@ -250,7 +252,8 @@ public:
 	}
 
 	void update(GLFWwindow* window, double dt, bool is_hovered) noexcept {
-		if (window == nullptr || dt <= 0.0) return;
+		if (window == nullptr || !(dt > 0.0) || !std::isfinite(dt)) return;
+		dt = std::min(dt, kMaximumFrameSeconds);
 
 		handle_global_shortcuts(window);
 
@@ -293,6 +296,8 @@ public:
 			apply_view_collision(previous_position);
 		}
 
+		restore_camera_if_invalid(previous_position, previous_pitch, previous_yaw, previous_roll);
+
 		if (navigation_mode_ != CameraNavigationMode::SurfaceWalk) {
 			const auto& cam = orchestrator_.camera();
 			const bool moved = (cam.position[0] != previous_position[0] || cam.position[1] != previous_position[1] || cam.position[2] != previous_position[2]);
@@ -319,10 +324,64 @@ public:
 	}
 
 private:
+	static constexpr double kMaximumFrameSeconds = 0.25;
+	static constexpr double kCameraPositionLimit = 1.0e12;
 	static constexpr double kFollowPositionTolerance = 1.0e-10;
 	static constexpr double kFollowAngleToleranceDeg = 1.0e-7;
 	static constexpr double kMotionSpeedThreshold = 1.0e-6;
 	static constexpr double kMotionVelocityThreshold = 1.0e-4;
+
+	void restore_camera_if_invalid(const std::array<double, 3>& fallback_position, double fallback_pitch, double fallback_yaw, double fallback_roll) noexcept {
+		auto& cam = orchestrator_.camera();
+		const auto finite_vector = [](const std::array<double, 3>& v) noexcept {
+			return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
+		};
+		bool repaired = false;
+		const bool valid = finite_vector(cam.position) && finite_vector(cam.velocity) && finite_vector(cam.target)
+			&& std::isfinite(cam.pitch) && std::isfinite(cam.yaw) && std::isfinite(cam.roll)
+			&& std::isfinite(cam.fov_deg) && std::isfinite(cam.orbit_distance);
+		if (!valid) {
+			if (finite_vector(fallback_position)) {
+				cam.position = fallback_position;
+			} else {
+				cam.position = {0.0, 50.0, 0.0};
+			}
+			cam.velocity = {0.0, 0.0, 0.0};
+			if (!finite_vector(cam.target)) {
+				cam.target = {0.0, 0.0, 0.0};
+			}
+			cam.pitch = std::isfinite(fallback_pitch) ? fallback_pitch : 0.0;
+			cam.yaw = std::isfinite(fallback_yaw) ? fallback_yaw : 0.0;
+			cam.roll = std::isfinite(fallback_roll) ? fallback_roll : 0.0;
+			if (!std::isfinite(cam.fov_deg)) {
+				cam.fov_deg = 60.0;
+			}
+			Core::log_warning("Camera state became invalid during navigation and was restored to the last valid pose.");
+			repaired = true;
+		}
+		for (double& component : cam.position) {
+			if (component > kCameraPositionLimit) {
+				component = kCameraPositionLimit;
+				repaired = true;
+			} else if (component < -kCameraPositionLimit) {
+				component = -kCameraPositionLimit;
+				repaired = true;
+			}
+		}
+		cam.pitch = std::clamp(cam.pitch, -89.0, 89.0);
+		if (std::abs(cam.yaw) > 3600.0) {
+			cam.yaw = std::remainder(cam.yaw, 360.0);
+		}
+		if (std::abs(cam.roll) > 3600.0) {
+			cam.roll = std::remainder(cam.roll, 360.0);
+		}
+		cam.fov_deg = std::clamp(cam.fov_deg, 5.0, 175.0);
+		if (repaired) {
+			sync_spherical_from_cartesian();
+			cam.orbit_distance = cam.radius;
+			orchestrator_.notify_state_changed();
+		}
+	}
 
 	void synchronize_navigation_mode() noexcept {
 		uint32_t raw_mode = orchestrator_.parameters().camera_mode;

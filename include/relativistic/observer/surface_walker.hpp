@@ -175,6 +175,7 @@ public:
 	static constexpr double kMaximumArcPerSubstep = 0.1;
 	static constexpr double kMaximumGravity = 1.0e9;
 	static constexpr double kMinimumEyeClearanceFraction = 0.05;
+	static constexpr double kMinimumAbsoluteEyeClearance = 2.0e-5;
 
 	[[nodiscard]] static double mean_radius(const Vector3& axes) noexcept {
 		return std::cbrt(axes[0] * axes[1] * axes[2]);
@@ -206,7 +207,7 @@ public:
 		const SurfaceWalkerParameters& parameters
 	) noexcept {
 		const double fall_time = std::max(parameters.maximum_airtime_seconds * 0.5, 0.25);
-		return std::max(base_gravity, 2.0 * std::max(drop_height, 0.0) / (fall_time * fall_time));
+		return std::min(std::max(base_gravity, 2.0 * std::max(drop_height, 0.0) / (fall_time * fall_time)), kMaximumGravity);
 	}
 
 	static void initialize(
@@ -286,7 +287,7 @@ public:
 		if (parameters.head_bob_enabled) {
 			eye_height -= state.bob_weight * parameters.head_bob_amplitude * dimensions.eye_height * std::abs(std::sin(state.stride_phase));
 		}
-		eye_height = std::max(eye_height, dimensions.height * kMinimumEyeClearanceFraction);
+		eye_height = std::max({eye_height, dimensions.height * kMinimumEyeClearanceFraction, kMinimumAbsoluteEyeClearance});
 
 		const Vector3 forward_tangent = SurfaceGeometry::normalized(
 			SurfaceGeometry::subtract(world_heading, SurfaceGeometry::scale(normal, SurfaceGeometry::dot(world_heading, normal))),
@@ -387,6 +388,9 @@ private:
 			state.velocity_forward += (target_forward - state.velocity_forward) * blend;
 			state.velocity_right += (target_right - state.velocity_right) * blend;
 		}
+		const double velocity_limit = dimensions.walk_speed * std::max(parameters.sprint_multiplier, 1.0) * 1.5;
+		state.velocity_forward = std::clamp(state.velocity_forward, -velocity_limit, velocity_limit);
+		state.velocity_right = std::clamp(state.velocity_right, -velocity_limit, velocity_limit);
 
 		const Vector3 displacement = SurfaceGeometry::add(
 			SurfaceGeometry::scale(state.heading, state.velocity_forward * step),
@@ -431,7 +435,7 @@ private:
 			const double gravity_value = (state.airborne_gravity > 0.0) ? state.airborne_gravity : fall_gravity(base_gravity, state.lift, parameters);
 			state.lift += state.vertical_velocity * step - 0.5 * gravity_value * step * step;
 			state.vertical_velocity -= gravity_value * step;
-			if (state.lift <= 0.0) {
+			if (!std::isfinite(state.lift) || !std::isfinite(state.vertical_velocity) || state.lift <= 0.0) {
 				state.lift = 0.0;
 				state.vertical_velocity = 0.0;
 				state.airborne_gravity = 0.0;

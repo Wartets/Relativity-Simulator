@@ -2,6 +2,7 @@
 
 #include "relativistic/ui/input_actions.hpp"
 #include "relativistic/observer/surface_walker.hpp"
+#include "relativistic/observer/planet_orbit.hpp"
 #include <cstdint>
 
 namespace Relativistic::UI {
@@ -51,6 +52,7 @@ struct CameraControlConfig {
 	AxisSpeedProfile orbit{};
 	RocketControlProfile rocket{};
 	Observer::SurfaceWalkerParameters surface_walk{};
+	Observer::PlanetOrbitParameters planet_orbit{};
 	ZoomConfig zoom{};
 
 	void apply_keyboard_layout(KeyboardLayout layout) noexcept {

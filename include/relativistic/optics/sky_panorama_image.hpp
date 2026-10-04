@@ -54,6 +54,10 @@ struct DecodedPanorama {
 			return {0.0f, 0.0f, 0.0f};
 		}
 
+		if (!std::isfinite(u) || !std::isfinite(v)) {
+			return {0.0f, 0.0f, 0.0f};
+		}
+
 		const double uu = u - std::floor(u);
 		const double vv = std::clamp(v, 0.0, 1.0);
 

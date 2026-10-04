@@ -476,7 +476,7 @@ private:
 
 		ImGui::Separator();
 
-		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust", "Surface Walk On Body"};
+		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust", "Surface Walk On Body", "Planet Orbit (Simple, No Physics)"};
 		int mode = static_cast<int>(orchestrator_.parameters().camera_mode);
 		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
@@ -683,6 +683,9 @@ private:
 		render_surface_walk_section();
 
 		ImGui::Separator();
+		render_planet_orbit_section();
+
+		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Keybind Configuration:");
 		ImGui::TextDisabled("Full rebinding, conflict handling, and keyboard layout presets (QWERTY/AZERTY) are managed in the dedicated Keybind Settings window.");
 		const bool keybind_window_already_open = keybind_settings_open_;
@@ -828,6 +831,37 @@ private:
 			}
 			profile.sanitize();
 		}
+	}
+
+	void render_planet_orbit_section() noexcept {
+		auto& profile = camera_controller_.config().planet_orbit;
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Planet Orbit Mode:");
+		ImGui::TextDisabled("Simplified navigation on a sphere around the Walk Target Body (or the nearest body). No gravity, falling, bobbing or collisions: arrows or movement keys orbit, mouse drag orbits, wheel or Page Up/Down changes the altitude, Shift sprints, Ctrl crawls.");
+
+		const bool active = orchestrator_.parameters().camera_mode == Observer::kPlanetOrbitNavigationMode;
+		if (ImGui::Button(active ? "Stop Orbiting" : "Start Orbiting Walk Target Body", ImVec2(260.0f, 26.0f))) {
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(active ? 0U : Observer::kPlanetOrbitNavigationMode)));
+		}
+		render_setting_tooltip("Switches between Free Fly and the simplified planet orbit navigation. The camera follows the target body and can never enter it.");
+
+		slider_double_with_input("Orbit Speed", &profile.angular_speed_deg_s, 1.0, 360.0, "%.1f deg/s");
+		render_setting_tooltip("Angular speed around the body at an altitude of one body radius. It is reduced automatically near the surface for precise control.");
+		slider_double_with_input("Mouse Drag Sensitivity", &profile.drag_sensitivity_deg_per_pixel, 0.01, 2.0, "%.3f deg/px");
+		slider_double_with_input("Keyboard Zoom Rate", &profile.zoom_rate, 0.05, 8.0, "%.2f");
+		render_setting_tooltip("Exponential altitude change rate while Page Up or Page Down is held.");
+		slider_double_with_input("Wheel Zoom Step", &profile.wheel_zoom_factor, 0.01, 0.6, "%.2f");
+		slider_double_with_input("Minimum Altitude (Body Radii)", &profile.minimum_altitude_ratio, 1e-4, 5.0, "%.4f");
+		render_setting_tooltip("Closest allowed distance to the surface, in mean body radii. The camera is always kept outside the body.");
+		slider_double_with_input("Maximum Altitude (Body Radii)", &profile.maximum_altitude_ratio, 0.05, 1.0e5, "%.2f");
+		slider_double_with_input("Motion Smoothing", &profile.smoothing_seconds, 0.0, 1.0, "%.2f s");
+		slider_double_with_input("Maximum Latitude", &profile.maximum_pitch_deg, 10.0, 89.0, "%.0f deg");
+		slider_double_with_input("Sprint Multiplier", &profile.sprint_multiplier, 1.0, 20.0, "%.1f");
+		slider_double_with_input("Crawl Multiplier", &profile.crawl_multiplier, 0.01, 1.0, "%.2f");
+		ImGui::Checkbox("Invert Mouse Drag", &profile.invert_drag);
+		if (ImGui::Button("Reset Planet Orbit Settings", ImVec2(240.0f, 24.0f))) {
+			profile = Observer::PlanetOrbitParameters{};
+		}
+		profile.sanitize();
 	}
 
 	void apply_manual_camera_placement() noexcept {
@@ -2079,6 +2113,7 @@ private:
 		ImGui::TextDisabled("Assign a distinct display style to any individual body currently present in the N-Body system, overriding the shared 'Orbiting Bodies Appearance' style above for that body only.");
 
 		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> schematic_bodies_lock(sys.bodies_mutex());
 		const auto bodies = sys.bodies();
 
 		static int override_target_body_id = -1;

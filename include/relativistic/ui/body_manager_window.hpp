@@ -401,6 +401,7 @@ private:
 
 	void update_tracking(Dynamics::PostNewtonianSystem& sys) noexcept {
 		if (!tracking_enabled_) return;
+		std::lock_guard<std::recursive_mutex> tracking_lock(sys.bodies_mutex());
 		if (tracked_body_id_ == kCentralObjectIndex) {
 			look_at({0.0, 0.0, 0.0});
 			return;
@@ -417,6 +418,7 @@ private:
 
 	[[nodiscard]] std::string unique_name(std::string_view base) const {
 		std::string original = base.empty() ? "Body" : std::string(base);
+		std::lock_guard<std::recursive_mutex> naming_lock(orchestrator_.nbody_system().bodies_mutex());
 		const auto& bodies = orchestrator_.nbody_system().bodies();
 		auto exists = [&](std::string_view name) {
 			return std::any_of(bodies.begin(), bodies.end(), [&](const auto& body) { return body.name_view() == name; });
@@ -2014,6 +2016,7 @@ private:
 
 	void render_interactions_tab() noexcept {
 		auto& cfg = orchestrator_.interaction_config();
+		std::lock_guard<std::recursive_mutex> interactions_lock(orchestrator_.nbody_system().bodies_mutex());
 		const auto bodies_span = orchestrator_.nbody_system().bodies();
 
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Electromagnetic Interactions");

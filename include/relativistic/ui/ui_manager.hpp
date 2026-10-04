@@ -610,7 +610,7 @@ private:
 			body_manager_window_.open_state() = !body_manager_window_.open_state();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleCameraMode, main_window_)) {
-			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % 5;
+			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleTelemetryWindow, main_window_)) {
@@ -876,7 +876,7 @@ private:
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Cycle Camera Navigation Mode", "F9")) {
-					const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % 5;
+					const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 				}
 				if (ImGui::MenuItem("Snap Camera to Equatorial (r=50)")) {

@@ -16,7 +16,7 @@
 
 namespace Relativistic::IO {
 
-inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 4;
+inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 5;
 
 struct SecondaryViewPersistedState {
 	bool active{false};
@@ -338,11 +338,25 @@ struct UserSettings {
 		walk.follow_surface_rotation = get_bool("cam_walk_follow_rotation", walk.follow_surface_rotation);
 		walk.maximum_look_pitch_deg = get_dbl("cam_walk_max_look_pitch", walk.maximum_look_pitch_deg);
 		walk.maximum_drop_heights = get_dbl("cam_walk_max_drop_heights", walk.maximum_drop_heights);
-		if (file_version < 4) {
+		if (file_version < 5) {
 			walk.head_bob_enabled = false;
 			result.format_version = USER_SETTINGS_FORMAT_VERSION;
 		}
 		walk.sanitize();
+
+		auto& planet = result.camera_controls.planet_orbit;
+		planet.angular_speed_deg_s = get_dbl("cam_planet_speed", planet.angular_speed_deg_s);
+		planet.drag_sensitivity_deg_per_pixel = get_dbl("cam_planet_drag", planet.drag_sensitivity_deg_per_pixel);
+		planet.zoom_rate = get_dbl("cam_planet_zoom_rate", planet.zoom_rate);
+		planet.wheel_zoom_factor = get_dbl("cam_planet_wheel", planet.wheel_zoom_factor);
+		planet.minimum_altitude_ratio = get_dbl("cam_planet_min_altitude", planet.minimum_altitude_ratio);
+		planet.maximum_altitude_ratio = get_dbl("cam_planet_max_altitude", planet.maximum_altitude_ratio);
+		planet.smoothing_seconds = get_dbl("cam_planet_smoothing", planet.smoothing_seconds);
+		planet.maximum_pitch_deg = get_dbl("cam_planet_max_pitch", planet.maximum_pitch_deg);
+		planet.sprint_multiplier = get_dbl("cam_planet_sprint", planet.sprint_multiplier);
+		planet.crawl_multiplier = get_dbl("cam_planet_crawl", planet.crawl_multiplier);
+		planet.invert_drag = get_bool("cam_planet_invert_drag", planet.invert_drag);
+		planet.sanitize();
 
 		const auto loaded_layout = static_cast<UI::KeyboardLayout>(get_u32("cam_keyboard_layout", static_cast<uint32_t>(UI::KeyboardLayout::Qwerty)));
 		result.camera_controls.apply_keyboard_layout(loaded_layout);
@@ -541,6 +555,17 @@ struct UserSettings {
 		out << "cam_walk_follow_rotation=" << (camera_controls.surface_walk.follow_surface_rotation ? 1 : 0) << "\n";
 		out << "cam_walk_max_look_pitch=" << camera_controls.surface_walk.maximum_look_pitch_deg << "\n";
 		out << "cam_walk_max_drop_heights=" << camera_controls.surface_walk.maximum_drop_heights << "\n";
+		out << "cam_planet_speed=" << camera_controls.planet_orbit.angular_speed_deg_s << "\n";
+		out << "cam_planet_drag=" << camera_controls.planet_orbit.drag_sensitivity_deg_per_pixel << "\n";
+		out << "cam_planet_zoom_rate=" << camera_controls.planet_orbit.zoom_rate << "\n";
+		out << "cam_planet_wheel=" << camera_controls.planet_orbit.wheel_zoom_factor << "\n";
+		out << "cam_planet_min_altitude=" << camera_controls.planet_orbit.minimum_altitude_ratio << "\n";
+		out << "cam_planet_max_altitude=" << camera_controls.planet_orbit.maximum_altitude_ratio << "\n";
+		out << "cam_planet_smoothing=" << camera_controls.planet_orbit.smoothing_seconds << "\n";
+		out << "cam_planet_max_pitch=" << camera_controls.planet_orbit.maximum_pitch_deg << "\n";
+		out << "cam_planet_sprint=" << camera_controls.planet_orbit.sprint_multiplier << "\n";
+		out << "cam_planet_crawl=" << camera_controls.planet_orbit.crawl_multiplier << "\n";
+		out << "cam_planet_invert_drag=" << (camera_controls.planet_orbit.invert_drag ? 1 : 0) << "\n";
 		out << "cam_keyboard_layout=" << static_cast<uint32_t>(camera_controls.keyboard_layout) << "\n";
 
 		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {

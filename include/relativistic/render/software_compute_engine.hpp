@@ -189,12 +189,11 @@ private:
 			const double t1 = (-B - sqrt_discr) / (2.0 * A);
 			const double t2 = (-B + sqrt_discr) / (2.0 * A);
 
-			const double t_epsilon = std::max(std::min({scale_a, scale_b, scale_c}) * 1e-9, 1e-12);
 			double t = -1.0;
-			if (t1 > t_epsilon) t = t1;
-			else if (t2 > t_epsilon) t = t2;
+			if (t1 > 1e-5) t = t1;
+			else if (t2 > 1e-5) t = t2;
 
-			if (t <= t_epsilon || t >= best_result.t_hit) continue;
+			if (t <= 1e-5 || t >= best_result.t_hit) continue;
 
 			const double hit_x = ray_pos[0] + t * ray_dir[0];
 			const double hit_y = ray_pos[1] + t * ray_dir[1];

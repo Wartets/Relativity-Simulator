@@ -70,6 +70,7 @@ public:
 	void set_navigation_mode(CameraNavigationMode mode) noexcept {
 		navigation_mode_ = mode;
 		orchestrator_.parameters().camera_mode = static_cast<uint32_t>(mode);
+		orchestrator_.notify_state_changed();
 	}
 
 	[[nodiscard]] CameraNavigationMode navigation_mode() const noexcept {
@@ -117,10 +118,18 @@ public:
 	void follow_active_target(double dt) noexcept {
 		if (!(dt > 0.0)) return;
 		synchronize_navigation_mode();
+		const auto prev_pos = orchestrator_.camera().position;
+		const double prev_pitch = orchestrator_.camera().pitch;
+		const double prev_yaw = orchestrator_.camera().yaw;
+		const double prev_roll = orchestrator_.camera().roll;
 		if (navigation_mode_ == CameraNavigationMode::SurfaceWalk) {
 			update_surface_walk_mode(nullptr, dt, false);
 		} else if (navigation_mode_ == CameraNavigationMode::PlanetOrbit) {
 			update_planet_orbit_mode(nullptr, dt, false);
+			const auto& cam = orchestrator_.camera();
+			if (cam.position != prev_pos || cam.pitch != prev_pitch || cam.yaw != prev_yaw || cam.roll != prev_roll) {
+				orchestrator_.notify_state_changed();
+			}
 		}
 	}
 
@@ -138,6 +147,7 @@ public:
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
+		orchestrator_.notify_state_changed();
 	}
 
 	void snap_to_equatorial_side(double distance = 50.0) noexcept {
@@ -149,6 +159,7 @@ public:
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
+		orchestrator_.notify_state_changed();
 	}
 
 	void snap_to_north_pole(double distance = 50.0) noexcept {
@@ -160,6 +171,7 @@ public:
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
+		orchestrator_.notify_state_changed();
 	}
 
 	void snap_to_south_pole(double distance = 50.0) noexcept {
@@ -171,6 +183,7 @@ public:
 		cam.roll = 0.0;
 		cam.orbit_distance = distance;
 		sync_spherical_from_cartesian();
+		orchestrator_.notify_state_changed();
 	}
 
 	void snap_to_isco(double margin_factor = 1.2) noexcept {
@@ -195,6 +208,7 @@ public:
 			cam.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
 			cam.roll = 0.0;
 			cam.target = target_pos;
+			orchestrator_.notify_state_changed();
 		}
 	}
 
@@ -204,6 +218,7 @@ public:
 
 	void reset_roll() noexcept {
 		orchestrator_.camera().roll = 0.0;
+		orchestrator_.notify_state_changed();
 	}
 
 	void enter_surface_walk(uint32_t body_id) noexcept {
@@ -241,6 +256,9 @@ public:
 
 		synchronize_navigation_mode();
 		const std::array<double, 3> previous_position = orchestrator_.camera().position;
+		const double previous_pitch = orchestrator_.camera().pitch;
+		const double previous_yaw = orchestrator_.camera().yaw;
+		const double previous_roll = orchestrator_.camera().roll;
 
 		double boost_multiplier = 1.0;
 		if (config_.keybinds.is_active(InputAction::Sprint, window)) {
@@ -273,6 +291,15 @@ public:
 
 		if (orchestrator_.parameters().camera_collision_enabled && navigation_mode_ != CameraNavigationMode::SurfaceWalk && navigation_mode_ != CameraNavigationMode::PlanetOrbit) {
 			apply_view_collision(previous_position);
+		}
+
+		if (navigation_mode_ != CameraNavigationMode::SurfaceWalk) {
+			const auto& cam = orchestrator_.camera();
+			const bool moved = (cam.position[0] != previous_position[0] || cam.position[1] != previous_position[1] || cam.position[2] != previous_position[2]);
+			const bool turned = (cam.pitch != previous_pitch || cam.yaw != previous_yaw || cam.roll != previous_roll);
+			if (moved || turned) {
+				orchestrator_.notify_state_changed();
+			}
 		}
 	}
 
@@ -335,7 +362,10 @@ private:
 		cam.roll = angles.roll_deg;
 		sync_spherical_from_cartesian();
 		cam.orbit_distance = cam.radius;
-	}
+		if (navigation_mode_ != CameraNavigationMode::SurfaceWalk) {
+			orchestrator_.notify_state_changed();
+		}
+    }
 
 	void handle_global_shortcuts(GLFWwindow* window) noexcept {
 		if (config_.keybinds.is_pressed(InputAction::ResetRoll, window)) {
@@ -414,10 +444,22 @@ private:
 			cam.roll += prof.roll_speed_deg_s * dt;
 		}
 
-		cam.position[0] += accum[0] * boost_multiplier * dt;
-		cam.position[1] += accum[1] * boost_multiplier * dt;
-		cam.position[2] += accum[2] * boost_multiplier * dt;
-
+		const auto old_pos = cam.position;
+		std::array<double, 3> new_pos = cam.position;
+		new_pos[0] += accum[0] * boost_multiplier * dt;
+		new_pos[1] += accum[1] * boost_multiplier * dt;
+		new_pos[2] += accum[2] * boost_multiplier * dt;
+		constexpr double kPosLimit = 1e12;
+		for (size_t ci = 0; ci < 3; ++ci) {
+			if (!std::isfinite(new_pos[ci])) {
+				new_pos[ci] = old_pos[ci];
+			} else if (new_pos[ci] > kPosLimit) {
+				new_pos[ci] = kPosLimit;
+			} else if (new_pos[ci] < -kPosLimit) {
+				new_pos[ci] = -kPosLimit;
+			}
+		}
+		cam.position = new_pos;
 		if (accum[0] != 0.0 || accum[1] != 0.0 || accum[2] != 0.0) {
 			sync_spherical_from_cartesian();
 		}

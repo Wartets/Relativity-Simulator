@@ -183,9 +183,9 @@ private:
 		}
 	}
 
-[[nodiscard]] bool follows_moving_target() const noexcept {
+	[[nodiscard]] bool follows_moving_target() const noexcept {
 		const uint32_t mode = orchestrator_.parameters().camera_mode;
-		return mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk) || mode == Observer::kPlanetOrbitNavigationMode;
+		return mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk);
 	}
 
 public:
@@ -195,20 +195,20 @@ public:
 		HudLayoutConfig& hud_layout,
 		SchematicViewConfig& schematic_cfg
 	) : orchestrator_(orchestrator),
-	    camera_controller_(cam_ctrl),
-	    hud_layout_(hud_layout),
-	    schematic_cfg_(schematic_cfg),
-	    pipeline_(Render::GeodesicPipelineConfig{
-	        .width = 1280,
-	        .height = 720,
-	        .precision = Render::PrecisionMode::NativeFloat64,
-	        .metric = Render::MetricId::Schwarzschild,
-	        .field_of_view_deg = 60.0,
-	        .max_steps = 2048,
-	        .initial_step = -0.05,
-	        .headless = false,
-	        .projection_mode = Observer::ProjectionMode::Equirectangular360
-	    }) {
+		camera_controller_(cam_ctrl),
+		hud_layout_(hud_layout),
+		schematic_cfg_(schematic_cfg),
+		pipeline_(Render::GeodesicPipelineConfig{
+			.width = 1280,
+			.height = 720,
+			.precision = Render::PrecisionMode::NativeFloat64,
+			.metric = Render::MetricId::Schwarzschild,
+			.field_of_view_deg = 60.0,
+			.max_steps = 2048,
+			.initial_step = -0.05,
+			.headless = false,
+			.projection_mode = Observer::ProjectionMode::Equirectangular360
+		}) {
 		init_gl_texture();
 		capture_coordinator_ = std::make_unique<Capture::CaptureCoordinator>(orchestrator_, pipeline_);
 		capture_coordinator_->bind_frame_sources(
@@ -429,7 +429,7 @@ public:
 			const uint32_t target_h = std::clamp(static_cast<uint32_t>(avail.y * active_scale), 64u, 2160u);
 
 			if (std::abs(static_cast<int>(target_w) - static_cast<int>(current_width_)) > 2 || 
-			    std::abs(static_cast<int>(target_h) - static_cast<int>(current_height_)) > 2) {
+				std::abs(static_cast<int>(target_h) - static_cast<int>(current_height_)) > 2) {
 				current_width_ = target_w;
 				current_height_ = target_h;
 				pipeline_.resize(current_width_, current_height_);
@@ -611,12 +611,16 @@ public:
 			}
 			cam_consts.body_count = static_cast<uint32_t>(gpu_bodies.size());
 
+			const bool is_surface_walking_motion = (params.camera_mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk)) && camera_controller_.is_in_motion();
+
 			const double precision_selector = orchestrator_.get_custom_param("precision_mode", 0.0);
 			const bool precision_changed = (precision_selector != last_precision_selector_);
 
 			const uint64_t current_ver = orchestrator_.state_version();
 			if (current_ver != last_synced_version_) {
-				force_rerender_ = true;
+				if (!is_surface_walking_motion) {
+					force_rerender_ = true;
+				}
 				last_synced_version_ = current_ver;
 			}
 			const uint64_t earth_texture_revision = Optics::EarthTextureLoader::instance().revision();
@@ -632,9 +636,8 @@ public:
 			const bool params_changed = !(comparable_consts == last_camera_constants_);
 			const double dispatch_clock = ImGui::GetTime();
 			const double minimum_time_interval = std::clamp(pipeline_.telemetry().execution_time_ms * 0.0012, 1.0 / 60.0, 0.25);
-			const bool time_refresh_due = is_time_progressing && time_changed && !pipeline_.is_rendering() && (dispatch_clock - last_dispatch_clock_) >= minimum_time_interval;
-			const bool defer_for_active_render = follows_moving_target() && pipeline_.is_rendering();
-			const bool is_dirty = !defer_for_active_render && (force_rerender_ || params_changed || precision_changed || time_refresh_due);
+			const bool time_refresh_due = is_time_progressing && time_changed && (is_navigating || !pipeline_.is_rendering()) && (dispatch_clock - last_dispatch_clock_) >= minimum_time_interval;
+			const bool is_dirty = ((!is_surface_walking_motion && (force_rerender_ || params_changed)) || precision_changed || time_refresh_due || (force_rerender_ && !is_surface_walking_motion));
 
 			if (is_dirty && !capture_coordinator_->suppresses_live_render()) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);

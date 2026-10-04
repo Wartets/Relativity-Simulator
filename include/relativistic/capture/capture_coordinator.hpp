@@ -385,6 +385,7 @@ private:
 	}
 
 	[[nodiscard]] std::optional<std::array<double, 3>> lookup_body_position(int32_t id) const {
+		std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
 		for (const auto& body : orchestrator_.nbody_system().bodies()) {
 			if (static_cast<int32_t>(body.id) == id) {
 				return body.position;
@@ -394,6 +395,7 @@ private:
 	}
 
 	[[nodiscard]] std::optional<std::pair<int32_t, Vec3>> lookup_nearest_body(const Vec3& from) const {
+		std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
 		std::optional<std::pair<int32_t, Vec3>> best;
 		double best_distance = std::numeric_limits<double>::max();
 		for (const auto& body : orchestrator_.nbody_system().bodies()) {
@@ -409,8 +411,18 @@ private:
 		return best;
 	}
 
+	[[nodiscard]] std::optional<Vec3> lookup_body_axes(int32_t id) const {
+		std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
+		for (const auto& body : orchestrator_.nbody_system().bodies()) {
+			if (static_cast<int32_t>(body.id) == id) {
+				return Observer::SurfaceGeometry::body_semi_axes(body);
+			}
+		}
+		return std::nullopt;
+	}
+
 	[[nodiscard]] ScriptSample sample_script(double seconds) const {
-		const BodyPositionLookup lookup([this](int32_t id) { return lookup_body_position(id); }, [this](const Vec3& from) { return lookup_nearest_body(from); });
+		const BodyPositionLookup lookup([this](int32_t id) { return lookup_body_position(id); }, [this](const Vec3& from) { return lookup_nearest_body(from); }, [this](int32_t id) { return lookup_body_axes(id); });
 		return session_.request.script.sample(seconds, lookup);
 	}
 
@@ -1094,6 +1106,8 @@ public:
 		session_.saved_camera_mode = parameters.camera_mode;
 		session_.saved_warp = orchestrator_.scheduler().warp_factor();
 		session_.warp_base = session_.saved_warp;
+		session_.request.script.default_fov_deg = session_.saved_fov;
+		session_.request.script.default_exposure_ev = session_.saved_exposure;
 
 		if (!realtime && settings.pause_simulation_during_capture) {
 			session_.paused_by_session = !orchestrator_.scheduler().is_paused();

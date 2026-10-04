@@ -35,11 +35,42 @@ struct SurfaceWalkerParameters {
 	double maximum_airtime_seconds{20.0};
 	double ground_response_seconds{0.08};
 	double air_control{0.25};
-	bool head_bob_enabled{true};
+	bool head_bob_enabled{false};
 	double head_bob_amplitude{0.03};
 	bool follow_surface_rotation{true};
+	double maximum_look_pitch_deg{85.0};
+	double maximum_drop_heights{40.0};
+
+	static constexpr double kMinimumRelativeHeight = 1e-5;
+	static constexpr double kMaximumRelativeHeight = 1.0;
+	static constexpr double kMinimumRelativeSpeed = 1e-5;
+	static constexpr double kMaximumRelativeSpeed = 50.0;
+	static constexpr double kMinimumRelativeStep = 1e-6;
+	static constexpr double kMaximumRelativeJump = 2.0;
 
 	void sanitize() noexcept {
+		const auto repair = [](double& value, double fallback) noexcept {
+			if (!std::isfinite(value)) {
+				value = fallback;
+			}
+		};
+		repair(walker_height, 0.02);
+		repair(eye_height_fraction, 0.93);
+		repair(crouch_fraction, 0.55);
+		repair(crouch_speed_multiplier, 0.5);
+		repair(walk_speed, 0.06);
+		repair(sprint_multiplier, 2.5);
+		repair(crawl_multiplier, 0.3);
+		repair(step_length, 0.012);
+		repair(jump_height, 0.01);
+		repair(gravity_scale, 1.0);
+		repair(manual_gravity, 9.80665);
+		repair(maximum_airtime_seconds, 20.0);
+		repair(ground_response_seconds, 0.08);
+		repair(air_control, 0.25);
+		repair(head_bob_amplitude, 0.03);
+		repair(maximum_look_pitch_deg, 85.0);
+		repair(maximum_drop_heights, 40.0);
 		walker_height = std::clamp(walker_height, 1e-12, 1e12);
 		eye_height_fraction = std::clamp(eye_height_fraction, 0.5, 1.0);
 		crouch_fraction = std::clamp(crouch_fraction, 0.2, 1.0);
@@ -55,6 +86,8 @@ struct SurfaceWalkerParameters {
 		ground_response_seconds = std::clamp(ground_response_seconds, 0.0, 2.0);
 		air_control = std::clamp(air_control, 0.0, 1.0);
 		head_bob_amplitude = std::clamp(head_bob_amplitude, 0.0, 0.2);
+		maximum_look_pitch_deg = std::clamp(maximum_look_pitch_deg, 10.0, 89.0);
+		maximum_drop_heights = std::clamp(maximum_drop_heights, 0.0, 1e6);
 	}
 
 	void convert_scale_mode(bool relative, double reference_length) noexcept {
@@ -71,14 +104,15 @@ struct SurfaceWalkerParameters {
 	}
 
 	[[nodiscard]] SurfaceWalkerDimensions resolve(double reference_length) const noexcept {
-		const double unit = scale_with_body ? std::max(reference_length, 1e-12) : 1.0;
+		const double reference = std::max(reference_length, 1e-12);
+		const double unit = scale_with_body ? reference : 1.0;
 		SurfaceWalkerDimensions dimensions;
-		dimensions.height = walker_height * unit;
+		dimensions.height = std::clamp(walker_height * unit, reference * kMinimumRelativeHeight, reference * kMaximumRelativeHeight);
 		dimensions.eye_height = dimensions.height * eye_height_fraction;
 		dimensions.crouch_eye_height = dimensions.eye_height * crouch_fraction;
-		dimensions.walk_speed = walk_speed * unit;
-		dimensions.step_length = step_length * unit;
-		dimensions.jump_height = jump_height * unit;
+		dimensions.walk_speed = std::clamp(walk_speed * unit, reference * kMinimumRelativeSpeed, reference * kMaximumRelativeSpeed);
+		dimensions.step_length = std::clamp(step_length * unit, reference * kMinimumRelativeStep, reference * kMaximumRelativeHeight);
+		dimensions.jump_height = std::clamp(jump_height * unit, 0.0, reference * kMaximumRelativeJump);
 		return dimensions;
 	}
 };
@@ -118,6 +152,7 @@ struct SurfaceWalkerState {
 	double crouch_blend{0.0};
 	double last_yaw_deg{0.0};
 	bool jump_was_pressed{false};
+	double airborne_gravity{0.0};
 };
 
 struct SurfaceWalkerPose {
@@ -136,6 +171,10 @@ public:
 	static constexpr double kMaximumSubstep = 0.02;
 	static constexpr double kMaximumFrameTime = 0.25;
 	static constexpr double kMaximumLookPitchDeg = 89.0;
+	static constexpr double kMaximumLookDeltaDeg = 120.0;
+	static constexpr double kMaximumArcPerSubstep = 0.1;
+	static constexpr double kMaximumGravity = 1.0e9;
+	static constexpr double kMinimumEyeClearanceFraction = 0.05;
 
 	[[nodiscard]] static double mean_radius(const Vector3& axes) noexcept {
 		return std::cbrt(axes[0] * axes[1] * axes[2]);
@@ -152,18 +191,29 @@ public:
 		double surface_radius
 	) noexcept {
 		const double radius = std::max(surface_radius, 1e-12);
-		const double base = parameters.automatic_gravity
+		const double raw_base = parameters.automatic_gravity
 			? (parameters.gravity_scale * environment.gravitational_constant * std::max(environment.mass, 0.0) / (radius * radius))
 			: parameters.manual_gravity;
+		const double base = std::isfinite(raw_base) ? std::clamp(raw_base, 0.0, kMaximumGravity) : 0.0;
 		const double airtime = std::max(parameters.maximum_airtime_seconds, 0.5);
 		const double floor = 8.0 * dimensions.jump_height / (airtime * airtime);
 		return std::max({base, floor, 1e-15});
+	}
+
+	[[nodiscard]] static double fall_gravity(
+		double base_gravity,
+		double drop_height,
+		const SurfaceWalkerParameters& parameters
+	) noexcept {
+		const double fall_time = std::max(parameters.maximum_airtime_seconds * 0.5, 0.25);
+		return std::max(base_gravity, 2.0 * std::max(drop_height, 0.0) / (fall_time * fall_time));
 	}
 
 	static void initialize(
 		SurfaceWalkerState& state,
 		const SurfaceWalkerEnvironment& environment,
 		const SurfaceWalkerParameters& parameters,
+		const SurfaceWalkerDimensions& dimensions,
 		uint32_t body_id,
 		const Vector3& camera_position,
 		const Vector3& camera_forward
@@ -180,8 +230,16 @@ public:
 		state.body_id = body_id;
 		state.direction = SurfaceGeometry::rotate_z(world_direction, -angle);
 		state.heading = SurfaceGeometry::rotate_z(world_heading, -angle);
-		state.look_pitch_deg = std::clamp(std::asin(std::clamp(forward_vertical, -1.0, 1.0)) * SurfaceGeometry::kRadiansToDegrees, -kMaximumLookPitchDeg, kMaximumLookPitchDeg);
+		const double pitch_limit = std::clamp(parameters.maximum_look_pitch_deg, 10.0, kMaximumLookPitchDeg);
+		state.look_pitch_deg = std::clamp(std::asin(std::clamp(forward_vertical, -1.0, 1.0)) * SurfaceGeometry::kRadiansToDegrees, -pitch_limit, pitch_limit);
 		state.last_yaw_deg = std::atan2(camera_forward[1], camera_forward[0]) * SurfaceGeometry::kRadiansToDegrees;
+		const double surface_radius = SurfaceGeometry::ellipsoid_radius(environment.axes, world_direction);
+		const double altitude = SurfaceGeometry::length(SurfaceGeometry::subtract(camera_position, environment.center)) - surface_radius - dimensions.eye_height;
+		const double maximum_drop = std::max(parameters.maximum_drop_heights, 0.0) * dimensions.height;
+		state.lift = std::isfinite(altitude) ? std::clamp(altitude, 0.0, maximum_drop) : 0.0;
+		if (state.lift > 0.0) {
+			state.airborne_gravity = fall_gravity(gravity(parameters, environment, dimensions, surface_radius), state.lift, parameters);
+		}
 	}
 
 	static void advance(
@@ -195,11 +253,15 @@ public:
 		if (!state.active || !(delta_time > 0.0)) {
 			return;
 		}
-		apply_look(state, input);
+		repair(state);
+		apply_look(state, parameters, input);
 		bool jump_request = input.jump && !state.jump_was_pressed;
 		state.jump_was_pressed = input.jump;
 		const double clamped_time = std::min(delta_time, kMaximumFrameTime);
-		const int substeps = std::clamp(static_cast<int>(std::ceil(clamped_time / kMaximumSubstep)), 1, 64);
+		const double reference = std::max(mean_radius(environment.axes), 1e-12);
+		const double fastest = dimensions.walk_speed * std::max(parameters.sprint_multiplier, 1.0);
+		const double arc_substeps = std::ceil(fastest * clamped_time / (reference * kMaximumArcPerSubstep));
+		const int substeps = std::clamp(static_cast<int>(std::max(std::ceil(clamped_time / kMaximumSubstep), std::isfinite(arc_substeps) ? arc_substeps : 1.0)), 1, 128);
 		const double step = clamped_time / static_cast<double>(substeps);
 		for (int i = 0; i < substeps; ++i) {
 			integrate(state, environment, parameters, dimensions, input, step, jump_request);
@@ -224,12 +286,14 @@ public:
 		if (parameters.head_bob_enabled) {
 			eye_height -= state.bob_weight * parameters.head_bob_amplitude * dimensions.eye_height * std::abs(std::sin(state.stride_phase));
 		}
+		eye_height = std::max(eye_height, dimensions.height * kMinimumEyeClearanceFraction);
 
 		const Vector3 forward_tangent = SurfaceGeometry::normalized(
 			SurfaceGeometry::subtract(world_heading, SurfaceGeometry::scale(normal, SurfaceGeometry::dot(world_heading, normal))),
 			SurfaceGeometry::tangent_fallback(normal)
 		);
-		const double pitch = state.look_pitch_deg * SurfaceGeometry::kDegreesToRadians;
+		const double pitch_limit = std::clamp(parameters.maximum_look_pitch_deg, 10.0, kMaximumLookPitchDeg);
+		const double pitch = std::clamp(state.look_pitch_deg, -pitch_limit, pitch_limit) * SurfaceGeometry::kDegreesToRadians;
 		const Vector3 forward = SurfaceGeometry::add(SurfaceGeometry::scale(forward_tangent, std::cos(pitch)), SurfaceGeometry::scale(normal, std::sin(pitch)));
 		const Vector3 up = SurfaceGeometry::subtract(SurfaceGeometry::scale(normal, std::cos(pitch)), SurfaceGeometry::scale(forward_tangent, std::sin(pitch)));
 
@@ -246,11 +310,42 @@ public:
 	}
 
 private:
-	static void apply_look(SurfaceWalkerState& state, const SurfaceWalkerInput& input) noexcept {
-		if (input.look_yaw_delta_deg != 0.0) {
-			state.heading = SurfaceGeometry::rotate_about_axis(state.heading, state.direction, input.look_yaw_delta_deg * SurfaceGeometry::kDegreesToRadians);
+	static void apply_look(SurfaceWalkerState& state, const SurfaceWalkerParameters& parameters, const SurfaceWalkerInput& input) noexcept {
+		const double pitch_limit = std::clamp(parameters.maximum_look_pitch_deg, 10.0, kMaximumLookPitchDeg);
+		const double yaw_delta = std::isfinite(input.look_yaw_delta_deg) ? std::clamp(input.look_yaw_delta_deg, -kMaximumLookDeltaDeg, kMaximumLookDeltaDeg) : 0.0;
+		const double pitch_delta = std::isfinite(input.look_pitch_delta_deg) ? std::clamp(input.look_pitch_delta_deg, -kMaximumLookDeltaDeg, kMaximumLookDeltaDeg) : 0.0;
+		if (yaw_delta != 0.0) {
+			state.heading = SurfaceGeometry::rotate_about_axis(state.heading, state.direction, yaw_delta * SurfaceGeometry::kDegreesToRadians);
 		}
-		state.look_pitch_deg = std::clamp(state.look_pitch_deg + input.look_pitch_delta_deg, -kMaximumLookPitchDeg, kMaximumLookPitchDeg);
+		state.look_pitch_deg = std::clamp(state.look_pitch_deg + pitch_delta, -pitch_limit, pitch_limit);
+	}
+
+	static void repair(SurfaceWalkerState& state) noexcept {
+		const auto finite_vector = [](const Vector3& value) noexcept {
+			return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+		};
+		const auto finite_scalar = [](double& value, double fallback) noexcept {
+			if (!std::isfinite(value)) {
+				value = fallback;
+			}
+		};
+		if (!finite_vector(state.direction) || SurfaceGeometry::length(state.direction) < 1e-9) {
+			state.direction = {0.0, 0.0, 1.0};
+			state.heading = {1.0, 0.0, 0.0};
+		}
+		if (!finite_vector(state.heading) || SurfaceGeometry::length(state.heading) < 1e-9) {
+			state.heading = SurfaceGeometry::tangent_fallback(SurfaceGeometry::normalized(state.direction, {0.0, 0.0, 1.0}));
+		}
+		finite_scalar(state.lift, 0.0);
+		finite_scalar(state.vertical_velocity, 0.0);
+		finite_scalar(state.velocity_forward, 0.0);
+		finite_scalar(state.velocity_right, 0.0);
+		finite_scalar(state.stride_phase, 0.0);
+		finite_scalar(state.bob_weight, 0.0);
+		finite_scalar(state.crouch_blend, 0.0);
+		finite_scalar(state.look_pitch_deg, 0.0);
+		finite_scalar(state.airborne_gravity, 0.0);
+		state.lift = std::max(state.lift, 0.0);
 	}
 
 	static void integrate(
@@ -298,7 +393,8 @@ private:
 			SurfaceGeometry::scale(right, state.velocity_right * step)
 		);
 		const double distance = SurfaceGeometry::length(displacement);
-		if (distance > 1e-15) {
+		const double movement_threshold = std::max(surface_radius, 1e-12) * 1e-12;
+		if (distance > movement_threshold) {
 			const Vector3 axis = SurfaceGeometry::scale(displacement, 1.0 / distance);
 			const double angle = distance / std::max(surface_radius, 1e-12);
 			const double cosine = std::cos(angle);
@@ -314,28 +410,31 @@ private:
 			state.heading = next_heading;
 		}
 
-		if (grounded && distance > 1e-15) {
+		if (grounded && distance > movement_threshold) {
 			state.stride_phase = std::fmod(state.stride_phase + std::numbers::pi_v<double> * distance / std::max(dimensions.step_length, 1e-12), 2.0 * std::numbers::pi_v<double>);
 		}
-		const double bob_target = (grounded && distance > 1e-15) ? 1.0 : 0.0;
+		const double bob_target = (grounded && distance > movement_threshold) ? 1.0 : 0.0;
 		state.bob_weight += (bob_target - state.bob_weight) * (1.0 - std::exp(-step * 8.0));
 
 		const double crouch_target = input.crouch ? 1.0 : 0.0;
 		state.crouch_blend += (crouch_target - state.crouch_blend) * (1.0 - std::exp(-step * 12.0));
 
-		const double gravity_value = gravity(parameters, environment, dimensions, surface_radius);
+		const double base_gravity = gravity(parameters, environment, dimensions, surface_radius);
 		if (jump_request) {
-			if (grounded) {
-				state.vertical_velocity = std::sqrt(2.0 * gravity_value * dimensions.jump_height);
+			if (grounded && dimensions.jump_height > 0.0) {
+				state.airborne_gravity = base_gravity;
+				state.vertical_velocity = std::sqrt(2.0 * base_gravity * dimensions.jump_height);
 			}
 			jump_request = false;
 		}
 		if (state.lift > 0.0 || state.vertical_velocity > 0.0) {
+			const double gravity_value = (state.airborne_gravity > 0.0) ? state.airborne_gravity : fall_gravity(base_gravity, state.lift, parameters);
 			state.lift += state.vertical_velocity * step - 0.5 * gravity_value * step * step;
 			state.vertical_velocity -= gravity_value * step;
 			if (state.lift <= 0.0) {
 				state.lift = 0.0;
 				state.vertical_velocity = 0.0;
+				state.airborne_gravity = 0.0;
 			}
 		}
 	}

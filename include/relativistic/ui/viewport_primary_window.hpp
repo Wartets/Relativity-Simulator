@@ -430,6 +430,7 @@ public:
 				force_rerender_ = true;
 			}
 
+			std::unique_lock<std::recursive_mutex> body_snapshot_lock(orchestrator_.nbody_system().bodies_mutex());
 			if ((is_hovered_ || is_focused_) && !capture_coordinator_->drives_camera()) {
 				const auto camera_update_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraUpdate);
 				camera_controller_.update(window, dt, is_hovered_);
@@ -567,7 +568,6 @@ public:
 
 			uint32_t total_enabled_bodies_this_frame = 0;
 			std::vector<Render::GpuBodyData> gpu_bodies;
-			std::lock_guard<std::recursive_mutex> body_collection_lock(orchestrator_.nbody_system().bodies_mutex());
 			if ((params.visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) {
 				const auto& nbody_sys = orchestrator_.nbody_system().bodies();
 				gpu_bodies.reserve(nbody_sys.size());

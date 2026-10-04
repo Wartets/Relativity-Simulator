@@ -819,6 +819,10 @@ private:
 			}
 			ImGui::Checkbox("Follow Surface Rotation", &profile.follow_surface_rotation);
 			render_setting_tooltip("Carries the walker with the rotation of the body surface texture so the ground never slides under the feet.");
+			slider_double_with_input("Maximum Look Pitch", &profile.maximum_look_pitch_deg, 10.0, 89.0, "%.0f deg");
+			render_setting_tooltip("Largest angle the view can tilt above or below the local horizon. The Reset Roll key recenters the view on the horizon.");
+			slider_double_with_input("Maximum Initial Drop (Walker Heights)", &profile.maximum_drop_heights, 0.0, 1000.0, "%.1f");
+			render_setting_tooltip("Highest altitude, in walker heights, from which the walker falls when entering the mode. Higher camera positions are brought down to this altitude first, and every fall is limited to half of the maximum jump airtime.");
 			if (ImGui::Button("Reset Surface Walk Settings", ImVec2(240.0f, 24.0f))) {
 				profile = Observer::SurfaceWalkerParameters{};
 			}

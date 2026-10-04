@@ -404,14 +404,17 @@ private:
 			return;
 		}
 
-		if (!walker_state_.active || walker_state_.body_id != params.surface_walk_body_id) {
-			Observer::SurfaceWalker::initialize(walker_state_, *environment, profile, params.surface_walk_body_id, cam.position, cam.orientation_basis().forward);
-		}
-
 		const double reference_length = Observer::SurfaceWalker::mean_radius(environment->axes);
 		const auto dimensions = profile.resolve(reference_length);
 
+		if (!walker_state_.active || walker_state_.body_id != params.surface_walk_body_id) {
+			Observer::SurfaceWalker::initialize(walker_state_, *environment, profile, dimensions, params.surface_walk_body_id, cam.position, cam.orientation_basis().forward);
+		}
+
 		handle_mouse_look(window, is_hovered);
+		if (config_.keybinds.is_pressed(InputAction::ResetRoll, window)) {
+			walker_state_.look_pitch_deg = 0.0;
+		}
 
 		const auto& keys = config_.keybinds;
 		const auto& free_fly = config_.free_fly;
@@ -429,6 +432,10 @@ private:
 
 		Observer::SurfaceWalker::advance(walker_state_, *environment, profile, dimensions, input, dt);
 		const auto pose = Observer::SurfaceWalker::evaluate(walker_state_, *environment, profile, dimensions);
+		if (!std::isfinite(pose.position[0]) || !std::isfinite(pose.position[1]) || !std::isfinite(pose.position[2])) {
+			walker_state_.active = false;
+			return;
+		}
 
 		cam.position = pose.position;
 		cam.pitch = pose.angles.pitch_deg;

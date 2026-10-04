@@ -62,7 +62,7 @@ inline constexpr std::array<Capture::ShapeKind, 3> kWaypointShapes{Capture::Shap
 inline constexpr std::array<Capture::ShapeKind, 5> kRotationShapes{Capture::ShapeKind::Arc, Capture::ShapeKind::Helix, Capture::ShapeKind::Orbit, Capture::ShapeKind::LogarithmicSpiral, Capture::ShapeKind::ArchimedeanSpiral};
 inline constexpr std::array<Capture::ShapeKind, 6> kCurveShapes{Capture::ShapeKind::Lissajous, Capture::ShapeKind::TorusKnot, Capture::ShapeKind::Lemniscate, Capture::ShapeKind::Rose, Capture::ShapeKind::Epitrochoid, Capture::ShapeKind::Wave};
 inline constexpr std::array<Capture::ShapeKind, 3> kEquationShapes{Capture::ShapeKind::ExpressionCartesian, Capture::ShapeKind::ExpressionCylindrical, Capture::ShapeKind::ExpressionSpherical};
-inline constexpr std::array<Capture::ShapeKind, 1> kSurfaceShapes{Capture::ShapeKind::SurfaceWalk};
+inline constexpr std::array<Capture::ShapeKind, 3> kSurfaceShapes{Capture::ShapeKind::SurfaceWalk, Capture::ShapeKind::SurfaceLoop, Capture::ShapeKind::SurfaceRoute};
 
 struct ShapeGroup {
 	const char* name;
@@ -266,6 +266,7 @@ private:
 		std::string label{};
 		double radius{1.0};
 		Capture::Vec3 position{0.0, 0.0, 0.0};
+		Capture::Vec3 axes{1.0, 1.0, 1.0};
 	};
 
 	struct CurveSet {
@@ -341,7 +342,7 @@ private:
 			if (body.has_name()) {
 				label += " (" + std::string(body.name_view()) + ")";
 			}
-			bodies_.push_back(BodyChoice{static_cast<int32_t>(body.id), std::move(label), body.effective_radius(), body.position});
+			bodies_.push_back(BodyChoice{static_cast<int32_t>(body.id), std::move(label), body.effective_radius(), body.position, Observer::SurfaceGeometry::body_semi_axes(body)});
 		}
 	}
 
@@ -411,16 +412,18 @@ private:
 		return last_active;
 	}
 
-	[[nodiscard]] Capture::ScriptSegment make_surface_walk_segment(OrchestratorType& orchestrator) const {
+	[[nodiscard]] Capture::ScriptSegment make_surface_segment(OrchestratorType& orchestrator, Capture::ShapeKind kind) const {
 		namespace Geometry = Observer::SurfaceGeometry;
 		Capture::Vec3 center{0.0, 0.0, 0.0};
 		double radius = std::max(2.0 * orchestrator.parameters().mass, 1.0);
+		Capture::Vec3 axes{radius, radius, radius};
 		const bool on_body = surface_walk_body_ >= 0;
 		if (on_body) {
 			for (const BodyChoice& choice : bodies_) {
 				if (choice.id == surface_walk_body_) {
 					center = choice.position;
-					radius = std::max(choice.radius, 1e-6);
+					axes = choice.axes;
+					radius = std::max(choice.axes[0], 1e-6);
 					break;
 				}
 			}
@@ -434,14 +437,31 @@ private:
 		const Capture::Vec3 forward = camera.orientation_basis().forward;
 		const double heading = std::atan2(Geometry::dot(forward, east), Geometry::dot(forward, north)) * Capture::PathDetail::kRadToDeg;
 
-		Capture::ScriptSegment segment = Capture::make_script_segment(Capture::ShapeKind::SurfaceWalk, std::max(new_segment_duration_, 1.0));
-		segment.name = "Surface Walk";
-		segment.time_easing = Capture::EasingSpec::make(Capture::EasingKind::Linear);
+		Capture::ScriptSegment segment = Capture::make_script_segment(kind, std::max(new_segment_duration_, 1.0));
+		const double latitude_deg = latitude * Capture::PathDetail::kRadToDeg;
+		const double longitude_deg = longitude * Capture::PathDetail::kRadToDeg;
 		const double eye_height = radius * 0.02;
 		auto& shape = segment.layers.front().shape;
 		shape.controls[0] = {0.0, 0.0, 0.0};
-		shape.controls[1] = {eye_height * 0.3, std::max(segment.duration * 1.6, 1.0), 0.0};
-		shape.values = {latitude * Capture::PathDetail::kRadToDeg, longitude * Capture::PathDetail::kRadToDeg, heading, heading, radius * 0.5, radius, eye_height, 0.0};
+		shape.controls[1] = {0.0, std::max(segment.duration * 1.6, 1.0), 1.0};
+		switch (kind) {
+			case Capture::ShapeKind::SurfaceLoop:
+				segment.name = "Surface Loop";
+				shape.controls[1][1] = 0.0;
+				shape.values = {latitude_deg, longitude_deg, 30.0, 1.0, 0.0, radius, eye_height, 1.0};
+				break;
+			case Capture::ShapeKind::SurfaceRoute:
+				segment.name = "Surface Route";
+				shape.controls[1][1] = 0.0;
+				shape.values = {latitude_deg, longitude_deg, (latitude_deg > 0.0) ? latitude_deg - 40.0 : latitude_deg + 40.0, std::remainder(longitude_deg + 90.0, 360.0), 0.0, radius, eye_height, 1.0};
+				break;
+			case Capture::ShapeKind::SurfaceWalk:
+			default:
+				segment.name = "Surface Walk";
+				shape.values = {latitude_deg, longitude_deg, heading, heading, radius * 0.5, radius, eye_height, 1.0};
+				break;
+		}
+		shape.fit_surface_axes(axes, eye_height);
 		if (on_body) {
 			segment.anchor = Capture::AnchorMode::TrackBody;
 			segment.anchor_body = surface_walk_body_;
@@ -972,6 +992,22 @@ private:
 			changed = true;
 		}
 		render_setting_tooltip("Resets all control points and shape parameters to their default geometric configuration.");
+
+		if (Capture::is_surface_shape(shape.kind)) {
+			ImGui::SeparatorText("Surface Fit");
+			const auto frame = shape.surface_frame();
+			ImGui::TextDisabled("Surface axes: %.4g x %.4g x %.4g | Mean radius: %.4g", frame.axes[0], frame.axes[1], frame.axes[2], frame.mean_radius);
+			if (ImGui::SmallButton("Fit To Body Selected Next To Add Surface Buttons")) {
+				for (const BodyChoice& choice : bodies_) {
+					if (choice.id == surface_walk_body_) {
+						shape.fit_surface_axes(choice.axes, frame.eye_height);
+						changed = true;
+						break;
+					}
+				}
+			}
+			render_setting_tooltip("Copies the radius, polar flattening and equatorial ratio of the chosen body into this path, so it follows the deformed surface of that body.");
+		}
 
 		if (descriptor.waypoints) {
 			ImGui::SeparatorText("Waypoints");
@@ -1588,9 +1624,19 @@ private:
 		render_setting_tooltip("Body on whose surface the new walk segment is placed. The world origin selects the primary source radius. The segment follows the body when it moves.");
 		ImGui::SameLine();
 		if (ImGui::Button("Add Surface Walk")) {
-			insert_segment(script, make_surface_walk_segment(orchestrator));
+			insert_segment(script, make_surface_segment(orchestrator, Capture::ShapeKind::SurfaceWalk));
 		}
 		render_setting_tooltip("Adds a walking segment on the chosen body, starting below the live camera in its viewing direction.");
+		ImGui::SameLine();
+		if (ImGui::Button("Add Surface Loop")) {
+			insert_segment(script, make_surface_segment(orchestrator, Capture::ShapeKind::SurfaceLoop));
+		}
+		render_setting_tooltip("Adds a closed circular path around the point below the live camera, following the deformed surface of the chosen body.");
+		ImGui::SameLine();
+		if (ImGui::Button("Add Surface Route")) {
+			insert_segment(script, make_surface_segment(orchestrator, Capture::ShapeKind::SurfaceRoute));
+		}
+		render_setting_tooltip("Adds a great-circle route from the coordinates below the live camera to a second coordinate, following the deformed surface of the chosen body.");
 
 		const bool has_selection = selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size());
 		ImGui::BeginDisabled(!has_selection);

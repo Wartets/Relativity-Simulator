@@ -16,7 +16,7 @@
 
 namespace Relativistic::IO {
 
-inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 3;
+inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 4;
 
 struct SecondaryViewPersistedState {
 	bool active{false};
@@ -336,6 +336,12 @@ struct UserSettings {
 		walk.head_bob_enabled = get_bool("cam_walk_head_bob", walk.head_bob_enabled);
 		walk.head_bob_amplitude = get_dbl("cam_walk_head_bob_amplitude", walk.head_bob_amplitude);
 		walk.follow_surface_rotation = get_bool("cam_walk_follow_rotation", walk.follow_surface_rotation);
+		walk.maximum_look_pitch_deg = get_dbl("cam_walk_max_look_pitch", walk.maximum_look_pitch_deg);
+		walk.maximum_drop_heights = get_dbl("cam_walk_max_drop_heights", walk.maximum_drop_heights);
+		if (file_version < 4) {
+			walk.head_bob_enabled = false;
+			result.format_version = USER_SETTINGS_FORMAT_VERSION;
+		}
 		walk.sanitize();
 
 		const auto loaded_layout = static_cast<UI::KeyboardLayout>(get_u32("cam_keyboard_layout", static_cast<uint32_t>(UI::KeyboardLayout::Qwerty)));
@@ -533,6 +539,8 @@ struct UserSettings {
 		out << "cam_walk_head_bob=" << (camera_controls.surface_walk.head_bob_enabled ? 1 : 0) << "\n";
 		out << "cam_walk_head_bob_amplitude=" << camera_controls.surface_walk.head_bob_amplitude << "\n";
 		out << "cam_walk_follow_rotation=" << (camera_controls.surface_walk.follow_surface_rotation ? 1 : 0) << "\n";
+		out << "cam_walk_max_look_pitch=" << camera_controls.surface_walk.maximum_look_pitch_deg << "\n";
+		out << "cam_walk_max_drop_heights=" << camera_controls.surface_walk.maximum_drop_heights << "\n";
 		out << "cam_keyboard_layout=" << static_cast<uint32_t>(camera_controls.keyboard_layout) << "\n";
 
 		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {

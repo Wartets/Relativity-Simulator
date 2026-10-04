@@ -27,13 +27,14 @@ class BodyPositionLookup {
 public:
 	using PositionFunction = std::function<std::optional<Vec3>(int32_t)>;
 	using NearestFunction = std::function<std::optional<std::pair<int32_t, Vec3>>(const Vec3&)>;
+	using AxesFunction = std::function<std::optional<Vec3>(int32_t)>;
 
 	BodyPositionLookup() = default;
 
 	template <typename Callable>
 		requires (!std::is_same_v<std::remove_cvref_t<Callable>, BodyPositionLookup> && std::is_invocable_r_v<std::optional<Vec3>, Callable&, int32_t>)
-	BodyPositionLookup(Callable&& position, NearestFunction nearest = {})
-		: position_(std::forward<Callable>(position)), nearest_(std::move(nearest)) {}
+	BodyPositionLookup(Callable&& position, NearestFunction nearest = {}, AxesFunction axes = {})
+		: position_(std::forward<Callable>(position)), nearest_(std::move(nearest)), axes_(std::move(axes)) {}
 
 	[[nodiscard]] explicit operator bool() const noexcept {
 		return static_cast<bool>(position_);
@@ -51,9 +52,14 @@ public:
 		return nearest_ ? nearest_(from) : std::nullopt;
 	}
 
+	[[nodiscard]] std::optional<Vec3> axes(int32_t id) const {
+		return axes_ ? axes_(id) : std::nullopt;
+	}
+
 private:
 	PositionFunction position_{};
 	NearestFunction nearest_{};
+	AxesFunction axes_{};
 };
 
 inline constexpr int32_t kFixedPointReference = -2;
@@ -113,6 +119,11 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 	}
 	if (id >= 0) return lookup(id);
 	return std::nullopt;
+}
+
+[[nodiscard]] inline std::optional<Vec3> resolve_axes(const BodyPositionLookup& lookup, int32_t id) {
+	if (!lookup || id < 0) return std::nullopt;
+	return lookup.axes(id);
 }
 
 [[nodiscard]] inline Vec3 evaluate_point_curve(const std::vector<Vec3>& points, double u, bool closed, bool uniform_speed, double tension, int mode) noexcept {
@@ -185,10 +196,14 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 
 enum class ShapeKind : uint32_t {
 	Hold = 0, Linear, QuadraticBezier, CubicBezier, Spline, Polyline, BSpline, Arc, Helix, Orbit, LogarithmicSpiral, ArchimedeanSpiral,
-	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk
+	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk, SurfaceLoop, SurfaceRoute
 };
 
-inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::SurfaceWalk) + 1;
+inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::SurfaceRoute) + 1;
+
+[[nodiscard]] constexpr bool is_surface_shape(ShapeKind kind) noexcept {
+	return kind == ShapeKind::SurfaceWalk || kind == ShapeKind::SurfaceLoop || kind == ShapeKind::SurfaceRoute;
+}
 
 struct ShapeDescriptor {
 	const char* name;
@@ -220,7 +235,9 @@ inline constexpr std::array<ShapeDescriptor, kShapeKindCount> kShapeDescriptors{
 	{"Equation (Cartesian)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
 	{"Equation (Cylindrical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
 	{"Equation (Spherical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
-	{"Surface Walk", {"Body Center Offset", "Hop (Amplitude, Cycles, Unused)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "Heading At Start (deg)", "Heading At End (deg)", "Distance Walked", "Body Radius", "Eye Height"}, false, false}
+	{"Surface Walk", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "Heading At Start (deg)", "Heading At End (deg)", "Distance Walked", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
+	{"Surface Loop (Circle Around A Point)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Center Latitude (deg)", "Center Longitude (deg)", "Angular Radius (deg)", "Revolutions", "Start Phase (deg)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
+	{"Surface Route (Coordinate To Coordinate)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "End Longitude (deg)", "Route Mode (0 Short Arc, 1 Long Arc)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false}
 }};
 
 [[nodiscard]] inline const ShapeDescriptor& shape_descriptor(ShapeKind kind) noexcept {
@@ -298,8 +315,49 @@ struct ShapeSpec {
 			case ShapeKind::ExpressionCartesian: expressions = {Expression{"40*cos(2*pi*u)"}, Expression{"40*sin(2*pi*u)"}, Expression{"10*sin(4*pi*u)"}}; break;
 			case ShapeKind::ExpressionCylindrical: expressions = {Expression{"40-25*u"}, Expression{"4*pi*u"}, Expression{"10+10*u"}}; break;
 			case ShapeKind::ExpressionSpherical: expressions = {Expression{"50-30*u"}, Expression{"pi/2+0.4*sin(2*pi*u)"}, Expression{"6*pi*u"}}; break;
-			case ShapeKind::SurfaceWalk: controls[1] = {0.0, 2.0, 0.0}; values = {0.0, 0.0, 90.0, 90.0, 20.0, 10.0, 0.2, 0.0}; break;
+			case ShapeKind::SurfaceWalk: controls[1] = {0.0, 2.0, 1.0}; values = {0.0, 0.0, 90.0, 90.0, 20.0, 10.0, 0.2, 1.0}; break;
+			case ShapeKind::SurfaceLoop: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 1.0, 0.0, 10.0, 0.2, 1.0}; break;
+			case ShapeKind::SurfaceRoute: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 90.0, 0.0, 10.0, 0.2, 1.0}; break;
 		}
+	}
+
+	struct SurfaceFrame {
+		Vec3 center{0.0, 0.0, 0.0};
+		Vec3 axes{1.0, 1.0, 1.0};
+		double mean_radius{1.0};
+		double eye_height{0.0};
+	};
+
+	[[nodiscard]] SurfaceFrame surface_frame() const noexcept {
+		const auto ratio = [](double value) noexcept { return (value > 1e-3) ? std::clamp(value, 0.05, 20.0) : 1.0; };
+		const double radius = std::max(values[5], 1e-9);
+		SurfaceFrame frame;
+		frame.center = controls[0];
+		frame.axes = {radius, radius * ratio(controls[1][2]), radius * ratio(values[7])};
+		frame.mean_radius = std::cbrt(frame.axes[0] * frame.axes[1] * frame.axes[2]);
+		frame.eye_height = std::max(values[6], 0.0);
+		return frame;
+	}
+
+	void fit_surface_axes(const Vec3& axes, double eye_height) noexcept {
+		const double equatorial = std::max(axes[0], 1e-9);
+		values[5] = equatorial;
+		values[6] = std::max(eye_height, 0.0);
+		values[7] = axes[2] / equatorial;
+		controls[1][2] = axes[1] / equatorial;
+	}
+
+	[[nodiscard]] static Vec3 surface_direction(double latitude_deg, double longitude_deg) noexcept {
+		const double latitude = latitude_deg * PathDetail::kDegToRad;
+		const double longitude = longitude_deg * PathDetail::kDegToRad;
+		return {std::cos(latitude) * std::cos(longitude), std::cos(latitude) * std::sin(longitude), std::sin(latitude)};
+	}
+
+	[[nodiscard]] static Vec3 surface_point_above(const SurfaceFrame& frame, const Vec3& direction, double clearance) noexcept {
+		const Vec3 unit = ScriptMath::normalized(direction, {0.0, 0.0, 1.0});
+		const double radius = Observer::SurfaceGeometry::ellipsoid_radius(frame.axes, unit);
+		const Vec3 normal = Observer::SurfaceGeometry::ellipsoid_normal(frame.axes, unit);
+		return ScriptMath::add(frame.center, ScriptMath::add(ScriptMath::scaled(unit, radius), ScriptMath::scaled(normal, clearance)));
 	}
 
 	[[nodiscard]] bool has_transform() const noexcept {
@@ -408,8 +466,8 @@ struct ShapeSpec {
 				break;
 			}
 			case ShapeKind::SurfaceWalk: {
-				const double eye_radius = std::max(v[5] + v[6], 1e-9);
-				const double total_angle = v[4] / eye_radius;
+				const SurfaceFrame frame = surface_frame();
+				const double total_angle = v[4] / frame.mean_radius;
 				const double latitude = v[0] * deg;
 				const double longitude = v[1] * deg;
 				const double start_heading = v[2] * deg;
@@ -430,7 +488,35 @@ struct ShapeSpec {
 					tangent = Observer::SurfaceGeometry::rotate_about_axis(next_tangent, direction, -step_turn);
 				}
 				const double hop = c1[0] * std::abs(std::sin(std::numbers::pi_v<double> * c1[1] * u));
-				raw = ScriptMath::add(c0, ScriptMath::scaled(direction, eye_radius + hop));
+				raw = surface_point_above(frame, direction, frame.eye_height + hop);
+				break;
+			}
+			case ShapeKind::SurfaceLoop: {
+				const SurfaceFrame frame = surface_frame();
+				const double latitude = v[0] * deg;
+				const double longitude = v[1] * deg;
+				const Vec3 center_direction = surface_direction(v[0], v[1]);
+				const Vec3 north{-std::sin(latitude) * std::cos(longitude), -std::sin(latitude) * std::sin(longitude), std::cos(latitude)};
+				const Vec3 east{-std::sin(longitude), std::cos(longitude), 0.0};
+				const double angular_radius = std::clamp(v[2], 0.0, 180.0) * deg;
+				const double phase = v[4] * deg + tau * v[3] * u;
+				const Vec3 lateral = ScriptMath::add(ScriptMath::scaled(north, std::cos(phase)), ScriptMath::scaled(east, std::sin(phase)));
+				const Vec3 direction = ScriptMath::add(ScriptMath::scaled(center_direction, std::cos(angular_radius)), ScriptMath::scaled(lateral, std::sin(angular_radius)));
+				const double hop = c1[0] * std::abs(std::sin(std::numbers::pi_v<double> * c1[1] * u));
+				raw = surface_point_above(frame, direction, frame.eye_height + hop);
+				break;
+			}
+			case ShapeKind::SurfaceRoute: {
+				const SurfaceFrame frame = surface_frame();
+				const Vec3 start = surface_direction(v[0], v[1]);
+				const Vec3 finish = surface_direction(v[2], v[3]);
+				const double separation = std::acos(std::clamp(ScriptMath::dot(start, finish), -1.0, 1.0));
+				Vec3 axis = ScriptMath::cross(start, finish);
+				axis = (ScriptMath::length(axis) < 1e-9) ? Observer::SurfaceGeometry::tangent_fallback(start) : ScriptMath::normalized(axis, {0.0, 0.0, 1.0});
+				const double sweep = (v[4] > 0.5) ? -(tau - separation) : separation;
+				const Vec3 direction = Observer::SurfaceGeometry::rotate_about_axis(start, axis, sweep * u);
+				const double hop = c1[0] * std::abs(std::sin(std::numbers::pi_v<double> * c1[1] * u));
+				raw = surface_point_above(frame, direction, frame.eye_height + hop);
 				break;
 			}
 			case ShapeKind::ExpressionCartesian:
@@ -473,7 +559,7 @@ struct ShapeSpec {
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::ExpressionSpherical);
+		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::SurfaceRoute);
 		for (size_t i = 0; i < controls.size(); ++i) controls[i] = ScriptMath::read_vec(reader, prefix + "c" + std::to_string(i), controls[i]);
 		for (size_t i = 0; i < values.size(); ++i) values[i] = reader.real(prefix + "v" + std::to_string(i), values[i]);
 		for (size_t i = 0; i < expressions.size(); ++i) expressions[i].assign(reader.text(prefix + "e" + std::to_string(i), expressions[i].source()));
@@ -934,6 +1020,15 @@ struct ScriptSegment {
 	ShakeSpec shake{};
 	SegmentTransition transition{};
 
+	[[nodiscard]] bool follows_surface() const noexcept {
+		for (const ShapeLayer& layer : layers) {
+			if (layer.enabled && is_surface_shape(layer.shape.kind)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	[[nodiscard]] bool uses_signals() const noexcept {
 		const auto reactive = [](const ScalarChannel& channel) noexcept { return channel.enabled && (channel.driver.enabled || channel.use_expression); };
 		return reactive(fov) || reactive(exposure) || reactive(roll) || reactive(warp)
@@ -989,6 +1084,12 @@ struct ScriptSegment {
 	layer.name = "Base Path";
 	layer.shape = ShapeSpec::make(kind);
 	segment.layers.push_back(std::move(layer));
+	if (is_surface_shape(kind)) {
+		segment.time_easing = EasingSpec::make(EasingKind::Linear);
+		segment.orientation.mode = OrientationMode::SurfaceWalker;
+		segment.orientation.target_body = kOriginReference;
+		segment.orientation.look_ahead = 0.03;
+	}
 	return segment;
 }
 
@@ -1101,6 +1202,8 @@ struct MotionScript {
 	std::vector<ScriptEvent> events{};
 	PathEnd end_behavior{PathEnd::Clamp};
 	EasingSpec global_easing{};
+	double default_fov_deg{60.0};
+	double default_exposure_ev{0.0};
 
 	struct SegmentLocation {
 		size_t active_slot{0};
@@ -1185,6 +1288,15 @@ struct MotionScript {
 			case EventTrigger::ScriptTime:
 			default: return std::max(event.time_seconds + event.offset_seconds, 0.0);
 		}
+	}
+
+	[[nodiscard]] static std::optional<Vec3> surface_axes_of(const ScriptSegment& segment) noexcept {
+		for (const ShapeLayer& layer : segment.layers) {
+			if (layer.enabled && is_surface_shape(layer.shape.kind)) {
+				return layer.shape.surface_frame().axes;
+			}
+		}
+		return std::nullopt;
 	}
 
 	[[nodiscard]] std::optional<SegmentLocation> locate(double seconds) const noexcept {
@@ -1470,7 +1582,13 @@ struct MotionScript {
 					center = *bpos;
 				}
 				center = ScriptMath::add(center, orient.target_offset);
-				const Vec3 normal = ScriptMath::normalized(ScriptMath::sub(pos, center), {0.0, 0.0, 1.0});
+				Vec3 surface_axes{1.0, 1.0, 1.0};
+				if (const auto body_axes = ScriptMath::resolve_axes(body_lookup, orient.target_body)) {
+					surface_axes = *body_axes;
+				} else if (const auto shape_axes = surface_axes_of(segment)) {
+					surface_axes = *shape_axes;
+				}
+				const Vec3 normal = Observer::SurfaceGeometry::ellipsoid_normal(surface_axes, ScriptMath::normalized(ScriptMath::sub(pos, center), {0.0, 0.0, 1.0}));
 				const double lead = std::clamp(orient.look_ahead, 0.001, 0.5);
 				const bool forward_sample = (u + lead) <= 1.0;
 				const double sample_u = forward_sample ? (u + lead) : std::max(u - lead, 0.0);
@@ -1498,8 +1616,8 @@ struct MotionScript {
 		ch_ctx.signals = &signals;
 		pitch += orient.pitch_modifier.evaluate(ch_ctx, 0.0);
 		yaw += orient.yaw_modifier.evaluate(ch_ctx, 0.0);
-		double fov = segment.fov.evaluate(ch_ctx, 60.0);
-		double exposure = segment.exposure.evaluate(ch_ctx, 0.0);
+		double fov = segment.fov.evaluate(ch_ctx, default_fov_deg);
+		double exposure = segment.exposure.evaluate(ch_ctx, default_exposure_ev);
 		roll += segment.roll.evaluate(ch_ctx, 0.0);
 		double sim_warp = segment.warp.evaluate(ch_ctx, 1.0);
 

@@ -2,6 +2,7 @@
 
 #include "relativistic/core/engine_log.hpp"
 #include "relativistic/observer/camera_collision.hpp"
+#include "relativistic/observer/planet_orbit.hpp"
 #include "relativistic/observer/surface_walker.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/ui/camera_control_config.hpp"
@@ -21,7 +22,8 @@ enum class CameraNavigationMode : uint32_t {
 	OrbitCenter = 1,
 	SphericalBoyerLindquist = 2,
 	RocketThrust = 3,
-	SurfaceWalk = 4
+	SurfaceWalk = 4,
+	PlanetOrbit = 5
 };
 
 struct SurfaceWalkTelemetry {
@@ -49,10 +51,14 @@ private:
 	static constexpr double kClickDragThresholdPixels = 4.0;
 	CameraNavigationMode previous_mode_{CameraNavigationMode::FreeFly6DOF};
 	Observer::SurfaceWalkerState walker_state_{};
+	Observer::PlanetOrbitState planet_orbit_state_{};
 	Observer::CameraCollisionField collision_field_{};
 	SurfaceWalkTelemetry walk_telemetry_{};
 	double look_delta_yaw_deg_{0.0};
 	double look_delta_pitch_deg_{0.0};
+	double mouse_delta_x_{0.0};
+	double mouse_delta_y_{0.0};
+	double pending_scroll_steps_{0.0};
 
 public:
 	explicit InteractiveCameraController(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept
@@ -181,6 +187,20 @@ public:
 		set_navigation_mode(CameraNavigationMode::FreeFly6DOF);
 	}
 
+	void enter_planet_orbit(uint32_t body_id) noexcept {
+		orchestrator_.parameters().surface_walk_body_id = body_id;
+		planet_orbit_state_.active = false;
+		set_navigation_mode(CameraNavigationMode::PlanetOrbit);
+	}
+
+	void leave_planet_orbit() noexcept {
+		set_navigation_mode(CameraNavigationMode::FreeFly6DOF);
+	}
+
+	[[nodiscard]] const Observer::PlanetOrbitState& planet_orbit_state() const noexcept {
+		return planet_orbit_state_;
+	}
+
 	[[nodiscard]] const SurfaceWalkTelemetry& surface_walk_telemetry() const noexcept {
 		return walk_telemetry_;
 	}
@@ -194,8 +214,11 @@ public:
 		if (requested_mode != previous_mode_) {
 			if (previous_mode_ == CameraNavigationMode::SurfaceWalk) {
 				release_surface_walk_state();
+			} else if (previous_mode_ == CameraNavigationMode::PlanetOrbit) {
+				release_planet_orbit_state();
 			}
 			walker_state_.active = false;
+			planet_orbit_state_.active = false;
 			previous_mode_ = requested_mode;
 		}
 		navigation_mode_ = requested_mode;
@@ -221,18 +244,25 @@ public:
 			case CameraNavigationMode::SurfaceWalk:
 				update_surface_walk_mode(window, dt, is_hovered);
 				break;
+			case CameraNavigationMode::PlanetOrbit:
+				update_planet_orbit_mode(window, dt, is_hovered);
+				break;
 			case CameraNavigationMode::FreeFly6DOF:
 			default:
 				update_free_fly_mode(window, dt, boost_multiplier, is_hovered);
 				break;
 		}
 
-		if (orchestrator_.parameters().camera_collision_enabled && navigation_mode_ != CameraNavigationMode::SurfaceWalk) {
+		if (orchestrator_.parameters().camera_collision_enabled && navigation_mode_ != CameraNavigationMode::SurfaceWalk && navigation_mode_ != CameraNavigationMode::PlanetOrbit) {
 			apply_view_collision(previous_position);
 		}
 	}
 
 	void handle_scroll(double yoffset) noexcept {
+		if (navigation_mode_ == CameraNavigationMode::PlanetOrbit) {
+			pending_scroll_steps_ += yoffset;
+			return;
+		}
 		auto& cam = orchestrator_.camera();
 		if (yoffset > 0.0) {
 			cam.fov_deg = std::max(5.0, cam.fov_deg - 2.5);
@@ -418,15 +448,19 @@ private:
 
 		const auto& keys = config_.keybinds;
 		const auto& free_fly = config_.free_fly;
+		const auto key_down = [window](int key) noexcept { return glfwGetKey(window, key) == GLFW_PRESS; };
+
 		Observer::SurfaceWalkerInput input;
-		input.move_forward = (keys.is_pressed(InputAction::MoveForward, window) ? 1.0 : 0.0) - (keys.is_pressed(InputAction::MoveBackward, window) ? 1.0 : 0.0);
-		input.move_right = (keys.is_pressed(InputAction::MoveRight, window) ? 1.0 : 0.0) - (keys.is_pressed(InputAction::MoveLeft, window) ? 1.0 : 0.0);
-		if (free_fly.invert_forward) input.move_forward = -input.move_forward;
-		if (free_fly.invert_lateral) input.move_right = -input.move_right;
-		input.jump = keys.is_pressed(InputAction::MoveUp, window);
-		input.crouch = keys.is_pressed(InputAction::MoveDown, window);
-		input.sprint = keys.is_active(InputAction::Sprint, window);
-		input.crawl = keys.is_active(InputAction::Crawl, window);
+		const double move_fwd = (keys.is_pressed(InputAction::MoveForward, window) || key_down(GLFW_KEY_UP) ? 1.0 : 0.0)
+			- (keys.is_pressed(InputAction::MoveBackward, window) || key_down(GLFW_KEY_DOWN) ? 1.0 : 0.0);
+		const double move_rgt = (keys.is_pressed(InputAction::MoveRight, window) || key_down(GLFW_KEY_RIGHT) ? 1.0 : 0.0)
+			- (keys.is_pressed(InputAction::MoveLeft, window) || key_down(GLFW_KEY_LEFT) ? 1.0 : 0.0);
+		input.move_forward = free_fly.invert_forward ? -move_fwd : move_fwd;
+		input.move_right = free_fly.invert_lateral ? -move_rgt : move_rgt;
+		input.jump = keys.is_pressed(InputAction::MoveUp, window) || key_down(GLFW_KEY_SPACE);
+		input.crouch = keys.is_pressed(InputAction::MoveDown, window) || key_down(GLFW_KEY_C);
+		input.sprint = keys.is_active(InputAction::Sprint, window) || key_down(GLFW_KEY_LEFT_SHIFT) || key_down(GLFW_KEY_RIGHT_SHIFT);
+		input.crawl = keys.is_active(InputAction::Crawl, window) || key_down(GLFW_KEY_LEFT_CONTROL) || key_down(GLFW_KEY_RIGHT_CONTROL);
 		input.look_yaw_delta_deg = look_delta_yaw_deg_;
 		input.look_pitch_delta_deg = look_delta_pitch_deg_;
 
@@ -651,6 +685,9 @@ private:
 					drag_threshold_exceeded_ = true;
 				}
 
+				mouse_delta_x_ = dx;
+				mouse_delta_y_ = dy;
+
 				if (drag_threshold_exceeded_) {
 					auto& cam = orchestrator_.camera();
 					const auto& prof = config_.free_fly;
@@ -658,14 +695,129 @@ private:
 					const double y_sign = prof.invert_mouse_y ? -1.0 : 1.0;
 					look_delta_yaw_deg_ = -dx * prof.mouse_sensitivity * x_sign;
 					look_delta_pitch_deg_ = -dy * prof.mouse_sensitivity * y_sign;
-					cam.yaw += look_delta_yaw_deg_;
-					cam.pitch = std::clamp(cam.pitch + look_delta_pitch_deg_, -89.0, 89.0);
+					if (navigation_mode_ != CameraNavigationMode::SurfaceWalk && navigation_mode_ != CameraNavigationMode::PlanetOrbit) {
+						cam.yaw += look_delta_yaw_deg_;
+						cam.pitch = std::clamp(cam.pitch + look_delta_pitch_deg_, -89.0, 89.0);
+					}
 				}
 			}
 		} else {
 			is_dragging_ = false;
 			drag_threshold_exceeded_ = false;
 		}
+	}
+
+	void release_planet_orbit_state() noexcept {
+		planet_orbit_state_ = Observer::PlanetOrbitState{};
+		auto& cam = orchestrator_.camera();
+		cam.roll = 0.0;
+		cam.pitch = std::clamp(cam.pitch, -89.0, 89.0);
+		cam.velocity = {0.0, 0.0, 0.0};
+		orchestrator_.notify_state_changed();
+	}
+
+	[[nodiscard]] std::optional<Observer::PlanetOrbitEnvironment> resolve_planet_orbit_environment(uint32_t body_id) const noexcept {
+		if (body_id == 0U) {
+			return std::nullopt;
+		}
+		auto& system = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+		for (const auto& body : system.bodies()) {
+			if (body.id != body_id || !body.enabled || body.is_spacetime_source) {
+				continue;
+			}
+			Observer::PlanetOrbitEnvironment environment;
+			environment.center = body.position;
+			environment.axes = Observer::SurfaceGeometry::body_semi_axes(body);
+			return environment;
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] uint32_t nearest_orbitable_body_id(const std::array<double, 3>& position) const noexcept {
+		auto& system = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+		uint32_t best_id = 0U;
+		double best_distance = std::numeric_limits<double>::max();
+		for (const auto& body : system.bodies()) {
+			if (!body.enabled || body.is_spacetime_source) {
+				continue;
+			}
+			const double dx = body.position[0] - position[0];
+			const double dy = body.position[1] - position[1];
+			const double dz = body.position[2] - position[2];
+			const double distance = dx * dx + dy * dy + dz * dz;
+			if (distance < best_distance) {
+				best_distance = distance;
+				best_id = body.id;
+			}
+		}
+		return best_id;
+	}
+
+	void update_planet_orbit_mode(GLFWwindow* window, double dt, bool is_hovered) noexcept {
+		auto& params = orchestrator_.parameters();
+		auto& cam = orchestrator_.camera();
+		auto& profile = config_.planet_orbit;
+		profile.sanitize();
+
+		auto environment = resolve_planet_orbit_environment(params.surface_walk_body_id);
+		if (!environment.has_value()) {
+			const uint32_t fallback_id = nearest_orbitable_body_id(cam.position);
+			if (fallback_id != 0U) {
+				params.surface_walk_body_id = fallback_id;
+				planet_orbit_state_.active = false;
+				environment = resolve_planet_orbit_environment(fallback_id);
+			}
+		}
+		if (!environment.has_value()) {
+			Core::log_warning("Planet orbit requires at least one enabled celestial body; returning to free fly navigation.");
+			set_navigation_mode(CameraNavigationMode::FreeFly6DOF);
+			return;
+		}
+
+		if (!planet_orbit_state_.active || planet_orbit_state_.body_id != params.surface_walk_body_id) {
+			Observer::PlanetOrbit::initialize(planet_orbit_state_, *environment, profile, params.surface_walk_body_id, cam.position);
+		}
+
+		Observer::PlanetOrbitInput input;
+		if (window != nullptr) {
+			const auto& keybinds = config_.keybinds;
+			const auto key_down = [window](int key) noexcept { return glfwGetKey(window, key) == GLFW_PRESS; };
+			if (keybinds.is_pressed(InputAction::MoveRight, window) || key_down(GLFW_KEY_RIGHT)) input.orbit_east += 1.0;
+			if (keybinds.is_pressed(InputAction::MoveLeft, window) || key_down(GLFW_KEY_LEFT)) input.orbit_east -= 1.0;
+			if (keybinds.is_pressed(InputAction::MoveForward, window) || key_down(GLFW_KEY_UP)) input.orbit_north += 1.0;
+			if (keybinds.is_pressed(InputAction::MoveBackward, window) || key_down(GLFW_KEY_DOWN)) input.orbit_north -= 1.0;
+			if (key_down(GLFW_KEY_PAGE_UP)) input.zoom -= 1.0;
+			if (key_down(GLFW_KEY_PAGE_DOWN)) input.zoom += 1.0;
+			input.sprint = keybinds.is_active(InputAction::Sprint, window) || key_down(GLFW_KEY_LEFT_SHIFT) || key_down(GLFW_KEY_RIGHT_SHIFT);
+			input.crawl = keybinds.is_active(InputAction::Crawl, window) || key_down(GLFW_KEY_LEFT_CONTROL) || key_down(GLFW_KEY_RIGHT_CONTROL);
+
+			handle_mouse_look(window, is_hovered);
+			if (is_dragging_ && drag_threshold_exceeded_) {
+				const double direction = profile.invert_drag ? -1.0 : 1.0;
+				input.drag_east_pixels = -mouse_delta_x_ * direction;
+				input.drag_north_pixels = mouse_delta_y_ * direction;
+			}
+			input.zoom_steps = pending_scroll_steps_;
+			pending_scroll_steps_ = 0.0;
+		}
+
+		Observer::PlanetOrbit::advance(planet_orbit_state_, profile, input, dt);
+		const Observer::PlanetOrbitPose pose = Observer::PlanetOrbit::evaluate(planet_orbit_state_, *environment, profile);
+		if (!std::isfinite(pose.position[0]) || !std::isfinite(pose.position[1]) || !std::isfinite(pose.position[2])) {
+			planet_orbit_state_.active = false;
+			return;
+		}
+
+		cam.position = pose.position;
+		cam.pitch = std::clamp(pose.angles.pitch_deg, -89.0, 89.0);
+		cam.yaw = pose.angles.yaw_deg;
+		cam.roll = pose.angles.roll_deg;
+		cam.velocity = {0.0, 0.0, 0.0};
+		cam.target = environment->center;
+		sync_spherical_from_cartesian();
+		cam.orbit_distance = cam.radius;
 	}
 
 	void sync_spherical_from_cartesian() noexcept {

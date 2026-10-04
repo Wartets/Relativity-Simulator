@@ -62,7 +62,7 @@ inline constexpr std::array<Capture::ShapeKind, 3> kWaypointShapes{Capture::Shap
 inline constexpr std::array<Capture::ShapeKind, 5> kRotationShapes{Capture::ShapeKind::Arc, Capture::ShapeKind::Helix, Capture::ShapeKind::Orbit, Capture::ShapeKind::LogarithmicSpiral, Capture::ShapeKind::ArchimedeanSpiral};
 inline constexpr std::array<Capture::ShapeKind, 6> kCurveShapes{Capture::ShapeKind::Lissajous, Capture::ShapeKind::TorusKnot, Capture::ShapeKind::Lemniscate, Capture::ShapeKind::Rose, Capture::ShapeKind::Epitrochoid, Capture::ShapeKind::Wave};
 inline constexpr std::array<Capture::ShapeKind, 3> kEquationShapes{Capture::ShapeKind::ExpressionCartesian, Capture::ShapeKind::ExpressionCylindrical, Capture::ShapeKind::ExpressionSpherical};
-inline constexpr std::array<Capture::ShapeKind, 3> kSurfaceShapes{Capture::ShapeKind::SurfaceWalk, Capture::ShapeKind::SurfaceLoop, Capture::ShapeKind::SurfaceRoute};
+inline constexpr std::array<Capture::ShapeKind, 4> kSurfaceShapes{Capture::ShapeKind::SurfaceWalk, Capture::ShapeKind::SurfaceLoop, Capture::ShapeKind::SurfaceRoute, Capture::ShapeKind::PlanetOrbit};
 
 struct ShapeGroup {
 	const char* name;
@@ -75,7 +75,7 @@ inline constexpr std::array<ShapeGroup, 6> kShapeGroups{{
 	{"Rotations And Orbits", kRotationShapes},
 	{"Closed And Periodic Curves", kCurveShapes},
 	{"Equations", kEquationShapes},
-	{"Surface Walking", kSurfaceShapes}
+	{"Surface And Orbit Around Bodies", kSurfaceShapes}
 }};
 
 struct ExpressionPreset {
@@ -472,6 +472,49 @@ private:
 		segment.orientation.mode = Capture::OrientationMode::SurfaceWalker;
 		segment.orientation.target_body = surface_walk_body_;
 		segment.orientation.look_ahead = 0.03;
+		return segment;
+	}
+
+	[[nodiscard]] Capture::ScriptSegment make_orbit_segment(OrchestratorType& orchestrator) const {
+		namespace Geometry = Observer::SurfaceGeometry;
+		Capture::Vec3 center{0.0, 0.0, 0.0};
+		double radius = std::max(2.0 * orchestrator.parameters().mass, 1.0);
+		Capture::Vec3 axes{radius, radius, radius};
+		const bool on_body = surface_walk_body_ >= 0;
+		if (on_body) {
+			for (const BodyChoice& choice : bodies_) {
+				if (choice.id == surface_walk_body_) {
+					center = choice.position;
+					axes = choice.axes;
+					radius = std::max(choice.axes[0], 1e-6);
+					break;
+				}
+			}
+		}
+		const Capture::Vec3 offset = Geometry::subtract(orchestrator.camera().position, center);
+		const Capture::Vec3 direction = Geometry::normalized(offset, {1.0, 0.0, 0.0});
+		const double latitude_deg = std::clamp(std::asin(std::clamp(direction[2], -1.0, 1.0)) * Capture::PathDetail::kRadToDeg, -85.0, 85.0);
+		const double longitude_deg = std::atan2(direction[1], direction[0]) * Capture::PathDetail::kRadToDeg;
+		const double mean_radius = std::max(std::cbrt(std::max(axes[0], 1e-12) * std::max(axes[1], 1e-12) * std::max(axes[2], 1e-12)), 1e-12);
+		const double raw_ratio = (Geometry::length(offset) - Geometry::ellipsoid_radius(axes, direction)) / mean_radius;
+		const double altitude_ratio = std::isfinite(raw_ratio) ? std::clamp(raw_ratio, 0.02, 40.0) : 1.0;
+
+		Capture::ScriptSegment segment = Capture::make_script_segment(Capture::ShapeKind::PlanetOrbit, std::max(new_segment_duration_, 1.0));
+		segment.name = "Planet Orbit";
+		auto& shape = segment.layers.front().shape;
+		shape.controls[0] = {0.0, 0.0, 0.0};
+		shape.values = {latitude_deg, longitude_deg, latitude_deg, 1.0, altitude_ratio, radius, altitude_ratio, 1.0};
+		shape.fit_orbit_axes(axes);
+		if (on_body) {
+			segment.anchor = Capture::AnchorMode::TrackBody;
+			segment.anchor_body = surface_walk_body_;
+		} else {
+			segment.anchor = Capture::AnchorMode::World;
+			segment.anchor_offset = center;
+		}
+		segment.orientation.mode = Capture::OrientationMode::LookAtTarget;
+		segment.orientation.target_body = surface_walk_body_;
+		segment.orientation.target_offset = {0.0, 0.0, 0.0};
 		return segment;
 	}
 
@@ -1007,6 +1050,22 @@ private:
 				}
 			}
 			render_setting_tooltip("Copies the radius, polar flattening and equatorial ratio of the chosen body into this path, so it follows the deformed surface of that body.");
+		}
+
+		if (Capture::is_planet_orbit_shape(shape.kind)) {
+			ImGui::SeparatorText("Body Fit");
+			const auto frame = shape.surface_frame();
+			ImGui::TextDisabled("Body axes: %.4g x %.4g x %.4g | Mean radius: %.4g", frame.axes[0], frame.axes[1], frame.axes[2], frame.mean_radius);
+			if (ImGui::SmallButton("Fit To Body Selected Next To Add Surface Buttons")) {
+				for (const BodyChoice& choice : bodies_) {
+					if (choice.id == surface_walk_body_) {
+						shape.fit_orbit_axes(choice.axes);
+						changed = true;
+						break;
+					}
+				}
+			}
+			render_setting_tooltip("Copies the radius, polar flattening and equatorial ratio of the chosen body into this orbit, so the altitude is measured over the deformed surface of that body.");
 		}
 
 		if (descriptor.waypoints) {
@@ -1637,6 +1696,10 @@ private:
 			insert_segment(script, make_surface_segment(orchestrator, Capture::ShapeKind::SurfaceRoute));
 		}
 		render_setting_tooltip("Adds a great-circle route from the coordinates below the live camera to a second coordinate, following the deformed surface of the chosen body.");
+		if (ImGui::Button("Add Planet Orbit")) {
+			insert_segment(script, make_orbit_segment(orchestrator));
+		}
+		render_setting_tooltip("Adds an orbit around the chosen body, starting at the live camera latitude, longitude and altitude over the deformed surface. The segment follows the body when it moves and keeps facing it. Start and end latitude, altitude and the number of revolutions can then be edited.");
 
 		const bool has_selection = selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size());
 		ImGui::BeginDisabled(!has_selection);

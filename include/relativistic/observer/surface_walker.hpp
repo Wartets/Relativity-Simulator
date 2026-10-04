@@ -153,6 +153,7 @@ struct SurfaceWalkerState {
 	double last_yaw_deg{0.0};
 	bool jump_was_pressed{false};
 	double airborne_gravity{0.0};
+	double airborne_time{0.0};
 };
 
 struct SurfaceWalkerPose {
@@ -175,7 +176,10 @@ public:
 	static constexpr double kMaximumArcPerSubstep = 0.1;
 	static constexpr double kMaximumGravity = 1.0e9;
 	static constexpr double kMinimumEyeClearanceFraction = 0.05;
-	static constexpr double kMinimumAbsoluteEyeClearance = 2.0e-5;
+	static constexpr double kMinimumRelativeEyeClearance = 1.0e-6;
+	static constexpr double kMaximumVerticalSpeedRelative = 200.0;
+	static constexpr double kAirtimeSlackFactor = 1.25;
+	static constexpr double kRestSpeedFraction = 1.0e-3;
 
 	[[nodiscard]] static double mean_radius(const Vector3& axes) noexcept {
 		return std::cbrt(axes[0] * axes[1] * axes[2]);
@@ -287,7 +291,7 @@ public:
 		if (parameters.head_bob_enabled) {
 			eye_height -= state.bob_weight * parameters.head_bob_amplitude * dimensions.eye_height * std::abs(std::sin(state.stride_phase));
 		}
-		eye_height = std::max({eye_height, dimensions.height * kMinimumEyeClearanceFraction, kMinimumAbsoluteEyeClearance});
+		eye_height = std::max({eye_height, dimensions.height * kMinimumEyeClearanceFraction, mean_radius(environment.axes) * kMinimumRelativeEyeClearance});
 
 		const Vector3 forward_tangent = SurfaceGeometry::normalized(
 			SurfaceGeometry::subtract(world_heading, SurfaceGeometry::scale(normal, SurfaceGeometry::dot(world_heading, normal))),
@@ -346,6 +350,7 @@ private:
 		finite_scalar(state.crouch_blend, 0.0);
 		finite_scalar(state.look_pitch_deg, 0.0);
 		finite_scalar(state.airborne_gravity, 0.0);
+		finite_scalar(state.airborne_time, 0.0);
 		state.lift = std::max(state.lift, 0.0);
 	}
 
@@ -391,6 +396,10 @@ private:
 		const double velocity_limit = dimensions.walk_speed * std::max(parameters.sprint_multiplier, 1.0) * 1.5;
 		state.velocity_forward = std::clamp(state.velocity_forward, -velocity_limit, velocity_limit);
 		state.velocity_right = std::clamp(state.velocity_right, -velocity_limit, velocity_limit);
+		if (grounded && !has_input && std::hypot(state.velocity_forward, state.velocity_right) < dimensions.walk_speed * kRestSpeedFraction) {
+			state.velocity_forward = 0.0;
+			state.velocity_right = 0.0;
+		}
 
 		const Vector3 displacement = SurfaceGeometry::add(
 			SurfaceGeometry::scale(state.heading, state.velocity_forward * step),
@@ -427,19 +436,26 @@ private:
 		if (jump_request) {
 			if (grounded && dimensions.jump_height > 0.0) {
 				state.airborne_gravity = base_gravity;
-				state.vertical_velocity = std::sqrt(2.0 * base_gravity * dimensions.jump_height);
+				state.vertical_velocity = std::min(std::sqrt(2.0 * base_gravity * dimensions.jump_height), mean_radius(environment.axes) * kMaximumVerticalSpeedRelative);
+				state.airborne_time = 0.0;
 			}
 			jump_request = false;
 		}
 		if (state.lift > 0.0 || state.vertical_velocity > 0.0) {
+			const double vertical_limit = mean_radius(environment.axes) * kMaximumVerticalSpeedRelative;
 			const double gravity_value = (state.airborne_gravity > 0.0) ? state.airborne_gravity : fall_gravity(base_gravity, state.lift, parameters);
+			state.airborne_time += step;
 			state.lift += state.vertical_velocity * step - 0.5 * gravity_value * step * step;
-			state.vertical_velocity -= gravity_value * step;
-			if (!std::isfinite(state.lift) || !std::isfinite(state.vertical_velocity) || state.lift <= 0.0) {
+			state.vertical_velocity = std::clamp(state.vertical_velocity - gravity_value * step, -vertical_limit, vertical_limit);
+			const bool airtime_expired = state.airborne_time > std::max(parameters.maximum_airtime_seconds, 0.5) * kAirtimeSlackFactor;
+			if (!std::isfinite(state.lift) || !std::isfinite(state.vertical_velocity) || state.lift <= 0.0 || airtime_expired) {
 				state.lift = 0.0;
 				state.vertical_velocity = 0.0;
 				state.airborne_gravity = 0.0;
+				state.airborne_time = 0.0;
 			}
+		} else {
+			state.airborne_time = 0.0;
 		}
 	}
 };

@@ -100,6 +100,35 @@ public:
 		return is_dragging_ && drag_threshold_exceeded_;
 	}
 
+	[[nodiscard]] bool is_in_motion() const noexcept {
+		if (is_actively_navigating()) {
+			return true;
+		}
+		switch (navigation_mode_) {
+			case CameraNavigationMode::SurfaceWalk:
+				return walk_telemetry_.active && (!walk_telemetry_.grounded || walk_telemetry_.speed > std::max(walk_telemetry_.reference_length, 1e-12) * kMotionSpeedThreshold);
+			case CameraNavigationMode::PlanetOrbit:
+				return planet_orbit_state_.active && (std::abs(planet_orbit_state_.velocity_azimuth) + std::abs(planet_orbit_state_.velocity_elevation) + std::abs(planet_orbit_state_.velocity_zoom)) > kMotionVelocityThreshold;
+			default:
+				return false;
+		}
+	}
+
+	void follow_active_target(double dt) noexcept {
+		if (!(dt > 0.0)) return;
+		synchronize_navigation_mode();
+		if (navigation_mode_ == CameraNavigationMode::SurfaceWalk) {
+			update_surface_walk_mode(nullptr, dt, false);
+		} else if (navigation_mode_ == CameraNavigationMode::PlanetOrbit) {
+			update_planet_orbit_mode(nullptr, dt, false);
+		}
+	}
+
+	void reset_follow_state() noexcept {
+		walker_state_.active = false;
+		planet_orbit_state_.active = false;
+	}
+
 	void snap_to_equatorial_front(double distance = 50.0) noexcept {
 		auto& cam = orchestrator_.camera();
 		cam.position = {0.0, distance, 0.0};
@@ -210,18 +239,7 @@ public:
 
 		handle_global_shortcuts(window);
 
-		const auto requested_mode = static_cast<CameraNavigationMode>(orchestrator_.parameters().camera_mode);
-		if (requested_mode != previous_mode_) {
-			if (previous_mode_ == CameraNavigationMode::SurfaceWalk) {
-				release_surface_walk_state();
-			} else if (previous_mode_ == CameraNavigationMode::PlanetOrbit) {
-				release_planet_orbit_state();
-			}
-			walker_state_.active = false;
-			planet_orbit_state_.active = false;
-			previous_mode_ = requested_mode;
-		}
-		navigation_mode_ = requested_mode;
+		synchronize_navigation_mode();
 		const std::array<double, 3> previous_position = orchestrator_.camera().position;
 
 		double boost_multiplier = 1.0;
@@ -274,6 +292,51 @@ public:
 	}
 
 private:
+	static constexpr double kFollowPositionTolerance = 1.0e-10;
+	static constexpr double kFollowAngleToleranceDeg = 1.0e-7;
+	static constexpr double kMotionSpeedThreshold = 1.0e-6;
+	static constexpr double kMotionVelocityThreshold = 1.0e-4;
+
+	void synchronize_navigation_mode() noexcept {
+		uint32_t raw_mode = orchestrator_.parameters().camera_mode;
+		if (raw_mode >= Observer::kCameraNavigationModeCount) {
+			raw_mode = 0U;
+			orchestrator_.parameters().camera_mode = raw_mode;
+		}
+		const auto requested_mode = static_cast<CameraNavigationMode>(raw_mode);
+		if (requested_mode != previous_mode_) {
+			if (previous_mode_ == CameraNavigationMode::SurfaceWalk) {
+				release_surface_walk_state();
+			} else if (previous_mode_ == CameraNavigationMode::PlanetOrbit) {
+				release_planet_orbit_state();
+			}
+			walker_state_.active = false;
+			planet_orbit_state_.active = false;
+			previous_mode_ = requested_mode;
+		}
+		navigation_mode_ = requested_mode;
+	}
+
+	void apply_follow_pose(const std::array<double, 3>& position, const Observer::SurfaceGeometry::FrameAngles& angles, const std::array<double, 3>& target, double reference_length) noexcept {
+		auto& cam = orchestrator_.camera();
+		cam.velocity = {0.0, 0.0, 0.0};
+		cam.target = target;
+		const double position_tolerance = std::max(reference_length, 1e-12) * kFollowPositionTolerance;
+		const bool moved = Observer::SurfaceGeometry::length(Observer::SurfaceGeometry::subtract(position, cam.position)) > position_tolerance;
+		const bool rotated = std::abs(angles.pitch_deg - cam.pitch) > kFollowAngleToleranceDeg
+			|| std::abs(std::remainder(angles.yaw_deg - cam.yaw, 360.0)) > kFollowAngleToleranceDeg
+			|| std::abs(std::remainder(angles.roll_deg - cam.roll, 360.0)) > kFollowAngleToleranceDeg;
+		if (!moved && !rotated) {
+			return;
+		}
+		cam.position = position;
+		cam.pitch = angles.pitch_deg;
+		cam.yaw = angles.yaw_deg;
+		cam.roll = angles.roll_deg;
+		sync_spherical_from_cartesian();
+		cam.orbit_distance = cam.radius;
+	}
+
 	void handle_global_shortcuts(GLFWwindow* window) noexcept {
 		if (config_.keybinds.is_pressed(InputAction::ResetRoll, window)) {
 			reset_roll();
@@ -448,7 +511,7 @@ private:
 
 		const auto& keys = config_.keybinds;
 		const auto& free_fly = config_.free_fly;
-		const auto key_down = [window](int key) noexcept { return glfwGetKey(window, key) == GLFW_PRESS; };
+		const auto key_down = [window](int key) noexcept { return window != nullptr && glfwGetKey(window, key) == GLFW_PRESS; };
 
 		Observer::SurfaceWalkerInput input;
 		const double move_fwd = (keys.is_pressed(InputAction::MoveForward, window) || key_down(GLFW_KEY_UP) ? 1.0 : 0.0)
@@ -471,15 +534,10 @@ private:
 			return;
 		}
 
-		cam.position = pose.position;
-		cam.pitch = pose.angles.pitch_deg;
-		cam.yaw = pose.angles.yaw_deg;
-		cam.roll = pose.angles.roll_deg;
-		cam.velocity = {0.0, 0.0, 0.0};
-		cam.target = environment->center;
 		walker_state_.last_yaw_deg = pose.angles.yaw_deg;
-		sync_spherical_from_cartesian();
-		cam.orbit_distance = cam.radius;
+		Observer::SurfaceGeometry::FrameAngles walk_angles = pose.angles;
+		walk_angles.pitch_deg = std::clamp(walk_angles.pitch_deg, -89.0, 89.0);
+		apply_follow_pose(pose.position, walk_angles, environment->center, reference_length);
 
 		walk_telemetry_.active = true;
 		walk_telemetry_.grounded = pose.grounded;
@@ -659,6 +717,13 @@ private:
 	void handle_mouse_look(GLFWwindow* window, bool is_hovered) noexcept {
 		look_delta_yaw_deg_ = 0.0;
 		look_delta_pitch_deg_ = 0.0;
+		if (window == nullptr) {
+			is_dragging_ = false;
+			drag_threshold_exceeded_ = false;
+			mouse_delta_x_ = 0.0;
+			mouse_delta_y_ = 0.0;
+			return;
+		}
 		double mx = 0.0, my = 0.0;
 		glfwGetCursorPos(window, &mx, &my);
 
@@ -810,14 +875,9 @@ private:
 			return;
 		}
 
-		cam.position = pose.position;
-		cam.pitch = std::clamp(pose.angles.pitch_deg, -89.0, 89.0);
-		cam.yaw = pose.angles.yaw_deg;
-		cam.roll = pose.angles.roll_deg;
-		cam.velocity = {0.0, 0.0, 0.0};
-		cam.target = environment->center;
-		sync_spherical_from_cartesian();
-		cam.orbit_distance = cam.radius;
+		Observer::SurfaceGeometry::FrameAngles orbit_angles = pose.angles;
+		orbit_angles.pitch_deg = std::clamp(orbit_angles.pitch_deg, -89.0, 89.0);
+		apply_follow_pose(pose.position, orbit_angles, environment->center, Observer::PlanetOrbit::mean_radius(environment->axes));
 	}
 
 	void sync_spherical_from_cartesian() noexcept {

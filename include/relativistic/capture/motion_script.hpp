@@ -196,13 +196,17 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 
 enum class ShapeKind : uint32_t {
 	Hold = 0, Linear, QuadraticBezier, CubicBezier, Spline, Polyline, BSpline, Arc, Helix, Orbit, LogarithmicSpiral, ArchimedeanSpiral,
-	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk, SurfaceLoop, SurfaceRoute
+	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk, SurfaceLoop, SurfaceRoute, PlanetOrbit
 };
 
-inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::SurfaceRoute) + 1;
+inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::PlanetOrbit) + 1;
 
 [[nodiscard]] constexpr bool is_surface_shape(ShapeKind kind) noexcept {
 	return kind == ShapeKind::SurfaceWalk || kind == ShapeKind::SurfaceLoop || kind == ShapeKind::SurfaceRoute;
+}
+
+[[nodiscard]] constexpr bool is_planet_orbit_shape(ShapeKind kind) noexcept {
+	return kind == ShapeKind::PlanetOrbit;
 }
 
 struct ShapeDescriptor {
@@ -237,7 +241,8 @@ inline constexpr std::array<ShapeDescriptor, kShapeKindCount> kShapeDescriptors{
 	{"Equation (Spherical)", {"Center Offset"}, {"Parameter a", "Parameter b", "Parameter c", "Parameter k"}, false, true},
 	{"Surface Walk", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "Heading At Start (deg)", "Heading At End (deg)", "Distance Walked", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
 	{"Surface Loop (Circle Around A Point)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Center Latitude (deg)", "Center Longitude (deg)", "Angular Radius (deg)", "Revolutions", "Start Phase (deg)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
-	{"Surface Route (Coordinate To Coordinate)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "End Longitude (deg)", "Route Mode (0 Short Arc, 1 Long Arc)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false}
+	{"Surface Route (Coordinate To Coordinate)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "End Longitude (deg)", "Route Mode (0 Short Arc, 1 Long Arc)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
+	{"Planet Orbit (Altitude Over Surface)", {"Body Center Offset", "Axis Shape (Unused, Unused, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "Revolutions", "Start Altitude (Mean Radii)", "Body Radius", "End Altitude (Mean Radii)", "Polar Axis Ratio"}, false, false}
 }};
 
 [[nodiscard]] inline const ShapeDescriptor& shape_descriptor(ShapeKind kind) noexcept {
@@ -318,6 +323,7 @@ struct ShapeSpec {
 			case ShapeKind::SurfaceWalk: controls[1] = {0.0, 2.0, 1.0}; values = {0.0, 0.0, 90.0, 90.0, 20.0, 10.0, 0.2, 1.0}; break;
 			case ShapeKind::SurfaceLoop: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 1.0, 0.0, 10.0, 0.2, 1.0}; break;
 			case ShapeKind::SurfaceRoute: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 90.0, 0.0, 10.0, 0.2, 1.0}; break;
+			case ShapeKind::PlanetOrbit: controls[1] = {0.0, 0.0, 1.0}; values = {15.0, 0.0, 15.0, 1.0, 1.0, 10.0, 1.0, 1.0}; break;
 		}
 	}
 
@@ -343,6 +349,13 @@ struct ShapeSpec {
 		const double equatorial = std::max(axes[0], 1e-9);
 		values[5] = equatorial;
 		values[6] = std::max(eye_height, 0.0);
+		values[7] = axes[2] / equatorial;
+		controls[1][2] = axes[1] / equatorial;
+	}
+
+	void fit_orbit_axes(const Vec3& axes) noexcept {
+		const double equatorial = std::max(axes[0], 1e-9);
+		values[5] = equatorial;
 		values[7] = axes[2] / equatorial;
 		controls[1][2] = axes[1] / equatorial;
 	}
@@ -519,6 +532,16 @@ struct ShapeSpec {
 				raw = surface_point_above(frame, direction, frame.eye_height + hop);
 				break;
 			}
+			case ShapeKind::PlanetOrbit: {
+				const SurfaceFrame frame = surface_frame();
+				const double latitude = std::clamp(v[0] + (v[2] - v[0]) * u, -89.0, 89.0);
+				const double longitude = v[1] + 360.0 * v[3] * u;
+				const double altitude = std::max(v[4] + (v[6] - v[4]) * u, 0.0) * frame.mean_radius;
+				const Vec3 direction = ScriptMath::normalized(surface_direction(latitude, longitude), {0.0, 0.0, 1.0});
+				const double surface_radius = Observer::SurfaceGeometry::ellipsoid_radius(frame.axes, direction);
+				raw = ScriptMath::add(frame.center, ScriptMath::scaled(direction, surface_radius + altitude));
+				break;
+			}
 			case ShapeKind::ExpressionCartesian:
 			case ShapeKind::ExpressionCylindrical:
 			case ShapeKind::ExpressionSpherical: {
@@ -559,7 +582,7 @@ struct ShapeSpec {
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::SurfaceRoute);
+		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::PlanetOrbit);
 		for (size_t i = 0; i < controls.size(); ++i) controls[i] = ScriptMath::read_vec(reader, prefix + "c" + std::to_string(i), controls[i]);
 		for (size_t i = 0; i < values.size(); ++i) values[i] = reader.real(prefix + "v" + std::to_string(i), values[i]);
 		for (size_t i = 0; i < expressions.size(); ++i) expressions[i].assign(reader.text(prefix + "e" + std::to_string(i), expressions[i].source()));
@@ -1022,7 +1045,7 @@ struct ScriptSegment {
 
 	[[nodiscard]] bool follows_surface() const noexcept {
 		for (const ShapeLayer& layer : layers) {
-			if (layer.enabled && is_surface_shape(layer.shape.kind)) {
+			if (layer.enabled && (is_surface_shape(layer.shape.kind) || is_planet_orbit_shape(layer.shape.kind))) {
 				return true;
 			}
 		}
@@ -1089,6 +1112,10 @@ struct ScriptSegment {
 		segment.orientation.mode = OrientationMode::SurfaceWalker;
 		segment.orientation.target_body = kOriginReference;
 		segment.orientation.look_ahead = 0.03;
+	} else if (is_planet_orbit_shape(kind)) {
+		segment.time_easing = EasingSpec::make(EasingKind::Linear);
+		segment.orientation.mode = OrientationMode::LookAtTarget;
+		segment.orientation.target_body = kOriginReference;
 	}
 	return segment;
 }
@@ -1187,13 +1214,13 @@ struct ScriptSample {
 };
 
 enum class ScriptPreset : uint32_t {
-	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift, SurfaceStroll
+	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift, SurfaceStroll, PlanetOrbitSurvey
 };
 
-inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::SurfaceStroll) + 1;
+inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::PlanetOrbitSurvey) + 1;
 
 inline constexpr std::array<const char*, kScriptPresetCount> kScriptPresetNames{
-	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift", "Planetary Stroll"
+	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift", "Planetary Stroll", "Planet Orbit Survey"
 };
 
 struct MotionScript {
@@ -1767,6 +1794,15 @@ struct MotionScript {
 				seg.orientation.target_body = kOriginReference;
 				seg.orientation.look_ahead = 0.03;
 				seg.orientation.pitch_offset = -4.0;
+				script.segments.push_back(std::move(seg));
+				break;
+			}
+			case ScriptPreset::PlanetOrbitSurvey: {
+				script.name = "Planet Orbit Survey";
+				ScriptSegment seg = make_script_segment(ShapeKind::PlanetOrbit, 24.0);
+				seg.layers[0].shape.values = {20.0, 0.0, 55.0, 2.0, 2.5, 10.0, 0.6, 1.0};
+				seg.orientation.mode = OrientationMode::LookAtTarget;
+				seg.orientation.target_body = kOriginReference;
 				script.segments.push_back(std::move(seg));
 				break;
 			}

@@ -81,7 +81,6 @@ private:
 	bool has_received_frame_{false};
 	uint32_t interlace_phase_{0};
 	double last_dispatch_clock_{0.0};
-	Observer::PlanetOrbitState planet_orbit_state_{};
 	float dynamic_resolution_multiplier_{1.0f};
 	std::vector<double> frame_times_history_{};
 	double current_frame_time_ms_{0.0};
@@ -184,80 +183,9 @@ private:
 		}
 	}
 
-void update_planet_orbit(GLFWwindow* window, double dt, bool interactive) noexcept {
-		auto& params = orchestrator_.parameters();
-		auto& camera = orchestrator_.camera();
-		const auto& config = camera_controller_.config();
-
-		const Dynamics::PostNewtonianBody* target = nullptr;
-		double nearest_distance = std::numeric_limits<double>::max();
-		for (const auto& body : orchestrator_.nbody_system().bodies()) {
-			if (!body.enabled || body.is_spacetime_source) continue;
-			if (body.id == params.surface_walk_body_id) {
-				target = &body;
-				break;
-			}
-			const double dx = body.position[0] - camera.position[0];
-			const double dy = body.position[1] - camera.position[1];
-			const double dz = body.position[2] - camera.position[2];
-			const double distance = dx * dx + dy * dy + dz * dz;
-			if (distance < nearest_distance) {
-				nearest_distance = distance;
-				target = &body;
-			}
-		}
-		if (target == nullptr) {
-			planet_orbit_state_.active = false;
-			return;
-		}
-
-		Observer::PlanetOrbitEnvironment environment;
-		environment.center = target->position;
-		environment.axes = Observer::SurfaceGeometry::body_semi_axes(*target);
-
-		if (!planet_orbit_state_.active || planet_orbit_state_.body_id != target->id) {
-			Observer::PlanetOrbit::initialize(planet_orbit_state_, environment, config.planet_orbit, target->id, camera.position);
-		}
-
-		Observer::PlanetOrbitInput input;
-		if (interactive && window != nullptr) {
-			const auto& keybinds = config.keybinds;
-			const auto key_down = [window](int key) noexcept { return glfwGetKey(window, key) == GLFW_PRESS; };
-			if (keybinds.is_pressed(InputAction::MoveRight, window) || key_down(GLFW_KEY_RIGHT)) input.orbit_east += 1.0;
-			if (keybinds.is_pressed(InputAction::MoveLeft, window) || key_down(GLFW_KEY_LEFT)) input.orbit_east -= 1.0;
-			if (keybinds.is_pressed(InputAction::MoveForward, window) || key_down(GLFW_KEY_UP)) input.orbit_north += 1.0;
-			if (keybinds.is_pressed(InputAction::MoveBackward, window) || key_down(GLFW_KEY_DOWN)) input.orbit_north -= 1.0;
-			if (key_down(GLFW_KEY_PAGE_UP)) input.zoom -= 1.0;
-			if (key_down(GLFW_KEY_PAGE_DOWN)) input.zoom += 1.0;
-			input.sprint = key_down(GLFW_KEY_LEFT_SHIFT) || key_down(GLFW_KEY_RIGHT_SHIFT);
-			input.crawl = key_down(GLFW_KEY_LEFT_CONTROL) || key_down(GLFW_KEY_RIGHT_CONTROL);
-
-			const ImGuiIO& io = ImGui::GetIO();
-			if (is_hovered_ && !ImGui::IsAnyItemActive()) {
-				if (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-					const double direction = config.planet_orbit.invert_drag ? -1.0 : 1.0;
-					input.drag_east_pixels = -static_cast<double>(io.MouseDelta.x) * direction;
-					input.drag_north_pixels = static_cast<double>(io.MouseDelta.y) * direction;
-				}
-				if (!keybinds.is_active(InputAction::ZoomModifier, window)) {
-					input.zoom_steps = static_cast<double>(io.MouseWheel);
-				}
-			}
-		}
-
-		Observer::PlanetOrbit::advance(planet_orbit_state_, config.planet_orbit, input, dt);
-		const Observer::PlanetOrbitPose pose = Observer::PlanetOrbit::evaluate(planet_orbit_state_, environment, config.planet_orbit);
-		if (!std::isfinite(pose.position[0]) || !std::isfinite(pose.position[1]) || !std::isfinite(pose.position[2])) {
-			planet_orbit_state_.active = false;
-			return;
-		}
-		camera.position = pose.position;
-		camera.pitch = std::clamp(pose.angles.pitch_deg, -89.0, 89.0);
-		camera.yaw = pose.angles.yaw_deg;
-		camera.roll = pose.angles.roll_deg;
-		camera.velocity = {0.0, 0.0, 0.0};
-		camera.synchronize_spherical();
-		camera.orbit_distance = camera.radius;
+[[nodiscard]] bool follows_moving_target() const noexcept {
+		const uint32_t mode = orchestrator_.parameters().camera_mode;
+		return mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk) || mode == Observer::kPlanetOrbitNavigationMode;
 	}
 
 public:
@@ -455,7 +383,7 @@ public:
 
 			const auto& active_keybinds = camera_controller_.config().keybinds;
 			const bool is_navigating = (is_hovered_ || is_focused_) && (
-				camera_controller_.is_actively_navigating() ||
+				camera_controller_.is_in_motion() ||
 				active_keybinds.is_pressed(InputAction::MoveForward, window) ||
 				active_keybinds.is_pressed(InputAction::MoveBackward, window) ||
 				active_keybinds.is_pressed(InputAction::MoveLeft, window) ||
@@ -510,19 +438,15 @@ public:
 			}
 
 			std::unique_lock<std::recursive_mutex> body_snapshot_lock(orchestrator_.nbody_system().bodies_mutex());
-			const bool planet_orbit_mode = params.camera_mode == Observer::kPlanetOrbitNavigationMode;
-			if ((is_hovered_ || is_focused_) && !capture_coordinator_->drives_camera()) {
-				const auto camera_update_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraUpdate);
-				if (planet_orbit_mode) {
-					update_planet_orbit(window, dt, true);
-				} else {
-					planet_orbit_state_.active = false;
+			if (!capture_coordinator_->drives_camera()) {
+				if (is_hovered_ || is_focused_) {
+					const auto camera_update_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::CameraUpdate);
 					camera_controller_.update(window, dt, is_hovered_);
+				} else {
+					camera_controller_.follow_active_target(dt);
 				}
-			} else if (planet_orbit_mode && !capture_coordinator_->drives_camera()) {
-				update_planet_orbit(window, dt, false);
-			} else if (!planet_orbit_mode) {
-				planet_orbit_state_.active = false;
+			} else {
+				camera_controller_.reset_follow_state();
 			}
 
 			const auto& cam = orchestrator_.camera();
@@ -709,7 +633,8 @@ public:
 			const double dispatch_clock = ImGui::GetTime();
 			const double minimum_time_interval = std::clamp(pipeline_.telemetry().execution_time_ms * 0.0012, 1.0 / 60.0, 0.25);
 			const bool time_refresh_due = is_time_progressing && time_changed && !pipeline_.is_rendering() && (dispatch_clock - last_dispatch_clock_) >= minimum_time_interval;
-			const bool is_dirty = force_rerender_ || params_changed || precision_changed || time_refresh_due;
+			const bool defer_for_active_render = follows_moving_target() && pipeline_.is_rendering();
+			const bool is_dirty = !defer_for_active_render && (force_rerender_ || params_changed || precision_changed || time_refresh_due);
 
 			if (is_dirty && !capture_coordinator_->suppresses_live_render()) {
 				pipeline_.set_precision_mode(precision_selector > 0.5 ? Render::PrecisionMode::DoubleSingleEmulation : Render::PrecisionMode::NativeFloat64);

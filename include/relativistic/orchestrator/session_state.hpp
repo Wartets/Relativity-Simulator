@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
-#include "relativistic/render/body_lighting.hpp"
+#include "relativistic/render/bodies/body_lighting.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include <algorithm>
 #include <cstdint>

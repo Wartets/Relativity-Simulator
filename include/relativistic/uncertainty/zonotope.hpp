@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/uncertainty/interval.hpp"
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include <vector>
 #include <array>
 #include <span>

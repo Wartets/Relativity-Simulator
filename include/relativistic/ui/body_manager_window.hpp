@@ -2,8 +2,8 @@
 
 #include <imgui.h>
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
-#include "relativistic/dynamics/pn_body.hpp"
-#include "relativistic/dynamics/pn_nbody_system.hpp"
+#include "relativistic/dynamics/pn/pn_body.hpp"
+#include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/core/constants.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"

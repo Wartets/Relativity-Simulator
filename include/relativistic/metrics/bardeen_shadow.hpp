@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include <cmath>
 #include <numbers>

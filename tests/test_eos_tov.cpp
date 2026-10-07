@@ -1,5 +1,5 @@
 #include "relativistic/hydro/eos.hpp"
-#include "relativistic/hydro/tov_solver.hpp"
+#include "relativistic/hydro/solvers/tov_solver.hpp"
 #include "relativistic/core/constants.hpp"
 #include <iostream>
 #include <cassert>

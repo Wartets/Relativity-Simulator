@@ -1,8 +1,8 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/tensor_ops.hpp"
-#include "relativistic/core/four_vector_bundle.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
+#include "relativistic/core/math/four_vector_bundle.hpp"
 #include <cmath>
 #include <algorithm>
 #include <concepts>

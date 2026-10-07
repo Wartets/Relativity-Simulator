@@ -1,6 +1,6 @@
 #include "relativistic/metrics/morris_thorne.hpp"
 #include "relativistic/metrics/alcubierre.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/integrators/rk45_adaptive.hpp"
 #include <cassert>
 #include <cmath>

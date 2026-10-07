@@ -2,7 +2,7 @@
 
 #include <imgui.h>
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
-#include "relativistic/core/riemann.hpp"
+#include "relativistic/core/math/riemann.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/metrics/bardeen_shadow.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/tensor_ops.hpp"
+#include "relativistic/core/math/christoffel.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
 #include "relativistic/io/ephemeris_types.hpp"
 #include <cmath>
 #include <array>

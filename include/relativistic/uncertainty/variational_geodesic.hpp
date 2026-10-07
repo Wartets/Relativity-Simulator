@@ -1,7 +1,7 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/core/pcg64.hpp"
 #include "relativistic/metrics/spacetime_concept.hpp"
 #include "relativistic/uncertainty/covariance.hpp"

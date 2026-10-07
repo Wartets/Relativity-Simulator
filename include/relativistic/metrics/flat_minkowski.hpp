@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "spacetime_concept.hpp"
 
 namespace Relativistic::Metrics {

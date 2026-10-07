@@ -1,5 +1,5 @@
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/metrics/spacetime_concept.hpp"
 #include "relativistic/metrics/flat_minkowski.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"

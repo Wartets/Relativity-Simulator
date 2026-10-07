@@ -3,8 +3,8 @@
 #include <imgui.h>
 #include <implot.h>
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
-#include "relativistic/core/riemann.hpp"
-#include "relativistic/core/tensor_ops.hpp"
+#include "relativistic/core/math/riemann.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/bardeen_shadow.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"

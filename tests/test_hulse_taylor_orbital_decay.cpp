@@ -1,6 +1,6 @@
 #include "relativistic/dynamics/hulse_taylor_pulsar.hpp"
-#include "relativistic/dynamics/pn_orders.hpp"
-#include "relativistic/dynamics/pn_integrator.hpp"
+#include "relativistic/dynamics/pn/pn_orders.hpp"
+#include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include <iostream>
 #include <cassert>
 #include <cmath>

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "relativistic/observer/camera_projections.hpp"
-#include "relativistic/ui/hud_layout_config.hpp"
+#include "relativistic/ui/hud/hud_layout_config.hpp"
 #include "relativistic/ui/input_actions.hpp"
-#include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/ui/schematic/schematic_view_config.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>

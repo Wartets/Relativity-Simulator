@@ -1,6 +1,6 @@
-#include "relativistic/metrics/bssn_grid.hpp"
-#include "relativistic/metrics/bssn_evolution.hpp"
-#include "relativistic/metrics/bssn_constraints.hpp"
+#include "relativistic/metrics/bssn/bssn_grid.hpp"
+#include "relativistic/metrics/bssn/bssn_evolution.hpp"
+#include "relativistic/metrics/bssn/bssn_constraints.hpp"
 #include <iostream>
 #include <cmath>
 #include <numbers>

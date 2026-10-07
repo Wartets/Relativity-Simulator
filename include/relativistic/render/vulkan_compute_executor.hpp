@@ -2,9 +2,9 @@
 
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/gpu_types.hpp"
-#include "relativistic/optics/sky_panorama_image.hpp"
-#include "relativistic/optics/earth_texture_image.hpp"
-#include "relativistic/render/earth_texture_requirements.hpp"
+#include "relativistic/optics/textures/sky_panorama_image.hpp"
+#include "relativistic/optics/textures/earth_texture_image.hpp"
+#include "relativistic/render/bodies/earth_texture_requirements.hpp"
 #include <thread>
 #include "relativistic/core/engine_log.hpp"
 #include <vulkan/vulkan.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/core/constants.hpp"
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/optics/stokes_vector.hpp"
 #include "relativistic/optics/maxwell_juttner.hpp"
 #include <cmath>

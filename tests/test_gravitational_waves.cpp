@@ -1,5 +1,5 @@
-#include "relativistic/dynamics/pn_body.hpp"
-#include "relativistic/dynamics/pn_gravitational_waves.hpp"
+#include "relativistic/dynamics/pn/pn_body.hpp"
+#include "relativistic/dynamics/pn/pn_gravitational_waves.hpp"
 #include <iostream>
 #include <cassert>
 #include <cmath>

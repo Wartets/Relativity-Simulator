@@ -1,5 +1,5 @@
 #include "relativistic/modified_gravity/teves.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include <cassert>
 #include <cmath>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/dynamics/pn_nbody_system.hpp"
+#include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include <cmath>
 #include <vector>
 #include <array>

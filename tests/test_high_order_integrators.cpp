@@ -1,5 +1,5 @@
 #include "relativistic/core/constants.hpp"
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/integrators/cash_karp.hpp"
 #include "relativistic/integrators/vernier9.hpp"

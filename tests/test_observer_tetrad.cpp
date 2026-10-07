@@ -1,4 +1,4 @@
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/core/constants.hpp"
 #include "relativistic/metrics/flat_minkowski.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"

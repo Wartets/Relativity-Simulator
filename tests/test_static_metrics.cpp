@@ -3,8 +3,8 @@
 #include "relativistic/metrics/schwarzschild_isotropic.hpp"
 #include "relativistic/metrics/painleve_gullstrand.hpp"
 #include "relativistic/metrics/eddington_finkelstein.hpp"
-#include "relativistic/core/christoffel.hpp"
-#include "relativistic/core/tensor_ops.hpp"
+#include "relativistic/core/math/christoffel.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
 #include <iostream>
 #include <iomanip>
 #include <cmath>

@@ -1,6 +1,6 @@
 #include "relativistic/metrics/painleve_gullstrand.hpp"
 #include "relativistic/metrics/eddington_finkelstein.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/integrators/rk45_adaptive.hpp"
 #include "relativistic/core/constants.hpp"
 #include <iostream>

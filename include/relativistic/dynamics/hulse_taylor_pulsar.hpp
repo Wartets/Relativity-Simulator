@@ -1,8 +1,8 @@
 #pragma once
 
-#include "relativistic/dynamics/pn_body.hpp"
-#include "relativistic/dynamics/pn_orders.hpp"
-#include "relativistic/dynamics/pn_nbody_system.hpp"
+#include "relativistic/dynamics/pn/pn_body.hpp"
+#include "relativistic/dynamics/pn/pn_orders.hpp"
+#include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/core/constants.hpp"
 #include <cmath>
 #include <numbers>

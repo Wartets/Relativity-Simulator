@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/io/hdf5_serializer.hpp"
-#include "relativistic/io/recording_settings.hpp"
+#include "relativistic/io/capture/recording_settings.hpp"
 #include "relativistic/io/vtk_exporter.hpp"
 #include <algorithm>
 #include <array>

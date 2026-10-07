@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/capture/motion_script.hpp"
-#include "relativistic/io/capture_settings_io.hpp"
+#include "relativistic/io/capture/capture_settings_io.hpp"
 #include <filesystem>
 #include <fstream>
 #include <optional>

@@ -5,7 +5,7 @@
 #include "relativistic/uncertainty/zonotope.hpp"
 #include "relativistic/uncertainty/covariance.hpp"
 #include "relativistic/uncertainty/polynomial_chaos.hpp"
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include <concepts>
 #include <utility>
 

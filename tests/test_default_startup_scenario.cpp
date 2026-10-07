@@ -1,4 +1,4 @@
-#include "relativistic/io/scenario_locator.hpp"
+#include "relativistic/io/scenario/scenario_locator.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include <cmath>
 #include <cstdio>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/optics/stokes_vector.hpp"
 #include "relativistic/optics/radiative_processes.hpp"
 #include <cmath>

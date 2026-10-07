@@ -1,6 +1,6 @@
-#include "relativistic/dynamics/pn_body.hpp"
-#include "relativistic/dynamics/pn_orders.hpp"
-#include "relativistic/dynamics/pn_spin_precession.hpp"
+#include "relativistic/dynamics/pn/pn_body.hpp"
+#include "relativistic/dynamics/pn/pn_orders.hpp"
+#include "relativistic/dynamics/pn/pn_spin_precession.hpp"
 #include <iostream>
 #include <cassert>
 #include <cmath>

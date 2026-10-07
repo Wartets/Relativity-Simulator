@@ -1,5 +1,5 @@
 #include "relativistic/core/simd.hpp"
-#include "relativistic/core/geodesic_bundle.hpp"
+#include "relativistic/core/math/geodesic_bundle.hpp"
 #include <chrono>
 #include <iostream>
 #include <vector>

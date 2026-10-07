@@ -1,8 +1,8 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/tensor_ops.hpp"
-#include "relativistic/core/christoffel.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
+#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/metrics/spacetime_concept.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
 #include "relativistic/observer/tetrad_transport.hpp"

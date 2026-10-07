@@ -2,10 +2,10 @@
 
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/command.hpp"
-#include "relativistic/io/scenario_serializer.hpp"
-#include "relativistic/io/scenario_locator.hpp"
+#include "relativistic/io/scenario/scenario_serializer.hpp"
+#include "relativistic/io/scenario/scenario_locator.hpp"
 #include "relativistic/io/user_settings.hpp"
-#include "relativistic/dynamics/pn_body.hpp"
+#include "relativistic/dynamics/pn/pn_body.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>

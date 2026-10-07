@@ -1,10 +1,10 @@
 #include "relativistic/hydro/eos.hpp"
 #include "relativistic/hydro/hydro_types.hpp"
-#include "relativistic/hydro/con2prim.hpp"
-#include "relativistic/hydro/reconstruction.hpp"
-#include "relativistic/hydro/riemann_solvers.hpp"
-#include "relativistic/hydro/constrained_transport.hpp"
-#include "relativistic/hydro/grhd_solver.hpp"
+#include "relativistic/hydro/solvers/con2prim.hpp"
+#include "relativistic/hydro/solvers/reconstruction.hpp"
+#include "relativistic/hydro/solvers/riemann_solvers.hpp"
+#include "relativistic/hydro/solvers/constrained_transport.hpp"
+#include "relativistic/hydro/solvers/grhd_solver.hpp"
 #include <cassert>
 #include <iostream>
 #include <cmath>

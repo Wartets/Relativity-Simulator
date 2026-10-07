@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/core/constants.hpp"
-#include "relativistic/core/tensor.hpp"
+#include "relativistic/core/math/tensor.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/hydro/hydro_types.hpp"
 #include <cmath>

@@ -17,15 +17,16 @@ Relativity-Simulator/
 │
 ├── assets/
 │   ├── earth/
-│   │   ├── solarsystemscope/
-│   │   │   ├── 1k_earth_daymap.png
-│   │   │   ├── 1k_earth_nightmap.png
-│   │   │   ├── 2k_earth_daymap.png
-│   │   │   └── 2k_earth_nightmap.png
-│   │   │
-│   │   └── LICENCE.txt
+│   │   └── solarsystemscope/
+│   │       ├── 1k_earth_daymap.png
+│   │       ├── 1k_earth_nightmap.png
+│   │       ├── 2k_earth_daymap.png
+│   │       ├── 2k_earth_nightmap.png
+│   │       └── LICENCE.txt
+│   │   
 │   │
 │   ├── media/
+│   │   ├── interface_preview.png
 │   │   ├── schwarzschild_infall.gif
 │   │   ├── schwarzschild_orbit_passby.gif
 │   │   └── schwarzschild_preview.png
@@ -73,6 +74,7 @@ Relativity-Simulator/
 │       ├── capture/
 │       │   ├── camera_path.hpp
 │       │   ├── capture_coordinator.hpp
+│       │   ├── capture_post_process.hpp
 │       │   ├── capture_progress.hpp
 │       │   ├── easing.hpp
 │       │   ├── expression.hpp
@@ -84,25 +86,27 @@ Relativity-Simulator/
 │       │   └── script_events.hpp
 │       │
 │       ├── core/
-│       │   ├── christoffel.hpp
+│       │   ├── math/
+│       │   │   ├── christoffel.hpp
+│       │   │   ├── four_vector_bundle.hpp
+│       │   │   ├── geodesic_bundle.hpp
+│       │   │   ├── riemann.hpp
+│       │   │   ├── tensor.hpp
+│       │   │   └── tensor_ops.hpp
+│       │   │
 │       │   ├── constants.hpp
 │       │   ├── deterministic_replay.hpp
 │       │   ├── engine_log.hpp
 │       │   ├── engine_signature.hpp
-│       │   ├── four_vector_bundle.hpp
-│       │   ├── geodesic_bundle.hpp
 │       │   ├── memory_arena.hpp
 │       │   ├── pcg64.hpp
 │       │   ├── physical_constants_engine.hpp
-│       │   ├── riemann.hpp
 │       │   ├── schwarzschild_null_integrator.hpp
 │       │   ├── sha256.hpp
 │       │   ├── simd.hpp
 │       │   ├── simd_math.hpp
 │       │   ├── spsc_queue.hpp
 │       │   ├── system_console.hpp
-│       │   ├── tensor.hpp
-│       │   ├── tensor_ops.hpp
 │       │   └── thread_pool.hpp
 │       │
 │       ├── dark_matter/
@@ -111,19 +115,21 @@ Relativity-Simulator/
 │       │   └── galaxy_model.hpp
 │       │
 │       ├── dynamics/
+│       │   ├── pn/
+│       │   │   ├── pn_acceleration.hpp
+│       │   │   ├── pn_body.hpp
+│       │   │   ├── pn_gravitational_waves.hpp
+│       │   │   ├── pn_integrator.hpp
+│       │   │   ├── pn_nbody_system.hpp
+│       │   │   ├── pn_orders.hpp
+│       │   │   └── pn_spin_precession.hpp
+│       │   │
 │       │   ├── body_surface_layers.hpp
 │       │   ├── bulk_body_actions.hpp
 │       │   ├── hulse_taylor_pulsar.hpp
 │       │   ├── interaction_compatibility.hpp
 │       │   ├── interaction_config.hpp
-│       │   ├── interaction_solver.hpp
-│       │   ├── pn_acceleration.hpp
-│       │   ├── pn_body.hpp
-│       │   ├── pn_gravitational_waves.hpp
-│       │   ├── pn_integrator.hpp
-│       │   ├── pn_nbody_system.hpp
-│       │   ├── pn_orders.hpp
-│       │   └── pn_spin_precession.hpp
+│       │   └── interaction_solver.hpp
 │       │
 │       ├── gravimetry/
 │       │   ├── legendre_table.hpp
@@ -132,16 +138,18 @@ Relativity-Simulator/
 │       │   └── tidal_perturbations.hpp
 │       │
 │       ├── hydro/
-│       │   ├── con2prim.hpp
-│       │   ├── constrained_transport.hpp
+│       │   ├── solvers/
+│       │   │   ├── con2prim.hpp
+│       │   │   ├── constrained_transport.hpp
+│       │   │   ├── grhd_solver.hpp
+│       │   │   ├── reconstruction.hpp
+│       │   │   ├── riemann_solvers.hpp
+│       │   │   └── tov_solver.hpp
+│       │   │
 │       │   ├── eos.hpp
 │       │   ├── fishbone_moncrief.hpp
-│       │   ├── grhd_solver.hpp
 │       │   ├── hydro_types.hpp
-│       │   ├── novikov_thorne.hpp
-│       │   ├── reconstruction.hpp
-│       │   ├── riemann_solvers.hpp
-│       │   └── tov_solver.hpp
+│       │   └── novikov_thorne.hpp
 │       │
 │       ├── integrators/
 │       │   ├── cash_karp.hpp
@@ -154,36 +162,44 @@ Relativity-Simulator/
 │       │   └── vernier9.hpp
 │       │
 │       ├── io/
-│       │   ├── capture_settings_io.hpp
-│       │   ├── capture_studio_settings.hpp
-│       │   ├── capture_target_settings.hpp
+│       │   ├── capture/
+│       │   │   ├── capture_settings_io.hpp
+│       │   │   ├── capture_studio_settings.hpp
+│       │   │   ├── capture_target_settings.hpp
+│       │   │   ├── recording_settings.hpp
+│       │   │   ├── screenshot_capture_settings.hpp
+│       │   │   ├── screenshot_exporter.hpp
+│       │   │   └── video_capture_settings.hpp
+│       │   │
+│       │   ├── image/
+│       │   │   ├── image_codecs.hpp
+│       │   │   ├── image_format.hpp
+│       │   │   └── image_stream_writers.hpp
+│       │   │
+│       │   ├── scenario/
+│       │   │   ├── scenario_locator.hpp
+│       │   │   └── scenario_serializer.hpp
+│       │   │
 │       │   ├── ephemeris_types.hpp
 │       │   ├── fits_exporter.hpp
 │       │   ├── frame_transforms.hpp
 │       │   ├── hdf5_serializer.hpp
 │       │   ├── horizons_parser.hpp
-│       │   ├── image_codecs.hpp
-│       │   ├── image_format.hpp
-│       │   ├── image_stream_writers.hpp
-│       │   ├── recording_settings.hpp
-│       │   ├── scenario_locator.hpp
-│       │   ├── scenario_serializer.hpp
-│       │   ├── screenshot_capture_settings.hpp
-│       │   ├── screenshot_exporter.hpp
 │       │   ├── spk_reader.hpp
 │       │   ├── telemetry_table.hpp
 │       │   ├── user_settings.hpp
-│       │   ├── video_capture_settings.hpp
 │       │   └── vtk_exporter.hpp
 │       │
 │       ├── metrics/
+│       │   ├── bssn/
+│       │   │   ├── bssn_constraints.hpp
+│       │   │   ├── bssn_evolution.hpp
+│       │   │   ├── bssn_grid.hpp
+│       │   │   ├── bssn_interpolation.hpp
+│       │   │   └── bssn_metric.hpp
+│       │   │
 │       │   ├── alcubierre.hpp
 │       │   ├── bardeen_shadow.hpp
-│       │   ├── bssn_constraints.hpp
-│       │   ├── bssn_evolution.hpp
-│       │   ├── bssn_grid.hpp
-│       │   ├── bssn_interpolation.hpp
-│       │   ├── bssn_metric.hpp
 │       │   ├── eddington_finkelstein.hpp
 │       │   ├── flat_minkowski.hpp
 │       │   ├── flrw.hpp
@@ -207,13 +223,24 @@ Relativity-Simulator/
 │       │   └── teves.hpp
 │       │
 │       ├── observer/
+│       │   ├── camera_collision.hpp
 │       │   ├── camera_projections.hpp
 │       │   ├── direction_projection.hpp
 │       │   ├── observer_tetrad.hpp
+│       │   ├── planet_orbit.hpp
 │       │   ├── rocket_dynamics.hpp
+│       │   ├── surface_geometry.hpp
+│       │   ├── surface_walker.hpp
 │       │   └── tetrad_transport.hpp
 │       │
 │       ├── optics/
+│       │   ├── textures/
+│       │   │   ├── earth_texture_catalog.hpp
+│       │   │   ├── earth_texture_image.hpp
+│       │   │   ├── sky_panorama_catalog.hpp
+│       │   │   ├── sky_panorama_codecs.hpp
+│       │   │   └── sky_panorama_image.hpp
+│       │   │
 │       │   ├── carter_ray_classifier.hpp
 │       │   ├── cie_observer.hpp
 │       │   ├── disk_thermal_profile.hpp
@@ -221,9 +248,6 @@ Relativity-Simulator/
 │       │   ├── maxwell_juttner.hpp
 │       │   ├── polarized_radiative_transfer.hpp
 │       │   ├── radiative_processes.hpp
-│       │   ├── sky_panorama_catalog.hpp
-│       │   ├── sky_panorama_codecs.hpp
-│       │   ├── sky_panorama_image.hpp
 │       │   ├── spectral_shift.hpp
 │       │   ├── spectrum.hpp
 │       │   ├── stokes_vector.hpp
@@ -235,10 +259,19 @@ Relativity-Simulator/
 │       │   ├── performance_profiler.hpp
 │       │   ├── repl.hpp
 │       │   ├── scheduler.hpp
+│       │   ├── session_state.hpp
 │       │   └── simulation_orchestrator.hpp
 │       │
 │       ├── render/
-│       │   ├── body_surface_shading.hpp
+│       │   ├── bodies/
+│       │   │   ├── body_lighting.hpp
+│       │   │   ├── body_surface_shading.hpp
+│       │   │   ├── earth_surface_shading.hpp
+│       │   │   ├── earth_terminator.hpp
+│       │   │   └── earth_texture_requirements.hpp
+│       │   │
+│       │   ├── accretion_disk_model.hpp
+│       │   ├── accretion_disk_settings.hpp
 │       │   ├── double_single.hpp
 │       │   ├── geodesic_compute_pipeline.hpp
 │       │   ├── gpu_types.hpp
@@ -247,6 +280,22 @@ Relativity-Simulator/
 │       │   └── vulkan_context.hpp
 │       │
 │       ├── ui/
+│       │   ├── hud/
+│       │   │   ├── hud_layout_config.hpp
+│       │   │   ├── hud_manager_window.hpp
+│       │   │   └── hud_preferences.hpp
+│       │   │
+│       │   ├── schematic/
+│       │   │   ├── schematic_primary_source_overlay.hpp
+│       │   │   ├── schematic_view_config.hpp
+│       │   │   └── schematic_view_renderer.hpp
+│       │   │
+│       │   ├── spatial_reference/
+│       │   │   ├── spatial_reference_config.hpp
+│       │   │   ├── spatial_reference_editor.hpp
+│       │   │   └── spatial_reference_renderer.hpp
+│       │   │
+│       │   ├── accretion_disk_editor.hpp
 │       │   ├── body_manager_window.hpp
 │       │   ├── camera_control_config.hpp
 │       │   ├── capture_studio_window.hpp
@@ -254,11 +303,9 @@ Relativity-Simulator/
 │       │   ├── compatibility_notes.hpp
 │       │   ├── constants_window.hpp
 │       │   ├── control_panel_window.hpp
-│       │   ├── hud_layout_config.hpp
-│       │   ├── hud_manager_window.hpp
-│       │   ├── hud_preferences.hpp
 │       │   ├── input_actions.hpp
 │       │   ├── interactive_camera_controller.hpp
+│       │   ├── interface_persistence.hpp
 │       │   ├── keybind_settings_window.hpp
 │       │   ├── log_console_window.hpp
 │       │   ├── motion_script_editor.hpp
@@ -266,8 +313,6 @@ Relativity-Simulator/
 │       │   ├── performance_analysis_window.hpp
 │       │   ├── performance_settings_window.hpp
 │       │   ├── scenario_selector_window.hpp
-│       │   ├── schematic_view_config.hpp
-│       │   ├── schematic_view_renderer.hpp
 │       │   ├── secondary_view_window.hpp
 │       │   ├── secondary_viewport_manager.hpp
 │       │   ├── spectrograph_window.hpp
@@ -275,7 +320,8 @@ Relativity-Simulator/
 │       │   ├── tooltip_utils.hpp
 │       │   ├── ui_manager.hpp
 │       │   ├── viewport_primary_window.hpp
-│       │   └── visual_diagnostics_window.hpp
+│       │   ├── visual_diagnostics_window.hpp
+│       │   └── window_chrome.hpp
 │       │
 │       ├── uncertainty/
 │       │   ├── covariance.hpp
@@ -407,6 +453,7 @@ Relativity-Simulator/
 ├── .gitignore
 ├── CMakeLists.txt
 ├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
 ├── LICENSE
 └── README.md
 ```

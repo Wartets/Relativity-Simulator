@@ -1,9 +1,9 @@
 #pragma once
 
-#include "relativistic/io/scenario_locator.hpp"
+#include "relativistic/io/scenario/scenario_locator.hpp"
 #include "relativistic/ui/camera_control_config.hpp"
-#include "relativistic/ui/hud_layout_config.hpp"
-#include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/ui/hud/hud_layout_config.hpp"
+#include "relativistic/ui/schematic/schematic_view_config.hpp"
 #include "relativistic/ui/window_chrome.hpp"
 #include "relativistic/ui/interface_persistence.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"

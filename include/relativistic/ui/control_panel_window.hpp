@@ -5,8 +5,8 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
-#include "relativistic/ui/hud_layout_config.hpp"
-#include "relativistic/ui/schematic_view_config.hpp"
+#include "relativistic/ui/hud/hud_layout_config.hpp"
+#include "relativistic/ui/schematic/schematic_view_config.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
@@ -14,7 +14,7 @@
 #include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
-#include "relativistic/optics/sky_panorama_catalog.hpp"
+#include "relativistic/optics/textures/sky_panorama_catalog.hpp"
 #include <string>
 #include <string_view>
 #include <vector>

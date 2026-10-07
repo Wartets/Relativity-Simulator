@@ -1,5 +1,5 @@
-#include "relativistic/core/geodesic_bundle.hpp"
-#include "relativistic/core/four_vector_bundle.hpp"
+#include "relativistic/core/math/geodesic_bundle.hpp"
+#include "relativistic/core/math/four_vector_bundle.hpp"
 #include <cassert>
 #include <cmath>
 #include <numbers>

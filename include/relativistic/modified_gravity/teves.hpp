@@ -1,7 +1,7 @@
 #pragma once
 
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/tensor_ops.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/tensor_ops.hpp"
 #include "relativistic/core/constants.hpp"
 #include "relativistic/metrics/spacetime_concept.hpp"
 #include <cmath>

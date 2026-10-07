@@ -1,7 +1,7 @@
 #pragma once
 
 #include "relativistic/ui/camera_control_config.hpp"
-#include "relativistic/ui/hud_layout_config.hpp"
+#include "relativistic/ui/hud/hud_layout_config.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <imgui.h>
 #include <GLFW/glfw3.h>

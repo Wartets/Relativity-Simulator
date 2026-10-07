@@ -1,4 +1,4 @@
-#include "relativistic/io/scenario_serializer.hpp"
+#include "relativistic/io/scenario/scenario_serializer.hpp"
 #include <iostream>
 #include <cassert>
 

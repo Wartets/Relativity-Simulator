@@ -2,7 +2,7 @@
 
 #include "relativistic/capture/camera_path.hpp"
 #include "relativistic/core/engine_log.hpp"
-#include "relativistic/io/recording_settings.hpp"
+#include "relativistic/io/capture/recording_settings.hpp"
 #include "relativistic/io/telemetry_table.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"

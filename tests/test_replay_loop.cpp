@@ -1,5 +1,5 @@
-#include "relativistic/core/tensor.hpp"
-#include "relativistic/core/geodesic_bundle.hpp"
+#include "relativistic/core/math/tensor.hpp"
+#include "relativistic/core/math/geodesic_bundle.hpp"
 #include "relativistic/core/pcg64.hpp"
 #include "relativistic/core/deterministic_replay.hpp"
 #include "relativistic/core/sha256.hpp"

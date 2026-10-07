@@ -88,7 +88,12 @@ private:
 
 	[[nodiscard]] static bool is_metric_gpu_accelerable(const GpuCameraPushConstants& params) noexcept {
 		switch (params.metric_type) {
-			case 0U: case 1U: case 2U: case 4U: case 5U: case 6U:
+			case 6U:
+				if (std::abs(params.cosmological_lambda) > 1e-18) {
+					return false;
+				}
+				[[fallthrough]];
+			case 0U: case 1U: case 2U: case 4U: case 5U:
 				return true;
 			default:
 				return false;

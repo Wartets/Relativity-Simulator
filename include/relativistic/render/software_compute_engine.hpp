@@ -25,6 +25,9 @@
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/math/geodesic_bundle.hpp"
 #include "relativistic/core/schwarzschild_null_integrator.hpp"
+#include "relativistic/core/kerr_schild_null_integrator.hpp"
+#include "relativistic/core/spherical_planar_null_integrator.hpp"
+#include "relativistic/metrics/schwarzschild_de_sitter.hpp"
 #include "relativistic/observer/direction_projection.hpp"
 #include <vector>
 #include <span>
@@ -851,7 +854,8 @@ public:
 		const bool has_significant_spin = is_spin_family && std::abs(params.metric_spin) > 1e-9 * mass_scale;
 		const bool is_charge_family = (params.metric_type == 4U || params.metric_type == 5U);
 		const bool has_significant_charge = is_charge_family && std::abs(params.metric_charge) > 1e-9 * mass_scale;
-		return has_significant_spin || has_significant_charge;
+		const bool has_cosmological_term = (params.metric_type == 6U) && (std::abs(params.cosmological_lambda) > 1e-18);
+		return has_significant_spin || has_significant_charge || has_cosmological_term;
 	}
 
 private:
@@ -1335,6 +1339,367 @@ private:
 		};
 	}
 
+	[[nodiscard]] static GpuPixelOutput trace_kerr_schild_photon(
+		double m, double a_spin,
+		double n_r, double n_th, double n_ph,
+		double r_obs, double theta_obs, double phi_obs,
+		double rs, double rh, double isco,
+		double escape_radius, uint32_t max_steps,
+		bool has_accretion_disk,
+		double turbulence_aa_factor,
+		const GpuDiskProfile& disk_profile,
+		const GpuCameraPushConstants& params,
+		std::span<const GpuBodyData> bodies = {},
+		std::span<const uint32_t> body_candidates = {}
+	) noexcept {
+		const double sin_to = std::sin(theta_obs);
+		const double cos_to = std::cos(theta_obs);
+		const double sin_po = std::sin(phi_obs);
+		const double cos_po = std::cos(phi_obs);
+		const std::array<double, 3> outward{
+			n_r * sin_to * cos_po + n_th * cos_to * cos_po - n_ph * sin_po,
+			n_r * sin_to * sin_po + n_th * cos_to * sin_po + n_ph * cos_po,
+			n_r * cos_to - n_th * sin_to
+		};
+
+		Core::KerrSchildNullState<double> state;
+		state.position = Core::kerr_schild_position_from_boyer_lindquist(r_obs, theta_obs, phi_obs, a_spin);
+		state.momentum = Core::kerr_schild_initial_momentum(state.position, m, a_spin, outward);
+		const double angular_momentum_z = state.position[0] * state.momentum[1] - state.position[1] * state.momentum[0];
+
+		const double disk_spin = std::clamp(a_spin, -0.999 * m, 0.999 * m);
+		const double disk_inner = isco * static_cast<double>(std::max(disk_profile.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(disk_profile.outer_radius_mass_units) * m, disk_inner * 1.05);
+
+		auto point = Core::boyer_lindquist_from_kerr_schild(state.position, a_spin, phi_obs);
+
+		double accum_r = 0.0, accum_g = 0.0, accum_b = 0.0;
+		double throughput = 1.0;
+		double redshift_rec = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+
+		for (uint32_t step = 0; step < max_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+
+			if (point.r <= rh * 1.0001) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+			if (point.r >= escape_radius) {
+				status = PixelFlags::CELESTIAL_HIT;
+				break;
+			}
+
+			const double r_scale = std::max(point.r - rh, 0.02 * m);
+			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((point.r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+			const double dt = -std::clamp(params.step_size_factor * std::sqrt(point.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+
+			const auto previous = point;
+			Core::step_kerr_schild_null_rk4(state, dt, m, a_spin);
+
+			if (!std::isfinite(state.position[0]) || !std::isfinite(state.position[1]) || !std::isfinite(state.position[2])
+				|| !std::isfinite(state.momentum[0]) || !std::isfinite(state.momentum[1]) || !std::isfinite(state.momentum[2])) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+
+			point = Core::boyer_lindquist_from_kerr_schild(state.position, a_spin, previous.phi);
+
+			if (!bodies.empty()) {
+				const auto segment_hit = evaluate_3d_body_segment(
+					spherical_to_cartesian(previous.r, previous.theta, previous.phi),
+					spherical_to_cartesian(point.r, point.theta, point.phi),
+					bodies, params, body_candidates
+				);
+				if (segment_hit.hit) {
+					accum_r += throughput * static_cast<double>(segment_hit.color.r);
+					accum_g += throughput * static_cast<double>(segment_hit.color.g);
+					accum_b += throughput * static_cast<double>(segment_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					throughput = 0.0;
+					break;
+				}
+			}
+
+			const double mid_plane = std::numbers::pi_v<double> * 0.5;
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && (previous.theta - mid_plane) * (point.theta - mid_plane) <= 0.0) {
+				const double span = std::abs(point.theta - previous.theta);
+				const double s_cross = (span > 1e-12) ? std::clamp(std::abs(previous.theta - mid_plane) / span, 0.0, 1.0) : 0.5;
+				const double r_cross = previous.r + s_cross * (point.r - previous.r);
+				const double phi_cross = previous.phi + s_cross * (point.phi - previous.phi);
+
+				if (r_cross >= disk_inner && r_cross <= disk_outer && r_cross > rh * 1.02) {
+					status |= PixelFlags::ACCRETION_DISK_HIT;
+					const double g_doppler = AccretionDiskModel::redshift_at(m, disk_spin, r_cross, angular_momentum_z);
+					redshift_rec = g_doppler;
+
+					const auto shaded = AccretionDiskModel::shade(disk_profile, DiskSurfacePoint{
+						.mass = m, .spin = disk_spin, .inner_radius = disk_inner, .outer_radius = disk_outer,
+						.radius = r_cross, .azimuth = phi_cross, .redshift = g_doppler,
+						.time = params.time, .detail_scale = turbulence_aa_factor
+					});
+					accum_r += throughput * static_cast<double>(shaded.radiance[0]);
+					accum_g += throughput * static_cast<double>(shaded.radiance[1]);
+					accum_b += throughput * static_cast<double>(shaded.radiance[2]);
+					throughput *= (1.0 - shaded.opacity);
+				}
+			}
+		}
+
+		if ((status & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && point.r < 3.0 * rs) {
+			throughput = 0.0;
+		}
+
+		if ((status & PixelFlags::CELESTIAL_HIT) != 0U || throughput > 0.01) {
+			const auto velocity = Core::kerr_schild_null_derivatives(state, m, a_spin).position;
+			const double speed = std::sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]);
+			const double inverse_speed = (speed > 1e-12) ? (1.0 / speed) : 1.0;
+			const std::array<double, 3> exit_direction{-velocity[0] * inverse_speed, -velocity[1] * inverse_speed, -velocity[2] * inverse_speed};
+
+			bool exit_body_hit = false;
+			if (!bodies.empty()) {
+				const auto exit_hit = evaluate_3d_bodies(spherical_to_cartesian(point.r, point.theta, point.phi), exit_direction, bodies, params, body_candidates);
+				if (exit_hit.hit) {
+					accum_r += throughput * static_cast<double>(exit_hit.color.r);
+					accum_g += throughput * static_cast<double>(exit_hit.color.g);
+					accum_b += throughput * static_cast<double>(exit_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					exit_body_hit = true;
+				}
+			}
+			if (!exit_body_hit) {
+				const auto sky_rgb = compute_sky_radiance(exit_direction[0], exit_direction[1], exit_direction[2], params);
+				accum_r += throughput * static_cast<double>(sky_rgb[0]);
+				accum_g += throughput * static_cast<double>(sky_rgb[1]);
+				accum_b += throughput * static_cast<double>(sky_rgb[2]);
+				status |= PixelFlags::CELESTIAL_HIT;
+			}
+		}
+
+		const auto mapped_srgb = apply_tonemapping({accum_r, accum_g, accum_b}, params.tonemapping_mode, params.camera_exposure);
+
+		return GpuPixelOutput{
+			.r = mapped_srgb[0],
+			.g = mapped_srgb[1],
+			.b = mapped_srgb[2],
+			.a = 1.0f,
+			.redshift = static_cast<float>(redshift_rec),
+			.affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status,
+			.iterations_used = iters
+		};
+	}
+
+	template <typename MetricType>
+		requires Metrics::SpacetimeMetric<MetricType, double>
+	[[nodiscard]] static GpuPixelOutput trace_planar_photon(
+		const MetricType& metric,
+		double n_r, double n_th, double n_ph,
+		double r_obs, double theta_obs, double phi_obs,
+		double m, double rs, double rh, double isco,
+		double escape_radius, uint32_t max_steps,
+		bool has_accretion_disk,
+		double turbulence_aa_factor,
+		const GpuDiskProfile& disk_profile,
+		const GpuCameraPushConstants& params,
+		std::span<const GpuBodyData> bodies = {},
+		std::span<const uint32_t> body_candidates = {}
+	) noexcept {
+		const double half_pi = std::numbers::pi_v<double> * 0.5;
+		const double sin_to = std::sin(theta_obs);
+		const double cos_to = std::cos(theta_obs);
+		const double sin_po = std::sin(phi_obs);
+		const double cos_po = std::cos(phi_obs);
+		const std::array<double, 3> e_r{sin_to * cos_po, sin_to * sin_po, cos_to};
+		const std::array<double, 3> e_th{cos_to * cos_po, cos_to * sin_po, -sin_to};
+		const std::array<double, 3> e_ph{-sin_po, cos_po, 0.0};
+
+		const double tangential = std::hypot(n_th, n_ph);
+		std::array<double, 3> e_t = e_th;
+		if (tangential > 1e-12) {
+			for (size_t i = 0; i < 3; ++i) {
+				e_t[i] = (n_th * e_th[i] + n_ph * e_ph[i]) / tangential;
+			}
+		}
+		const std::array<double, 3> orbit_normal{
+			e_r[1] * e_t[2] - e_r[2] * e_t[1],
+			e_r[2] * e_t[0] - e_r[0] * e_t[2],
+			e_r[0] * e_t[1] - e_r[1] * e_t[0]
+		};
+
+		const auto observer_metric = metric.metric_tensor(Core::FourVector<double>(0.0, r_obs, half_pi, 0.0));
+		const double lapse_obs = std::max(-observer_metric(0, 0), 1e-12);
+		const double g_rr_obs = std::max(observer_metric(1, 1), 1e-12);
+		const double g_pp_obs = std::max(observer_metric(3, 3), 1e-12);
+
+		Core::PlanarNullState<double> state{
+			r_obs, 0.0,
+			1.0 / std::sqrt(lapse_obs),
+			-n_r / std::sqrt(g_rr_obs),
+			-tangential / std::sqrt(g_pp_obs)
+		};
+		const double inverse_energy = 1.0 / (lapse_obs * state.ut);
+		state.ut *= inverse_energy;
+		state.ur *= inverse_energy;
+		state.upsi *= inverse_energy;
+		const double angular_momentum = g_pp_obs * state.upsi;
+		const double angular_momentum_z = angular_momentum * orbit_normal[2];
+
+		const auto position_at = [&](double radius, double psi) noexcept -> std::array<double, 3> {
+			const double along_radial = radius * std::cos(psi);
+			const double along_tangent = radius * std::sin(psi);
+			return {
+				along_radial * e_r[0] + along_tangent * e_t[0],
+				along_radial * e_r[1] + along_tangent * e_t[1],
+				along_radial * e_r[2] + along_tangent * e_t[2]
+			};
+		};
+
+		const double disk_inner = isco * static_cast<double>(std::max(disk_profile.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(disk_profile.outer_radius_mass_units) * m, disk_inner * 1.05);
+
+		double accum_r = 0.0, accum_g = 0.0, accum_b = 0.0;
+		double throughput = 1.0;
+		double redshift_rec = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+
+		for (uint32_t step = 0; step < max_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+
+			const auto g = metric.metric_tensor(Core::FourVector<double>(0.0, state.r, half_pi, 0.0));
+			const double lapse = -g(0, 0);
+
+			if (state.r <= rh * 1.0001) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+			if (lapse <= 1e-9) {
+				if (state.r < r_obs) {
+					status = PixelFlags::HORIZON_ABSORBED;
+					throughput = 0.0;
+				} else {
+					status = PixelFlags::CELESTIAL_HIT;
+				}
+				break;
+			}
+			if (state.r >= escape_radius) {
+				status = PixelFlags::CELESTIAL_HIT;
+				break;
+			}
+
+			const double r_scale = std::max(state.r - rh, 0.02 * m);
+			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((state.r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+			const double dt = -std::clamp(params.step_size_factor * std::sqrt(state.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+
+			const auto previous = state;
+			Core::step_planar_null_rk4(metric, state, dt);
+
+			if (!std::isfinite(state.r) || !std::isfinite(state.psi) || !std::isfinite(state.ur) || !std::isfinite(state.upsi) || state.r <= 0.0) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+
+			const auto from = position_at(previous.r, previous.psi);
+			const auto to = position_at(state.r, state.psi);
+
+			if (!bodies.empty()) {
+				const auto segment_hit = evaluate_3d_body_segment(from, to, bodies, params, body_candidates);
+				if (segment_hit.hit) {
+					accum_r += throughput * static_cast<double>(segment_hit.color.r);
+					accum_g += throughput * static_cast<double>(segment_hit.color.g);
+					accum_b += throughput * static_cast<double>(segment_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					throughput = 0.0;
+					break;
+				}
+			}
+
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && from[2] * to[2] <= 0.0) {
+				const double z_span = std::abs(from[2]) + std::abs(to[2]);
+				const double s_cross = (z_span > 1e-15) ? (std::abs(from[2]) / z_span) : 0.5;
+				const double r_cross = previous.r + s_cross * (state.r - previous.r);
+				const double psi_cross = previous.psi + s_cross * (state.psi - previous.psi);
+
+				if (r_cross >= disk_inner && r_cross <= disk_outer && r_cross > rh * 1.02) {
+					const auto cross_position = position_at(r_cross, psi_cross);
+					const double azimuth = std::atan2(cross_position[1], cross_position[0]);
+					status |= PixelFlags::ACCRETION_DISK_HIT;
+					const double g_doppler = AccretionDiskModel::redshift_at(m, 0.0, r_cross, angular_momentum_z);
+					redshift_rec = g_doppler;
+
+					const auto shaded = AccretionDiskModel::shade(disk_profile, DiskSurfacePoint{
+						.mass = m, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+						.radius = r_cross, .azimuth = azimuth, .redshift = g_doppler,
+						.time = params.time, .detail_scale = turbulence_aa_factor
+					});
+					accum_r += throughput * static_cast<double>(shaded.radiance[0]);
+					accum_g += throughput * static_cast<double>(shaded.radiance[1]);
+					accum_b += throughput * static_cast<double>(shaded.radiance[2]);
+					throughput *= (1.0 - shaded.opacity);
+				}
+			}
+		}
+
+		if ((status & (PixelFlags::HORIZON_ABSORBED | PixelFlags::CELESTIAL_HIT)) == 0U && state.r < 3.0 * rs) {
+			throughput = 0.0;
+		}
+
+		if ((status & PixelFlags::CELESTIAL_HIT) != 0U || throughput > 0.01) {
+			const auto g_exit = metric.metric_tensor(Core::FourVector<double>(0.0, state.r, half_pi, 0.0));
+			const double radial_speed = std::sqrt(std::max(g_exit(1, 1), 0.0)) * state.ur;
+			const double tangential_speed = std::sqrt(std::max(g_exit(3, 3), 0.0)) * state.upsi;
+			const double cos_psi = std::cos(state.psi);
+			const double sin_psi = std::sin(state.psi);
+			std::array<double, 3> exit_direction{};
+			for (size_t i = 0; i < 3; ++i) {
+				exit_direction[i] = -(radial_speed * (cos_psi * e_r[i] + sin_psi * e_t[i]) + tangential_speed * (-sin_psi * e_r[i] + cos_psi * e_t[i]));
+			}
+			const double length = std::sqrt(exit_direction[0] * exit_direction[0] + exit_direction[1] * exit_direction[1] + exit_direction[2] * exit_direction[2]);
+			const double inverse_length = (length > 1e-12) ? (1.0 / length) : 1.0;
+			for (double& component : exit_direction) {
+				component *= inverse_length;
+			}
+
+			bool exit_body_hit = false;
+			if (!bodies.empty()) {
+				const auto exit_hit = evaluate_3d_bodies(position_at(state.r, state.psi), exit_direction, bodies, params, body_candidates);
+				if (exit_hit.hit) {
+					accum_r += throughput * static_cast<double>(exit_hit.color.r);
+					accum_g += throughput * static_cast<double>(exit_hit.color.g);
+					accum_b += throughput * static_cast<double>(exit_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					exit_body_hit = true;
+				}
+			}
+			if (!exit_body_hit) {
+				const auto sky_rgb = compute_sky_radiance(exit_direction[0], exit_direction[1], exit_direction[2], params);
+				accum_r += throughput * static_cast<double>(sky_rgb[0]);
+				accum_g += throughput * static_cast<double>(sky_rgb[1]);
+				accum_b += throughput * static_cast<double>(sky_rgb[2]);
+				status |= PixelFlags::CELESTIAL_HIT;
+			}
+		}
+
+		const auto mapped_srgb = apply_tonemapping({accum_r, accum_g, accum_b}, params.tonemapping_mode, params.camera_exposure);
+
+		return GpuPixelOutput{
+			.r = mapped_srgb[0],
+			.g = mapped_srgb[1],
+			.b = mapped_srgb[2],
+			.a = 1.0f,
+			.redshift = static_cast<float>(redshift_rec),
+			.affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status,
+			.iterations_used = iters
+		};
+	}
+
 	[[nodiscard]] static GpuPixelOutput trace_exact_photon_dispatch(
 		uint32_t metric_type,
 		double m, double a_spin, double charge,
@@ -1352,13 +1717,31 @@ private:
 			const Metrics::ReissnerNordstromMetric<double> metric(m, charge, 1.0, 1.0, 1.0);
 			const double rh = metric.outer_horizon_radius();
 			const double isco = kerr_isco_radius(m, 0.0);
-			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
+			return trace_planar_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
 		}
 		if (metric_type == 5U) {
 			const Metrics::KerrNewmanMetric<double> metric(m, a_spin, charge, 1.0, 1.0, 1.0);
 			const double rh = metric.outer_horizon_radius();
 			const double isco = kerr_isco_radius(m, a_spin);
 			return trace_exact_photon(metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, rh, isco, escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
+		}
+		if (metric_type == 2U || metric_type == 3U) {
+			const double kerr_horizon = m + std::sqrt(std::max(m * m - a_spin * a_spin, 0.0));
+			return trace_kerr_schild_photon(m, a_spin, n1, n2, n3, r_obs, theta_obs, phi_obs, rs, kerr_horizon, kerr_isco_radius(m, a_spin), escape_radius, max_steps, has_accretion_disk, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
+		}
+		if (metric_type == 6U) {
+			const Metrics::SchwarzschildDeSitterMetric<double> de_sitter_metric(m, params.cosmological_lambda, 1.0, 1.0);
+			double de_sitter_horizon = rs;
+			for (int iteration = 0; iteration < 48; ++iteration) {
+				const double lapse = de_sitter_metric.lapse_function(de_sitter_horizon);
+				const double slope = rs / (de_sitter_horizon * de_sitter_horizon) - 2.0 * params.cosmological_lambda * de_sitter_horizon / 3.0;
+				if (std::abs(slope) < 1e-30) break;
+				de_sitter_horizon -= lapse / slope;
+			}
+			if (!std::isfinite(de_sitter_horizon) || de_sitter_horizon <= 0.0) {
+				de_sitter_horizon = rs;
+			}
+			return trace_planar_photon(de_sitter_metric, n1, n2, n3, r_obs, theta_obs, phi_obs, m, rs, de_sitter_horizon, kerr_isco_radius(m, 0.0), escape_radius, max_steps, false, turbulence_aa_factor, disk_profile, params, bodies, body_candidates);
 		}
 		const Metrics::KerrMetric<double> metric(m, a_spin, 1.0, 1.0);
 		const double rh = metric.outer_horizon_radius();

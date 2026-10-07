@@ -2083,6 +2083,104 @@ double subsidiary_step_guard(dvec3 pos) {
 	return clamp(nearest_ratio / 8.0, 0.03, 1.0);
 }
 
+void ks_field(dvec3 x, double mass, double a, out double r, out double h, out dvec3 k) {
+	double a2 = a * a;
+	double z2 = x.z * x.z;
+	double diff = dot(x, x) - a2;
+	double r2 = max(0.5 * (diff + sqrt(diff * diff + 4.0 * a2 * z2)), 1e-24);
+	r = sqrt(r2);
+	double den = r2 * r2 + a2 * z2;
+	double rpa = r2 + a2;
+	h = mass * r2 * r / den;
+	k = dvec3((r * x.x + a * x.y) / rpa, (r * x.y - a * x.x) / rpa, x.z / r);
+}
+
+void ks_rhs(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp) {
+	double r;
+	double h;
+	dvec3 k;
+	ks_field(x, mass, a, r, h, k);
+	double a2 = a * a;
+	double z2 = x.z * x.z;
+	double r2 = r * r;
+	double r3 = r2 * r;
+	double r4 = r2 * r2;
+	double den = r4 + a2 * z2;
+	double den2 = den * den;
+	double rpa = r2 + a2;
+	double inv_rpa2 = 1.0 / (rpa * rpa);
+	double s = dot(k, p) + 1.0;
+
+	dx = p - 2.0 * h * s * k;
+
+	dvec3 dr = dvec3(r3 * x.x / den, r3 * x.y / den, r * rpa * x.z / den);
+	double bracket = 3.0 * a2 * z2 - r4;
+	dvec3 dh = mass * dr * r2 * bracket / den2;
+	dh.z -= 2.0 * mass * a2 * r3 * x.z / den2;
+
+	double nx = r * x.x + a * x.y;
+	double ny = r * x.y - a * x.x;
+	dvec3 dk_dot_p;
+	dk_dot_p.x = (((dr.x * x.x + r) * rpa - nx * 2.0 * r * dr.x) * inv_rpa2) * p.x
+		+ (((dr.x * x.y - a) * rpa - ny * 2.0 * r * dr.x) * inv_rpa2) * p.y
+		+ (-x.z * dr.x / r2) * p.z;
+	dk_dot_p.y = (((dr.y * x.x + a) * rpa - nx * 2.0 * r * dr.y) * inv_rpa2) * p.x
+		+ (((dr.y * x.y + r) * rpa - ny * 2.0 * r * dr.y) * inv_rpa2) * p.y
+		+ (-x.z * dr.y / r2) * p.z;
+	dk_dot_p.z = (((dr.z * x.x) * rpa - nx * 2.0 * r * dr.z) * inv_rpa2) * p.x
+		+ (((dr.z * x.y) * rpa - ny * 2.0 * r * dr.z) * inv_rpa2) * p.y
+		+ ((r - x.z * dr.z) / r2) * p.z;
+
+	dp = dh * s * s + 2.0 * h * s * dk_dot_p;
+}
+
+void ks_rk4_step(inout dvec3 x, inout dvec3 p, double dt, double mass, double a) {
+	dvec3 k1x;
+	dvec3 k1p;
+	dvec3 k2x;
+	dvec3 k2p;
+	dvec3 k3x;
+	dvec3 k3p;
+	dvec3 k4x;
+	dvec3 k4p;
+	ks_rhs(x, p, mass, a, k1x, k1p);
+	ks_rhs(x + 0.5 * dt * k1x, p + 0.5 * dt * k1p, mass, a, k2x, k2p);
+	ks_rhs(x + 0.5 * dt * k2x, p + 0.5 * dt * k2p, mass, a, k3x, k3p);
+	ks_rhs(x + dt * k3x, p + dt * k3p, mass, a, k4x, k4p);
+	double sixth = dt / 6.0;
+	x += sixth * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+	p += sixth * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
+}
+
+double ks_metric_dot(dvec4 a, dvec4 b, double h, dvec3 k) {
+	double la = a.x + dot(k, a.yzw);
+	double lb = b.x + dot(k, b.yzw);
+	return -a.x * b.x + dot(a.yzw, b.yzw) + 2.0 * h * la * lb;
+}
+
+dvec3 ks_initial_momentum(dvec3 x, double mass, double a, dvec3 outward) {
+	double r;
+	double h;
+	dvec3 k;
+	ks_field(x, mass, a, r, h, k);
+	double u0 = 1.0 / sqrt(max(1.0 - 2.0 * h, 1e-6));
+	double shift = 2.0 * h * u0 * u0;
+	dvec4 e1 = dvec4(shift * k.x, 1.0, 0.0, 0.0);
+	dvec4 e2 = dvec4(shift * k.y, 0.0, 1.0, 0.0);
+	dvec4 e3 = dvec4(shift * k.z, 0.0, 0.0, 1.0);
+	e1 /= sqrt(max(ks_metric_dot(e1, e1, h, k), 1e-30));
+	e2 -= ks_metric_dot(e2, e1, h, k) * e1;
+	e2 /= sqrt(max(ks_metric_dot(e2, e2, h, k), 1e-30));
+	e3 -= ks_metric_dot(e3, e1, h, k) * e1;
+	e3 -= ks_metric_dot(e3, e2, h, k) * e2;
+	e3 /= sqrt(max(ks_metric_dot(e3, e3, h, k), 1e-30));
+	dvec4 v = dvec4(u0, 0.0, 0.0, 0.0) - outward.x * e1 - outward.y * e2 - outward.z * e3;
+	double lv = v.x + dot(k, v.yzw);
+	double pt = -v.x + 2.0 * h * lv;
+	dvec3 p = v.yzw + 2.0 * h * lv * k;
+	return p / max(-pt, 1e-12);
+}
+
 void main() {
 	uint tile_x = gl_WorkGroupID.x * 16u;
 	uint tile_y = gl_WorkGroupID.y * 16u;
@@ -2169,6 +2267,7 @@ void main() {
 		} else {
 			bool has_accretion_disk = (pc.metric_type == 1u || pc.metric_type == 2u || pc.metric_type == 3u || pc.metric_type == 4u || pc.metric_type == 5u);
 			bool use_kerr_newman_metric = (pc.metric_type == 2u || pc.metric_type == 4u || pc.metric_type == 5u) && (abs(a_spin) > 1e-9 * m || kn_charge_sq > 1e-18 * m * m);
+			bool use_kerr_schild = use_kerr_newman_metric && pc.metric_type == 2u;
 			double isco = use_kerr_newman_metric ? kerr_isco_radius_prograde_retrograde(m, a_spin) : ((abs(a_spin) > 1e-12) ? max(rh * 1.05, 6.0 * m - 4.0 * a_spin) : (6.0 * m));
 			double disk_inner = isco * double(max(pc.primary_disk.inner_radius_scale, 1.0));
 			double disk_outer = max(double(pc.primary_disk.outer_radius_mass_units) * m, disk_inner * 1.05);
@@ -2205,6 +2304,9 @@ void main() {
 			double ray_p0 = 1.0;
 			double E_cons = 1.0;
 			double Lz_cons = 0.0;
+			dvec3 ks_pos = dvec3(0.0);
+			dvec3 ks_mom = dvec3(0.0);
+			dvec3 ks_vel = dvec3(0.0, 0.0, 1.0);
 
 			if (use_kerr_newman_metric) {
 				double g00, g03, g11, g22, g33;
@@ -2216,6 +2318,12 @@ void main() {
 				ray_pphi = e0_phi - n_ph * e3_phi;
 				E_cons = -(g00 * ray_p0 + g03 * ray_pphi);
 				Lz_cons = g03 * ray_p0 + g33 * ray_pphi;
+				if (use_kerr_schild) {
+					ks_pos = dvec3((r_obs * cos_po - a_spin * sin_po) * sin_to, (r_obs * sin_po + a_spin * cos_po) * sin_to, r_obs * cos_to);
+					ks_mom = ks_initial_momentum(ks_pos, m, a_spin, ray_dir);
+					E_cons = 1.0;
+					Lz_cons = ks_pos.x * ks_mom.y - ks_pos.y * ks_mom.x;
+				}
 			} else {
 				double factor_obs = max(1.0 - rs / r_obs, 1e-6);
 				double sqrt_factor_obs = sqrt(factor_obs);
@@ -2277,7 +2385,7 @@ void main() {
 				dvec2 sincos_ray_th = precise_sincos(ray_th);
 				double sin_t = sincos_ray_th.x;
 				double cos_t = sincos_ray_th.y;
-				double pole_guard = use_kerr_newman_metric ? clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0) : 1.0;
+				double pole_guard = (use_kerr_newman_metric && !use_kerr_schild) ? clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0) : 1.0;
 				double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
 				double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
 				double dt = -clamp(pc.step_size_factor * sqrt(ray_r * r_scale) * far_field_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
@@ -2289,7 +2397,22 @@ void main() {
 
 				if (use_kerr_newman_metric) {
 					dvec4 u_state = dvec4(ray_p0, ray_pr, ray_pth, ray_pphi);
-					kerr_newman_rk4_step(ray_r, ray_th, ray_phi, u_state, dt, m, a_spin, kn_charge_sq);
+					if (use_kerr_schild) {
+						ks_rk4_step(ks_pos, ks_mom, dt, m, a_spin);
+						dvec3 ks_unused_dp;
+						ks_rhs(ks_pos, ks_mom, m, a_spin, ks_vel, ks_unused_dp);
+						double ks_a2 = a_spin * a_spin;
+						double ks_diff = dot(ks_pos, ks_pos) - ks_a2;
+						double ks_r2 = max(0.5 * (ks_diff + sqrt(ks_diff * ks_diff + 4.0 * ks_a2 * ks_pos.z * ks_pos.z)), 1e-24);
+						ray_r = sqrt(ks_r2);
+						ray_th = atan2_wide(sqrt(max(ks_r2 - ks_pos.z * ks_pos.z, 0.0)), ks_pos.z);
+						double ks_phi = atan2_wide(ks_pos.y, ks_pos.x) - atan2_wide(a_spin, ray_r);
+						double ks_delta = ks_phi - ray_phi;
+						ks_delta -= 6.283185307179586 * floor(ks_delta / 6.283185307179586 + 0.5);
+						ray_phi += ks_delta;
+					} else {
+						kerr_newman_rk4_step(ray_r, ray_th, ray_phi, u_state, dt, m, a_spin, kn_charge_sq);
+					}
 					ray_p0 = u_state.x;
 					ray_pr = u_state.y;
 					ray_pth = u_state.z;
@@ -2351,7 +2474,7 @@ void main() {
 					if (pc.primary_disk.enabled > 0.5 && r_cross >= disk_inner && r_cross <= disk_outer) {
 						status |= 4u;
 
-						double lz_at_cross = use_kerr_newman_metric ? (pphi_cross * r_cross * r_cross) : Lz_cons;
+						double lz_at_cross = (use_kerr_newman_metric && !use_kerr_schild) ? (pphi_cross * r_cross * r_cross) : Lz_cons;
 						double l_over_e = lz_at_cross / max(abs(E_cons), 1e-12);
 						double g_doppler = disk_redshift(m, use_kerr_newman_metric ? a_spin : 0.0, r_cross, l_over_e);
 						redshift_rec = g_doppler;
@@ -2392,6 +2515,9 @@ void main() {
 				double p_len = sqrt(pxr * pxr + pyr * pyr + pzr * pzr);
 				double inv_plen = (p_len > 1e-12) ? (1.0 / p_len) : 1.0;
 				dvec3 dir_out = dvec3(pxr * inv_plen, pyr * inv_plen, pzr * inv_plen);
+				if (use_kerr_schild) {
+					dir_out = -ks_vel / max(length(ks_vel), 1e-12);
+				}
 
 				bool exit_body_hit = false;
 				if (bodies_traced) {

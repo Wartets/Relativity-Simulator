@@ -1,7 +1,9 @@
 #pragma once
 
 #include "relativistic/capture/camera_path.hpp"
+#include "relativistic/capture/capture_post_process.hpp"
 #include "relativistic/capture/capture_progress.hpp"
+#include "relativistic/io/capture/capture_target_settings.hpp"
 #include "relativistic/capture/motion_script.hpp"
 #include "relativistic/capture/physics_recorder.hpp"
 #include "relativistic/capture/script_events.hpp"
@@ -28,6 +30,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -54,6 +57,15 @@ struct CaptureTarget {
 	uint32_t supersampling{1};
 	uint32_t max_ray_steps{0};
 	float step_refinement{1.0f};
+	IO::CaptureLayerMode layers{IO::CaptureLayerMode::Live};
+	IO::CaptureBodyQuality body_quality{IO::CaptureBodyQuality::Live};
+	bool hide_accretion_disk{false};
+	int32_t projection_override{-1};
+	int32_t tonemapping_override{-1};
+	float field_of_view_override_deg{0.0f};
+	float exposure_offset_ev{0.0f};
+	bool apply_post_processing{true};
+	float dither_strength{0.0f};
 };
 
 struct ScreenshotRequest {
@@ -137,6 +149,7 @@ private:
 		IO::ScreenshotFormat format{IO::ScreenshotFormat::PNG};
 		std::string comment{};
 		float fade{1.0f};
+		FramePostProcess post{};
 	};
 
 	struct SequenceSession {
@@ -235,6 +248,59 @@ private:
 		constants.step_size_factor /= refinement;
 		constants.min_step_size /= refinement;
 		constants.max_step_size /= refinement;
+
+		switch (target.layers) {
+			case IO::CaptureLayerMode::NoBodies:
+				constants.render_flags &= ~(Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING | Render::RenderFlags::BODIES_ONLY_MODE);
+				break;
+			case IO::CaptureLayerMode::BodiesOnly:
+				constants.render_flags |= (Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING | Render::RenderFlags::BODIES_ONLY_MODE);
+				break;
+			case IO::CaptureLayerMode::Live:
+			default:
+				break;
+		}
+
+		switch (target.body_quality) {
+			case IO::CaptureBodyQuality::High:
+				constants.body_render_low_power_mode = 0U;
+				constants.body_noise_octaves = std::max<uint32_t>(constants.body_noise_octaves, 5U);
+				constants.body_render_lod_pixel_threshold = std::min<uint32_t>(constants.body_render_lod_pixel_threshold, 4U);
+				constants.body_render_point_pixel_threshold = std::min<uint32_t>(constants.body_render_point_pixel_threshold, 1U);
+				break;
+			case IO::CaptureBodyQuality::Maximum:
+				constants.body_render_low_power_mode = 0U;
+				constants.body_noise_octaves = 6U;
+				constants.body_render_lod_pixel_threshold = std::min<uint32_t>(constants.body_render_lod_pixel_threshold, 2U);
+				constants.body_render_point_pixel_threshold = 1U;
+				break;
+			case IO::CaptureBodyQuality::Live:
+			default:
+				break;
+		}
+
+		if (target.hide_accretion_disk) {
+			constants.primary_disk.enabled = 0.0f;
+		}
+		if (target.projection_override >= 0) {
+			constants.projection_mode = static_cast<uint32_t>(std::clamp<int32_t>(target.projection_override, 0, IO::kMaxProjectionOverride));
+		}
+		if (target.tonemapping_override >= 0) {
+			constants.tonemapping_mode = static_cast<uint32_t>(std::clamp<int32_t>(target.tonemapping_override, 0, IO::kMaxTonemappingOverride));
+		}
+		if (target.field_of_view_override_deg > 0.0f) {
+			constants.field_of_view_rad = std::clamp(static_cast<double>(target.field_of_view_override_deg), 5.0, 175.0) * (std::numbers::pi_v<double> / 180.0);
+		}
+		constants.camera_exposure += static_cast<double>(target.exposure_offset_ev);
+	}
+
+	[[nodiscard]] FramePostProcess make_post_process(const CaptureTarget& target) const noexcept {
+		FramePostProcess post;
+		if (target.apply_post_processing) {
+			post.grade = ColorGrade::from_parameters(orchestrator_.parameters());
+		}
+		post.dither_strength = std::clamp(target.dither_strength, 0.0f, 4.0f);
+		return post;
 	}
 
 	static void accumulate_source_band(std::span<const Render::GpuPixelOutput> source, uint32_t width, uint32_t rows, uint32_t k, std::vector<float>& accumulation) {
@@ -321,8 +387,10 @@ private:
 			Render::GpuCameraPushConstants constants = sample.constants;
 			constants.screen_width = job.width * k;
 			constants.screen_height = job.height * k;
-			constants.body_count = static_cast<uint32_t>(sample.bodies.size());
-			return pipeline_.render_capture_band(constants, sample.bodies, first_row, rows, destination, cancel);
+			const bool with_bodies = (constants.render_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U;
+			const std::span<const Render::GpuBodyData> bodies = with_bodies ? std::span<const Render::GpuBodyData>(sample.bodies) : std::span<const Render::GpuBodyData>{};
+			constants.body_count = static_cast<uint32_t>(bodies.size());
+			return pipeline_.render_capture_band(constants, bodies, first_row, rows, destination, cancel);
 		};
 
 		uint32_t bands_done = 0;
@@ -349,6 +417,10 @@ private:
 					accumulate_source_band(source_band, job.width, rows, k, accumulation);
 				}
 				resolve_accumulation(accumulation, weight, output_band);
+			}
+
+			if (job.post.active()) {
+				job.post.apply(output_band, job.width, row, job.height);
 			}
 
 			if (!writer->write_rows(output_band)) {
@@ -562,6 +634,7 @@ private:
 				job->supersampling = request.target.supersampling;
 				job->format = format;
 				job->comment = request.comment;
+				job->post = make_post_process(request.target);
 				enqueue([this, job]() { static_cast<void>(render_frame_job(*job)); });
 			}
 		}
@@ -629,13 +702,14 @@ private:
 		if (settings.trigger == IO::SequenceCaptureTrigger::PathDuration && request.use_script && session_.frames_total > 1) {
 			base_time = request.script.total_duration() * static_cast<double>(index) / static_cast<double>(session_.frames_total - 1U);
 		}
+		base_time = std::max(settings.script_time_offset_seconds + base_time * settings.script_speed, 0.0);
 		process_script_events(base_time);
 
 		auto job = std::make_shared<FrameJob>();
 		job->samples.reserve(sample_count);
 		ScriptSample last_script_sample{};
 		for (uint32_t s = 0; s < sample_count; ++s) {
-			const double offset = ((static_cast<double>(s) + 0.5) / static_cast<double>(sample_count) - 0.5) * static_cast<double>(settings.shutter_fraction) * frame_dt;
+			const double offset = ((((static_cast<double>(s) + 0.5) / static_cast<double>(sample_count) - 0.5) * static_cast<double>(settings.shutter_fraction)) + static_cast<double>(settings.shutter_phase)) * frame_dt * settings.script_speed;
 			const double sample_time = std::max(base_time + offset, 0.0);
 			const double rate = request.use_script ? std::max(sample_script(sample_time).simulation_rate, 0.0) : 1.0;
 			session_.tick_accumulator += (session_.world_frozen ? 0.0 : session_.ticks_per_frame * rate) / static_cast<double>(sample_count);
@@ -684,6 +758,7 @@ private:
 		job->format = settings.frame_format;
 		job->comment = request.comment;
 		job->fade = fade;
+		job->post = make_post_process(request.target);
 		++session_.frames_prepared;
 		enqueue([this, job]() { run_frame_job(job, false); });
 		return true;
@@ -713,6 +788,10 @@ private:
 		}
 		record_frame_state(session_.frames_prepared, session_.session_time, session_.last_sample);
 		flush_pending_stills(nullptr);
+		const FramePostProcess realtime_post = make_post_process(session_.request.target);
+		if (realtime_post.active()) {
+			realtime_post.apply(pixels, width, 0U, height);
+		}
 		if (!session_.dimensions_locked) {
 			session_.locked_width = width;
 			session_.locked_height = height;
@@ -1013,6 +1092,7 @@ public:
 		job->supersampling = request.target.supersampling;
 		job->format = request.format;
 		job->comment = request.comment;
+		job->post = make_post_process(request.target);
 
 		sequence_failed_.store(false, std::memory_order_release);
 		progress_.begin("Screenshot", 1);

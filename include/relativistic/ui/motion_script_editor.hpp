@@ -1589,6 +1589,12 @@ private:
 		ImGui::TextColored(kHeaderColor, "Segments (%zu)", script.segments.size());
 
 		const float table_height = std::max(available_height - 110.0f, 100.0f);
+		ListAction pending_action = ListAction::None;
+		int pending_index = -1;
+		const auto defer_action = [&](ListAction action, size_t index) noexcept {
+			pending_action = action;
+			pending_index = static_cast<int>(index);
+		};
 		if (ImGui::BeginTable("##SegmentTable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, table_height))) {
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 26.0f);
@@ -1614,14 +1620,14 @@ private:
 					select_segment(static_cast<int>(i));
 				}
 				if (ImGui::BeginPopupContextItem()) {
-					if (ImGui::MenuItem("Duplicate")) apply_segment_action(script, ListAction::Duplicate, static_cast<int>(i));
-					if (ImGui::MenuItem("Delete")) apply_segment_action(script, ListAction::Delete, static_cast<int>(i));
+					if (ImGui::MenuItem("Duplicate")) defer_action(ListAction::Duplicate, i);
+					if (ImGui::MenuItem("Delete")) defer_action(ListAction::Delete, i);
 					ImGui::Separator();
-					if (ImGui::MenuItem("Move Up", nullptr, false, i > 0)) apply_segment_action(script, ListAction::MoveUp, static_cast<int>(i));
-					if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < script.segments.size())) apply_segment_action(script, ListAction::MoveDown, static_cast<int>(i));
+					if (ImGui::MenuItem("Move Up", nullptr, false, i > 0)) defer_action(ListAction::MoveUp, i);
+					if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < script.segments.size())) defer_action(ListAction::MoveDown, i);
 					ImGui::Separator();
-					if (ImGui::MenuItem("Insert Stop After")) apply_segment_action(script, ListAction::InsertStop, static_cast<int>(i));
-					if (ImGui::MenuItem(script.segments[i].enabled ? "Disable" : "Enable")) apply_segment_action(script, ListAction::Toggle, static_cast<int>(i));
+					if (ImGui::MenuItem("Insert Stop After")) defer_action(ListAction::InsertStop, i);
+					if (ImGui::MenuItem(script.segments[i].enabled ? "Disable" : "Enable")) defer_action(ListAction::Toggle, i);
 					ImGui::EndPopup();
 				}
 				ImGui::TableNextColumn();
@@ -1629,6 +1635,10 @@ private:
 				ImGui::PopID();
 			}
 			ImGui::EndTable();
+		}
+
+		if (pending_action != ListAction::None) {
+			apply_segment_action(script, pending_action, pending_index);
 		}
 
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
@@ -1730,7 +1740,7 @@ private:
 		vertical_splitter("##PathSplitter", list_pane_width_, 180.0f, ImGui::GetContentRegionAvail().x - 220.0f, available_height);
 
 		ImGui::BeginChild("##SegmentInspectorPane", ImVec2(0.0f, available_height), true);
-		if (has_selection) {
+		if (selected_segment_ >= 0 && selected_segment_ < static_cast<int>(script.segments.size())) {
 			render_segment_inspector(script, static_cast<size_t>(selected_segment_), orchestrator);
 		} else {
 			ImGui::TextDisabled("Select a segment from the list on the left to edit its parameters.");
@@ -1860,6 +1870,8 @@ private:
 		ImGui::TextColored(kHeaderColor, "Events (%zu)", script.events.size());
 
 		const float table_height = std::max(available_height - 80.0f, 100.0f);
+		int event_pending_action = 0;
+		size_t event_pending_index = 0;
 		if (ImGui::BeginTable("##EventTable", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp, ImVec2(0.0f, table_height))) {
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableSetupColumn("On", ImGuiTableColumnFlags_WidthFixed, 26.0f);
@@ -1885,21 +1897,17 @@ private:
 				}
 				if (ImGui::BeginPopupContextItem()) {
 					if (ImGui::MenuItem("Duplicate")) {
-						Capture::ScriptEvent copy = script.events[i];
-						copy.name += " Copy";
-						script.events.insert(script.events.begin() + i + 1, std::move(copy));
-						selected_event_ = static_cast<int>(i + 1);
-						mark(true);
+						event_pending_action = 1;
+						event_pending_index = i;
 					}
 					if (ImGui::MenuItem("Delete")) {
-						script.events.erase(script.events.begin() + i);
-						selected_event_ = std::min(static_cast<int>(i), static_cast<int>(script.events.size()) - 1);
-						mark(true);
+						event_pending_action = 2;
+						event_pending_index = i;
 					}
 					ImGui::Separator();
 					if (ImGui::MenuItem(script.events[i].enabled ? "Disable" : "Enable")) {
-						script.events[i].enabled = !script.events[i].enabled;
-						mark(true);
+						event_pending_action = 3;
+						event_pending_index = i;
 					}
 					ImGui::EndPopup();
 				}
@@ -1908,6 +1916,22 @@ private:
 				ImGui::PopID();
 			}
 			ImGui::EndTable();
+		}
+
+		if (event_pending_action != 0 && event_pending_index < script.events.size()) {
+			const size_t index = event_pending_index;
+			if (event_pending_action == 1) {
+				Capture::ScriptEvent copy = script.events[index];
+				copy.name += " Copy";
+				script.events.insert(script.events.begin() + static_cast<ptrdiff_t>(index) + 1, std::move(copy));
+				selected_event_ = static_cast<int>(index + 1);
+			} else if (event_pending_action == 2) {
+				script.events.erase(script.events.begin() + static_cast<ptrdiff_t>(index));
+				selected_event_ = std::min(static_cast<int>(index), static_cast<int>(script.events.size()) - 1);
+			} else {
+				script.events[index].enabled = !script.events[index].enabled;
+			}
+			mark(true);
 		}
 
 		if (ImGui::Button("Add At Cursor")) {
@@ -1953,7 +1977,7 @@ private:
 		vertical_splitter("##EventSplitter", list_pane_width_, 180.0f, ImGui::GetContentRegionAvail().x - 220.0f, available_height);
 
 		ImGui::BeginChild("##EventInspectorPane", ImVec2(0.0f, available_height), true);
-		if (has_event) {
+		if (selected_event_ >= 0 && selected_event_ < static_cast<int>(script.events.size())) {
 			ImGui::TextColored(kHeaderColor, "%02d  %s", selected_event_ + 1, script.events[static_cast<size_t>(selected_event_)].name.c_str());
 			ImGui::PushID("SelectedEvent");
 			mark(edit_event(script.events[static_cast<size_t>(selected_event_)], script.segments.size()));

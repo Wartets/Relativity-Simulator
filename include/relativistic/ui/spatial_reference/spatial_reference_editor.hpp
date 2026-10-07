@@ -26,7 +26,7 @@ inline bool render_spatial_reference_editor(SpatialReferenceConfig& cfg, Orchest
 		double meters = value * length_scale;
 		const double min_m = minimum * length_scale;
 		const double max_m = maximum * length_scale;
-		if (unit_aware_slider_double(label, &meters, min_m, max_m, UnitCategory::Distance, prefs, "%.4f", &log_modes[log_slot], min_m, max_m)) {
+		if (unit_aware_slider_double(label, &meters, min_m, max_m, UnitCategory::Distance, prefs, "%.4f", &log_modes[log_slot])) {
 			value = meters / length_scale;
 			return true;
 		}
@@ -74,10 +74,14 @@ inline bool render_spatial_reference_editor(SpatialReferenceConfig& cfg, Orchest
 		}
 		render_setting_tooltip("Chooses where the reference frame is anchored: the world origin, a chosen point, a moving body, or a grid-snapped point under the camera that keeps a local frame always in view.");
 		if (cfg.center_mode == SpatialCenterMode::CustomPoint) {
-			double meters[3] = {cfg.custom_center[0] * length_scale, cfg.custom_center[1] * length_scale, cfg.custom_center[2] * length_scale};
-			if (unit_aware_input_double3("Custom Point (x, y, z)", meters, UnitCategory::Distance, prefs)) {
-				cfg.custom_center = {meters[0] / length_scale, meters[1] / length_scale, meters[2] / length_scale};
-				changed = true;
+			static constexpr std::array<const char*, 3> point_labels{"Custom Point X", "Custom Point Y", "Custom Point Z"};
+			const double point_limit = 1.0e6 * length_scale;
+			for (size_t i = 0; i < 3; ++i) {
+				double meters = cfg.custom_center[i] * length_scale;
+				if (unit_aware_slider_double(point_labels[i], &meters, -point_limit, point_limit, UnitCategory::Distance, prefs, "%.4f")) {
+					cfg.custom_center[i] = meters / length_scale;
+					changed = true;
+				}
 			}
 			if (ImGui::Button("Use Camera Position")) {
 				cfg.custom_center = orchestrator.camera().position;

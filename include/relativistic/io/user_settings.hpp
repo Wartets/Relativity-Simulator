@@ -4,6 +4,8 @@
 #include "relativistic/ui/camera_control_config.hpp"
 #include "relativistic/ui/hud/hud_layout_config.hpp"
 #include "relativistic/ui/schematic/schematic_view_config.hpp"
+#include "relativistic/ui/spatial_reference/spatial_reference_config.hpp"
+#include "relativistic/io/capture/capture_settings_io.hpp"
 #include "relativistic/ui/window_chrome.hpp"
 #include "relativistic/ui/interface_persistence.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
@@ -77,6 +79,7 @@ struct UserSettings {
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
 	UI::SchematicViewConfig schematic_view{};
+	UI::SpatialReferenceConfig spatial_reference{};
 	Units::UnitDisplayPreferences unit_preferences{};
 
 	uint32_t last_window_layout{0};
@@ -431,6 +434,9 @@ struct UserSettings {
 			slot.follow_offset_phi = get_dbl((prefix + "follow_offset_phi").c_str(), slot.follow_offset_phi);
 		}
 
+		const SettingsReader spatial_reader(kv);
+		result.spatial_reference.read_settings(spatial_reader);
+
 		return result;
 	}
 
@@ -630,6 +636,9 @@ struct UserSettings {
 			out << prefix << "follow_offset_theta=" << slot.follow_offset_theta << "\n";
 			out << prefix << "follow_offset_phi=" << slot.follow_offset_phi << "\n";
 		}
+
+		SettingsWriter spatial_writer(out);
+		spatial_reference.write_settings(spatial_writer);
 	}
 };
 

@@ -36,7 +36,7 @@ struct ResolutionPreset {
 	uint32_t height;
 };
 
-inline constexpr std::array<ResolutionPreset, 10> kResolutionPresets{{
+inline constexpr std::array<ResolutionPreset, 19> kResolutionPresets{{
 	{"720p", 1280, 720},
 	{"1080p", 1920, 1080},
 	{"1440p", 2560, 1440},
@@ -46,7 +46,16 @@ inline constexpr std::array<ResolutionPreset, 10> kResolutionPresets{{
 	{"16K", 15360, 8640},
 	{"Square 2K", 2048, 2048},
 	{"Square 4K", 4096, 4096},
-	{"Square 8K", 8192, 8192}
+	{"Square 8K", 8192, 8192},
+	{"Vertical 1080p", 1080, 1920},
+	{"Vertical 4K", 2160, 3840},
+	{"Ultrawide 1080p", 2560, 1080},
+	{"Ultrawide 1440p", 3440, 1440},
+	{"Cinema 2K", 2048, 1080},
+	{"Cinema 4K", 4096, 2160},
+	{"360 4K", 4096, 2048},
+	{"360 8K", 8192, 4096},
+	{"360 16K", 16384, 8192}
 }};
 
 inline constexpr std::array<const char*, 2> kCaptureModeNames{"Deterministic (Frame By Frame)", "Real-Time Recording"};
@@ -60,6 +69,14 @@ inline constexpr std::array<const char*, 9> kEncoderSpeedNames{"Ultrafast", "Sup
 inline constexpr std::array<const char*, 3> kOverwriteNames{"Auto-Increment Filename", "Overwrite Existing File", "Skip If File Exists"};
 inline constexpr std::array<const char*, 7> kRecordingFormatNames{"CSV", "TSV", "JSON (Single Document)", "JSON Lines", "Binary Columns (RCAP)", "Container (Typed Datasets)", "VTK Polyline (ParaView)"};
 inline constexpr std::array<const char*, 6> kRecordingPresetNames{"None", "Trajectory", "Camera Kinematics", "Full Kinematics", "Relativistic Physics", "Everything"};
+
+inline constexpr std::array<const char*, 3> kLayerModeNames{"Live Viewport Setting", "Hide All Bodies", "Bodies Only (No Lensing)"};
+inline constexpr std::array<const char*, 3> kBodyQualityNames{"Live Viewport Setting", "High Detail", "Maximum Detail"};
+inline constexpr std::array<const char*, 9> kProjectionOverrideNames{
+	"Live Viewport Setting", "Standard Perspective (Pinhole)", "Auto-Zoom (Aberration Comp.)", "Fisheye Stereographic (Conformal)",
+	"Equirectangular 360 Panorama", "Fisheye Equidistant (All-Sky)", "Fisheye Orthographic (Hemisphere)", "Panini Cylindrical (Wide-Angle)", "Hammer-Aitoff (Equal-Area)"
+};
+inline constexpr std::array<const char*, 5> kTonemapOverrideNames{"Live Viewport Setting", "Linear Unclamped", "ACES Filmic Curve", "Logarithmic Extended HDR", "Reinhard Modified"};
 
 [[nodiscard]] inline ImVec4 phase_color(Capture::CapturePhase phase) noexcept {
 	switch (phase) {
@@ -168,6 +185,15 @@ private:
 		target.supersampling = source.supersampling;
 		target.max_ray_steps = source.max_ray_steps;
 		target.step_refinement = source.step_refinement;
+		target.layers = source.layers;
+		target.body_quality = source.body_quality;
+		target.hide_accretion_disk = source.hide_accretion_disk;
+		target.projection_override = source.projection_override;
+		target.tonemapping_override = source.tonemapping_override;
+		target.field_of_view_override_deg = source.field_of_view_override_deg;
+		target.exposure_offset_ev = source.exposure_offset_ev;
+		target.apply_post_processing = source.apply_post_processing;
+		target.dither_strength = source.dither_strength;
 		return target;
 	}
 
@@ -202,6 +228,15 @@ private:
 			}
 		}
 		return false;
+	}
+
+	[[nodiscard]] double preview_aspect_ratio() const noexcept {
+		if (settings_.video.mode == IO::SequenceCaptureMode::RealTime) {
+			const ImVec2 size = viewport_.content_size();
+			return static_cast<double>(size.x) / std::max(static_cast<double>(size.y), 1.0);
+		}
+		const Capture::CaptureTarget target = resolve_target(settings_.sequence_target);
+		return static_cast<double>(target.width) / std::max(static_cast<double>(target.height), 1.0);
 	}
 
 	void release_preview() {
@@ -255,19 +290,65 @@ private:
 			options.include_modifiers = preview_include_modifiers_;
 			options.show_reference = preview_show_reference_;
 			options.cursor_seconds = preview_time_;
+			options.aspect_ratio = preview_aspect_ratio();
 			options.highlighted_segment = highlighted;
 			preview_ = Capture::build_path_preview(settings_.script, lookup, options);
 			last_preview_build_ = now;
 			preview_force_rebuild_ = false;
 			preview_options_dirty_ = false;
 		} else {
-			preview_.cursor = Capture::build_preview_cursor(settings_.script, lookup, preview_time_);
+			preview_.cursor = Capture::build_preview_cursor(settings_.script, lookup, preview_time_, preview_aspect_ratio());
 			preview_.highlighted_segment = highlighted;
 		}
 		viewport_.set_path_preview(&preview_);
 		preview_published_ = true;
 		published_time_ = preview_time_;
 		published_highlight_ = highlighted;
+	}
+
+	void render_override_controls(IO::CaptureTargetSettings& target) {
+		using namespace CaptureWidgets;
+		using namespace CaptureStudioDetail;
+		if (!ImGui::TreeNode("Render Overrides")) {
+			return;
+		}
+		enum_combo("Visible Layers", target.layers, kLayerModeNames);
+		render_setting_tooltip("Chooses whether bodies are rendered. Bodies Only skips lensing, the horizon and the accretion disk and keeps just the sky and the bodies.");
+		enum_combo("Body Detail", target.body_quality, kBodyQualityNames);
+		render_setting_tooltip("Raises the procedural noise octaves and lowers the level-of-detail pixel thresholds of every body for this capture only.");
+		ImGui::Checkbox("Hide Primary Accretion Disk", &target.hide_accretion_disk);
+		render_setting_tooltip("Removes the accretion disk of the central object from the capture without changing the live viewport.");
+		int projection_index = static_cast<int>(target.projection_override) + 1;
+		if (ImGui::Combo("Projection", &projection_index, kProjectionOverrideNames.data(), static_cast<int>(kProjectionOverrideNames.size()))) {
+			target.projection_override = projection_index - 1;
+		}
+		render_setting_tooltip("Overrides the camera projection for the capture. Use Equirectangular 360 with a 2:1 resolution for panoramas.");
+		int tonemapping_index = static_cast<int>(target.tonemapping_override) + 1;
+		if (ImGui::Combo("Tonemapper", &tonemapping_index, kTonemapOverrideNames.data(), static_cast<int>(kTonemapOverrideNames.size()))) {
+			target.tonemapping_override = tonemapping_index - 1;
+		}
+		render_setting_tooltip("Overrides the HDR tonemapper used by the capture.");
+		ImGui::SliderFloat("Field Of View Override (deg)", &target.field_of_view_override_deg, 0.0f, 175.0f, "%.1f");
+		render_setting_tooltip("Replaces the camera field of view for the capture. Zero keeps the live or scripted value.");
+		ImGui::SliderFloat("Exposure Offset (EV)", &target.exposure_offset_ev, -6.0f, 6.0f, "%.2f");
+		render_setting_tooltip("Added to the live or scripted exposure compensation.");
+		ImGui::Checkbox("Apply Viewport Color Grading", &target.apply_post_processing);
+		render_setting_tooltip("Applies contrast, saturation, lift, gamma, gain, highlights, shadows and vignette from the Optics and Camera tab to the captured frames.");
+		ImGui::SliderFloat("Dither Strength (8-bit Levels)", &target.dither_strength, 0.0f, 4.0f, "%.2f");
+		render_setting_tooltip("Adds triangular noise before quantization to remove gradient banding in 8-bit outputs.");
+		if (ImGui::SmallButton("Reset Overrides")) {
+			target.layers = IO::CaptureLayerMode::Live;
+			target.body_quality = IO::CaptureBodyQuality::Live;
+			target.hide_accretion_disk = false;
+			target.projection_override = -1;
+			target.tonemapping_override = -1;
+			target.field_of_view_override_deg = 0.0f;
+			target.exposure_offset_ev = 0.0f;
+			target.apply_post_processing = true;
+			target.dither_strength = 0.0f;
+		}
+		render_setting_tooltip("Restores every override of this section to its default value.");
+		ImGui::TreePop();
 	}
 
 	void render_target_editor(IO::CaptureTargetSettings& target, IO::ScreenshotFormat format, const char* id) {
@@ -279,14 +360,24 @@ private:
 		render_setting_tooltip("When enabled the output size is fixed in pixels; otherwise it is the viewport content area multiplied by the resolution multiplier.");
 
 		if (target.use_explicit_resolution) {
+			if (ImGui::Checkbox("Lock Aspect Ratio", &target.lock_aspect_ratio) && target.lock_aspect_ratio) {
+				target.locked_aspect_ratio = static_cast<float>(target.explicit_width) / static_cast<float>(std::max(target.explicit_height, 1U));
+			}
+			render_setting_tooltip("Keeps the current width to height ratio when one of the two values is edited.");
 			int width = static_cast<int>(target.explicit_width);
 			int height = static_cast<int>(target.explicit_height);
 			if (ImGui::InputInt("Width (px)", &width, 16, 256)) {
 				target.explicit_width = static_cast<uint32_t>(std::clamp(width, 16, 65535));
+				if (target.lock_aspect_ratio) {
+					target.explicit_height = static_cast<uint32_t>(std::clamp(static_cast<int>(std::lround(static_cast<double>(target.explicit_width) / static_cast<double>(std::max(target.locked_aspect_ratio, 0.01f)))), 16, 65535));
+				}
 			}
 			render_setting_tooltip("Horizontal resolution of the output image or sequence frames in pixels.");
 			if (ImGui::InputInt("Height (px)", &height, 16, 256)) {
 				target.explicit_height = static_cast<uint32_t>(std::clamp(height, 16, 65535));
+				if (target.lock_aspect_ratio) {
+					target.explicit_width = static_cast<uint32_t>(std::clamp(static_cast<int>(std::lround(static_cast<double>(target.explicit_height) * static_cast<double>(target.locked_aspect_ratio))), 16, 65535));
+				}
 			}
 			render_setting_tooltip("Vertical resolution of the output image or sequence frames in pixels.");
 			FlowLayout resolution_flow;
@@ -296,6 +387,9 @@ private:
 				if (resolution_flow.small_button(kResolutionPresets[i].label, selected)) {
 					target.explicit_width = kResolutionPresets[i].width;
 					target.explicit_height = kResolutionPresets[i].height;
+					if (target.lock_aspect_ratio) {
+						target.locked_aspect_ratio = static_cast<float>(target.explicit_width) / static_cast<float>(target.explicit_height);
+					}
 				}
 				render_setting_tooltip("Sets the explicit resolution to this standard preset.");
 				ImGui::PopID();
@@ -306,6 +400,22 @@ private:
 				target.explicit_height = static_cast<uint32_t>(std::clamp(static_cast<int>(std::lround(size.y)), 16, 65535));
 			}
 			render_setting_tooltip("Copies the current viewport content size into the explicit resolution.");
+			if (resolution_flow.small_button("Swap Width And Height")) {
+				std::swap(target.explicit_width, target.explicit_height);
+				if (target.lock_aspect_ratio) {
+					target.locked_aspect_ratio = static_cast<float>(target.explicit_width) / static_cast<float>(std::max(target.explicit_height, 1U));
+				}
+			}
+			render_setting_tooltip("Exchanges the width and the height, for example to switch between landscape and portrait.");
+			if (resolution_flow.small_button("Match Viewport Aspect")) {
+				const ImVec2 size = viewport_.content_size();
+				const double ratio = static_cast<double>(size.y) / std::max(static_cast<double>(size.x), 1.0);
+				target.explicit_height = static_cast<uint32_t>(std::clamp(static_cast<int>(std::lround(static_cast<double>(target.explicit_width) * ratio)), 16, 65535));
+				if (target.lock_aspect_ratio) {
+					target.locked_aspect_ratio = static_cast<float>(target.explicit_width) / static_cast<float>(target.explicit_height);
+				}
+			}
+			render_setting_tooltip("Keeps the current width and derives the height from the aspect ratio of the viewport.");
 		} else {
 			float multiplier = target.resolution_multiplier;
 			if (ImGui::SliderFloat("Resolution Multiplier", &multiplier, 0.1f, 16.0f, "%.2fx", ImGuiSliderFlags_Logarithmic)) {
@@ -322,6 +432,8 @@ private:
 		render_setting_tooltip("Maximum geodesic integration steps per ray, independent of the live viewport budget.");
 		ImGui::SliderFloat("Step Refinement", &target.step_refinement, 1.0f, 32.0f, "%.1fx", ImGuiSliderFlags_Logarithmic);
 		render_setting_tooltip("Divides the integration step size and its limits for higher accuracy near the photon sphere and the horizon.");
+
+		render_override_controls(target);
 
 		const Capture::CaptureTarget resolved = resolve_target(target);
 		const uint64_t internal_width = static_cast<uint64_t>(resolved.width) * resolved.supersampling;
@@ -460,6 +572,14 @@ private:
 			ImGui::TextDisabled("Open-ended capture: stop it manually.");
 		}
 
+		if (!realtime) {
+			section_header("Script Playback");
+			drag_double("Script Start Offset (s)", video.script_time_offset_seconds, 0.05, 0.0, 86400.0, "%.3f");
+			render_setting_tooltip("Script time at which the first captured frame is sampled.");
+			drag_double("Script Speed Multiplier", video.script_speed, 0.01, 0.01, 100.0, "%.3f");
+			render_setting_tooltip("Scales how fast script time advances relative to video time. Values above 1 fast-forward the script, below 1 slow it down.");
+		}
+
 		section_header("Output");
 		input_text("Sequence Directory", settings_.sequence_directory);
 		render_setting_tooltip("Parent folder in which every capture session creates its own sub-folder.");
@@ -496,6 +616,8 @@ private:
 			ImGui::SliderFloat("Shutter Fraction", &video.shutter_fraction, 0.0f, 1.0f, "%.2f");
 			render_setting_tooltip("Portion of the frame interval covered by the virtual shutter.");
 			ImGui::EndDisabled();
+			ImGui::SliderFloat("Shutter Phase", &video.shutter_phase, -1.0f, 1.0f, "%.2f");
+			render_setting_tooltip("Shifts the sampled instant within the frame interval, as a fraction of the interval. Negative values sample earlier, positive values later.");
 			slider_u32("Fade In Frames", video.fade_in_frames, 0U, 600U);
 			render_setting_tooltip("Number of opening frames that fade up from black.");
 			slider_u32("Fade Out Frames", video.fade_out_frames, 0U, 600U);
@@ -802,6 +924,10 @@ private:
 		ImGui::EndDisabled();
 		input_text("ffmpeg Executable", video.ffmpeg_executable);
 		render_setting_tooltip("Path or command name for the ffmpeg executable used for video encoding.");
+		input_text("Extra Video Filters", video.custom_video_filters);
+		render_setting_tooltip("Comma separated ffmpeg video filters applied before the automatic padding, for example scale=1920:-2,eq=contrast=1.1.");
+		input_text("Extra Output Arguments", video.custom_output_arguments);
+		render_setting_tooltip("Additional ffmpeg arguments inserted right before the output file, for example -movflags +faststart -metadata title=Capture.");
 
 		const std::string extension(IO::image_format_descriptor(video.frame_format).extension);
 		const std::string directory = settings_.sequence_directory + "/<session>";

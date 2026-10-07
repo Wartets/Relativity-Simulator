@@ -24,6 +24,7 @@ struct PathPreviewOptions {
 	bool include_modifiers{true};
 	bool show_reference{true};
 	std::optional<double> cursor_seconds{};
+	double aspect_ratio{1.7777777777777777};
 	int32_t highlighted_segment{-1};
 };
 
@@ -66,7 +67,7 @@ struct PathPreviewOptions {
 	);
 }
 
-[[nodiscard]] inline PathPreviewCursor build_preview_cursor(const MotionScript& script, const BodyPositionLookup& lookup, double seconds) {
+[[nodiscard]] inline PathPreviewCursor build_preview_cursor(const MotionScript& script, const BodyPositionLookup& lookup, double seconds, double aspect_ratio = 16.0 / 9.0) {
 	PathPreviewCursor cursor;
 	const ScriptSample sample = script.sample(seconds, lookup);
 	if (!sample.valid) {
@@ -83,6 +84,7 @@ struct PathPreviewOptions {
 	cursor.right = basis.right;
 	cursor.up = basis.up;
 	cursor.fov_rad = std::clamp(sample.pose.fov_deg * (std::numbers::pi_v<double> / 180.0), 0.02, 3.0);
+	cursor.aspect_ratio = std::clamp(aspect_ratio, 0.05, 20.0);
 	return cursor;
 }
 
@@ -155,7 +157,7 @@ struct PathPreviewOptions {
 	}
 
 	if (options.cursor_seconds.has_value()) {
-		preview.cursor = build_preview_cursor(script, lookup, *options.cursor_seconds);
+		preview.cursor = build_preview_cursor(script, lookup, *options.cursor_seconds, options.aspect_ratio);
 	}
 	return preview;
 }

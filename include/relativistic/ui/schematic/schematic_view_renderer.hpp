@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <string>
 #include <limits>
+#include <functional>
 
 namespace Relativistic::UI {
 
@@ -49,6 +50,8 @@ private:
 	bool apply_lensing_{false};
 	std::unordered_map<uint32_t, std::deque<TrailSample>> body_trails_{};
 	Capture::PathPreview path_preview_{};
+	std::function<void(ImDrawList*)> primary_source_painter_{};
+	double primary_source_horizon_{0.0};
 
 	[[nodiscard]] static int clamp8(double value) noexcept {
 		return static_cast<int>(std::clamp(value, 0.0, 255.0));
@@ -99,11 +102,23 @@ private:
 			return pt;
 		}
 
+		constexpr double coordinate_limit = 2.0e5;
 		const double rect_width = static_cast<double>(rect_size_.x);
 		const double rect_height = static_cast<double>(rect_size_.y);
 
-		pt.screen.x = rect_min_.x + static_cast<float>((u_screen * 0.5 + 0.5) * rect_width);
-		pt.screen.y = rect_min_.y + static_cast<float>((v_screen * 0.5 + 0.5) * rect_height);
+		double screen_x = (u_screen * 0.5 + 0.5) * rect_width;
+		double screen_y = (v_screen * 0.5 + 0.5) * rect_height;
+		const double offset_x = screen_x - rect_width * 0.5;
+		const double offset_y = screen_y - rect_height * 0.5;
+		const double extent = std::max(std::abs(offset_x), std::abs(offset_y));
+		if (extent > coordinate_limit) {
+			const double shrink = coordinate_limit / extent;
+			screen_x = rect_width * 0.5 + offset_x * shrink;
+			screen_y = rect_height * 0.5 + offset_y * shrink;
+		}
+
+		pt.screen.x = rect_min_.x + static_cast<float>(screen_x);
+		pt.screen.y = rect_min_.y + static_cast<float>(screen_y);
 		pt.visible = true;
 		return pt;
 	}
@@ -1449,7 +1464,47 @@ struct DepthSphere {
 		return sphere;
 	}
 
+	[[nodiscard]] bool projection_clips_front() const noexcept {
+		return projection_mode_ == Observer::ProjectionMode::Pinhole
+			|| projection_mode_ == Observer::ProjectionMode::AutoZoomAberration
+			|| projection_mode_ == Observer::ProjectionMode::PaniniCylindrical
+			|| projection_mode_ == Observer::ProjectionMode::FisheyeOrthographic;
+	}
+
+	[[nodiscard]] bool clip_segment_to_front(std::array<double, 3>& a, std::array<double, 3>& b) const noexcept {
+		constexpr double near_depth = 1.0e-2;
+		const auto depth_of = [this](const std::array<double, 3>& p) noexcept {
+			return (p[0] - camera_position_[0]) * tetrad_forward_[0] + (p[1] - camera_position_[1]) * tetrad_forward_[1] + (p[2] - camera_position_[2]) * tetrad_forward_[2];
+		};
+		const auto interpolate = [](const std::array<double, 3>& from, const std::array<double, 3>& to, double t) noexcept {
+			return std::array<double, 3>{from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t};
+		};
+		const double depth_a = depth_of(a);
+		const double depth_b = depth_of(b);
+		if (depth_a <= near_depth && depth_b <= near_depth) {
+			return false;
+		}
+		if (depth_a < near_depth) {
+			a = interpolate(a, b, (near_depth - depth_a) / (depth_b - depth_a));
+		} else if (depth_b < near_depth) {
+			b = interpolate(b, a, (near_depth - depth_b) / (depth_a - depth_b));
+		}
+		return true;
+	}
+
+	[[nodiscard]] bool segment_outside_view(const ImVec2& a, const ImVec2& b) const noexcept {
+		constexpr float margin = 48.0f;
+		const float left = rect_min_.x - margin;
+		const float right = rect_min_.x + rect_size_.x + margin;
+		const float top = rect_min_.y - margin;
+		const float bottom = rect_min_.y + rect_size_.y + margin;
+		return (a.x < left && b.x < left) || (a.x > right && b.x > right) || (a.y < top && b.y < top) || (a.y > bottom && b.y > bottom);
+	}
+
 	[[nodiscard]] DepthSphere make_central_sphere(double central_radius, const SchematicViewConfig& cfg) const noexcept {
+		if (primary_source_painter_) {
+			return make_depth_sphere({0.0, 0.0, 0.0}, primary_source_horizon_, 0.0, 1.0e6, -1.0);
+		}
 		const auto& style = cfg.central_object_style;
 		if (style.shape == SchematicObjectShape::Point) {
 			return DepthSphere{{0.0, 0.0, 0.0}, 0.0};
@@ -1555,11 +1610,13 @@ struct DepthSphere {
 				arrow_distance = 0.0;
 				continue;
 			}
-			const ProjectedPoint& start = scene.vertices[i - 1];
-			const ProjectedPoint& end = scene.vertices[i];
+			std::array<double, 3> wa = preview.vertices[i - 1].position;
+			std::array<double, 3> wb = preview.vertices[i].position;
+			if (projection_clips_front() && !clip_segment_to_front(wa, wb)) continue;
+			const ProjectedPoint start = project(wa);
+			const ProjectedPoint end = project(wb);
 			if (!start.visible || !end.visible) continue;
-			const auto& wa = preview.vertices[i - 1].position;
-			const auto& wb = preview.vertices[i].position;
+			if (segment_outside_view(start.screen, end.screen)) continue;
 			const auto world_at = [&](double t) noexcept -> std::array<double, 3> {
 				return {wa[0] + (wb[0] - wa[0]) * t, wa[1] + (wb[1] - wa[1]) * t, wa[2] + (wb[2] - wa[2]) * t};
 			};
@@ -1642,7 +1699,7 @@ struct DepthSphere {
 			const auto& cursor = preview.cursor;
 			const double length = preview.frustum_length;
 			const double half_width = std::tan(std::clamp(cursor.fov_rad, 0.02, 3.0) * 0.5) * length;
-			const double half_height = half_width * 9.0 / 16.0;
+			const double half_height = half_width / std::max(cursor.aspect_ratio, 0.05);
 			const auto corner = [&](double sx, double sy) noexcept {
 				return std::array<double, 3>{
 					cursor.position[0] + cursor.forward[0] * length + cursor.right[0] * sx * half_width + cursor.up[0] * sy * half_height,
@@ -1785,6 +1842,16 @@ public:
 
 	[[nodiscard]] bool has_path_preview() const noexcept {
 		return !path_preview_.empty();
+	}
+
+	void set_primary_source_painter(double horizon_radius, std::function<void(ImDrawList*)> painter) {
+		primary_source_horizon_ = std::max(horizon_radius, 0.0);
+		primary_source_painter_ = std::move(painter);
+	}
+
+	void clear_primary_source_painter() noexcept {
+		primary_source_painter_ = nullptr;
+		primary_source_horizon_ = 0.0;
 	}
 
 	void render_path_preview_only(ImDrawList* draw_list) const {
@@ -1960,7 +2027,7 @@ public:
 		};
 		std::vector<SceneDrawEntry> scene_entries;
 		scene_entries.reserve(bodies.size() + 1);
-		if (cfg.show_central_object) {
+		if (cfg.show_central_object && (!primary_source_painter_ || primary_source_horizon_ > 0.0)) {
 			scene_entries.push_back(SceneDrawEntry{project(std::array<double, 3>{0.0, 0.0, 0.0}).forward_depth, nullptr});
 		}
 		if (cfg.show_bodies) {
@@ -1985,7 +2052,11 @@ public:
 			flush_path_scene(draw_list, path_scene, i + 1);
 			const auto& entry = scene_entries[i];
 			if (entry.body == nullptr) {
-				draw_central_object(draw_list, params, central_radius, cfg);
+				if (primary_source_painter_) {
+					primary_source_painter_(draw_list);
+				} else {
+					draw_central_object(draw_list, params, central_radius, cfg);
+				}
 			} else {
 				draw_body(draw_list, *entry.body, cfg, min_val, max_val, &unit_prefs);
 			}

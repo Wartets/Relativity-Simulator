@@ -7,6 +7,7 @@
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud/hud_layout_config.hpp"
 #include "relativistic/ui/schematic/schematic_view_config.hpp"
+#include "relativistic/ui/spatial_reference/spatial_reference_editor.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
@@ -33,6 +34,7 @@ private:
 	InteractiveCameraController& camera_controller_;
 	HudLayoutConfig& hud_layout_;
 	SchematicViewConfig& schematic_cfg_;
+	SpatialReferenceConfig& spatial_cfg_;
 	bool& hud_manager_open_;
 	bool& keybind_settings_open_;
 
@@ -113,8 +115,8 @@ private:
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, bool& hud_manager_open, bool& keybind_settings_open)
-		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), spatial_cfg_(spatial_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
 		sync_from_orchestrator();
 	}
 
@@ -252,6 +254,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Schematic View")) {
 					render_schematic_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Spatial Reference")) {
+					render_spatial_reference_tab();
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem("3D Body Render")) {
@@ -2165,6 +2171,10 @@ private:
 				render_schematic_object_style(("Override Style For Body #" + std::to_string(target_id)).c_str(), schematic_cfg_.body_style_overrides[target_id]);
 			}
 		}
+	}
+
+	void render_spatial_reference_tab() noexcept {
+		static_cast<void>(render_spatial_reference_editor(spatial_cfg_, orchestrator_));
 	}
 
 	void render_units_tab() noexcept {

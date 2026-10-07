@@ -44,6 +44,7 @@ struct PathPreviewCursor {
 	std::array<double, 3> right{0.0, -1.0, 0.0};
 	std::array<double, 3> up{0.0, 0.0, 1.0};
 	double fov_rad{1.0471975511965976};
+	double aspect_ratio{1.7777777777777777};
 };
 
 struct PathPreview {

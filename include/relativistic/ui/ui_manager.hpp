@@ -99,7 +99,7 @@ public:
 		  camera_controller_(orchestrator),
 		  keybind_window_(camera_controller_.config()),
 		  hud_manager_window_(user_settings_.hud_layout),
-		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, hud_manager_window_.open_state(), keybind_window_.open_state()),
+		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, user_settings_.spatial_reference, hud_manager_window_.open_state(), keybind_window_.open_state()),
 		  performance_window_(orchestrator),
 		  performance_analysis_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
@@ -175,7 +175,7 @@ public:
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
 
-		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view);
+		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, user_settings_.spatial_reference);
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		viewport_window_->set_open_screenshot_settings_callback([this]() { open_capture_studio(); });

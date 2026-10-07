@@ -9,6 +9,7 @@
 #include "relativistic/ui/input_actions.hpp"
 #include "relativistic/ui/schematic/schematic_view_renderer.hpp"
 #include "relativistic/ui/schematic/schematic_primary_source_overlay.hpp"
+#include "relativistic/ui/spatial_reference/spatial_reference_renderer.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
@@ -59,8 +60,10 @@ private:
 	InteractiveCameraController& camera_controller_;
 	HudLayoutConfig& hud_layout_;
 	SchematicViewConfig& schematic_cfg_;
+	SpatialReferenceConfig& spatial_cfg_;
 	Render::GeodesicComputePipeline pipeline_;
 	SchematicViewRenderer schematic_renderer_{};
+	SpatialReferenceRenderer spatial_renderer_{};
 	uint32_t gl_texture_id_{0};
 	uint32_t current_width_{1280};
 	uint32_t current_height_{720};
@@ -194,11 +197,13 @@ public:
 		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
 		InteractiveCameraController& cam_ctrl,
 		HudLayoutConfig& hud_layout,
-		SchematicViewConfig& schematic_cfg
+		SchematicViewConfig& schematic_cfg,
+		SpatialReferenceConfig& spatial_cfg
 	) : orchestrator_(orchestrator),
 		camera_controller_(cam_ctrl),
 		hud_layout_(hud_layout),
 		schematic_cfg_(schematic_cfg),
+		spatial_cfg_(spatial_cfg),
 		pipeline_(Render::GeodesicPipelineConfig{
 			.width = 1280,
 			.height = 720,
@@ -308,9 +313,6 @@ public:
 
 	[[nodiscard]] std::vector<Render::GpuBodyData> collect_capture_bodies() const {
 		std::vector<Render::GpuBodyData> bodies;
-		if ((orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) == 0U) {
-			return bodies;
-		}
 		std::lock_guard<std::recursive_mutex> body_lock(orchestrator_.nbody_system().bodies_mutex());
 		const auto& nbody_sys = orchestrator_.nbody_system().bodies();
 		bodies.reserve(nbody_sys.size());
@@ -461,16 +463,18 @@ public:
 				{
 					const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
 					schematic_renderer_.configure(cam, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0), schematic_pos, avail);
-					const bool central_object_requested = schematic_cfg_.show_central_object;
-					schematic_cfg_.show_central_object = false;
-					schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
-					schematic_cfg_.show_central_object = central_object_requested;
-					if (central_object_requested) {
-						SchematicPrimarySourceOverlay::draw(
-							ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_,
-							SchematicPrimarySourceOverlay::ViewRegion{schematic_pos, avail, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0)}
-						);
+					if (schematic_cfg_.show_central_object) {
+						const double primary_horizon = Observer::CameraCollisionField::primary_horizon_radius(params, orchestrator_.active_metric_name());
+						const SchematicPrimarySourceOverlay::ViewRegion primary_region{schematic_pos, avail, schematic_projection_mode, cam.fov_deg * (std::numbers::pi / 180.0)};
+						schematic_renderer_.set_primary_source_painter(primary_horizon, [this, primary_region](ImDrawList* list) {
+							SchematicPrimarySourceOverlay::draw(list, orchestrator_, schematic_cfg_, primary_region);
+						});
 					}
+					schematic_renderer_.render(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
+					schematic_renderer_.clear_primary_source_painter();
+				}
+				if (spatial_cfg_.show_in_schematic_view) {
+					render_spatial_reference(schematic_pos, avail, schematic_projection_mode, 0.0);
 				}
 				ImGui::Dummy(avail);
 
@@ -809,6 +813,10 @@ public:
 				schematic_renderer_.render_overlay(ImGui::GetWindowDrawList(), orchestrator_, schematic_cfg_);
 			}
 
+			if (spatial_cfg_.show_in_raytraced_view) {
+				render_spatial_reference(viewport_image_pos, avail, static_cast<Observer::ProjectionMode>(params.projection_mode), params.mass);
+			}
+
 			if (hud_layout_.element(HudElementId::ViewportToolbar).enabled) {
 				render_viewport_toolbar(avail);
 			}
@@ -934,6 +942,40 @@ public:
 		}
 
 		return targets;
+	}
+
+	void render_spatial_reference(const ImVec2& origin, const ImVec2& size, Observer::ProjectionMode projection, double lensing_mass) {
+		if (!spatial_cfg_.enabled) {
+			return;
+		}
+		const auto& camera = orchestrator_.camera();
+		const auto basis = camera.orientation_basis();
+		const double horizon = Observer::CameraCollisionField::primary_horizon_radius(orchestrator_.parameters(), orchestrator_.active_metric_name());
+
+		SpatialReferenceView view;
+		view.camera_position = camera.position;
+		view.forward = basis.forward;
+		view.right = basis.right;
+		view.up = basis.up;
+		view.projection_mode = projection;
+		view.fov_rad = camera.fov_deg * (std::numbers::pi / 180.0);
+		view.rect_min = origin;
+		view.rect_size = size;
+		view.horizon_radius = horizon;
+		view.lensing_mass = (horizon > 0.0) ? lensing_mass : 0.0;
+		view.length_scale_meters = orchestrator_.constants_engine().length_scale();
+		view.distance_unit = orchestrator_.unit_preferences().distance;
+
+		if (spatial_cfg_.center_mode == SpatialCenterMode::Body) {
+			std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
+			for (const auto& body : orchestrator_.nbody_system().bodies()) {
+				if (body.enabled && body.id == spatial_cfg_.center_body_id) {
+					view.body_center = body.position;
+					break;
+				}
+			}
+		}
+		spatial_renderer_.render(ImGui::GetWindowDrawList(), spatial_cfg_, view);
 	}
 
 	void render_viewport_toolbar(const ImVec2& avail) noexcept {

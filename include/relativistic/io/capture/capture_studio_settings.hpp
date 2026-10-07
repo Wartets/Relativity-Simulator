@@ -53,6 +53,9 @@ struct CaptureStudioSettings {
 		video.crf = std::min<uint32_t>(video.crf, 51U);
 		video.target_bitrate_kbps = std::clamp<uint32_t>(video.target_bitrate_kbps, 100U, 2000000U);
 		video.encode_frames_per_second = std::clamp(video.encode_frames_per_second, 0.0f, 240.0f);
+		video.shutter_phase = std::clamp(video.shutter_phase, -1.0f, 1.0f);
+		video.script_time_offset_seconds = std::clamp(video.script_time_offset_seconds, 0.0, 86400.0);
+		video.script_speed = std::clamp(video.script_speed, 0.01, 100.0);
 		recording.sanitize();
 		script.sanitize();
 	}

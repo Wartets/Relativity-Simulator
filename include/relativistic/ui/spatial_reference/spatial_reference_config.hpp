@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/io/capture_settings_io.hpp"
+#include "relativistic/io/capture/capture_settings_io.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>

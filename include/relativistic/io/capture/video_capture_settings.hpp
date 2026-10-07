@@ -106,6 +106,32 @@ struct VideoSequenceSettings {
 	bool assemble_video_after_capture{false};
 	bool delete_frames_after_assembly{false};
 	std::string ffmpeg_executable{"ffmpeg"};
+	float shutter_phase{0.0f};
+	double script_time_offset_seconds{0.0};
+	double script_speed{1.0};
+	std::string custom_video_filters{};
+	std::string custom_output_arguments{};
+
+	[[nodiscard]] static std::string sanitize_command_fragment(std::string_view text, bool drop_quotes) {
+		std::string result;
+		result.reserve(text.size());
+		for (const char c : text) {
+			if (c == '\n' || c == '\r' || c == '\t') {
+				result.push_back(' ');
+				continue;
+			}
+			if (drop_quotes && c == '"') {
+				continue;
+			}
+			result.push_back(c);
+		}
+		const size_t first = result.find_first_not_of(' ');
+		if (first == std::string::npos) {
+			return {};
+		}
+		const size_t last = result.find_last_not_of(' ');
+		return result.substr(first, last - first + 1);
+	}
 
 	[[nodiscard]] std::string codec_name() const {
 		switch (codec) {
@@ -212,10 +238,15 @@ struct VideoSequenceSettings {
 		cmd += " -start_number " + std::to_string(start_number);
 		const std::string input_full = (std::filesystem::path(input_directory) / input_pattern).string();
 		cmd += " -i \"" + input_full + "\"";
+		std::string custom_filters = sanitize_command_fragment(custom_video_filters, true);
+		while (!custom_filters.empty() && custom_filters.back() == ',') {
+			custom_filters.pop_back();
+		}
+		const std::string filter_prefix = custom_filters.empty() ? std::string{} : (custom_filters + ",");
 		if (codec == VideoCodecPreset::GIF) {
-			cmd += " -vf \"split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3\"";
+			cmd += " -vf \"" + filter_prefix + "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3\"";
 		} else {
-			cmd += " -vf \"pad=ceil(iw/2)*2:ceil(ih/2)*2\"";
+			cmd += " -vf \"" + filter_prefix + "pad=ceil(iw/2)*2:ceil(ih/2)*2\"";
 		}
 		cmd += " -c:v " + codec_name();
 		const uint32_t speed_index = static_cast<uint32_t>(encoder_speed);
@@ -261,6 +292,10 @@ struct VideoSequenceSettings {
 			std::snprintf(out_fps_buf, sizeof(out_fps_buf), "%.3f", static_cast<double>(encode_frames_per_second));
 			cmd += " -r ";
 			cmd += out_fps_buf;
+		}
+		const std::string extra_arguments = sanitize_command_fragment(custom_output_arguments, false);
+		if (!extra_arguments.empty()) {
+			cmd += " " + extra_arguments;
 		}
 		const std::string ext = container_extension();
 		cmd += " \"" + output_path_without_extension + "." + ext + "\"";
@@ -314,6 +349,11 @@ struct VideoSequenceSettings {
 		writer.flag("assemble_video_after_capture", assemble_video_after_capture);
 		writer.flag("delete_frames_after_assembly", delete_frames_after_assembly);
 		writer.text("ffmpeg_executable", ffmpeg_executable);
+		writer.real("shutter_phase", shutter_phase);
+		writer.real("script_time_offset_seconds", script_time_offset_seconds);
+		writer.real("script_speed", script_speed);
+		writer.text("custom_video_filters", custom_video_filters);
+		writer.text("custom_output_arguments", custom_output_arguments);
 	}
 
 	void read_settings(const SettingsReader& reader) {
@@ -350,6 +390,11 @@ struct VideoSequenceSettings {
 		assemble_video_after_capture = reader.flag("assemble_video_after_capture", assemble_video_after_capture);
 		delete_frames_after_assembly = reader.flag("delete_frames_after_assembly", delete_frames_after_assembly);
 		ffmpeg_executable = reader.text("ffmpeg_executable", ffmpeg_executable);
+		shutter_phase = std::clamp(static_cast<float>(reader.real("shutter_phase", shutter_phase)), -1.0f, 1.0f);
+		script_time_offset_seconds = std::clamp(reader.real("script_time_offset_seconds", script_time_offset_seconds), 0.0, 86400.0);
+		script_speed = std::clamp(reader.real("script_speed", script_speed), 0.01, 100.0);
+		custom_video_filters = sanitize_command_fragment(reader.text("custom_video_filters", custom_video_filters), true);
+		custom_output_arguments = sanitize_command_fragment(reader.text("custom_output_arguments", custom_output_arguments), false);
 	}
 };
 

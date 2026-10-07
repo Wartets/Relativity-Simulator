@@ -58,6 +58,59 @@ struct HydroDiskProfile {
 	float reserved;
 };
 
+struct JetProfile {
+	float enabled;
+	float geometry;
+	float field_line_index;
+	float horizon_field_tesla;
+	float magnetization;
+	float magnetization_index;
+	float angular_velocity_law;
+	float angular_velocity_fraction;
+	float fixed_angular_velocity;
+	float angular_velocity_variation;
+	float toroidal_field_scale;
+	float rotation_coupling;
+	float mass;
+	float spin;
+	float horizon_radius;
+	float horizon_angular_velocity;
+	float inner_radius;
+	float outer_radius;
+	float footpoint_edge;
+	float footpoint_softness;
+	float lorentz_inner;
+	float lorentz_max;
+	float acceleration_radius;
+	float acceleration_index;
+	float doppler_enabled;
+	float redshift_enabled;
+	float emission_model;
+	float power_law_index;
+	float gamma_min;
+	float non_thermal_fraction;
+	float electron_temperature_k;
+	float temperature_index;
+	float observing_frequency_hz;
+	float meters_per_unit;
+	float log_emissivity_constant;
+	float log_absorptivity_constant;
+	float faraday_constant;
+	float polarization_fraction;
+	float polarization_coherence;
+	float absorption_scale;
+	float faraday_scale;
+	float log_reference_intensity;
+	float brightness;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float display_mode;
+	float sampling_density;
+	float max_samples;
+	float electron_density_constant;
+};
+
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
@@ -182,6 +235,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 
 	DiskProfile primary_disk;
 	HydroDiskProfile hydro_disk;
+	JetProfile jet;
 } pc;
 
 struct PixelOutput {
@@ -1228,6 +1282,248 @@ void torus_integrate_segment(dvec3 from_pos, dvec3 to_pos, double l_ratio, doubl
 	radiance = accumulated;
 	opacity = double(1.0 - transmittance);
 	redshift_average = (weight_sum > 1e-30) ? double(redshift_sum / weight_sum) : 1.0;
+}
+
+double jet_pow(double base, double exponent) {
+	return exp_d(exponent * log_d(max(base, 1.0e-30)));
+}
+
+double jet_smooth_unit(double x) {
+	double t = clamp(x, 0.0, 1.0);
+	return t * t * (3.0 - 2.0 * t);
+}
+
+double jet_field_index() {
+	if (pc.jet.geometry > 2.5) return 2.0;
+	if (pc.jet.geometry > 1.5) return max(double(pc.jet.field_line_index), 0.25);
+	return 1.0;
+}
+
+void jet_shape(double theta, out double value, out double derivative) {
+	dvec2 sc = precise_sincos(theta);
+	double s = sc.x;
+	double c = sc.y;
+	if (pc.jet.geometry > 2.5) {
+		value = 0.5 * s * s;
+		derivative = s * c;
+	} else if (pc.jet.geometry > 0.5) {
+		double sign = (c > 0.0) ? 1.0 : ((c < 0.0) ? -1.0 : 0.0);
+		value = 1.0 - abs(c);
+		derivative = s * sign;
+	} else {
+		value = 1.0 - c;
+		derivative = s;
+	}
+}
+
+double jet_footpoint_angle(double ratio) {
+	if (pc.jet.geometry > 2.5) return double(asin(float(sqrt(clamp(2.0 * ratio, 0.0, 1.0)))));
+	if (pc.jet.geometry > 0.5) return double(acos(float(clamp(1.0 - ratio, 0.0, 1.0))));
+	return double(acos(float(clamp(1.0 - ratio, -1.0, 1.0))));
+}
+
+void jet_field_and_frame(double r, double theta, out dvec3 field, out double footpoint, out double omega_field, out double lapse, out double dragging, out double phi_radius) {
+	double m = double(pc.jet.mass);
+	double a = double(pc.jet.spin);
+	double r_h = double(pc.jet.horizon_radius);
+	double nu = jet_field_index();
+	double norm = jet_pow(r_h, 2.0 - nu);
+	dvec2 sc = precise_sincos(theta);
+	double sin_t = max(sc.x, 1.0e-6);
+	double cos_t = sc.y;
+	double a2 = a * a;
+	double r2 = r * r;
+	double rho2 = r2 + a2 * cos_t * cos_t;
+	double rho = sqrt(rho2);
+	double delta = max(r2 - 2.0 * m * r + a2, 1.0e-12);
+	double sigma = (r2 + a2) * (r2 + a2) - a2 * delta * sin_t * sin_t;
+	phi_radius = sqrt(max(sigma * sin_t * sin_t / rho2, 1.0e-30));
+	lapse = max(sqrt(rho2 * delta / sigma), 1.0e-9);
+	dragging = 2.0 * m * a * r / sigma;
+
+	double value;
+	double derivative;
+	jet_shape(theta, value, derivative);
+	double r_pow = jet_pow(r, nu);
+	double d_theta = norm * r_pow * derivative;
+	double d_r = nu * norm * r_pow * value / r;
+	double ratio = jet_pow(r / r_h, nu) * value;
+	footpoint = jet_footpoint_angle(ratio);
+	double foot_sin = double(sin(float(footpoint)));
+	double foot_cos = double(cos(float(footpoint)));
+	double omega_h = double(pc.jet.horizon_angular_velocity);
+	if (pc.jet.angular_velocity_law > 0.5) {
+		omega_field = double(pc.jet.fixed_angular_velocity) / m;
+	} else {
+		omega_field = omega_h * double(pc.jet.angular_velocity_fraction) * (1.0 - double(pc.jet.angular_velocity_variation) * foot_sin * foot_sin);
+	}
+	double foot_value;
+	double foot_derivative;
+	jet_shape(footpoint, foot_value, foot_derivative);
+	double hemisphere = (pc.jet.geometry < 0.5) ? 1.0 : ((cos_t >= 0.0) ? 1.0 : -1.0);
+	double horizon_sq = r_h * r_h + a2;
+	double znajek = (omega_field - omega_h) * horizon_sq * foot_sin / (horizon_sq - a2 * foot_sin * foot_sin);
+	double toroidal = double(pc.jet.toroidal_field_scale) * znajek * norm * jet_pow(r_h, nu) * abs(foot_derivative) * hemisphere;
+	double scale = 1.0 / (rho * phi_radius);
+	field = dvec3(d_theta * scale, -d_r * sqrt(delta) * scale, toroidal / phi_radius);
+}
+
+double jet_emission_weight(double r, double footpoint) {
+	double folded = min(footpoint, PI_D - footpoint);
+	double inner = double(pc.jet.inner_radius);
+	double outer = double(pc.jet.outer_radius);
+	double soft = max(double(pc.jet.footpoint_softness), 1.0e-3);
+	double radial_in = jet_smooth_unit((r - inner) / max(0.25 * inner, 1.0e-9));
+	double radial_out = jet_smooth_unit((outer - r) / max(0.25 * outer, 1.0e-9));
+	double angular = 1.0 - jet_smooth_unit((folded - (double(pc.jet.footpoint_edge) - soft)) / (2.0 * soft));
+	return radial_in * radial_out * angular;
+}
+
+double jet_lorentz_factor(double r) {
+	double span = max(double(pc.jet.acceleration_radius), 1.0e-9);
+	double x = jet_pow(max(r - double(pc.jet.inner_radius), 0.0) / span, max(double(pc.jet.acceleration_index), 1.0e-3));
+	double inner = double(pc.jet.lorentz_inner);
+	return inner + (double(pc.jet.lorentz_max) - inner) * x / (1.0 + x);
+}
+
+bool jet_plasma_state(double r, double theta, dvec3 photon, out double weight, out double electron_density, out double field_tesla, out double cos_pitch, out double doppler) {
+	weight = 0.0;
+	electron_density = 0.0;
+	field_tesla = 0.0;
+	cos_pitch = 0.0;
+	doppler = 1.0;
+	if (r < double(pc.jet.inner_radius) || r > double(pc.jet.outer_radius)) return false;
+	double theta_c = clamp(theta, 1.0e-4, PI_D - 1.0e-4);
+	dvec3 field;
+	double footpoint;
+	double omega_field;
+	double lapse;
+	double dragging;
+	double phi_radius;
+	jet_field_and_frame(r, theta_c, field, footpoint, omega_field, lapse, dragging, phi_radius);
+	weight = jet_emission_weight(r, footpoint);
+	if (weight <= 1.0e-6) return false;
+
+	double gamma_target = jet_lorentz_factor(r);
+	double speed = sqrt(max(1.0 - 1.0 / (gamma_target * gamma_target), 0.0));
+	double b_pol = length(field.xy);
+	dvec3 pol_dir = (b_pol > 1.0e-12) ? dvec3(field.xy / b_pol, 0.0) : dvec3(1.0, 0.0, 0.0);
+	if (pol_dir.x < 0.0) pol_dir = -pol_dir;
+
+	bool relativistic_flow = pc.jet.doppler_enabled > 0.5;
+	double rotation = (omega_field - dragging) * phi_radius / lapse;
+	double rotation_cap = 0.9 * speed;
+	double beta_phi = double(pc.jet.rotation_coupling) * clamp(rotation, -rotation_cap, rotation_cap);
+	double beta_pol = sqrt(max(speed * speed - beta_phi * beta_phi, 0.0));
+	dvec3 beta = dvec3(beta_pol * pol_dir.x, beta_pol * pol_dir.y, beta_phi);
+	if (!relativistic_flow) beta = dvec3(0.0);
+	double beta_sq = dot(beta, beta);
+	double beta_mag = sqrt(beta_sq);
+	double gamma_flow = 1.0 / sqrt(max(1.0 - beta_sq, 1.0e-9));
+	dvec3 field_comoving = field / gamma_flow + (gamma_flow / (gamma_flow + 1.0)) * beta * dot(beta, field);
+	dvec3 photon_comoving = photon;
+	if (beta_mag > 1.0e-9) {
+		dvec3 beta_hat = beta / beta_mag;
+		double parallel = dot(photon, beta_hat);
+		dvec3 perpendicular = photon - parallel * beta_hat;
+		double denominator = 1.0 - beta_mag * parallel;
+		photon_comoving = ((parallel - beta_mag) / denominator) * beta_hat + (1.0 / (gamma_flow * denominator)) * perpendicular;
+	}
+
+	doppler = relativistic_flow ? 1.0 / (gamma_flow * (1.0 - dot(beta, photon))) : 1.0;
+	if (pc.jet.redshift_enabled > 0.5) doppler *= lapse;
+	doppler = clamp(doppler, 1.0e-3, 1.0e3);
+
+	double field_mag = length(field_comoving);
+	if (field_mag <= 1.0e-12) return false;
+	cos_pitch = clamp(dot(photon_comoving, field_comoving) / (max(length(photon_comoving), 1.0e-12) * field_mag), -1.0, 1.0);
+	field_tesla = field_mag * double(pc.jet.horizon_field_tesla);
+	double sigma = max(double(pc.jet.magnetization) * jet_pow(r / double(pc.jet.horizon_radius), double(pc.jet.magnetization_index)), 1.0e-6);
+	electron_density = double(pc.jet.electron_density_constant) * field_tesla * field_tesla / sigma;
+	return true;
+}
+
+vec3 jet_polarization_color(float x) {
+	return vec3(clamp(2.0 * x, 0.0, 1.0), clamp(1.0 - abs(2.0 * x - 1.0), 0.0, 1.0), clamp(1.0 - 2.0 * x, 0.0, 1.0));
+}
+
+bool jet_integrate_segment(dvec3 from_pos, dvec3 to_pos, out vec3 radiance, out double transmittance) {
+	radiance = vec3(0.0);
+	transmittance = 1.0;
+	dvec3 delta = to_pos - from_pos;
+	double segment_length = length(delta);
+	if (segment_length < 1.0e-12) return false;
+	double inner = double(pc.jet.inner_radius);
+	double outer = double(pc.jet.outer_radius);
+	if (max(length(from_pos), length(to_pos)) < inner) return false;
+	double t_closest = clamp(-dot(from_pos, delta) / (segment_length * segment_length), 0.0, 1.0);
+	if (length(from_pos + t_closest * delta) > outer) return false;
+
+	double mass = max(double(pc.jet.mass), 1.0e-9);
+	int sample_count = clamp(int(ceil(segment_length / mass * double(pc.jet.sampling_density))), 1, max(int(pc.jet.max_samples + 0.5), 1));
+	double step_length = segment_length / double(sample_count);
+	double step_meters = step_length * double(pc.jet.meters_per_unit);
+	dvec3 photon = -delta / segment_length;
+	double nu_obs = double(pc.jet.observing_frequency_hz);
+	double p = double(pc.jet.power_law_index);
+	double normalization = exp_d(-double(pc.jet.log_reference_intensity)) * double(pc.jet.brightness);
+	double coherence = double(pc.jet.polarization_coherence);
+	vec3 tint = vec3(pc.jet.tint_r, pc.jet.tint_g, pc.jet.tint_b);
+	uint display = uint(pc.jet.display_mode + 0.5);
+	bool any_emission = false;
+
+	for (int i = 0; i < sample_count; ++i) {
+		double t = (double(i) + 0.5) / double(sample_count);
+		dvec3 pos = from_pos + t * delta;
+		double r = length(pos);
+		if (r < inner || r > outer) continue;
+		double theta = double(acos(float(clamp(pos.z / r, -1.0, 1.0))));
+		double rho = length(pos.xy);
+		dvec3 e_r = pos / r;
+		dvec3 e_phi = (rho > 1.0e-12) ? dvec3(-pos.y / rho, pos.x / rho, 0.0) : dvec3(0.0, 1.0, 0.0);
+		dvec3 e_theta = cross(e_phi, e_r);
+		dvec3 photon_local = dvec3(dot(photon, e_r), dot(photon, e_theta), dot(photon, e_phi));
+
+		double weight;
+		double electron_density;
+		double field_tesla;
+		double cos_pitch;
+		double doppler;
+		if (!jet_plasma_state(r, theta, photon_local, weight, electron_density, field_tesla, cos_pitch, doppler)) continue;
+
+		double nu_emit = nu_obs / doppler;
+		double sin_pitch = max(sqrt(max(1.0 - cos_pitch * cos_pitch, 0.0)), 1.0e-4);
+		double nonthermal_density = max(electron_density * weight * double(pc.jet.non_thermal_fraction), 1.0e-30);
+		double log_field = log_d(max(field_tesla * sin_pitch, 1.0e-30));
+		double log_nu = log_d(nu_emit);
+		double log_density = log_d(nonthermal_density);
+		double emissivity = exp_d(double(pc.jet.log_emissivity_constant) + log_density + 0.5 * (p + 1.0) * log_field - 0.5 * (p - 1.0) * log_nu);
+		double absorptivity = exp_d(double(pc.jet.log_absorptivity_constant) + log_density + 0.5 * (p + 4.0) * log_field - 0.5 * (p + 4.0) * log_nu);
+		emissivity *= doppler * doppler;
+		absorptivity *= double(pc.jet.absorption_scale) / doppler;
+
+		double tau = absorptivity * step_meters;
+		double step_transmittance = exp_d(-min(tau, 600.0));
+		double effective_path = (tau < 1.0e-4) ? step_meters * (1.0 - 0.5 * tau) : (1.0 - step_transmittance) / max(absorptivity, 1.0e-30);
+		double step_intensity = emissivity * effective_path * normalization;
+
+		double faraday_depth = double(pc.jet.faraday_constant) * double(pc.jet.faraday_scale) * electron_density * weight * field_tesla * abs(cos_pitch) / (nu_emit * nu_emit) / doppler * step_meters;
+		double depolarization = (faraday_depth > 1.0e-4) ? double(abs(sin(float(faraday_depth)) / float(faraday_depth))) : 1.0;
+		double polarization_fraction = clamp(double(pc.jet.polarization_fraction) * depolarization * coherence, 0.0, 1.0);
+
+		vec3 color;
+		if (display == 1u) {
+			color = tint * float(step_intensity * polarization_fraction);
+		} else if (display == 2u) {
+			color = jet_polarization_color(float(polarization_fraction)) * float(step_intensity);
+		} else {
+			color = tint * float(step_intensity);
+		}
+		radiance += float(transmittance) * color;
+		transmittance *= step_transmittance;
+		any_emission = true;
+	}
+	return any_emission;
 }
 
 vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
@@ -2703,6 +2999,16 @@ void main() {
 						redshift_rec = torus_redshift;
 						accum += throughput * dvec3(torus_rgb);
 						throughput *= (1.0 - torus_opacity);
+					}
+				}
+
+				if (pc.jet.enabled > 0.5) {
+					vec3 jet_rgb;
+					double jet_transmittance;
+					if (jet_integrate_segment(spherical_to_cartesian(prev_r, prev_th, prev_phi), spherical_to_cartesian(ray_r, ray_th, ray_phi), jet_rgb, jet_transmittance)) {
+						accum += throughput * dvec3(jet_rgb);
+						throughput *= jet_transmittance;
+						status |= 32u;
 					}
 				}
 

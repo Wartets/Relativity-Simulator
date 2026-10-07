@@ -13,6 +13,7 @@
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
+#include "relativistic/ui/jet_magnetosphere_editor.hpp"
 #include "relativistic/ui/horizon_zone_strip.hpp"
 #include "relativistic/metrics/horizon_regime.hpp"
 #include "relativistic/units/unit_system.hpp"
@@ -487,6 +488,9 @@ private:
 		ImGui::Separator();
 		if (ImGui::CollapsingHeader("Primary Accretion Disk", ImGuiTreeNodeFlags_DefaultOpen)) {
 			render_primary_accretion_disk_editor(orchestrator_);
+		}
+		if (ImGui::CollapsingHeader("Blandford-Znajek Jet Magnetosphere")) {
+			render_jet_magnetosphere_editor(orchestrator_);
 		}
 	}
 

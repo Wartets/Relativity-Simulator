@@ -159,6 +159,9 @@ private:
 			return false;
 		}
 		std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
+		if (params.jet.enabled > 0.5f && params.jet.emission_model > 0.5f) {
+			return false;
+		}
 		GpuCameraPushConstants gpu_params = params;
 		bool dispatched = false;
 		try {

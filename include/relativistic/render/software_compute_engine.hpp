@@ -22,6 +22,7 @@
 #include "relativistic/metrics/reissner_nordstrom.hpp"
 #include "relativistic/metrics/kerr_newman.hpp"
 #include "relativistic/metrics/subsidiary_source_field.hpp"
+#include "relativistic/magnetosphere/blandford_znajek.hpp"
 #include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/math/geodesic_bundle.hpp"
@@ -901,6 +902,30 @@ private:
 		return params.hydro_disk.model == static_cast<uint32_t>(HydroDiskModel::FishboneMoncrief);
 	}
 
+	static void accumulate_jet_segment(
+		const GpuCameraPushConstants& params,
+		const std::array<double, 3>& from,
+		const std::array<double, 3>& to,
+		double& accum_r,
+		double& accum_g,
+		double& accum_b,
+		double& throughput,
+		uint32_t& status
+	) noexcept {
+		if (params.jet.enabled < 0.5f) {
+			return;
+		}
+		const auto segment = Magnetosphere::JetEmissionIntegrator::integrate(params.jet, from, to);
+		if (!segment.active) {
+			return;
+		}
+		accum_r += throughput * segment.radiance[0];
+		accum_g += throughput * segment.radiance[1];
+		accum_b += throughput * segment.radiance[2];
+		throughput *= segment.transmittance;
+		status |= PixelFlags::JET_EMISSION_HIT;
+	}
+
 	static void accumulate_novikov_thorne_crossing(
 		const GpuCameraPushConstants& params,
 		const GpuDiskProfile& disk,
@@ -1330,6 +1355,7 @@ private:
 					accum_r, accum_g, accum_b, throughput, redshift_rec, status
 				);
 			}
+			accumulate_jet_segment(params, spherical_to_cartesian(prev_r, prev_theta, prev_phi), spherical_to_cartesian(x(1), x(2), x(3)), accum_r, accum_g, accum_b, throughput, status);
 			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
 				const double d_th_span = std::abs(x(2) - prev_theta);
 				const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
@@ -1508,6 +1534,7 @@ private:
 					accum_r, accum_g, accum_b, throughput, redshift_rec, status
 				);
 			}
+			accumulate_jet_segment(params, spherical_to_cartesian(previous.r, previous.theta, previous.phi), spherical_to_cartesian(point.r, point.theta, point.phi), accum_r, accum_g, accum_b, throughput, status);
 			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && (previous.theta - mid_plane) * (point.theta - mid_plane) <= 0.0) {
 				const double span = std::abs(point.theta - previous.theta);
 				const double s_cross = (span > 1e-12) ? std::clamp(std::abs(previous.theta - mid_plane) / span, 0.0, 1.0) : 0.5;
@@ -1719,6 +1746,7 @@ private:
 					accum_r, accum_g, accum_b, throughput, redshift_rec, status
 				);
 			}
+			accumulate_jet_segment(params, from, to, accum_r, accum_g, accum_b, throughput, status);
 			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && from[2] * to[2] <= 0.0) {
 				const double z_span = std::abs(from[2]) + std::abs(to[2]);
 				const double s_cross = (z_span > 1e-15) ? (std::abs(from[2]) / z_span) : 0.5;
@@ -2788,6 +2816,7 @@ public:
 								accumulated_r, accumulated_g, accumulated_b, throughput, redshift_rec, status
 							);
 						}
+						accumulate_jet_segment(params, spherical_to_cartesian(prev_r, prev_theta, prev_phi), spherical_to_cartesian(ray_r, ray_theta, ray_phi), accumulated_r, accumulated_g, accumulated_b, throughput, status);
 						if (has_accretion_disk && !uses_fishbone_moncrief_disk(params) && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0) {
 							const double d_th_span = std::abs(ray_theta - prev_theta);
 							const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
@@ -4130,7 +4159,7 @@ public:
 		static_cast<void>(stage_stats);
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk)) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f) {
 			dispatch_fp64(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 			return;
 		}
@@ -4172,7 +4201,7 @@ public:
 	) noexcept {
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk)) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}

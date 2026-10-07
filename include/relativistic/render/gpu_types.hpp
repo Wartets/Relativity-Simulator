@@ -102,6 +102,87 @@ struct GpuHydroDiskProfile {
 
 static_assert(sizeof(GpuHydroDiskProfile) == 64);
 
+enum class JetFieldGeometry : uint32_t {
+	Monopole = 0,
+	SplitMonopole = 1,
+	Paraboloidal = 2,
+	Vertical = 3
+};
+
+enum class JetEmissionModel : uint32_t {
+	NonThermal = 0,
+	Thermal = 1,
+	Hybrid = 2
+};
+
+enum class JetDisplayMode : uint32_t {
+	TotalIntensity = 0,
+	PolarizedIntensity = 1,
+	PolarizationFraction = 2
+};
+
+enum class JetAngularVelocityLaw : uint32_t {
+	HorizonFraction = 0,
+	Fixed = 1
+};
+
+struct GpuJetProfile {
+	float enabled{0.0f};
+	float geometry{2.0f};
+	float field_line_index{1.5f};
+	float horizon_field_tesla{1.0e4f};
+	float magnetization{50.0f};
+	float magnetization_index{0.5f};
+	float angular_velocity_law{0.0f};
+	float angular_velocity_fraction{0.5f};
+	float fixed_angular_velocity{0.1f};
+	float angular_velocity_variation{0.0f};
+	float toroidal_field_scale{1.0f};
+	float rotation_coupling{1.0f};
+	float mass{1.0f};
+	float spin{0.0f};
+	float horizon_radius{2.0f};
+	float horizon_angular_velocity{0.0f};
+	float inner_radius{2.2f};
+	float outer_radius{150.0f};
+	float footpoint_edge{1.3089969f};
+	float footpoint_softness{0.2617994f};
+	float lorentz_inner{1.3f};
+	float lorentz_max{6.0f};
+	float acceleration_radius{40.0f};
+	float acceleration_index{1.0f};
+	float doppler_enabled{1.0f};
+	float redshift_enabled{1.0f};
+	float emission_model{0.0f};
+	float power_law_index{2.5f};
+	float gamma_min{10.0f};
+	float non_thermal_fraction{0.02f};
+	float electron_temperature_k{3.0e10f};
+	float temperature_index{0.5f};
+	float observing_frequency_hz{2.3e11f};
+	float meters_per_unit{1.477e4f};
+	float log_emissivity_constant{0.0f};
+	float log_absorptivity_constant{0.0f};
+	float faraday_constant{0.0f};
+	float polarization_fraction{0.5f};
+	float polarization_coherence{0.6f};
+	float absorption_scale{1.0f};
+	float faraday_scale{1.0f};
+	float log_reference_intensity{0.0f};
+	float brightness{1.0f};
+	float tint_r{0.35f};
+	float tint_g{0.6f};
+	float tint_b{1.0f};
+	float display_mode{0.0f};
+	float sampling_density{1.0f};
+	float max_samples{24.0f};
+	float reserved{0.0f};
+
+	[[nodiscard]] bool operator==(const GpuJetProfile&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuJetProfile) == 200);
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -226,6 +307,7 @@ struct alignas(16) GpuCameraPushConstants {
 
 	GpuDiskProfile primary_disk{};
 	GpuHydroDiskProfile hydro_disk{};
+	GpuJetProfile jet{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
@@ -248,6 +330,7 @@ namespace PixelFlags {
 	static constexpr uint32_t ACCRETION_DISK_HIT = 1U << 2;
 	static constexpr uint32_t PHOTON_SPHERE_PROXIMITY = 1U << 3;
 	static constexpr uint32_t BODY_SURFACE_HIT = 1U << 4;
+	static constexpr uint32_t JET_EMISSION_HIT = 1U << 5;
 }
 
 namespace RenderFlags {

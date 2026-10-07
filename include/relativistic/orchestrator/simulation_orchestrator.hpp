@@ -12,6 +12,7 @@
 #include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/render/accretion_disk/hydro_disk_settings.hpp"
 #include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
+#include "relativistic/render/jet/jet_settings.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -138,6 +139,7 @@ struct PhysicalParameters {
 	double disk_color_saturation{1.0};
 	Render::AccretionDiskSettings primary_disk{};
 	Render::HydroDiskSettings hydro_disk{};
+	Render::JetSettings jet{};
 	uint32_t light_source_mode{0};
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
@@ -1753,6 +1755,7 @@ public:
 		push.primary_disk = Relativistic::Render::AccretionDiskModel::resolve_primary_profile(push);
 		push.hydro_disk = params_.hydro_disk.to_gpu_profile();
 		Relativistic::Render::HydroDiskShader::resolve_gpu_profile(push);
+		push.jet = params_.jet.to_gpu_profile(params_.mass, params_.spin, constants_engine_.length_scale());
 	}
 
 	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {

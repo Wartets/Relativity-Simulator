@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <mutex>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -36,6 +37,26 @@ enum class ProfilerTaskStage : uint32_t {
 	AdaptiveTilePrepassSky = 10,
 	PixelClassification = 11,
 	CameraConstantsBuild = 12,
+	BodyCollection = 13,
+	DispatchSubmission = 14,
+	SpatialReferenceOverlay = 15,
+	ViewportToolbar = 16,
+	RenderBufferPreparation = 17,
+	BodyTileCulling = 18,
+	CpuSimdTrace = 19,
+	CpuScalarTrace = 20,
+	CpuFullRaytraceTiles = 21,
+	GpuBodyLayoutBuild = 22,
+	GpuTextureSync = 23,
+	GpuUniformUpload = 24,
+	GpuKernelExecution = 25,
+	GpuReadbackCopy = 26,
+	SimulationTotal = 27,
+	CommandProcessing = 28,
+	CentralBodySync = 29,
+	NBodyIntegration = 30,
+	NBodyInteractions = 31,
+	HorizonAbsorption = 32,
 	Count
 };
 
@@ -54,7 +75,173 @@ enum class ProfilerTaskStage : uint32_t {
 		case ProfilerTaskStage::AdaptiveTilePrepassSky: return "Adaptive Tile Prepass (Analytic Sky)";
 		case ProfilerTaskStage::PixelClassification: return "Pixel Classification";
 		case ProfilerTaskStage::CameraConstantsBuild: return "Camera Constants Build";
+		case ProfilerTaskStage::BodyCollection: return "Body Collection & Culling";
+		case ProfilerTaskStage::DispatchSubmission: return "Dispatch Submission";
+		case ProfilerTaskStage::SpatialReferenceOverlay: return "Spatial Reference Overlay";
+		case ProfilerTaskStage::ViewportToolbar: return "Viewport Toolbar";
+		case ProfilerTaskStage::RenderBufferPreparation: return "Render Buffer Preparation";
+		case ProfilerTaskStage::BodyTileCulling: return "Body Tile Culling";
+		case ProfilerTaskStage::CpuSimdTrace: return "CPU SIMD Trace Pass";
+		case ProfilerTaskStage::CpuScalarTrace: return "CPU Scalar Trace Pass";
+		case ProfilerTaskStage::CpuFullRaytraceTiles: return "Full Ray-Traced Tiles";
+		case ProfilerTaskStage::GpuBodyLayoutBuild: return "GPU Body Layout Build";
+		case ProfilerTaskStage::GpuTextureSync: return "GPU Texture Synchronization";
+		case ProfilerTaskStage::GpuUniformUpload: return "GPU Uniform & Command Upload";
+		case ProfilerTaskStage::GpuKernelExecution: return "GPU Kernel Execution";
+		case ProfilerTaskStage::GpuReadbackCopy: return "GPU Readback Copy";
+		case ProfilerTaskStage::SimulationTotal: return "Simulation Total";
+		case ProfilerTaskStage::CommandProcessing: return "Command Processing";
+		case ProfilerTaskStage::CentralBodySync: return "Central Body Synchronization";
+		case ProfilerTaskStage::NBodyIntegration: return "N-Body Integration";
+		case ProfilerTaskStage::NBodyInteractions: return "N-Body Interactions";
+		case ProfilerTaskStage::HorizonAbsorption: return "Horizon Absorption";
 		default: return "Unknown Stage";
+	}
+}
+
+enum class ProfilerStageDomain : uint32_t {
+	UiThread = 0,
+	RenderWorker = 1,
+	SimulationThread = 2
+};
+
+[[nodiscard]] constexpr ProfilerTaskStage profiler_stage_parent(ProfilerTaskStage stage) noexcept {
+	switch (stage) {
+		case ProfilerTaskStage::TextureUpload:
+		case ProfilerTaskStage::HudOverlay:
+		case ProfilerTaskStage::CameraUpdate:
+		case ProfilerTaskStage::SchematicOverlay:
+		case ProfilerTaskStage::PostProcessing:
+		case ProfilerTaskStage::FramebufferReadback:
+		case ProfilerTaskStage::CameraConstantsBuild:
+		case ProfilerTaskStage::BodyCollection:
+		case ProfilerTaskStage::DispatchSubmission:
+		case ProfilerTaskStage::SpatialReferenceOverlay:
+		case ProfilerTaskStage::ViewportToolbar:
+			return ProfilerTaskStage::FrameTotal;
+		case ProfilerTaskStage::GpuDispatchExecution:
+		case ProfilerTaskStage::CpuDispatchExecution:
+		case ProfilerTaskStage::RenderBufferPreparation:
+		case ProfilerTaskStage::PixelClassification:
+			return ProfilerTaskStage::RenderDispatch;
+		case ProfilerTaskStage::GpuBodyLayoutBuild:
+		case ProfilerTaskStage::GpuTextureSync:
+		case ProfilerTaskStage::GpuUniformUpload:
+		case ProfilerTaskStage::GpuKernelExecution:
+		case ProfilerTaskStage::GpuReadbackCopy:
+			return ProfilerTaskStage::GpuDispatchExecution;
+		case ProfilerTaskStage::BodyTileCulling:
+		case ProfilerTaskStage::CpuSimdTrace:
+		case ProfilerTaskStage::CpuScalarTrace:
+			return ProfilerTaskStage::CpuDispatchExecution;
+		case ProfilerTaskStage::AdaptiveTilePrepassSky:
+		case ProfilerTaskStage::CpuFullRaytraceTiles:
+			return ProfilerTaskStage::CpuSimdTrace;
+		case ProfilerTaskStage::CommandProcessing:
+		case ProfilerTaskStage::CentralBodySync:
+		case ProfilerTaskStage::NBodyIntegration:
+		case ProfilerTaskStage::NBodyInteractions:
+		case ProfilerTaskStage::HorizonAbsorption:
+			return ProfilerTaskStage::SimulationTotal;
+		default:
+			return stage;
+	}
+}
+
+[[nodiscard]] constexpr ProfilerTaskStage profiler_stage_root(ProfilerTaskStage stage) noexcept {
+	ProfilerTaskStage current = stage;
+	for (size_t step = 0; step < static_cast<size_t>(ProfilerTaskStage::Count); ++step) {
+		const ProfilerTaskStage parent = profiler_stage_parent(current);
+		if (parent == current) break;
+		current = parent;
+	}
+	return current;
+}
+
+[[nodiscard]] constexpr size_t profiler_stage_depth(ProfilerTaskStage stage) noexcept {
+	size_t depth = 0;
+	ProfilerTaskStage current = stage;
+	for (size_t step = 0; step < static_cast<size_t>(ProfilerTaskStage::Count); ++step) {
+		const ProfilerTaskStage parent = profiler_stage_parent(current);
+		if (parent == current) break;
+		current = parent;
+		++depth;
+	}
+	return depth;
+}
+
+[[nodiscard]] constexpr ProfilerStageDomain profiler_stage_domain(ProfilerTaskStage stage) noexcept {
+	switch (profiler_stage_root(stage)) {
+		case ProfilerTaskStage::RenderDispatch: return ProfilerStageDomain::RenderWorker;
+		case ProfilerTaskStage::SimulationTotal: return ProfilerStageDomain::SimulationThread;
+		default: return ProfilerStageDomain::UiThread;
+	}
+}
+
+[[nodiscard]] constexpr bool profiler_stage_is_primary(ProfilerTaskStage stage) noexcept {
+	return stage == ProfilerTaskStage::RenderDispatch
+		|| (stage != ProfilerTaskStage::FrameTotal && profiler_stage_parent(stage) == ProfilerTaskStage::FrameTotal);
+}
+
+[[nodiscard]] constexpr const char* profiler_stage_description(ProfilerTaskStage stage) noexcept {
+	switch (stage) {
+		case ProfilerTaskStage::FrameTotal: return "Total time spent building the primary viewport window on the UI thread.";
+		case ProfilerTaskStage::RenderDispatch: return "Wall-clock time of the most recent geodesic render dispatch, executed asynchronously on the render worker.";
+		case ProfilerTaskStage::TextureUpload: return "Time spent uploading the graded framebuffer to the OpenGL texture.";
+		case ProfilerTaskStage::HudOverlay: return "Time spent assembling and drawing every HUD readout.";
+		case ProfilerTaskStage::CameraUpdate: return "Time spent processing input and advancing the camera navigation model.";
+		case ProfilerTaskStage::SchematicOverlay: return "Time spent drawing the schematic orbital view or the schematic overlays.";
+		case ProfilerTaskStage::PostProcessing: return "Time spent converting the framebuffer and applying color grading on the CPU.";
+		case ProfilerTaskStage::FramebufferReadback: return "Time spent swapping in the newest finished framebuffer from the render worker.";
+		case ProfilerTaskStage::GpuDispatchExecution: return "Total time of a render dispatch executed through the Vulkan compute path.";
+		case ProfilerTaskStage::CpuDispatchExecution: return "Total time of a render dispatch executed through the CPU SIMD and scalar solvers.";
+		case ProfilerTaskStage::AdaptiveTilePrepassSky: return "Thread time spent analytically filling empty-sky tiles, divided by the number of CPU workers.";
+		case ProfilerTaskStage::PixelClassification: return "Time spent classifying every pixel by ray outcome after a frame completes.";
+		case ProfilerTaskStage::CameraConstantsBuild: return "Time spent building the camera and metric constants for the render dispatch.";
+		case ProfilerTaskStage::BodyCollection: return "Time spent selecting, culling and converting celestial bodies for the renderer.";
+		case ProfilerTaskStage::DispatchSubmission: return "Time spent handing the new frame request over to the render worker.";
+		case ProfilerTaskStage::SpatialReferenceOverlay: return "Time spent drawing the spatial reference grid and markers.";
+		case ProfilerTaskStage::ViewportToolbar: return "Time spent building the floating viewport toolbar.";
+		case ProfilerTaskStage::RenderBufferPreparation: return "Time the render worker spent allocating or resizing the output framebuffer.";
+		case ProfilerTaskStage::BodyTileCulling: return "Time spent projecting bodies onto 32x32 screen tiles and building per-tile candidate lists.";
+		case ProfilerTaskStage::CpuSimdTrace: return "Wall-clock time of the SIMD geodesic pass over all non-body tiles.";
+		case ProfilerTaskStage::CpuScalarTrace: return "Wall-clock time of the scalar pass used for body tiles, exact metrics or the scalar pipeline option.";
+		case ProfilerTaskStage::CpuFullRaytraceTiles: return "Thread time spent fully integrating tiles in the SIMD pass, divided by the number of CPU workers.";
+		case ProfilerTaskStage::GpuBodyLayoutBuild: return "Time spent converting bodies to the GPU storage layout.";
+		case ProfilerTaskStage::GpuTextureSync: return "Time spent synchronizing sky panorama and Earth textures with the GPU.";
+		case ProfilerTaskStage::GpuUniformUpload: return "Time spent writing uniforms and bodies and recording the command buffer.";
+		case ProfilerTaskStage::GpuKernelExecution: return "Time between queue submission and fence completion of the compute kernel.";
+		case ProfilerTaskStage::GpuReadbackCopy: return "Time spent invalidating and copying the staging buffer back to host memory.";
+		case ProfilerTaskStage::SimulationTotal: return "Time per displayed frame spent on the simulation thread executing ticks and commands.";
+		case ProfilerTaskStage::CommandProcessing: return "Time spent applying queued orchestrator commands.";
+		case ProfilerTaskStage::CentralBodySync: return "Time spent synchronizing the central body and interaction configuration before each tick.";
+		case ProfilerTaskStage::NBodyIntegration: return "Time spent in the post-Newtonian integrator sub-steps.";
+		case ProfilerTaskStage::NBodyInteractions: return "Time spent solving electromagnetic, thermal, collision and fragmentation interactions.";
+		case ProfilerTaskStage::HorizonAbsorption: return "Time spent resolving horizon absorption and black hole merging.";
+		default: return "";
+	}
+}
+
+[[nodiscard]] constexpr const char* profiler_stage_hint(ProfilerTaskStage stage) noexcept {
+	switch (stage) {
+		case ProfilerTaskStage::TextureUpload: return "Reduce the Internal Render Scale or disable Force Texture Reallocation.";
+		case ProfilerTaskStage::PostProcessing: return "Neutralize color grading to skip the per-pixel CPU grading pass.";
+		case ProfilerTaskStage::HudOverlay: return "Disable unused HUD elements or raise their refresh interval.";
+		case ProfilerTaskStage::SchematicOverlay: return "Reduce schematic trails, orbit prediction segments or field line counts.";
+		case ProfilerTaskStage::BodyCollection: return "Reduce the enabled body count or enable render distance culling.";
+		case ProfilerTaskStage::BodyTileCulling: return "Reduce the number of visible bodies or raise the body LOD thresholds.";
+		case ProfilerTaskStage::CpuSimdTrace: return "Enable Adaptive Space-Skipping, the Adaptive Tile Sky Prepass or lower the ray step budget.";
+		case ProfilerTaskStage::CpuFullRaytraceTiles: return "Lower the Internal Render Scale or the Max Geodesic Steps.";
+		case ProfilerTaskStage::CpuScalarTrace: return "Reduce body coverage, switch to a non-spinning metric or enable the GPU path.";
+		case ProfilerTaskStage::GpuTextureSync: return "Use a lower panorama or Earth map quality to shorten uploads.";
+		case ProfilerTaskStage::GpuUniformUpload: return "Reduce the number of bodies sent to the GPU.";
+		case ProfilerTaskStage::GpuKernelExecution: return "Lower the Internal Render Scale, step budget or enable Space-Skipping.";
+		case ProfilerTaskStage::GpuReadbackCopy: return "Lower the Internal Render Scale to shrink the readback size.";
+		case ProfilerTaskStage::RenderBufferPreparation: return "Avoid frequent viewport resizing and dynamic resolution oscillation.";
+		case ProfilerTaskStage::PixelClassification: return "Lower the Internal Render Scale to reduce the per-frame pixel count.";
+		case ProfilerTaskStage::NBodyIntegration: return "Reduce the body count or select the symplectic integrator.";
+		case ProfilerTaskStage::NBodyInteractions: return "Disable interaction models that are not required.";
+		default: return "";
 	}
 }
 
@@ -230,6 +417,8 @@ struct BenchmarkRun {
 	double disk_hit_ratio{0.0};
 	size_t sample_count{0};
 	double capture_duration_seconds{0.0};
+	StatisticalSummary throughput_summary{};
+	std::array<double, static_cast<size_t>(ProfilerTaskStage::Count)> stage_mean_ms{};
 };
 
 class PerformanceProfiler {
@@ -262,6 +451,7 @@ private:
 	std::vector<BenchmarkRun> saved_runs_{};
 	std::string engine_signature_{Core::EngineSignature::compute()};
 
+	mutable std::mutex pending_mutex_{};
 	std::array<double, static_cast<size_t>(ProfilerTaskStage::Count)> pending_stage_ms_{};
 
 	bool capture_active_{false};
@@ -340,6 +530,9 @@ private:
 		std::vector<double> fps_values;
 		frame_times.reserve(capture_buffer_.size());
 		fps_values.reserve(capture_buffer_.size());
+		std::vector<double> throughput_values;
+		throughput_values.reserve(capture_buffer_.size());
+		std::array<double, static_cast<size_t>(ProfilerTaskStage::Count)> stage_sums{};
 
 		double sum_iterations = 0.0;
 		uint64_t gpu_frames = 0;
@@ -348,6 +541,12 @@ private:
 		for (const auto& s : capture_buffer_) {
 			frame_times.push_back(s.frame_time_ms);
 			fps_values.push_back(s.fps);
+			if (s.frame_time_ms > 0.0) {
+				throughput_values.push_back((static_cast<double>(s.pixels_processed) / 1.0e6) / (s.frame_time_ms / 1000.0));
+			}
+			for (size_t st = 0; st < stage_sums.size(); ++st) {
+				stage_sums[st] += s.stage_time_ms[st];
+			}
 			sum_iterations += s.average_iterations;
 			if (s.used_gpu_path) ++gpu_frames;
 			total_horizon += s.horizon_pixels;
@@ -358,6 +557,10 @@ private:
 
 		run.frame_time_summary = StatisticalSummary::compute(frame_times);
 		run.fps_summary = StatisticalSummary::compute(fps_values);
+		run.throughput_summary = StatisticalSummary::compute(std::move(throughput_values));
+		for (size_t st = 0; st < stage_sums.size(); ++st) {
+			run.stage_mean_ms[st] = stage_sums[st] / static_cast<double>(capture_buffer_.size());
+		}
 		run.average_iterations = sum_iterations / static_cast<double>(capture_buffer_.size());
 		run.gpu_path_ratio = static_cast<double>(gpu_frames) / static_cast<double>(capture_buffer_.size());
 		run.horizon_hit_ratio = (total_pixels > 0) ? (static_cast<double>(total_horizon) / static_cast<double>(total_pixels)) : 0.0;
@@ -388,6 +591,7 @@ public:
 	void set_persistence_enabled(bool enabled) noexcept { persistence_enabled_ = enabled; }
 
 	void record_stage_duration(ProfilerTaskStage stage, double milliseconds) noexcept {
+		std::lock_guard<std::mutex> lock(pending_mutex_);
 		pending_stage_ms_[static_cast<size_t>(stage)] += milliseconds;
 	}
 
@@ -436,8 +640,11 @@ public:
 		sample.integration_atol = input.integration_atol;
 		sample.metric_name = input.metric_name;
 		sample.integrator_name = input.integrator_name;
-		sample.stage_time_ms = pending_stage_ms_;
-		pending_stage_ms_.fill(0.0);
+		{
+			std::lock_guard<std::mutex> lock(pending_mutex_);
+			sample.stage_time_ms = pending_stage_ms_;
+			pending_stage_ms_.fill(0.0);
+		}
 
 		history_.push_back(sample);
 		while (history_.size() > history_capacity_) history_.pop_front();
@@ -489,6 +696,12 @@ public:
 		}
 	}
 
+	void rename_run(size_t index, std::string_view label) {
+		if (index < saved_runs_.size()) {
+			saved_runs_[index].label = std::string(label);
+		}
+	}
+
 	void clear_history() noexcept {
 		history_.clear();
 	}
@@ -528,6 +741,27 @@ public:
 		return StatisticalSummary::compute(std::move(values));
 	}
 
+	struct StageAccumulation {
+		std::array<double, static_cast<size_t>(ProfilerTaskStage::Count)> totals{};
+		size_t frame_count{0};
+
+		[[nodiscard]] double average(ProfilerTaskStage stage) const noexcept {
+			return (frame_count > 0) ? totals[static_cast<size_t>(stage)] / static_cast<double>(frame_count) : 0.0;
+		}
+	};
+
+	[[nodiscard]] StageAccumulation accumulate_stages(size_t last_n_samples = 0) const noexcept {
+		StageAccumulation accumulation;
+		const size_t count = (last_n_samples == 0 || last_n_samples > history_.size()) ? history_.size() : last_n_samples;
+		accumulation.frame_count = count;
+		for (size_t i = history_.size() - count; i < history_.size(); ++i) {
+			for (size_t st = 0; st < accumulation.totals.size(); ++st) {
+				accumulation.totals[st] += history_[i].stage_time_ms[st];
+			}
+		}
+		return accumulation;
+	}
+
 	struct BottleneckReport {
 		ProfilerTaskStage dominant_stage{ProfilerTaskStage::FrameTotal};
 		double dominant_share{0.0};
@@ -535,6 +769,7 @@ public:
 		double saturation_ratio{0.0};
 		bool gpu_underutilized{false};
 		std::string summary{};
+		std::vector<ProfilerTaskStage> dominant_chain{};
 	};
 
 	[[nodiscard]] BottleneckReport analyze_bottleneck(size_t last_n_samples = 120) const noexcept {
@@ -565,9 +800,7 @@ public:
 		double dominant_value = 0.0;
 		for (size_t st = 0; st < static_cast<size_t>(ProfilerTaskStage::Count); ++st) {
 			if (st == static_cast<size_t>(ProfilerTaskStage::FrameTotal)) continue;
-			if (st == static_cast<size_t>(ProfilerTaskStage::GpuDispatchExecution) || st == static_cast<size_t>(ProfilerTaskStage::CpuDispatchExecution)
-				|| st == static_cast<size_t>(ProfilerTaskStage::AdaptiveTilePrepassSky) || st == static_cast<size_t>(ProfilerTaskStage::PixelClassification)
-				|| st == static_cast<size_t>(ProfilerTaskStage::CameraConstantsBuild)) continue;
+			if (!profiler_stage_is_primary(static_cast<ProfilerTaskStage>(st))) continue;
 			if (stage_totals[st] > dominant_value) {
 				dominant_value = stage_totals[st];
 				dominant_idx = st;
@@ -575,6 +808,23 @@ public:
 		}
 
 		report.dominant_stage = static_cast<ProfilerTaskStage>(dominant_idx);
+		report.dominant_chain.push_back(report.dominant_stage);
+		ProfilerTaskStage chain_cursor = report.dominant_stage;
+		for (size_t depth = 0; depth < static_cast<size_t>(ProfilerTaskStage::Count); ++depth) {
+			ProfilerTaskStage best_child = chain_cursor;
+			double best_value = 0.0;
+			for (size_t st = 0; st < static_cast<size_t>(ProfilerTaskStage::Count); ++st) {
+				const auto candidate = static_cast<ProfilerTaskStage>(st);
+				if (candidate == chain_cursor || profiler_stage_parent(candidate) != chain_cursor) continue;
+				if (stage_totals[st] > best_value) {
+					best_value = stage_totals[st];
+					best_child = candidate;
+				}
+			}
+			if (best_child == chain_cursor) break;
+			report.dominant_chain.push_back(best_child);
+			chain_cursor = best_child;
+		}
 		report.dominant_share = (frame_total > 1e-9) ? std::clamp(dominant_value / frame_total, 0.0, 1.0) : 0.0;
 		report.saturation_ratio = iteration_ratio_sum / static_cast<double>(count);
 		report.ray_step_saturated = report.saturation_ratio > 0.35;
@@ -656,6 +906,16 @@ public:
 			out << "horizon_ratio=" << run.horizon_hit_ratio << "\n";
 			out << "celestial_ratio=" << run.celestial_hit_ratio << "\n";
 			out << "disk_ratio=" << run.disk_hit_ratio << "\n";
+			out << "tp_mean=" << run.throughput_summary.mean << "\n";
+			out << "tp_median=" << run.throughput_summary.median << "\n";
+			out << "tp_min=" << run.throughput_summary.min_value << "\n";
+			out << "tp_max=" << run.throughput_summary.max_value << "\n";
+			out << "tp_std=" << run.throughput_summary.std_deviation << "\n";
+			out << "tp_p95=" << run.throughput_summary.percentile_95 << "\n";
+			out << "tp_p99=" << run.throughput_summary.percentile_99 << "\n";
+			for (size_t st = 0; st < run.stage_mean_ms.size(); ++st) {
+				out << "stage_ms_" << st << "=" << run.stage_mean_ms[st] << "\n";
+			}
 			out << "sample_count=" << run.sample_count << "\n";
 			out << "duration=" << run.capture_duration_seconds << "\n";
 			out << "[/run]\n";
@@ -743,6 +1003,19 @@ public:
 			else if (key == "horizon_ratio") current.horizon_hit_ratio = std::strtod(val.c_str(), nullptr);
 			else if (key == "celestial_ratio") current.celestial_hit_ratio = std::strtod(val.c_str(), nullptr);
 			else if (key == "disk_ratio") current.disk_hit_ratio = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_mean") current.throughput_summary.mean = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_median") current.throughput_summary.median = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_min") current.throughput_summary.min_value = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_max") current.throughput_summary.max_value = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_std") current.throughput_summary.std_deviation = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_p95") current.throughput_summary.percentile_95 = std::strtod(val.c_str(), nullptr);
+			else if (key == "tp_p99") current.throughput_summary.percentile_99 = std::strtod(val.c_str(), nullptr);
+			else if (key.rfind("stage_ms_", 0) == 0) {
+				const size_t stage_index = static_cast<size_t>(std::strtoull(key.c_str() + 9, nullptr, 10));
+				if (stage_index < current.stage_mean_ms.size()) {
+					current.stage_mean_ms[stage_index] = std::strtod(val.c_str(), nullptr);
+				}
+			}
 			else if (key == "sample_count") current.sample_count = static_cast<size_t>(std::strtoull(val.c_str(), nullptr, 10));
 			else if (key == "duration") current.capture_duration_seconds = std::strtod(val.c_str(), nullptr);
 		}

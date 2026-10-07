@@ -4,22 +4,32 @@
 #include <implot.h>
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
+#include "relativistic/orchestrator/benchmark_metrics.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include "relativistic/ui/benchmark_workbench.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <vector>
 #include <string>
+#include <string_view>
 #include <optional>
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <limits>
+#include <utility>
 
 namespace Relativistic::UI {
 
 class PerformanceAnalysisWindow {
 private:
+	using Stage = Orchestrator::ProfilerTaskStage;
+	static constexpr size_t kStageCount = static_cast<size_t>(Stage::Count);
+
 	bool is_open_{false};
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
@@ -35,14 +45,32 @@ private:
 	bool show_only_matching_signature_{false};
 	int history_capacity_input_{3600};
 	int plot_window_{240};
-	int benchmark_sort_mode_{0};
-	bool benchmark_sort_descending_{true};
+	int stage_window_{120};
+	int tree_command_{0};
+	int statistics_window_choice_{0};
+	int statistics_domain_filter_{0};
+	bool statistics_hide_zero_stages_{true};
+	std::array<bool, kStageCount> plotted_stages_{};
 	char benchmark_search_filter_[64]{};
+	std::vector<char> column_visible_{};
+	int table_generation_{0};
+	bool delete_requested_{false};
+	int delete_index_{-1};
+	bool rename_requested_{false};
+	int rename_index_{-1};
+	char rename_buffer_[96]{};
+	bool show_only_differences_{true};
+	double clipboard_feedback_until_{0.0};
+	BenchmarkWorkbench workbench_{};
 
 public:
 	explicit PerformanceAnalysisWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator)
 		: orchestrator_(orchestrator) {
 		history_capacity_input_ = static_cast<int>(orchestrator_.profiler().history_capacity());
+		plotted_stages_.fill(false);
+		plotted_stages_[static_cast<size_t>(Stage::RenderDispatch)] = true;
+		plotted_stages_[static_cast<size_t>(Stage::TextureUpload)] = true;
+		plotted_stages_[static_cast<size_t>(Stage::HudOverlay)] = true;
 	}
 
 	[[nodiscard]] bool& open_state() noexcept { return is_open_; }
@@ -55,7 +83,7 @@ public:
 		if (!is_open_) return;
 
 		ImGui::SetNextWindowPos(ImVec2(200.0f, 90.0f), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(940.0f, 720.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(1040.0f, 760.0f), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Performance Analysis & Profiling", &is_open_)) {
 			ImGui::End();
@@ -63,9 +91,7 @@ public:
 		}
 
 		auto& profiler = orchestrator_.profiler();
-
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Engine Signature: %s", profiler.engine_signature().c_str());
-		render_setting_tooltip("Structural fingerprint of performance-relevant internal data layouts. Benchmark runs recorded under a different signature may not be directly comparable.");
+		render_signature_header(profiler);
 
 		if (ImGui::BeginTabBar("PerformanceAnalysisTabs")) {
 			if (ImGui::BeginTabItem("Live Monitor")) {
@@ -84,6 +110,10 @@ public:
 				render_benchmark_runs_tab(profiler);
 				ImGui::EndTabItem();
 			}
+			if (ImGui::BeginTabItem("Comparison Workbench")) {
+				workbench_.render(profiler);
+				ImGui::EndTabItem();
+			}
 			if (ImGui::BeginTabItem("Settings")) {
 				render_settings_tab(profiler);
 				ImGui::EndTabItem();
@@ -95,6 +125,162 @@ public:
 	}
 
 private:
+	void copy_to_clipboard(const std::string& text) {
+		ImGui::SetClipboardText(text.c_str());
+		clipboard_feedback_until_ = ImGui::GetTime() + 1.5;
+	}
+
+	static void show_text_tooltip(const char* text) {
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+		ImGui::TextUnformatted(text);
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+
+	[[nodiscard]] static std::string lowercase(std::string_view text) {
+		std::string result(text);
+		std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return result;
+	}
+
+	void render_signature_header(const Orchestrator::PerformanceProfiler& profiler) {
+		const std::string& signature = profiler.engine_signature();
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Engine Signature: %s", signature.c_str());
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+			if (ImGui::IsItemClicked()) {
+				copy_to_clipboard(signature);
+			}
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+			if (clipboard_feedback_until_ > ImGui::GetTime()) {
+				ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "Copied to clipboard.");
+			} else {
+				ImGui::TextUnformatted("Click to copy the engine signature to the clipboard.");
+			}
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Structural fingerprint of performance-relevant internal data layouts. Benchmark runs recorded under a different signature may not be directly comparable.");
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+	}
+
+	[[nodiscard]] static std::vector<Stage> stage_children(Stage parent) {
+		std::vector<Stage> result;
+		for (size_t i = 0; i < kStageCount; ++i) {
+			const auto candidate = static_cast<Stage>(i);
+			if (candidate != parent && Orchestrator::profiler_stage_parent(candidate) == parent) {
+				result.push_back(candidate);
+			}
+		}
+		return result;
+	}
+
+	static void collect_stage_order(Stage stage, size_t depth, std::vector<std::pair<Stage, size_t>>& out) {
+		out.emplace_back(stage, depth);
+		for (const Stage child : stage_children(stage)) {
+			collect_stage_order(child, depth + 1, out);
+		}
+	}
+
+	[[nodiscard]] static ImVec4 stage_depth_color(size_t depth) noexcept {
+		static constexpr ImVec4 kPalette[] = {
+			ImVec4(0.30f, 0.62f, 0.95f, 1.0f),
+			ImVec4(0.30f, 0.78f, 0.62f, 1.0f),
+			ImVec4(0.90f, 0.68f, 0.28f, 1.0f),
+			ImVec4(0.82f, 0.45f, 0.78f, 1.0f),
+			ImVec4(0.88f, 0.45f, 0.40f, 1.0f)
+		};
+		return kPalette[depth % (sizeof(kPalette) / sizeof(kPalette[0]))];
+	}
+
+	bool render_stage_row(const char* name, const char* description, double average_ms, double share, bool leaf, size_t depth) {
+		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
+		if (leaf) {
+			flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+		} else if (tree_command_ != 0) {
+			ImGui::SetNextItemOpen(tree_command_ == 1, ImGuiCond_Always);
+		}
+		const bool open = ImGui::TreeNodeEx("##stage_row", flags);
+		const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
+		ImGui::SameLine();
+		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, stage_depth_color(depth));
+		char overlay[192];
+		std::snprintf(overlay, sizeof(overlay), "%s  |  %.1f%%  |  %.3f ms", name, share * 100.0, average_ms);
+		ImGui::ProgressBar(static_cast<float>(std::clamp(share, 0.0, 1.0)), ImVec2(-1.0f, 0.0f), overlay);
+		ImGui::PopStyleColor();
+		if (hovered && description != nullptr && description[0] != '\0') {
+			show_text_tooltip(description);
+		}
+		return open && !leaf;
+	}
+
+	void render_stage_branch(const Orchestrator::PerformanceProfiler::StageAccumulation& accumulation, Stage stage, double basis_ms, size_t depth) {
+		const double average = accumulation.average(stage);
+		const double share = (basis_ms > 1e-9) ? std::clamp(average / basis_ms, 0.0, 1.0) : 0.0;
+		std::vector<Stage> children = stage_children(stage);
+		children.erase(std::remove_if(children.begin(), children.end(), [&](Stage child) { return accumulation.average(child) <= 0.0; }), children.end());
+		std::sort(children.begin(), children.end(), [&](Stage a, Stage b) { return accumulation.average(a) > accumulation.average(b); });
+		double children_sum = 0.0;
+		for (const Stage child : children) children_sum += accumulation.average(child);
+
+		ImGui::PushID(static_cast<int>(stage));
+		const bool open = render_stage_row(Orchestrator::profiler_stage_name(stage), Orchestrator::profiler_stage_description(stage), average, share, children.empty(), depth);
+		if (open) {
+			const double child_basis = std::max(average, children_sum);
+			for (const Stage child : children) {
+				render_stage_branch(accumulation, child, child_basis, depth + 1);
+			}
+			const double untracked = average - children_sum;
+			if (untracked > std::max(average * 0.02, 1e-4)) {
+				ImGui::PushID(-1);
+				render_stage_row("Untracked", "Time inside this stage that is not covered by any instrumented child stage.", untracked, (child_basis > 1e-9) ? untracked / child_basis : 0.0, true, depth + 1);
+				ImGui::PopID();
+			}
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+
+	void render_stage_hierarchy(const Orchestrator::PerformanceProfiler& profiler) {
+		ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Stage Time Breakdown (average ms per frame)");
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::SliderInt("Window (frames)", &stage_window_, 10, static_cast<int>(std::max<size_t>(std::min<size_t>(profiler.history_capacity(), 3600), 10)));
+		ImGui::SameLine();
+		tree_command_ = 0;
+		if (ImGui::SmallButton("Expand All")) tree_command_ = 1;
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Collapse All")) tree_command_ = 2;
+		render_setting_tooltip("Every bar can be expanded to reveal the stages it is made of. Percentages of child stages are relative to their parent; top-level percentages are relative to the UI frame time. Render worker and simulation thread stages run concurrently with the UI thread.");
+
+		const auto accumulation = profiler.accumulate_stages(static_cast<size_t>(std::max(stage_window_, 1)));
+		std::vector<Stage> primary;
+		double primary_sum = 0.0;
+		for (size_t i = 0; i < kStageCount; ++i) {
+			const auto stage = static_cast<Stage>(i);
+			if (Orchestrator::profiler_stage_is_primary(stage) && accumulation.average(stage) > 0.0) {
+				primary.push_back(stage);
+				primary_sum += accumulation.average(stage);
+			}
+		}
+		std::sort(primary.begin(), primary.end(), [&](Stage a, Stage b) { return accumulation.average(a) > accumulation.average(b); });
+		const double frame_basis = (accumulation.average(Stage::FrameTotal) > 1e-9) ? accumulation.average(Stage::FrameTotal) : std::max(primary_sum, 1e-9);
+		for (const Stage stage : primary) {
+			render_stage_branch(accumulation, stage, frame_basis, 0);
+		}
+
+		ImGui::Spacing();
+		if (ImGui::CollapsingHeader("Simulation Thread (time per displayed frame)")) {
+			if (accumulation.average(Stage::SimulationTotal) <= 0.0) {
+				ImGui::TextDisabled("No simulation activity was recorded in this window. The simulation clock may be paused.");
+			} else {
+				render_stage_branch(accumulation, Stage::SimulationTotal, accumulation.average(Stage::SimulationTotal), 0);
+			}
+		}
+		tree_command_ = 0;
+	}
+
 	void render_live_monitor_tab(Orchestrator::PerformanceProfiler& profiler) {
 		const auto& history = profiler.history();
 		if (history.empty()) {
@@ -117,118 +303,70 @@ private:
 		render_setting_tooltip("Pixels fully ray-traced per second at the current internal render resolution, derived from the most recent frame time. Useful for comparing configurations independently of window size.");
 
 		if (render_pipeline_ != nullptr) {
-			const auto& live_tel = render_pipeline_->telemetry();
+			const auto live_tel = render_pipeline_->telemetry();
 			ImGui::Text("Ray Iteration Range: %u - %u (avg %.1f)", live_tel.min_iterations_used, live_tel.max_iterations_used, live_tel.average_iterations_used);
 			render_setting_tooltip("Minimum and maximum geodesic integration steps consumed by any single ray in the most recently completed frame, alongside the mean across all rays.");
+			ImGui::Text("Adaptive Tile Prepass Skip: %llu tiles (%.3f ms) | Full Ray-Traced Tiles: %llu tiles (%.3f ms)", static_cast<unsigned long long>(live_tel.tile_prepass_skip_tile_count), live_tel.tile_prepass_skip_ms, static_cast<unsigned long long>(live_tel.full_raytrace_tile_count), live_tel.full_raytrace_tiles_ms);
+			render_setting_tooltip("Cumulative thread time of the most recently completed CPU-tiled render, split between tiles filled analytically by the Adaptive Tile Sky Prepass and tiles that were fully integrated. Only populated when Tiled Work Distribution and Adaptive Tile Sky Prepass are both enabled and the CPU path is active.");
 		}
 
 		{
 			const size_t window_count = std::min<size_t>(history.size(), 120);
 			size_t gpu_frames = 0;
-			double stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count)] = {};
 			for (size_t i = history.size() - window_count; i < history.size(); ++i) {
 				if (history[i].used_gpu_path) ++gpu_frames;
-				for (size_t st = 0; st < static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count); ++st) {
-					stage_totals[st] += history[i].stage_time_ms[st];
-				}
 			}
 			const double gpu_ratio = static_cast<double>(gpu_frames) / static_cast<double>(window_count);
 			ImGui::Text("Render Path Split (last %zu frames): GPU %.0f%% | CPU %.0f%%", window_count, gpu_ratio * 100.0, (1.0 - gpu_ratio) * 100.0);
-			render_setting_tooltip("Fraction of recently completed frames dispatched through the Vulkan compute path versus the CPU SIMD/scalar fallback. Also available as a standalone HUD readout.");
-
-			ImGui::Spacing();
-			ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Stage Time Share (last %zu frames, sorted by cost)", window_count);
-			double frame_total = stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)];
-			if (frame_total <= 1e-9) frame_total = 1.0;
-			std::vector<size_t> sorted_stage_indices;
-			for (size_t st = 0; st < static_cast<size_t>(Orchestrator::ProfilerTaskStage::Count); ++st) {
-				if (st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::FrameTotal)) continue;
-				if (st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::GpuDispatchExecution) || st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::CpuDispatchExecution)
-					|| st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky) || st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::PixelClassification)
-					|| st == static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraConstantsBuild)) continue;
-				sorted_stage_indices.push_back(st);
-			}
-			std::sort(sorted_stage_indices.begin(), sorted_stage_indices.end(), [&](size_t a, size_t b) { return stage_totals[a] > stage_totals[b]; });
-			for (const size_t st : sorted_stage_indices) {
-				const auto stage = static_cast<Orchestrator::ProfilerTaskStage>(st);
-				const float share = static_cast<float>(std::clamp(stage_totals[st] / frame_total, 0.0, 1.0));
-				ImGui::ProgressBar(share, ImVec2(-1.0f, 0.0f), (std::string(Orchestrator::profiler_stage_name(stage)) + " " + std::to_string(static_cast<int>(share * 100.0f)) + "%").c_str());
-			}
-			render_setting_tooltip("Share of accumulated frame time spent in each instrumented pipeline stage, sorted from most to least expensive. The largest bar identifies where optimization effort is likely to pay off first; see the Bottleneck Analysis tab for recommendations.");
-
-			ImGui::Spacing();
-			if (ImGui::CollapsingHeader("Detailed Render Sub-Task Breakdown")) {
-				double render_dispatch_total = stage_totals[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
-				if (render_dispatch_total <= 1e-9) render_dispatch_total = 1.0;
-				std::vector<size_t> render_sub_stages{
-					static_cast<size_t>(Orchestrator::ProfilerTaskStage::GpuDispatchExecution),
-					static_cast<size_t>(Orchestrator::ProfilerTaskStage::CpuDispatchExecution),
-					static_cast<size_t>(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky),
-					static_cast<size_t>(Orchestrator::ProfilerTaskStage::PixelClassification),
-					static_cast<size_t>(Orchestrator::ProfilerTaskStage::CameraConstantsBuild)
-				};
-				std::sort(render_sub_stages.begin(), render_sub_stages.end(), [&](size_t a, size_t b) { return stage_totals[a] > stage_totals[b]; });
-				for (const size_t st : render_sub_stages) {
-					const auto stage = static_cast<Orchestrator::ProfilerTaskStage>(st);
-					const float share = static_cast<float>(std::clamp(stage_totals[st] / render_dispatch_total, 0.0, 1.0));
-					const double avg_ms = stage_totals[st] / static_cast<double>(window_count);
-					ImGui::ProgressBar(share, ImVec2(-1.0f, 0.0f), (std::string(Orchestrator::profiler_stage_name(stage)) + " " + std::to_string(static_cast<int>(share * 100.0f)) + "% (avg " + std::to_string(avg_ms).substr(0, 5) + " ms)").c_str());
-				}
-				if (render_pipeline_ != nullptr) {
-					const auto& live_tel = render_pipeline_->telemetry();
-					ImGui::Spacing();
-					ImGui::Text("Adaptive Tile Prepass Skip: %llu tiles (%.3f ms) | Full Ray-Traced Tiles: %llu tiles (%.3f ms)", static_cast<unsigned long long>(live_tel.tile_prepass_skip_tile_count), live_tel.tile_prepass_skip_ms, static_cast<unsigned long long>(live_tel.full_raytrace_tile_count), live_tel.full_raytrace_tiles_ms);
-					render_setting_tooltip("Tile counts and cumulative elapsed time from the most recently completed CPU-tiled render, split between tiles the Adaptive Tile Sky Prepass analytically filled without ray-tracing and tiles that were fully integrated. Only populated when Tiled Work Distribution and Adaptive Tile Sky Prepass are both enabled and the CPU path is active.");
-				}
-				render_setting_tooltip("Breaks the coarse Render Dispatch stage above down into the individual sub-tasks measured inside the ray-tracing pipeline itself, expressed as a share of total render dispatch time rather than total frame time.");
-			}
+			render_setting_tooltip("Fraction of recently completed frames dispatched through the Vulkan compute path versus the CPU SIMD/scalar fallback.");
 		}
+
+		ImGui::Spacing();
+		render_stage_hierarchy(profiler);
 
 		ImGui::Separator();
 		ImGui::SliderInt("Chart Window (frames)", &plot_window_, 30, static_cast<int>(std::min<size_t>(profiler.history_capacity(), 3600)));
-		render_setting_tooltip("Number of most recent frame samples displayed in the charts below. Independent from the History Capacity setting on the Settings tab, which controls how many samples are retained in memory.");
+		render_setting_tooltip("Number of most recent frame samples displayed in the charts below. Independent from the History Capacity setting on the Settings tab.");
+		ImGui::SameLine();
+		if (ImGui::Button("Plotted Stages...")) {
+			ImGui::OpenPopup("##PlottedStages");
+		}
+		if (ImGui::BeginPopup("##PlottedStages")) {
+			for (size_t i = 0; i < kStageCount; ++i) {
+				ImGui::Checkbox(Orchestrator::profiler_stage_name(static_cast<Stage>(i)), &plotted_stages_[i]);
+			}
+			ImGui::EndPopup();
+		}
 
 		const size_t count = std::min(static_cast<size_t>(std::max(plot_window_, 1)), history.size());
 		std::vector<double> frame_times(count), fps_values(count), x_axis(count);
-		std::vector<double> dispatch_stage(count), texture_stage(count), hud_stage(count);
-
-		double frame_time_min = std::numeric_limits<double>::max();
-		double frame_time_max = std::numeric_limits<double>::lowest();
-		double fps_min = std::numeric_limits<double>::max();
-		double fps_max = std::numeric_limits<double>::lowest();
-
+		std::vector<std::pair<Stage, std::vector<double>>> stage_series;
+		for (size_t i = 0; i < kStageCount; ++i) {
+			if (plotted_stages_[i]) stage_series.emplace_back(static_cast<Stage>(i), std::vector<double>(count));
+		}
 		for (size_t i = 0; i < count; ++i) {
 			const auto& s = history[history.size() - count + i];
 			frame_times[i] = s.frame_time_ms;
 			fps_values[i] = s.fps;
 			x_axis[i] = static_cast<double>(i);
-			dispatch_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
-			texture_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::TextureUpload)];
-			hud_stage[i] = s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::HudOverlay)];
-			frame_time_min = std::min(frame_time_min, s.frame_time_ms);
-			frame_time_max = std::max(frame_time_max, s.frame_time_ms);
-			fps_min = std::min(fps_min, s.fps);
-			fps_max = std::max(fps_max, s.fps);
+			for (auto& series : stage_series) {
+				series.second[i] = s.stage_time_ms[static_cast<size_t>(series.first)];
+			}
 		}
 
-		if (frame_time_max <= frame_time_min) frame_time_max = frame_time_min + 1.0;
-		if (fps_max <= fps_min) fps_max = fps_min + 1.0;
-		const double ft_pad = std::max((frame_time_max - frame_time_min) * 0.12, 0.05);
-		const double fps_pad = std::max((fps_max - fps_min) * 0.12, 0.5);
-
-		if (ImPlot::BeginPlot("Frame Time History", ImVec2(-1, 220))) {
-			ImPlot::SetupAxes("Sample", "Milliseconds");
-			ImPlot::SetupAxesLimits(0.0, static_cast<double>(count > 0 ? count - 1 : 0), std::max(frame_time_min - ft_pad, 0.0), frame_time_max + ft_pad, ImPlotCond_Always);
+		if (ImPlot::BeginPlot("Frame Time History", ImVec2(-1, 240))) {
+			ImPlot::SetupAxes("Sample", "Milliseconds", ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+			ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, static_cast<double>(count > 0 ? count - 1 : 0), ImPlotCond_Always);
 			ImPlot::PlotLine("Frame Time (Total UI)", x_axis.data(), frame_times.data(), static_cast<int>(count));
-			ImPlot::PlotLine("Render Dispatch", x_axis.data(), dispatch_stage.data(), static_cast<int>(count));
-			ImPlot::PlotLine("Texture Upload", x_axis.data(), texture_stage.data(), static_cast<int>(count));
-			ImPlot::PlotLine("HUD Overlay", x_axis.data(), hud_stage.data(), static_cast<int>(count));
+			for (const auto& series : stage_series) {
+				ImPlot::PlotLine(Orchestrator::profiler_stage_name(series.first), x_axis.data(), series.second.data(), static_cast<int>(count));
+			}
 			ImPlot::EndPlot();
 		}
 
 		if (ImPlot::BeginPlot("FPS History", ImVec2(-1, 180))) {
-			ImPlot::SetupAxes("Sample", "FPS");
-			ImPlot::SetupAxesLimits(0.0, static_cast<double>(count > 0 ? count - 1 : 0), std::max(fps_min - fps_pad, 0.0), fps_max + fps_pad, ImPlotCond_Always);
+			ImPlot::SetupAxes("Sample", "FPS", ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+			ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, static_cast<double>(count > 0 ? count - 1 : 0), ImPlotCond_Always);
 			ImPlot::PlotLine("FPS", x_axis.data(), fps_values.data(), static_cast<int>(count));
 			ImPlot::EndPlot();
 		}
@@ -244,9 +382,26 @@ private:
 		render_setting_tooltip("Classification of every pixel in the most recently completed frame by how its geodesic terminated. High celestial-escape share with a bright accretion disk configured may indicate the render distance or step budget is cutting rays short.");
 	}
 
-	static void draw_summary_table(const char* label, const Orchestrator::StatisticalSummary& s) {
+	static void draw_summary_table(const char* label, const char* description, const char* hint, const Orchestrator::StatisticalSummary& s, size_t depth = 0) {
+		if (s.sample_count == 0) return;
 		ImGui::PushID(label);
-		ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "%s", label);
+		std::string indent(depth * 2, ' ');
+		if (depth > 0) indent += "- ";
+		ImGui::TextColored(stage_depth_color(depth), "%s%s", indent.c_str(), label);
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+			if (description != nullptr && description[0] != '\0') {
+				ImGui::TextUnformatted(description);
+			}
+			if (hint != nullptr && hint[0] != '\0') {
+				ImGui::Spacing();
+				ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Optimization Hint: %s", hint);
+			}
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+
 		if (ImGui::BeginTable("SummaryTable", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
 			ImGui::TableSetupColumn("Mean");
 			ImGui::TableSetupColumn("Median");
@@ -275,12 +430,18 @@ private:
 	}
 
 	void render_statistics_tab(Orchestrator::PerformanceProfiler& profiler) {
-		static int window_choice = 0;
 		const char* window_labels[] = {"Last 60 Frames", "Last 300 Frames", "Last 1000 Frames", "Entire History"};
-		ImGui::Combo("Sample Window", &window_choice, window_labels, IM_ARRAYSIZE(window_labels));
+		ImGui::SetNextItemWidth(180.0f);
+		ImGui::Combo("Sample Window", &statistics_window_choice_, window_labels, IM_ARRAYSIZE(window_labels));
+		ImGui::SameLine();
+		const char* domain_labels[] = {"All Domains", "UI Thread", "Render Worker", "Simulation Thread"};
+		ImGui::SetNextItemWidth(180.0f);
+		ImGui::Combo("Domain Filter", &statistics_domain_filter_, domain_labels, IM_ARRAYSIZE(domain_labels));
+		ImGui::SameLine();
+		ImGui::Checkbox("Hide Inactive Stages", &statistics_hide_zero_stages_);
 
 		size_t n = 0;
-		switch (window_choice) {
+		switch (statistics_window_choice_) {
 			case 0: n = 60; break;
 			case 1: n = 300; break;
 			case 2: n = 1000; break;
@@ -293,20 +454,43 @@ private:
 			return;
 		}
 
-		draw_summary_table("Total Frame Time (ms)", ft_summary);
-		draw_summary_table("Render Dispatch (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::RenderDispatch, n));
-		draw_summary_table("GPU Dispatch Execution (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::GpuDispatchExecution, n));
-		draw_summary_table("CPU Dispatch Execution (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CpuDispatchExecution, n));
-		draw_summary_table("Adaptive Tile Prepass Sky (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky, n));
-		draw_summary_table("Pixel Classification (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::PixelClassification, n));
-		draw_summary_table("Camera Constants Build (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CameraConstantsBuild, n));
-		draw_summary_table("Post-Processing (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::PostProcessing, n));
-		draw_summary_table("Framebuffer Readback (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::FramebufferReadback, n));
-		draw_summary_table("Texture Upload (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::TextureUpload, n));
-		draw_summary_table("HUD Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::HudOverlay, n));
-		draw_summary_table("Camera Update (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::CameraUpdate, n));
-		draw_summary_table("Schematic Overlay (ms)", profiler.stage_summary(Orchestrator::ProfilerTaskStage::SchematicOverlay, n));
-		draw_summary_table("Average Ray Iterations Per Frame", profiler.iteration_summary(n));
+		if (statistics_domain_filter_ == 0 || statistics_domain_filter_ == 1) {
+			draw_summary_table("Total Frame Time (ms)", Orchestrator::profiler_stage_description(Stage::FrameTotal), "", ft_summary);
+			draw_summary_table("Average Ray Iterations Per Frame", "Average number of geodesic integration steps evaluated per pixel.", "", profiler.iteration_summary(n));
+		}
+
+		std::vector<std::pair<Stage, size_t>> ordered_stages;
+		collect_stage_order(Stage::FrameTotal, 0, ordered_stages);
+		collect_stage_order(Stage::RenderDispatch, 0, ordered_stages);
+		collect_stage_order(Stage::SimulationTotal, 0, ordered_stages);
+
+		std::vector<std::pair<Stage, size_t>> unique_stages;
+		for (const auto& entry : ordered_stages) {
+			if (entry.first == Stage::FrameTotal) continue;
+			bool exists = false;
+			for (const auto& u : unique_stages) {
+				if (u.first == entry.first) { exists = true; break; }
+			}
+			if (!exists) unique_stages.push_back(entry);
+		}
+
+		for (const auto& [stage, depth] : unique_stages) {
+			const auto domain = Orchestrator::profiler_stage_domain(stage);
+			if (statistics_domain_filter_ == 1 && domain != Orchestrator::ProfilerStageDomain::UiThread) continue;
+			if (statistics_domain_filter_ == 2 && domain != Orchestrator::ProfilerStageDomain::RenderWorker) continue;
+			if (statistics_domain_filter_ == 3 && domain != Orchestrator::ProfilerStageDomain::SimulationThread) continue;
+
+			const auto summary = profiler.stage_summary(stage, n);
+			if (statistics_hide_zero_stages_ && summary.mean <= 0.0 && summary.max_value <= 0.0) continue;
+
+			draw_summary_table(
+				Orchestrator::profiler_stage_name(stage),
+				Orchestrator::profiler_stage_description(stage),
+				Orchestrator::profiler_stage_hint(stage),
+				summary,
+				depth
+			);
+		}
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Render Path Distribution");
@@ -319,7 +503,7 @@ private:
 		if (sample_window > 0) {
 			ImGui::Text("GPU Path Frames: %zu / %zu (%.1f%%)", gpu_count, sample_window, static_cast<double>(gpu_count) / static_cast<double>(sample_window) * 100.0);
 		}
-		render_setting_tooltip("Count of frames rendered via GPU compute dispatch versus the CPU pipeline across the selected sample window, useful for confirming whether the GPU path is actually engaging for the current metric and precision mode.");
+		render_setting_tooltip("Count of frames rendered via GPU compute dispatch versus the CPU pipeline across the selected sample window.");
 	}
 
 	void render_bottleneck_tab(Orchestrator::PerformanceProfiler& profiler) {
@@ -331,7 +515,23 @@ private:
 		ImGui::TextWrapped("%s", report.summary.c_str());
 
 		ImGui::Separator();
-		ImGui::Text("Dominant Stage: %s (%.1f%% of measured stage time)", Orchestrator::profiler_stage_name(report.dominant_stage), report.dominant_share * 100.0);
+		ImGui::Text("Dominant Primary Stage: %s (%.1f%% of primary measured time)", Orchestrator::profiler_stage_name(report.dominant_stage), report.dominant_share * 100.0);
+
+		if (report.dominant_chain.size() > 1) {
+			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.3f, 1.0f), "Hot Path Sub-Stage Chain:");
+			for (size_t i = 0; i < report.dominant_chain.size(); ++i) {
+				const auto st = report.dominant_chain[i];
+				std::string prefix(i * 2, ' ');
+				prefix += (i > 0) ? "-> " : "";
+				ImGui::Text("%s%s", prefix.c_str(), Orchestrator::profiler_stage_name(st));
+				const char* desc = Orchestrator::profiler_stage_description(st);
+				if (desc != nullptr && desc[0] != '\0') {
+					ImGui::SameLine();
+					ImGui::TextDisabled("(%s)", desc);
+				}
+			}
+		}
 
 		if (report.ray_step_saturated) {
 			ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "Ray step saturation detected (%.1f%% of rays reach the integration cap without terminating).", report.saturation_ratio * 100.0);
@@ -349,16 +549,22 @@ private:
 			ImGui::BulletText("Increase Max Geodesic Steps in Performance & Engine Optimization.");
 			ImGui::BulletText("Enable Adaptive Space-Skipping if not already active.");
 		}
-		if (report.dominant_stage == Orchestrator::ProfilerTaskStage::TextureUpload) {
+		if (report.dominant_stage == Stage::TextureUpload) {
 			ImGui::BulletText("Reduce Internal Render Scale or disable Force Texture Reallocation.");
 		}
 		if (report.gpu_underutilized && render_pipeline_ != nullptr && render_pipeline_->gpu_compute_available()) {
 			ImGui::BulletText("A compatible GPU compute device is available; enabling it may reduce render dispatch cost.");
 		}
+		for (const auto st : report.dominant_chain) {
+			const char* hint = Orchestrator::profiler_stage_hint(st);
+			if (hint != nullptr && hint[0] != '\0') {
+				ImGui::BulletText("[%s]: %s", Orchestrator::profiler_stage_name(st), hint);
+			}
+		}
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f), "Render Dispatch Cost Breakdown");
-		render_setting_tooltip("Heuristic estimate of how Render Dispatch time is distributed across ray outcome categories, derived from ray classification counts and average integration steps over the analysis window. Disk-hit rays carry extra shading and Doppler evaluation cost, so their share is weighted higher; this is not per-pixel instrumentation, since timing every geodesic step individually would itself slow down the render loop.");
+		render_setting_tooltip("Heuristic estimate of how Render Dispatch time is distributed across ray outcome categories, derived from ray classification counts and average integration steps over the analysis window.");
 
 		const auto& history = profiler.history();
 		if (history.empty()) {
@@ -378,7 +584,7 @@ private:
 			celestial_total += s.celestial_pixels;
 			disk_total += s.disk_pixels;
 			other_total += (total_px > classified) ? (total_px - classified) : 0;
-			dispatch_time_total += s.stage_time_ms[static_cast<size_t>(Orchestrator::ProfilerTaskStage::RenderDispatch)];
+			dispatch_time_total += s.stage_time_ms[static_cast<size_t>(Stage::RenderDispatch)];
 			iteration_total += s.average_iterations;
 		}
 
@@ -456,7 +662,7 @@ private:
 		const bool valid_b = selected_run_indices_[1] >= 0 && selected_run_indices_[1] < static_cast<int>(runs.size());
 
 		if (!valid_a || !valid_b) {
-			ImGui::TextDisabled("Select two runs from the table above using the A and B buttons.");
+			ImGui::TextDisabled("Select two runs from the library above using the [A] and [B] buttons to compare them.");
 			return;
 		}
 
@@ -464,71 +670,145 @@ private:
 		const auto& b = runs[static_cast<size_t>(selected_run_indices_[1])];
 
 		if (a.engine_signature != b.engine_signature) {
-			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f), "Warning: these runs were captured under different engine signatures. Differences may reflect internal engine changes rather than configuration changes.");
+			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f), "Warning: these runs were captured under different engine signatures. Timings may reflect internal code or struct layout changes.");
 		}
 
-		if (ImGui::BeginTable("ComparisonTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-			ImGui::TableSetupColumn("Metric");
-			ImGui::TableSetupColumn(a.label.c_str());
-			ImGui::TableSetupColumn(b.label.c_str());
-			ImGui::TableSetupColumn("Delta (B - A)");
+		ImGui::Checkbox("Show Only Differences", &show_only_differences_);
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Swap A <-> B")) {
+			std::swap(selected_run_indices_[0], selected_run_indices_[1]);
+		}
+
+		const auto ft_sig = Orchestrator::compare_summaries(a.frame_time_summary, b.frame_time_summary);
+		const auto fps_sig = Orchestrator::compare_summaries(a.fps_summary, b.fps_summary);
+		const auto tp_sig = Orchestrator::compare_summaries(a.throughput_summary, b.throughput_summary);
+
+		if (ft_sig.valid) {
+			ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.3f, 1.0f), "Statistical Significance Summary (B vs A baseline)");
+			const auto cohen_label = [](double d) {
+				const double ad = std::abs(d);
+				if (ad < 0.2) return "Negligible";
+				if (ad < 0.5) return "Small";
+				if (ad < 0.8) return "Medium";
+				return "Large";
+			};
+			ImGui::BulletText("Frame Time: %+.3f ms (%+.1f%%) | p = %.4f (%s) | Cohen's d = %.2f (%s) | 95%% CI [%+.3f, %+.3f] ms",
+				ft_sig.mean_difference, ft_sig.relative_percent, ft_sig.p_value, ft_sig.significant() ? "Significant" : "Not Significant",
+				ft_sig.cohens_d, cohen_label(ft_sig.cohens_d), ft_sig.interval_low, ft_sig.interval_high);
+			if (fps_sig.valid) {
+				ImGui::BulletText("FPS: %+.1f FPS (%+.1f%%) | p = %.4f (%s) | Cohen's d = %.2f (%s)",
+					fps_sig.mean_difference, fps_sig.relative_percent, fps_sig.p_value, fps_sig.significant() ? "Significant" : "Not Significant",
+					fps_sig.cohens_d, cohen_label(fps_sig.cohens_d));
+			}
+			if (tp_sig.valid && (a.throughput_summary.mean > 0.0 || b.throughput_summary.mean > 0.0)) {
+				ImGui::BulletText("Throughput: %+.2f MPx/s (%+.1f%%) | p = %.4f (%s)",
+					tp_sig.mean_difference, tp_sig.relative_percent, tp_sig.p_value, tp_sig.significant() ? "Significant" : "Not Significant");
+			}
+			ImGui::Spacing();
+		}
+
+		if (ImGui::BeginTable("ComparisonTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+			ImGui::TableSetupColumn("Metric / Parameter", ImGuiTableColumnFlags_WidthFixed, 220.0f);
+			ImGui::TableSetupColumn((std::string("[A] ") + a.label).c_str(), ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn((std::string("[B] ") + b.label).c_str(), ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Delta (B - A)", ImGuiTableColumnFlags_WidthFixed, 140.0f);
 			ImGui::TableHeadersRow();
 
-			auto format_metric_value = [](const char* fmt, double v) -> std::string {
-				char buf[64];
-				if (std::strcmp(fmt, "%.3f") == 0) {
-					std::snprintf(buf, sizeof(buf), "%.3f", v);
-				} else if (std::strcmp(fmt, "%.2f") == 0) {
-					std::snprintf(buf, sizeof(buf), "%.2f", v);
-				} else if (std::strcmp(fmt, "%.1f") == 0) {
-					std::snprintf(buf, sizeof(buf), "%.1f", v);
-				} else if (std::strcmp(fmt, "%.1f%%") == 0) {
-					std::snprintf(buf, sizeof(buf), "%.1f%%", v);
-				} else if (std::strcmp(fmt, "%.3e") == 0) {
-					std::snprintf(buf, sizeof(buf), "%.3e", v);
-				} else {
-					std::snprintf(buf, sizeof(buf), "%.0f", v);
-				}
-				return std::string(buf);
-			};
-
-			auto row = [&](const char* metric_label, double va, double vb, const char* fmt) {
+			auto row_numeric = [&](const char* metric_label, double va, double vb, const char* fmt, Orchestrator::BenchmarkMetricDirection dir) {
+				const double delta = vb - va;
+				if (show_only_differences_ && std::abs(delta) < 1e-9) return;
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::TextUnformatted(metric_label);
 
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted(format_metric_value(fmt, va).c_str());
+				ImGui::Text("%s", Orchestrator::benchmark_format_number(fmt, va).c_str());
 
 				ImGui::TableSetColumnIndex(2);
-				ImGui::TextUnformatted(format_metric_value(fmt, vb).c_str());
+				ImGui::Text("%s", Orchestrator::benchmark_format_number(fmt, vb).c_str());
 
 				ImGui::TableSetColumnIndex(3);
-				const double delta = vb - va;
-				const ImVec4 color = (delta <= 0.0) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.55f, 0.35f, 1.0f);
-				ImGui::TextColored(color, "%s", format_metric_value(fmt, delta).c_str());
+				ImVec4 color(0.7f, 0.7f, 0.7f, 1.0f);
+				if (dir == Orchestrator::BenchmarkMetricDirection::LowerIsBetter) {
+					color = (delta < -1e-6) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ((delta > 1e-6) ? ImVec4(1.0f, 0.5f, 0.4f, 1.0f) : color);
+				} else if (dir == Orchestrator::BenchmarkMetricDirection::HigherIsBetter) {
+					color = (delta > 1e-6) ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ((delta < -1e-6) ? ImVec4(1.0f, 0.5f, 0.4f, 1.0f) : color);
+				}
+				ImGui::TextColored(color, "%s", Orchestrator::benchmark_format_number(fmt, delta).c_str());
 			};
 
-			row("Mean Frame Time (ms)", a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f");
-			row("P95 Frame Time (ms)", a.frame_time_summary.percentile_95, b.frame_time_summary.percentile_95, "%.3f");
-			row("P99 Frame Time (ms)", a.frame_time_summary.percentile_99, b.frame_time_summary.percentile_99, "%.3f");
-			row("Mean FPS", a.fps_summary.mean, b.fps_summary.mean, "%.1f");
-			row("Min FPS", a.fps_summary.min_value, b.fps_summary.min_value, "%.1f");
-			row("Avg Ray Iterations", a.average_iterations, b.average_iterations, "%.1f");
-			row("GPU Path Ratio (%%)", a.gpu_path_ratio * 100.0, b.gpu_path_ratio * 100.0, "%.1f%%");
-			row("Resolution Scale", a.config.resolution_scale, b.config.resolution_scale, "%.2f");
-			row("Max Ray Steps", static_cast<double>(a.config.max_ray_steps), static_cast<double>(b.config.max_ray_steps), "%.0f");
-			row("Motion Quality Scale", a.config.motion_quality_scale, b.config.motion_quality_scale, "%.2f");
-			row("Space Skip Radius (M)", a.config.space_skip_radius_scale, b.config.space_skip_radius_scale, "%.1f");
-			row("Pole Guard Precision", a.config.pole_guard_precision_scale, b.config.pole_guard_precision_scale, "%.2f");
-			row("Far-Field Step Multiplier", a.config.far_field_step_scale, b.config.far_field_step_scale, "%.2f");
-			row("LOD Distance Threshold (M)", a.config.lod_distance_scale, b.config.lod_distance_scale, "%.0f");
-			row("LOD Reduced Steps", static_cast<double>(a.config.lod_reduced_ray_steps), static_cast<double>(b.config.lod_reduced_ray_steps), "%.0f");
-			row("Render Distance (M)", a.config.render_distance_scale, b.config.render_distance_scale, "%.0f");
-			row("Dynamic Res Target FPS", a.config.dynamic_resolution_target_fps, b.config.dynamic_resolution_target_fps, "%.0f");
-			row("Rolling Average Window (N)", static_cast<double>(a.config.rolling_average_frame_count), static_cast<double>(b.config.rolling_average_frame_count), "%.0f");
-			row("Integration rtol", a.config.integration_rtol, b.config.integration_rtol, "%.3e");
-			row("Integration atol", a.config.integration_atol, b.config.integration_atol, "%.3e");
+			auto row_text = [&](const char* param_label, const std::string& ta, const std::string& tb) {
+				if (show_only_differences_ && ta == tb) return;
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(param_label);
+
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextUnformatted(ta.c_str());
+
+				ImGui::TableSetColumnIndex(2);
+				ImGui::TextUnformatted(tb.c_str());
+
+				ImGui::TableSetColumnIndex(3);
+				if (ta == tb) {
+					ImGui::TextDisabled("Identical");
+				} else {
+					ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Changed");
+				}
+			};
+
+			row_numeric("Mean Frame Time (ms)", a.frame_time_summary.mean, b.frame_time_summary.mean, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("Median Frame Time (ms)", a.frame_time_summary.median, b.frame_time_summary.median, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("P95 Frame Time (ms)", a.frame_time_summary.percentile_95, b.frame_time_summary.percentile_95, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("P99 Frame Time (ms)", a.frame_time_summary.percentile_99, b.frame_time_summary.percentile_99, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("Frame Time Std Dev (ms)", a.frame_time_summary.std_deviation, b.frame_time_summary.std_deviation, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("Mean FPS", a.fps_summary.mean, b.fps_summary.mean, "%.1f", Orchestrator::BenchmarkMetricDirection::HigherIsBetter);
+			row_numeric("Min FPS", a.fps_summary.min_value, b.fps_summary.min_value, "%.1f", Orchestrator::BenchmarkMetricDirection::HigherIsBetter);
+			row_numeric("1% Low FPS", (a.frame_time_summary.percentile_99 > 0.0) ? 1000.0 / a.frame_time_summary.percentile_99 : 0.0,
+			                          (b.frame_time_summary.percentile_99 > 0.0) ? 1000.0 / b.frame_time_summary.percentile_99 : 0.0, "%.1f", Orchestrator::BenchmarkMetricDirection::HigherIsBetter);
+			row_numeric("Mean Throughput (MPx/s)", a.throughput_summary.mean, b.throughput_summary.mean, "%.2f", Orchestrator::BenchmarkMetricDirection::HigherIsBetter);
+			row_numeric("Avg Ray Iterations", a.average_iterations, b.average_iterations, "%.1f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+			row_numeric("GPU Path Ratio (%)", a.gpu_path_ratio * 100.0, b.gpu_path_ratio * 100.0, "%.1f%%", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Horizon Hit Ratio (%)", a.horizon_hit_ratio * 100.0, b.horizon_hit_ratio * 100.0, "%.2f%%", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Celestial Hit Ratio (%)", a.celestial_hit_ratio * 100.0, b.celestial_hit_ratio * 100.0, "%.2f%%", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Disk Hit Ratio (%)", a.disk_hit_ratio * 100.0, b.disk_hit_ratio * 100.0, "%.2f%%", Orchestrator::BenchmarkMetricDirection::Neutral);
+
+			row_text("Metric", a.config.metric_name, b.config.metric_name);
+			row_text("Integrator", a.config.integrator_name, b.config.integrator_name);
+			row_text("Performance Preset", Orchestrator::benchmark_preset_name(a.config.performance_preset), Orchestrator::benchmark_preset_name(b.config.performance_preset));
+			row_numeric("Resolution Scale", a.config.resolution_scale, b.config.resolution_scale, "%.2f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_text("Resolution (px)", std::to_string(a.config.screen_width) + "x" + std::to_string(a.config.screen_height), std::to_string(b.config.screen_width) + "x" + std::to_string(b.config.screen_height));
+			row_numeric("Max Ray Steps", static_cast<double>(a.config.max_ray_steps), static_cast<double>(b.config.max_ray_steps), "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_text("Precision Mode", a.config.precision_mode == 0 ? "FP64" : "Double-Single", b.config.precision_mode == 0 ? "FP64" : "Double-Single");
+			row_text("GPU Compute", a.config.use_gpu_compute ? "Enabled" : "Disabled", b.config.use_gpu_compute ? "Enabled" : "Disabled");
+			row_text("Tiled Distribution", a.config.tiled_distribution ? "Enabled" : "Disabled", b.config.tiled_distribution ? "Enabled" : "Disabled");
+			row_text("SIMD Pipeline", a.config.simd_pipeline ? "Enabled" : "Disabled", b.config.simd_pipeline ? "Enabled" : "Disabled");
+			{
+				static constexpr const char* kStepCtrl[] = {"Standard", "PI-30", "PID-42"};
+				row_text("Step Controller", kStepCtrl[std::min<uint32_t>(a.config.step_controller_mode, 2U)], kStepCtrl[std::min<uint32_t>(b.config.step_controller_mode, 2U)]);
+			}
+			row_numeric("Motion Quality Scale", a.config.motion_quality_scale, b.config.motion_quality_scale, "%.2f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Space Skip Radius (M)", a.config.space_skipping_enabled ? a.config.space_skip_radius_scale : 0.0, b.config.space_skipping_enabled ? b.config.space_skip_radius_scale : 0.0, "%.1f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Pole Guard Precision", a.config.pole_guard_precision_scale, b.config.pole_guard_precision_scale, "%.2f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Far-Field Step Multiplier", a.config.far_field_step_scale, b.config.far_field_step_scale, "%.2f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("LOD Distance Threshold (M)", a.config.lod_enabled ? a.config.lod_distance_scale : 0.0, b.config.lod_enabled ? b.config.lod_distance_scale : 0.0, "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("LOD Reduced Steps", static_cast<double>(a.config.lod_reduced_ray_steps), static_cast<double>(b.config.lod_reduced_ray_steps), "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Render Distance (M)", a.config.render_distance_scale, b.config.render_distance_scale, "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_text("Interlace Rendering", a.config.interlace_rendering_enabled ? "Enabled" : "Disabled", b.config.interlace_rendering_enabled ? "Enabled" : "Disabled");
+			row_numeric("Dynamic Res Target FPS", a.config.dynamic_resolution_enabled ? a.config.dynamic_resolution_target_fps : 0.0, b.config.dynamic_resolution_enabled ? b.config.dynamic_resolution_target_fps : 0.0, "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_text("Adaptive Tile Prepass", a.config.adaptive_tile_prepass_enabled ? "Enabled" : "Disabled", b.config.adaptive_tile_prepass_enabled ? "Enabled" : "Disabled");
+			row_numeric("Rolling Average Window (N)", static_cast<double>(a.config.rolling_average_frame_count), static_cast<double>(b.config.rolling_average_frame_count), "%.0f", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Integration rtol", a.config.integration_rtol, b.config.integration_rtol, "%.3e", Orchestrator::BenchmarkMetricDirection::Neutral);
+			row_numeric("Integration atol", a.config.integration_atol, b.config.integration_atol, "%.3e", Orchestrator::BenchmarkMetricDirection::Neutral);
+
+			for (size_t st = 0; st < kStageCount; ++st) {
+				const double ma = a.stage_mean_ms[st];
+				const double mb = b.stage_mean_ms[st];
+				if (ma > 0.0 || mb > 0.0) {
+					std::string stage_label = std::string("Stage: ") + Orchestrator::profiler_stage_name(static_cast<Stage>(st)) + " (ms)";
+					row_numeric(stage_label.c_str(), ma, mb, "%.3f", Orchestrator::BenchmarkMetricDirection::LowerIsBetter);
+				}
+			}
 
 			ImGui::EndTable();
 		}
@@ -548,6 +828,14 @@ private:
 	}
 
 	void render_benchmark_runs_tab(Orchestrator::PerformanceProfiler& profiler) {
+		const auto& all_columns = Orchestrator::benchmark_columns();
+		if (column_visible_.size() != all_columns.size()) {
+			column_visible_.resize(all_columns.size());
+			for (size_t i = 0; i < all_columns.size(); ++i) {
+				column_visible_[i] = all_columns[i].default_visible ? 1 : 0;
+			}
+		}
+
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Capture a Benchmark Run");
 
 		if (capture_label_auto_ && !profiler.is_capturing()) {
@@ -558,6 +846,7 @@ private:
 				last_suggested_label_ = suggested;
 			}
 		}
+		ImGui::SetNextItemWidth(260.0f);
 		if (ImGui::InputText("Run Label", capture_label_buffer_, sizeof(capture_label_buffer_))) {
 			capture_label_auto_ = false;
 		}
@@ -567,24 +856,29 @@ private:
 				last_suggested_label_.clear();
 			}
 		}
-		render_setting_tooltip("When enabled, the run label is regenerated automatically from the active metric, integrator, and performance preset. Typing in the field disables auto-naming; the checkbox re-enables it.");
+		render_setting_tooltip("When enabled, the run label is regenerated automatically from the active metric, integrator, and performance preset.");
 
 		const char* modes[] = {"By Duration", "By Frame Count"};
+		ImGui::SetNextItemWidth(180.0f);
 		ImGui::Combo("Capture Mode", &capture_mode_, modes, IM_ARRAYSIZE(modes));
 		render_setting_tooltip("Chooses whether the benchmark run stops after a fixed wall-clock duration or after a fixed number of rendered frames.");
+		ImGui::SameLine();
 		if (capture_mode_ == 0) {
-			ImGui::SliderFloat("Duration (seconds)", &capture_duration_seconds_, 1.0f, 120.0f, "%.1f s");
+			ImGui::SetNextItemWidth(160.0f);
+			ImGui::SliderFloat("Duration (s)", &capture_duration_seconds_, 1.0f, 120.0f, "%.1f s");
 		} else {
-			ImGui::SliderInt("Frame Count", &capture_frame_count_, 30, 6000);
+			ImGui::SetNextItemWidth(160.0f);
+			ImGui::SliderInt("Frames", &capture_frame_count_, 30, 6000);
 		}
 
 		if (profiler.is_capturing()) {
-			ImGui::ProgressBar(static_cast<float>(profiler.capture_progress()), ImVec2(-1, 0), "Capturing...");
-			if (ImGui::Button("Cancel Capture", ImVec2(160.0f, 26.0f))) {
+			ImGui::ProgressBar(static_cast<float>(profiler.capture_progress()), ImVec2(240.0f, 0.0f), "Capturing...");
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel Capture", ImVec2(140.0f, 24.0f))) {
 				profiler.cancel_capture();
 			}
 		} else {
-			if (ImGui::Button("Start Capture", ImVec2(160.0f, 26.0f))) {
+			if (ImGui::Button("Start Capture", ImVec2(140.0f, 24.0f))) {
 				const double now = ImGui::GetTime();
 				if (capture_mode_ == 0) {
 					profiler.start_capture(capture_label_buffer_, static_cast<double>(capture_duration_seconds_), std::nullopt, now);
@@ -593,27 +887,52 @@ private:
 				}
 			}
 		}
-		render_setting_tooltip("Records aggregated statistics over the chosen window and stores them as a labeled, persisted benchmark run for later comparison.");
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Saved Runs");
-		ImGui::Checkbox("Only Show Runs Matching Current Engine Signature", &show_only_matching_signature_);
-		render_setting_tooltip("Hides benchmark runs captured under a different internal data-layout signature, since their timings are not directly comparable to runs captured with the current build.");
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Run Library");
 
 		ImGui::SetNextItemWidth(220.0f);
-		ImGui::InputTextWithHint("##BenchmarkSearch", "Filter by label, metric, or integrator...", benchmark_search_filter_, sizeof(benchmark_search_filter_));
+		ImGui::InputTextWithHint("##BenchmarkSearch", "Filter by label, metric...", benchmark_search_filter_, sizeof(benchmark_search_filter_));
 		ImGui::SameLine();
-		const char* benchmark_sort_options[] = {
-			"Sort: Timestamp", "Sort: Label", "Sort: Mean Frame Time", "Sort: P95 Frame Time", "Sort: Mean FPS",
-			"Sort: Resolution Scale", "Sort: Ray Steps", "Sort: GPU Ratio", "Sort: Metric", "Sort: Integrator"
-		};
-		ImGui::SetNextItemWidth(200.0f);
-		ImGui::Combo("##BenchmarkSortMode", &benchmark_sort_mode_, benchmark_sort_options, IM_ARRAYSIZE(benchmark_sort_options));
+		ImGui::Checkbox("Matching Signature Only", &show_only_matching_signature_);
+		render_setting_tooltip("Hides benchmark runs captured under a different internal engine signature.");
 		ImGui::SameLine();
-		if (ImGui::ArrowButton("##BenchmarkSortDirection", benchmark_sort_descending_ ? ImGuiDir_Down : ImGuiDir_Up)) {
-			benchmark_sort_descending_ = !benchmark_sort_descending_;
+
+		if (ImGui::Button("Columns...")) {
+			ImGui::OpenPopup("##ColumnVisibilityPopup");
 		}
-		render_setting_tooltip("Chooses how the saved runs table below is ordered, and toggles between ascending and descending order.");
+		if (ImGui::BeginPopup("##ColumnVisibilityPopup")) {
+			if (ImGui::SmallButton("All")) {
+				std::fill(column_visible_.begin(), column_visible_.end(), 1);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Default")) {
+				for (size_t i = 0; i < all_columns.size(); ++i) column_visible_[i] = all_columns[i].default_visible ? 1 : 0;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Minimal")) {
+				std::fill(column_visible_.begin(), column_visible_.end(), 0);
+				column_visible_[0] = column_visible_[1] = column_visible_[4] = column_visible_[9] = 1;
+			}
+			ImGui::Separator();
+
+			std::optional<Orchestrator::BenchmarkColumnCategory> current_cat = std::nullopt;
+			for (size_t i = 0; i < all_columns.size(); ++i) {
+				if (!current_cat.has_value() || all_columns[i].category != *current_cat) {
+					current_cat = all_columns[i].category;
+					const char* cat_name = "Identity";
+					if (*current_cat == Orchestrator::BenchmarkColumnCategory::Timing) cat_name = "Timing & Throughput";
+					else if (*current_cat == Orchestrator::BenchmarkColumnCategory::Configuration) cat_name = "Engine Configuration";
+					else if (*current_cat == Orchestrator::BenchmarkColumnCategory::Capture) cat_name = "Capture Metadata";
+					ImGui::TextDisabled("%s", cat_name);
+				}
+				bool visible = column_visible_[i] != 0;
+				if (ImGui::Checkbox(all_columns[i].header, &visible)) {
+					column_visible_[i] = visible ? 1 : 0;
+				}
+			}
+			ImGui::EndPopup();
+		}
 
 		const auto& runs = profiler.saved_runs();
 		if (runs.empty()) {
@@ -622,80 +941,92 @@ private:
 
 		std::vector<size_t> visible_run_indices;
 		visible_run_indices.reserve(runs.size());
-		const std::string benchmark_filter_str(benchmark_search_filter_);
+		const std::string filter_str = lowercase(benchmark_search_filter_);
 		for (size_t i = 0; i < runs.size(); ++i) {
 			const auto& run = runs[i];
 			if (show_only_matching_signature_ && run.engine_signature != profiler.engine_signature()) continue;
-			if (!benchmark_filter_str.empty()) {
-				if (run.label.find(benchmark_filter_str) == std::string::npos &&
-				    run.config.metric_name.find(benchmark_filter_str) == std::string::npos &&
-				    run.config.integrator_name.find(benchmark_filter_str) == std::string::npos) {
+			if (!filter_str.empty()) {
+				if (lowercase(run.label).find(filter_str) == std::string::npos &&
+				    lowercase(run.config.metric_name).find(filter_str) == std::string::npos &&
+				    lowercase(run.config.integrator_name).find(filter_str) == std::string::npos) {
 					continue;
 				}
 			}
 			visible_run_indices.push_back(i);
 		}
 
-		std::sort(visible_run_indices.begin(), visible_run_indices.end(), [&](size_t a, size_t b) {
-			const auto& ra = runs[a];
-			const auto& rb = runs[b];
-			bool less;
-			switch (benchmark_sort_mode_) {
-				case 1: less = ra.label < rb.label; break;
-				case 2: less = ra.frame_time_summary.mean < rb.frame_time_summary.mean; break;
-				case 3: less = ra.frame_time_summary.percentile_95 < rb.frame_time_summary.percentile_95; break;
-				case 4: less = ra.fps_summary.mean < rb.fps_summary.mean; break;
-				case 5: less = ra.config.resolution_scale < rb.config.resolution_scale; break;
-				case 6: less = ra.config.max_ray_steps < rb.config.max_ray_steps; break;
-				case 7: less = ra.gpu_path_ratio < rb.gpu_path_ratio; break;
-				case 8: less = ra.config.metric_name < rb.config.metric_name; break;
-				case 9: less = ra.config.integrator_name < rb.config.integrator_name; break;
-				case 0:
-				default: less = ra.timestamp < rb.timestamp; break;
-			}
-			return benchmark_sort_descending_ ? !less : less;
-		});
+		int active_columns_count = 3;
+		for (size_t i = 0; i < all_columns.size(); ++i) {
+			if (column_visible_[i]) ++active_columns_count;
+		}
 
-		ImGui::BeginChild("BenchmarkRunsTableRegion", ImVec2(0.0f, 340.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
-		if (ImGui::BeginTable("BenchmarkRunsTable", 29, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX)) {
-			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-			ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-			ImGui::TableSetupColumn("Metric", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-			ImGui::TableSetupColumn("Integrator", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-			ImGui::TableSetupColumn("Mean FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("P95 FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("P99 FT (ms)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("Mean FPS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Min FPS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Res Scale", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Ray Steps", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Precision", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-			ImGui::TableSetupColumn("GPU Ratio", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Tiled", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-			ImGui::TableSetupColumn("SIMD", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-			ImGui::TableSetupColumn("Step Ctrl", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("Motion Quality", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-			ImGui::TableSetupColumn("Space Skip", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("Pole Guard", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("Far-Field Step", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("LOD", ImGuiTableColumnFlags_WidthFixed, 150.0f);
-			ImGui::TableSetupColumn("Render Distance", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-			ImGui::TableSetupColumn("Interlace", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			ImGui::TableSetupColumn("Dynamic Res", ImGuiTableColumnFlags_WidthFixed, 130.0f);
-			ImGui::TableSetupColumn("Tile Prepass", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("Rolling Avg N", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-			ImGui::TableSetupColumn("rtol / atol", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-			ImGui::TableSetupColumn("Resolution", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-			ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 260.0f);
+		ImGui::BeginChild("BenchmarkRunsTableRegion", ImVec2(0.0f, 320.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
+		if (ImGui::BeginTable("BenchmarkRunsTable", active_columns_count, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX | ImGuiTableFlags_Sortable)) {
+			ImGui::TableSetupColumn("WB", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 32.0f);
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 150.0f, 0);
+
+			int col_idx = 1;
+			for (size_t i = 0; i < all_columns.size(); ++i) {
+				if (!column_visible_[i]) continue;
+				ImGui::TableSetupColumn(all_columns[i].header, ImGuiTableColumnFlags_WidthFixed, 0.0f, static_cast<ImGuiID>(col_idx++));
+			}
+			ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 280.0f);
 			ImGui::TableHeadersRow();
+
+			if (ImGuiTableSortSpecs* sorts_specs = ImGui::TableGetSortSpecs()) {
+				if (sorts_specs->SpecsCount > 0 && sorts_specs->SpecsDirty) {
+					const auto& spec = sorts_specs->Specs[0];
+					const bool desc = spec.SortDirection == ImGuiSortDirection_Descending;
+					const int target_col = spec.ColumnIndex;
+
+					if (target_col == 1) {
+						std::sort(visible_run_indices.begin(), visible_run_indices.end(), [&](size_t a, size_t b) {
+							return desc ? runs[a].label > runs[b].label : runs[a].label < runs[b].label;
+						});
+					} else if (target_col > 1 && target_col < active_columns_count - 1) {
+						int cur = 2;
+						size_t matched_col_idx = 0;
+						for (size_t i = 0; i < all_columns.size(); ++i) {
+							if (!column_visible_[i]) continue;
+							if (cur == target_col) {
+								matched_col_idx = i;
+								break;
+							}
+							++cur;
+						}
+						const auto& col_def = all_columns[matched_col_idx];
+						if (col_def.numeric != nullptr) {
+							std::sort(visible_run_indices.begin(), visible_run_indices.end(), [&](size_t a, size_t b) {
+								const double va = col_def.numeric(runs[a]);
+								const double vb = col_def.numeric(runs[b]);
+								return desc ? va > vb : va < vb;
+							});
+						} else {
+							std::sort(visible_run_indices.begin(), visible_run_indices.end(), [&](size_t a, size_t b) {
+								const std::string ta = col_def.cell(runs[a]);
+								const std::string tb = col_def.cell(runs[b]);
+								return desc ? ta > tb : ta < tb;
+							});
+						}
+					}
+					sorts_specs->SpecsDirty = false;
+				}
+			}
 
 			for (const size_t i : visible_run_indices) {
 				const auto& run = runs[i];
+				const std::string key = Orchestrator::benchmark_run_key(run);
 
 				ImGui::TableNextRow();
 				ImGui::PushID(static_cast<int>(i));
 
 				int col = 0;
+				ImGui::TableSetColumnIndex(col++);
+				bool wb_selected = workbench_.is_selected(key);
+				if (ImGui::Checkbox("##wb", &wb_selected)) {
+					workbench_.set_selected(key, wb_selected);
+				}
+
 				ImGui::TableSetColumnIndex(col++);
 				const bool signature_mismatch = run.engine_signature != profiler.engine_signature();
 				if (signature_mismatch) {
@@ -713,76 +1044,115 @@ private:
 					ImGui::EndTooltip();
 				}
 
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.timestamp.c_str());
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.metric_name.c_str());
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.integrator_name.c_str());
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.mean);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.percentile_95);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.3f", run.frame_time_summary.percentile_99);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1f", run.fps_summary.mean);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1f", run.fps_summary.min_value);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2fx", run.config.resolution_scale);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%u", run.config.max_ray_steps);
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.precision_mode == 0 ? "FP64" : "Double-Single");
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.0f%%", run.gpu_path_ratio * 100.0);
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.tiled_distribution ? "Yes" : "No");
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.simd_pipeline ? "Yes" : "No");
-				ImGui::TableSetColumnIndex(col++);
-				{
-					static constexpr const char* kStepCtrlNames[] = {"Standard", "PI-30", "PID-42"};
-					ImGui::TextUnformatted(kStepCtrlNames[std::min<uint32_t>(run.config.step_controller_mode, 2U)]);
+				for (size_t c = 0; c < all_columns.size(); ++c) {
+					if (!column_visible_[c]) continue;
+					ImGui::TableSetColumnIndex(col++);
+					const auto& col_def = all_columns[c];
+					const std::string cell_text = col_def.cell(run);
+					ImGui::TextUnformatted(cell_text.c_str());
+					if (col_def.copy_on_click && ImGui::IsItemHovered()) {
+						ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+						if (ImGui::IsItemClicked()) {
+							copy_to_clipboard(cell_text);
+						}
+						ImGui::BeginTooltip();
+						ImGui::TextUnformatted("Click to copy value");
+						ImGui::EndTooltip();
+					} else if (col_def.tooltip != nullptr && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+						ImGui::BeginTooltip();
+						ImGui::TextUnformatted(col_def.tooltip);
+						ImGui::EndTooltip();
+					}
 				}
-				ImGui::TableSetColumnIndex(col++);
-				{
-					static constexpr const char* kMotionModes[] = {"Disabled", "Automatic", "Fixed"};
-					ImGui::Text("%s (%.2fx)", kMotionModes[std::min<uint32_t>(run.config.motion_quality_mode, 2U)], run.config.motion_quality_scale);
-				}
-				ImGui::TableSetColumnIndex(col++);
-				ImGui::TextUnformatted(run.config.space_skipping_enabled ? (std::to_string(run.config.space_skip_radius_scale).substr(0, 5) + " M").c_str() : "Off");
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2f", run.config.pole_guard_precision_scale);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.2fx", run.config.far_field_step_scale);
-				ImGui::TableSetColumnIndex(col++);
-				ImGui::TextUnformatted(run.config.lod_enabled ? (std::to_string(static_cast<int>(run.config.lod_distance_scale)) + " M / " + std::to_string(run.config.lod_reduced_ray_steps) + " steps").c_str() : "Off");
-				ImGui::TableSetColumnIndex(col++);
-				if (run.config.render_distance_scale > 0.0) {
-					ImGui::Text("%.0f M", run.config.render_distance_scale);
-				} else {
-					ImGui::TextUnformatted("Unbounded");
-				}
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.interlace_rendering_enabled ? "Yes" : "No");
-				ImGui::TableSetColumnIndex(col++);
-				ImGui::TextUnformatted(run.config.dynamic_resolution_enabled ? (std::to_string(static_cast<int>(run.config.dynamic_resolution_target_fps)) + " fps target").c_str() : "Off");
-				ImGui::TableSetColumnIndex(col++); ImGui::TextUnformatted(run.config.adaptive_tile_prepass_enabled ? "Yes" : "No");
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%u", run.config.rolling_average_frame_count);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%.1e / %.1e", run.config.integration_rtol, run.config.integration_atol);
-				ImGui::TableSetColumnIndex(col++); ImGui::Text("%ux%u", run.config.screen_width, run.config.screen_height);
 
 				ImGui::TableSetColumnIndex(col++);
+				const bool is_a = selected_run_indices_[0] == static_cast<int>(i);
+				const bool is_b = selected_run_indices_[1] == static_cast<int>(i);
+
+				if (is_a) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.3f, 1.0f));
 				if (ImGui::SmallButton("A")) selected_run_indices_[0] = static_cast<int>(i);
+				if (is_a) ImGui::PopStyleColor();
 				ImGui::SameLine();
+
+				if (is_b) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.4f, 0.7f, 1.0f));
 				if (ImGui::SmallButton("B")) selected_run_indices_[1] = static_cast<int>(i);
+				if (is_b) ImGui::PopStyleColor();
 				ImGui::SameLine();
-				if (ImGui::SmallButton("Apply Settings")) apply_run_configuration(run);
+
+				if (ImGui::SmallButton("Apply")) apply_run_configuration(run);
 				ImGui::SameLine();
-				if (ImGui::SmallButton("Delete")) {
-					profiler.remove_run(i);
-					profiler.save_to_disk();
-					ImGui::PopID();
-					break;
+
+				if (ImGui::SmallButton("Rename")) {
+					rename_index_ = static_cast<int>(i);
+					std::strncpy(rename_buffer_, run.label.c_str(), sizeof(rename_buffer_) - 1);
+					rename_buffer_[sizeof(rename_buffer_) - 1] = '\0';
+					rename_requested_ = true;
 				}
+				ImGui::SameLine();
+
+				if (ImGui::SmallButton("Delete")) {
+					delete_index_ = static_cast<int>(i);
+					delete_requested_ = true;
+				}
+
 				ImGui::PopID();
 			}
 			ImGui::EndTable();
 		}
 		ImGui::EndChild();
 
-		if (ImGui::Button("Clear All Saved Runs", ImVec2(180.0f, 26.0f))) {
+		if (rename_requested_) {
+			ImGui::OpenPopup("Rename Benchmark Run##Modal");
+			rename_requested_ = false;
+		}
+		if (ImGui::BeginPopupModal("Rename Benchmark Run##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::Text("Enter new label for this benchmark run:");
+			ImGui::InputText("##NewRunLabel", rename_buffer_, sizeof(rename_buffer_));
+			ImGui::Spacing();
+			if (ImGui::Button("Save", ImVec2(100.0f, 24.0f))) {
+				if (rename_index_ >= 0 && rename_index_ < static_cast<int>(profiler.saved_runs().size())) {
+					profiler.rename_run(static_cast<size_t>(rename_index_), rename_buffer_);
+					profiler.save_to_disk();
+				}
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100.0f, 24.0f))) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		if (delete_requested_) {
+			ImGui::OpenPopup("Delete Benchmark Run##Modal");
+			delete_requested_ = false;
+		}
+		if (ImGui::BeginPopupModal("Delete Benchmark Run##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+			if (delete_index_ >= 0 && delete_index_ < static_cast<int>(profiler.saved_runs().size())) {
+				ImGui::Text("Are you sure you want to delete '%s'?", profiler.saved_runs()[static_cast<size_t>(delete_index_)].label.c_str());
+			}
+			ImGui::Spacing();
+			if (ImGui::Button("Delete", ImVec2(100.0f, 24.0f))) {
+				if (delete_index_ >= 0 && delete_index_ < static_cast<int>(profiler.saved_runs().size())) {
+					profiler.remove_run(static_cast<size_t>(delete_index_));
+					profiler.save_to_disk();
+				}
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100.0f, 24.0f))) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		if (ImGui::Button("Clear All Saved Runs", ImVec2(160.0f, 24.0f))) {
 			profiler.clear_all_runs();
 			profiler.save_to_disk();
 		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "Comparison (Select A / B Above)");
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.6f, 1.0f), "A / B Comparison");
 		render_run_comparison(profiler);
 	}
 
@@ -791,7 +1161,7 @@ private:
 		if (ImGui::SliderInt("History Capacity (frames)", &history_capacity_input_, 120, 20000)) {
 			profiler.set_history_capacity(static_cast<size_t>(history_capacity_input_));
 		}
-		render_setting_tooltip("Number of recent frame samples retained in memory for the Live Monitor and Statistics tabs. Does not affect saved benchmark runs. Very large values increase memory use and the cost of statistics computation without improving accuracy beyond a few thousand samples.");
+		render_setting_tooltip("Number of recent frame samples retained in memory for the Live Monitor and Statistics tabs. Does not affect saved benchmark runs.");
 
 		ImGui::TextDisabled("Quick presets:");
 		ImGui::SameLine();
@@ -804,7 +1174,7 @@ private:
 		if (ImGui::SmallButton("20000")) { history_capacity_input_ = 20000; profiler.set_history_capacity(20000); }
 		render_setting_tooltip("Common capacity presets. 3600 frames covers roughly one minute at 60 FPS.");
 
-		if (ImGui::Button("Clear Live History", ImVec2(180.0f, 26.0f))) {
+		if (ImGui::Button("Clear Live History", ImVec2(160.0f, 24.0f))) {
 			profiler.clear_history();
 		}
 
@@ -816,11 +1186,11 @@ private:
 		}
 		render_setting_tooltip("When enabled, saved benchmark runs are written to config/performance_profiler.cfg and automatically reloaded on the next session.");
 
-		if (ImGui::Button("Save Now", ImVec2(120.0f, 26.0f))) {
+		if (ImGui::Button("Save Now", ImVec2(120.0f, 24.0f))) {
 			profiler.save_to_disk();
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Reload From Disk", ImVec2(140.0f, 26.0f))) {
+		if (ImGui::Button("Reload From Disk", ImVec2(140.0f, 24.0f))) {
 			profiler.load_from_disk();
 			history_capacity_input_ = static_cast<int>(profiler.history_capacity());
 		}

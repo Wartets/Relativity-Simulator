@@ -1,7 +1,7 @@
 #pragma once
 
 #include <imgui.h>
-#include "relativistic/render/accretion_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"

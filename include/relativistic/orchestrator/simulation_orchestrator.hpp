@@ -9,7 +9,7 @@
 #include "relativistic/io/scenario/scenario_locator.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/bodies/body_lighting.hpp"
-#include "relativistic/render/accretion_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"

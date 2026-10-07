@@ -1,6 +1,6 @@
 #pragma once
 
-#include "relativistic/render/accretion_disk_model.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_model.hpp"
 #include <algorithm>
 #include <array>
 #include <cstddef>

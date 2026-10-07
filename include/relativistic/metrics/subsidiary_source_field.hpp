@@ -2,7 +2,7 @@
 
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/render/gpu_types.hpp"
-#include "relativistic/render/accretion_disk_model.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_model.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
 #include "relativistic/core/math/tensor.hpp"
 #include <array>

@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <string_view>
 #include "relativistic/render/gpu_types.hpp"
-#include "relativistic/render/accretion_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/optics/textures/earth_texture_catalog.hpp"
 
 namespace Relativistic::Dynamics {

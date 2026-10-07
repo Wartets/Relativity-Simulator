@@ -2,7 +2,7 @@
 
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
-#include "relativistic/render/accretion_disk_model.hpp"
+#include "relativistic/render/accretion_disk/accretion_disk_model.hpp"
 #include "relativistic/render/bodies/body_surface_shading.hpp"
 #include "relativistic/render/bodies/earth_surface_shading.hpp"
 #include "relativistic/render/bodies/earth_terminator.hpp"

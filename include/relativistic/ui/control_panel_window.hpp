@@ -13,6 +13,8 @@
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
+#include "relativistic/ui/horizon_zone_strip.hpp"
+#include "relativistic/metrics/horizon_regime.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/optics/textures/sky_panorama_catalog.hpp"
@@ -47,6 +49,7 @@ private:
 	bool mass_log_mode_{false};
 	bool lambda_log_mode_{true};
 	bool warp_log_mode_{false};
+	bool guarantee_horizon_{true};
 	double mass_quantity_kg_{0.0};
 	std::string mass_expr_error_{};
 
@@ -275,6 +278,83 @@ public:
 	}
 
 private:
+	[[nodiscard]] Metrics::HorizonState current_horizon_state() const noexcept {
+		Metrics::HorizonState state;
+		state.mass = static_cast<double>(mass_);
+		state.spin = static_cast<double>(spin_);
+		state.charge = static_cast<double>(charge_);
+		state.cosmological_constant = static_cast<double>(lambda_);
+		return state;
+	}
+
+	[[nodiscard]] double constrain_horizon_parameter(Metrics::HorizonParameter parameter, double value, const Metrics::HorizonConstraintSet& constraints) const noexcept {
+		if (!guarantee_horizon_) {
+			return value;
+		}
+		return Metrics::HorizonRegimeAnalyzer::constrain(parameter, value, current_horizon_state(), constraints);
+	}
+
+	[[nodiscard]] double horizon_slider_extent(Metrics::HorizonParameter parameter, const Metrics::HorizonConstraintSet& constraints) const noexcept {
+		const Metrics::HorizonState state = current_horizon_state();
+		const double unlocked_extent = std::max(1.25 * state.mass, 1.0e-3);
+		if (!guarantee_horizon_) {
+			return unlocked_extent;
+		}
+		const double limit = Metrics::HorizonRegimeAnalyzer::guaranteed_maximum(parameter, state, constraints);
+		return std::clamp(limit, 1.0e-6, unlocked_extent);
+	}
+
+	void render_horizon_strip(const char* id, Metrics::HorizonParameter parameter, const Metrics::HorizonConstraintSet& constraints, double range_min, double range_max, bool logarithmic) const noexcept {
+		const Metrics::HorizonState state = current_horizon_state();
+		const Metrics::HorizonZoneLayout layout = Metrics::HorizonRegimeAnalyzer::zone_layout(parameter, state, constraints);
+		if (!layout.valid) {
+			return;
+		}
+		render_horizon_zone_strip(
+			id, layout, range_min, range_max,
+			Metrics::HorizonRegimeAnalyzer::value_of(parameter, state), logarithmic,
+			Metrics::HorizonRegimeAnalyzer::classify(state, constraints),
+			Metrics::HorizonRegimeAnalyzer::describe(state, constraints)
+		);
+	}
+
+	void apply_horizon_projection(const Metrics::HorizonConstraintSet& constraints) noexcept {
+		Metrics::HorizonState state = current_horizon_state();
+		if (!Metrics::HorizonRegimeAnalyzer::project(state, constraints)) {
+			return;
+		}
+		mass_ = static_cast<float>(state.mass);
+		spin_ = static_cast<float>(state.spin);
+		charge_ = static_cast<float>(state.charge);
+		lambda_ = static_cast<float>(state.cosmological_constant);
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, state.mass)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, state.spin)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, state.charge)));
+		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, state.cosmological_constant)));
+	}
+
+	void render_horizon_guarantee_controls(const Metrics::HorizonConstraintSet& constraints) noexcept {
+		const Metrics::HorizonRegime regime = Metrics::HorizonRegimeAnalyzer::classify(current_horizon_state(), constraints);
+		const ImVec4 locked_color(0.12f, 0.45f, 0.22f, 1.0f);
+		const ImVec4 unlocked_color(0.45f, 0.30f, 0.12f, 1.0f);
+		const ImVec4 base_color = guarantee_horizon_ ? locked_color : unlocked_color;
+		ImGui::PushStyleColor(ImGuiCol_Button, base_color);
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(base_color.x + 0.1f, base_color.y + 0.1f, base_color.z + 0.1f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(base_color.x + 0.18f, base_color.y + 0.18f, base_color.z + 0.18f, 1.0f));
+		const bool toggled = ImGui::Button(guarantee_horizon_ ? "Horizon Guaranteed (Locked)" : "Guarantee Horizon (Unlocked)", ImVec2(250.0f, 24.0f));
+		ImGui::PopStyleColor(3);
+		if (toggled) {
+			guarantee_horizon_ = !guarantee_horizon_;
+			if (guarantee_horizon_) {
+				apply_horizon_projection(constraints);
+			}
+		}
+		render_setting_tooltip("When locked, mass, spin, charge and cosmological constant can never be edited beyond the extremal limit a^2 + Q^2 = M^2 (or 9 Lambda M^2 = 1), so an event horizon always exists. Locking also pulls an already super-extremal configuration back inside the physical domain.");
+		ImGui::SameLine();
+		ImGui::TextColored(horizon_regime_color(regime), "%s", Metrics::HorizonRegimeAnalyzer::regime_name(regime));
+		render_horizon_zone_legend();
+	}
+
 	void render_metrics_tab() noexcept {
 		const char* metric_names[] = {
 			"Flat Minkowski",
@@ -311,6 +391,10 @@ private:
 		const bool needs_throat = (metric_selection_ == 7);
 		const bool needs_warp_velocity = (metric_selection_ == 8);
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
+		const Metrics::HorizonConstraintSet horizon_constraints = Metrics::HorizonConstraintSet::from_metric_name(orchestrator_.active_metric_name());
+		if (horizon_constraints.any()) {
+			render_horizon_guarantee_controls(horizon_constraints);
+		}
 
 		if (needs_mass) {
 			const double active_mass_scale_disp = orchestrator_.constants_engine().mass_scale();
@@ -318,19 +402,20 @@ private:
 			const double mass_min_kg_disp = 0.01 * active_mass_scale_disp;
 			const double mass_max_kg_disp = 100.0 * active_mass_scale_disp;
 			if (unit_aware_slider_double("Central Mass (M)", &mass_kg_disp, mass_min_kg_disp, mass_max_kg_disp, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.3f", &mass_log_mode_)) {
-				mass_ = static_cast<float>(mass_kg_disp / active_mass_scale_disp);
+				mass_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Mass, mass_kg_disp / active_mass_scale_disp, horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
 			}
 			const std::string mass_tt = "Central gravitating mass in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) +
 				". Sets horizon rs = " + std::to_string(2.0 * static_cast<double>(mass_)).substr(0, 5) +
 				" M and photon orbit r_ph = " + std::to_string(3.0 * static_cast<double>(mass_)).substr(0, 5) + " M.";
 			render_setting_tooltip(mass_tt.c_str());
+			render_horizon_strip("##MassHorizonZones", Metrics::HorizonParameter::Mass, horizon_constraints, 0.01, 100.0, mass_log_mode_);
 
 			const double active_mass_scale = orchestrator_.constants_engine().mass_scale();
 			mass_quantity_kg_ = static_cast<double>(mass_) * active_mass_scale;
 			if (smart_quantity_input("M  [dim: Mass]", &mass_quantity_kg_, Units::Dimensions::Mass, mass_expr_error_)) {
 				if (active_mass_scale > 0.0) {
-					const double new_mass = mass_quantity_kg_ / active_mass_scale;
+					const double new_mass = constrain_horizon_parameter(Metrics::HorizonParameter::Mass, mass_quantity_kg_ / active_mass_scale, horizon_constraints);
 					mass_ = static_cast<float>(new_mass);
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, new_mass)));
 				}
@@ -339,7 +424,9 @@ private:
 		}
 
 		if (needs_spin) {
-			if (slider_float_with_input("Spin Parameter (a)", &spin_, -0.999f, 0.999f, "%.4f")) {
+			const float spin_extent = static_cast<float>(horizon_slider_extent(Metrics::HorizonParameter::Spin, horizon_constraints));
+			if (slider_float_with_input("Spin Parameter (a)", &spin_, -spin_extent, spin_extent, "%.4f")) {
+				spin_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Spin, static_cast<double>(spin_), horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
 			}
 			const auto spin_warning = metric_spin_incompatibility(orchestrator_.active_metric_name(), static_cast<double>(spin_), static_cast<double>(mass_));
@@ -351,25 +438,32 @@ private:
 			} else {
 				render_setting_tooltip(spin_info.c_str());
 			}
+			render_horizon_strip("##SpinHorizonZones", Metrics::HorizonParameter::Spin, horizon_constraints, -static_cast<double>(spin_extent), static_cast<double>(spin_extent), false);
 		}
 
 		if (needs_charge) {
+			const double charge_extent = horizon_slider_extent(Metrics::HorizonParameter::Charge, horizon_constraints);
 			double charge_disp = static_cast<double>(charge_);
-			if (unit_aware_slider_double("Electric Charge (Q)", &charge_disp, -1.0, 1.0, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.3f")) {
-				charge_ = static_cast<float>(charge_disp);
+			if (unit_aware_slider_double("Electric Charge (Q)", &charge_disp, -charge_extent, charge_extent, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.3f")) {
+				charge_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Charge, charge_disp, horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
 			}
 			const double q_ratio = std::abs(static_cast<double>(charge_)) / std::max(static_cast<double>(mass_), 1e-6);
 			const std::string charge_info = "Electrostatic charge in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) +
 				" (|Q|/M = " + std::to_string(q_ratio).substr(0, 5) + "). Repulsive geometry shifts outer horizon inwards.";
 			render_setting_tooltip(charge_info.c_str());
+			render_horizon_strip("##ChargeHorizonZones", Metrics::HorizonParameter::Charge, horizon_constraints, -charge_extent, charge_extent, false);
 		}
 
 		if (needs_lambda) {
-			if (slider_float_with_input("Cosmological Lambda", &lambda_, 1e-8f, 1e-2f, "%.2e", &lambda_log_mode_)) {
+			const float lambda_extent = static_cast<float>(horizon_slider_extent(Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints));
+			const float lambda_max = std::clamp(lambda_extent, 1e-4f, 1e-2f);
+			if (slider_float_with_input("Cosmological Lambda", &lambda_, 1e-8f, lambda_max, "%.2e", &lambda_log_mode_)) {
+				lambda_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::CosmologicalConstant, static_cast<double>(lambda_), horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
 			render_setting_tooltip("Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
+			render_horizon_strip("##LambdaHorizonZones", Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints, 1e-8, static_cast<double>(lambda_max), lambda_log_mode_);
 		}
 
 		if (needs_throat) {

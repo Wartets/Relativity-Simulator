@@ -171,6 +171,10 @@ add_executable(test_horizon_crossing tests/test_horizon_crossing.cpp)
 target_link_libraries(test_horizon_crossing PRIVATE relativistic_core)
 add_test(NAME test_horizon_crossing COMMAND test_horizon_crossing)
 
+add_executable(test_horizon_regime tests/test_horizon_regime.cpp)
+target_link_libraries(test_horizon_regime PRIVATE relativistic_core)
+add_test(NAME test_horizon_regime COMMAND test_horizon_regime)
+
 add_executable(test_kerr_metrics tests/test_kerr_metrics.cpp)
 target_link_libraries(test_kerr_metrics PRIVATE relativistic_core)
 add_test(NAME test_kerr_metrics COMMAND test_kerr_metrics)

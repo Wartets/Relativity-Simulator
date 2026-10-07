@@ -98,6 +98,7 @@ Relativity-Simulator/
 │       │   ├── deterministic_replay.hpp
 │       │   ├── engine_log.hpp
 │       │   ├── engine_signature.hpp
+│       │   ├── kerr_schild_null_integrator.hpp
 │       │   ├── memory_arena.hpp
 │       │   ├── pcg64.hpp
 │       │   ├── physical_constants_engine.hpp
@@ -105,6 +106,7 @@ Relativity-Simulator/
 │       │   ├── sha256.hpp
 │       │   ├── simd.hpp
 │       │   ├── simd_math.hpp
+│       │   ├── spherical_planar_null_integrator.hpp
 │       │   ├── spsc_queue.hpp
 │       │   ├── system_console.hpp
 │       │   └── thread_pool.hpp
@@ -203,6 +205,7 @@ Relativity-Simulator/
 │       │   ├── eddington_finkelstein.hpp
 │       │   ├── flat_minkowski.hpp
 │       │   ├── flrw.hpp
+│       │   ├── horizon_regime.hpp
 │       │   ├── kerr.hpp
 │       │   ├── kerr_de_sitter.hpp
 │       │   ├── kerr_invariants.hpp
@@ -255,6 +258,7 @@ Relativity-Simulator/
 │       │   └── tonemapping.hpp
 │       │
 │       ├── orchestrator/
+│       │   ├── benchmark_metrics.hpp
 │       │   ├── command.hpp
 │       │   ├── performance_profiler.hpp
 │       │   ├── repl.hpp
@@ -263,6 +267,12 @@ Relativity-Simulator/
 │       │   └── simulation_orchestrator.hpp
 │       │
 │       ├── render/
+│       │   ├── accretion_disk/
+│       │   │   ├── accretion_disk_model.hpp
+│       │   │   ├── accretion_disk_settings.hpp
+│       │   │   ├── hydro_disk_settings.hpp
+│       │   │   └── hydro_disk_shading.hpp
+│       │   │
 │       │   ├── bodies/
 │       │   │   ├── body_lighting.hpp
 │       │   │   ├── body_surface_shading.hpp
@@ -270,8 +280,6 @@ Relativity-Simulator/
 │       │   │   ├── earth_terminator.hpp
 │       │   │   └── earth_texture_requirements.hpp
 │       │   │
-│       │   ├── accretion_disk_model.hpp
-│       │   ├── accretion_disk_settings.hpp
 │       │   ├── double_single.hpp
 │       │   ├── geodesic_compute_pipeline.hpp
 │       │   ├── gpu_types.hpp
@@ -296,6 +304,7 @@ Relativity-Simulator/
 │       │   │   └── spatial_reference_renderer.hpp
 │       │   │
 │       │   ├── accretion_disk_editor.hpp
+│       │   ├── benchmark_workbench.hpp
 │       │   ├── body_manager_window.hpp
 │       │   ├── camera_control_config.hpp
 │       │   ├── capture_studio_window.hpp
@@ -303,6 +312,7 @@ Relativity-Simulator/
 │       │   ├── compatibility_notes.hpp
 │       │   ├── constants_window.hpp
 │       │   ├── control_panel_window.hpp
+│       │   ├── horizon_zone_strip.hpp
 │       │   ├── input_actions.hpp
 │       │   ├── interactive_camera_controller.hpp
 │       │   ├── interface_persistence.hpp
@@ -399,6 +409,7 @@ Relativity-Simulator/
 │   ├── test_hermite4_aarseth.cpp
 │   ├── test_high_order_integrators.cpp
 │   ├── test_horizon_crossing.cpp
+│   ├── test_horizon_regime.cpp
 │   ├── test_horizons_parser.cpp
 │   ├── test_hulse_taylor_orbital_decay.cpp
 │   ├── test_hyperbolic_motion.cpp

@@ -21,6 +21,7 @@ struct DiskSurfacePoint {
 	double redshift{1.0};
 	double time{0.0};
 	double detail_scale{1.0};
+	double base_temperature{-1.0};
 };
 
 struct DiskShadingResult {
@@ -223,6 +224,24 @@ public:
 		return redshift_factor(orbital_frame(mass, spin, radius), angular_momentum_ratio);
 	}
 
+	[[nodiscard]] static std::array<double, 3> grade_emission(const GpuDiskProfile& profile, const std::array<double, 3>& linear, double gain) noexcept {
+		double red = linear[0] * gain;
+		double green = linear[1] * gain;
+		double blue = linear[2] * gain;
+
+		const double luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+		const double saturation = static_cast<double>(profile.color_saturation);
+		red = std::max(0.0, luma + (red - luma) * saturation);
+		green = std::max(0.0, luma + (green - luma) * saturation);
+		blue = std::max(0.0, luma + (blue - luma) * saturation);
+
+		const double tint_strength = static_cast<double>(profile.tint_strength);
+		red *= 1.0 + (static_cast<double>(profile.tint_r) - 1.0) * tint_strength;
+		green *= 1.0 + (static_cast<double>(profile.tint_g) - 1.0) * tint_strength;
+		blue *= 1.0 + (static_cast<double>(profile.tint_b) - 1.0) * tint_strength;
+		return {red, green, blue};
+	}
+
 	[[nodiscard]] static DiskShadingResult shade(const GpuDiskProfile& profile, const DiskSurfacePoint& point) noexcept {
 		DiskShadingResult result;
 		const double mass = std::max(point.mass, 1e-9);
@@ -231,7 +250,9 @@ public:
 		const double outer = std::max(point.outer_radius, inner * 1.0001);
 
 		const double u = std::clamp(inner / radius, 1e-4, 1.0);
-		const double base = temperature_shape(u, static_cast<double>(profile.temperature_exponent), static_cast<double>(profile.zero_torque_strength)) * static_cast<double>(profile.temperature_normalization);
+		const double base = (point.base_temperature >= 0.0)
+			? point.base_temperature
+			: temperature_shape(u, static_cast<double>(profile.temperature_exponent), static_cast<double>(profile.zero_torque_strength)) * static_cast<double>(profile.temperature_normalization);
 
 		const double softness = std::max(static_cast<double>(profile.edge_softness), 0.05);
 		const double envelope = smooth_unit((radius - inner) / (0.8 * softness * mass)) * smooth_unit((outer - radius) / (1.5 * softness * mass));
@@ -286,22 +307,8 @@ public:
 
 		const auto linear = blackbody_linear_rgb(observed_temperature, static_cast<double>(profile.reference_luminance));
 		const double gain = static_cast<double>(profile.brightness) * std::pow(redshift, static_cast<double>(profile.extra_beaming_exponent)) * envelope;
-		double red = linear[0] * gain;
-		double green = linear[1] * gain;
-		double blue = linear[2] * gain;
-
-		const double luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-		const double saturation = static_cast<double>(profile.color_saturation);
-		red = std::max(0.0, luma + (red - luma) * saturation);
-		green = std::max(0.0, luma + (green - luma) * saturation);
-		blue = std::max(0.0, luma + (blue - luma) * saturation);
-
-		const double tint_strength = static_cast<double>(profile.tint_strength);
-		red *= 1.0 + (static_cast<double>(profile.tint_r) - 1.0) * tint_strength;
-		green *= 1.0 + (static_cast<double>(profile.tint_g) - 1.0) * tint_strength;
-		blue *= 1.0 + (static_cast<double>(profile.tint_b) - 1.0) * tint_strength;
-
-		result.radiance = {static_cast<float>(red), static_cast<float>(green), static_cast<float>(blue)};
+		const auto graded = grade_emission(profile, linear, gain);
+		result.radiance = {static_cast<float>(graded[0]), static_cast<float>(graded[1]), static_cast<float>(graded[2])};
 		result.opacity = std::clamp(envelope * 0.95 * static_cast<double>(profile.opacity_scale) * std::clamp(std::sqrt(std::min(static_cast<double>(flux_modulation), 1.0)), 0.15, 1.0), 0.0, 0.98);
 		return result;
 	}

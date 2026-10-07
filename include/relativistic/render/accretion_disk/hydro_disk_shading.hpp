@@ -138,6 +138,12 @@ public:
 	[[nodiscard]] bool torus_closed() const noexcept { return torus_closed_; }
 	[[nodiscard]] double max_enthalpy() const noexcept { return max_enthalpy_; }
 	[[nodiscard]] double torus_outer_radius() const noexcept { return torus_outer_bound_ / 1.05; }
+	[[nodiscard]] double torus_outer_bound() const noexcept { return torus_outer_bound_; }
+	[[nodiscard]] double torus_inner_bound() const noexcept { return torus_inner_bound_; }
+	[[nodiscard]] double torus_specific_angular_momentum() const noexcept { return torus_.has_value() ? torus_->specific_angular_momentum() : 0.0; }
+	[[nodiscard]] double torus_potential_inner() const noexcept { return torus_.has_value() ? torus_->w_in() : 0.0; }
+	[[nodiscard]] double thin_disk_flux_peak() const noexcept { return flux_peak_; }
+	[[nodiscard]] double thin_disk_rate_factor() const noexcept { return rate_factor_; }
 
 	[[nodiscard]] double isco_radius() const noexcept {
 		return thin_disk_.has_value() ? thin_disk_->isco_radius() : 0.0;
@@ -299,6 +305,51 @@ public:
 			cache.context.emplace(profile, mass, spin, inner_radius, outer_radius);
 		}
 		return *cache.context;
+	}
+
+	[[nodiscard]] static std::pair<double, double> primary_disk_bounds(double mass, double spin, float inner_radius_scale, float outer_radius_mass_units) noexcept {
+		const double safe_mass = std::max(mass, 1e-4);
+		const double safe_spin = std::clamp(spin, -0.999 * safe_mass, 0.999 * safe_mass);
+		const double horizon = (std::abs(safe_spin) > 1e-12)
+			? (safe_mass + std::sqrt(std::max(safe_mass * safe_mass - safe_spin * safe_spin, 0.0)))
+			: (2.0 * safe_mass);
+		const double isco = (std::abs(safe_spin) > 1e-12) ? std::max(horizon * 1.05, 6.0 * safe_mass - 4.0 * safe_spin) : (6.0 * safe_mass);
+		const double inner = isco * static_cast<double>(std::max(inner_radius_scale, 1.0f));
+		const double outer = std::max(static_cast<double>(outer_radius_mass_units) * safe_mass, inner * 1.05);
+		return {inner, outer};
+	}
+
+	static void resolve_gpu_profile(GpuCameraPushConstants& push) noexcept {
+		GpuHydroDiskProfile base{};
+		base.model = push.hydro_disk.model;
+		base.accretion_rate_scale = push.hydro_disk.accretion_rate_scale;
+		base.torus_inner_radius = push.hydro_disk.torus_inner_radius;
+		base.torus_center_radius = push.hydro_disk.torus_center_radius;
+		base.adiabatic_index = push.hydro_disk.adiabatic_index;
+		base.optical_depth_scale = push.hydro_disk.optical_depth_scale;
+		base.sampling_density = push.hydro_disk.sampling_density;
+
+		GpuHydroDiskProfile resolved = base;
+		if (base.model != static_cast<uint32_t>(HydroDiskModel::ThinProcedural)) {
+			const double mass = std::max(push.metric_mass, 1e-4);
+			const bool spin_active = (push.metric_type == 2U || push.metric_type == 5U);
+			const double spin = spin_active ? std::clamp(push.metric_spin, -0.999 * mass, 0.999 * mass) : 0.0;
+			const auto bounds = primary_disk_bounds(mass, spin, push.primary_disk.inner_radius_scale, push.primary_disk.outer_radius_mass_units);
+			const HydroDiskContext& hydro = context(base, mass, spin, bounds.first, bounds.second);
+			if (base.model == static_cast<uint32_t>(HydroDiskModel::NovikovThorne)) {
+				resolved.flux_peak = static_cast<float>(hydro.thin_disk_flux_peak());
+				resolved.rate_factor = static_cast<float>(hydro.thin_disk_rate_factor());
+			} else if (hydro.torus_valid()) {
+				resolved.flags |= HydroDiskFlags::TORUS_VALID;
+				resolved.specific_angular_momentum = static_cast<float>(hydro.torus_specific_angular_momentum());
+				resolved.potential_inner = static_cast<float>(hydro.torus_potential_inner());
+				resolved.max_enthalpy = static_cast<float>(hydro.max_enthalpy());
+				resolved.inner_bound = static_cast<float>(hydro.torus_inner_bound());
+				resolved.outer_bound = static_cast<float>(hydro.torus_outer_bound());
+				push.primary_disk.outer_radius_mass_units = std::max(push.primary_disk.outer_radius_mass_units, static_cast<float>(hydro.torus_outer_bound() / mass));
+			}
+		}
+		push.hydro_disk = resolved;
 	}
 
 	[[nodiscard]] static std::pair<double, double> equilibrium_torus_radii(double mass, double spin) noexcept {

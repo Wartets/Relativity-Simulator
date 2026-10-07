@@ -2,6 +2,10 @@
 
 #include <imgui.h>
 #include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/hydro_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
+#include <cmath>
+#include <string>
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
@@ -121,6 +125,90 @@ namespace Relativistic::UI {
 		|| metric_name.find("Reissner") != std::string_view::npos;
 }
 
+[[nodiscard]] inline bool render_hydro_disk_editor(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
+	auto& params = orchestrator.parameters();
+	auto& settings = params.hydro_disk;
+	const bool spin_active = orchestrator.active_metric_name().find("Kerr") != std::string::npos;
+	const double mass = std::max(params.mass, 1e-4);
+	const double spin = spin_active ? std::clamp(params.spin, -0.999 * mass, 0.999 * mass) : 0.0;
+	bool changed = false;
+	ImGui::PushID("HydroDiskEditor");
+
+	ImGui::TextColored(ImVec4(0.45f, 0.85f, 1.0f, 1.0f), "Accretion Disk Model");
+	int model_index = static_cast<int>(settings.model);
+	if (ImGui::Combo("Disk Model", &model_index, Render::kHydroDiskModelNames.data(), static_cast<int>(Render::kHydroDiskModelNames.size()))) {
+		settings.model = static_cast<Render::HydroDiskModel>(model_index);
+		changed = true;
+	}
+	render_setting_tooltip("Selects the stationary procedural thin disk, the relativistic Novikov-Thorne thin disk flux profile, or the volumetric Fishbone-Moncrief hydrostatic torus. All three are traced on the Vulkan compute path.");
+
+	if (settings.model == Render::HydroDiskModel::ThinProcedural) {
+		ImGui::TextDisabled("Geometrically thin stationary disk with a procedural temperature profile.");
+		ImGui::PopID();
+		if (changed) {
+			settings.sanitize();
+		}
+		return changed;
+	}
+
+	if (settings.model == Render::HydroDiskModel::NovikovThorne) {
+		static bool rate_log_mode = true;
+		changed = slider_float_with_input("Accretion Rate Scale", &settings.accretion_rate_scale, 0.01f, 100.0f, "%.3f", &rate_log_mode, 0.01f, 100.0f) || changed;
+		render_setting_tooltip("Scales the effective temperature of the Novikov-Thorne disk as the fourth root of the accretion rate. The radial profile follows the Page-Thorne relativistic flux vanishing at the ISCO.");
+	} else {
+		if (ImGui::BeginCombo("Torus Preset", "Select a preset...")) {
+			for (size_t i = 0; i < Render::kHydroDiskPresetNames.size(); ++i) {
+				if (ImGui::Selectable(Render::kHydroDiskPresetNames[i])) {
+					settings.apply_preset(static_cast<Render::HydroDiskPreset>(i));
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		render_setting_tooltip("Replaces the torus geometry and optical depth with a coherent configuration.");
+		changed = slider_float_with_input("Torus Inner Edge (M)", &settings.torus_inner_radius, 1.2f, 80.0f, "%.2f") || changed;
+		render_setting_tooltip("Equatorial radius of the inner edge of the torus where the equipotential surface closes.");
+		changed = slider_float_with_input("Pressure Maximum Radius (M)", &settings.torus_center_radius, 1.26f, 160.0f, "%.2f") || changed;
+		render_setting_tooltip("Equatorial radius of the pressure maximum, which sets the constant specific angular momentum of the torus.");
+		changed = slider_float_with_input("Adiabatic Index", &settings.adiabatic_index, 1.2f, 2.0f, "%.3f") || changed;
+		render_setting_tooltip("Polytropic index of the torus gas. It controls how sharply the density falls towards the surface.");
+		static bool depth_log_mode = true;
+		changed = slider_float_with_input("Optical Depth Scale", &settings.optical_depth_scale, 1e-3f, 50.0f, "%.3f", &depth_log_mode, 1e-3f, 50.0f) || changed;
+		render_setting_tooltip("Optical depth per unit of mass length through the densest part of the torus.");
+		changed = slider_float_with_input("Samples Per M", &settings.sampling_density, 0.5f, 8.0f, "%.2f") || changed;
+		render_setting_tooltip("Number of radiative transfer samples per gravitational radius along each integration step.");
+		if (ImGui::Button("Fit Torus To ISCO", ImVec2(-1.0f, 24.0f))) {
+			const auto radii = Render::HydroDiskShader::equilibrium_torus_radii(mass, spin);
+			settings.torus_inner_radius = static_cast<float>(radii.first);
+			settings.torus_center_radius = static_cast<float>(radii.second);
+			changed = true;
+		}
+		render_setting_tooltip("Places the inner edge at the ISCO and the pressure maximum at twice that radius for the current mass and spin.");
+	}
+
+	if (changed) {
+		settings.sanitize();
+	}
+
+	const auto bounds = Render::HydroDiskShader::primary_disk_bounds(mass, spin, params.primary_disk.inner_radius_scale, params.primary_disk.outer_radius_mass_units);
+	const Render::GpuHydroDiskProfile profile = settings.to_gpu_profile();
+	const Render::HydroDiskContext& context = Render::HydroDiskShader::context(profile, mass, spin, bounds.first, bounds.second);
+	if (settings.model == Render::HydroDiskModel::NovikovThorne) {
+		ImGui::TextDisabled("ISCO: %.4f M | Marginally Bound Orbit: %.4f M | Radiative Efficiency: %.2f %%", context.isco_radius() / mass, context.marginally_bound_radius() / mass, 100.0 * context.radiative_efficiency());
+	} else if (context.torus_valid()) {
+		ImGui::TextDisabled("Peak Enthalpy: %.4f | Equatorial Outer Edge: %.2f M", context.max_enthalpy(), context.torus_outer_radius() / mass);
+		if (!context.torus_closed()) {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "The torus does not close at a finite radius for these parameters; it is truncated by the integration bound.");
+		}
+	} else {
+		ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "No equilibrium torus exists for the current mass, spin and radii. Move the inner edge outside the horizon and below the pressure maximum.");
+	}
+	ImGui::TextWrapped("Brightness, opacity, temperatures, saturation and tint below apply to every model. Ring, spiral, turbulence and grain structure modulate the thin disk models only.");
+
+	ImGui::PopID();
+	return changed;
+}
+
 inline void render_primary_accretion_disk_editor(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
 	if (!metric_supports_accretion_disk(orchestrator.active_metric_name())) {
 		ImGui::TextDisabled("The active spacetime metric does not render an accretion disk.");
@@ -152,7 +240,10 @@ inline void render_primary_accretion_disk_editor(Orchestrator::SimulationOrchest
 	render_setting_tooltip("Chroma multiplier around the computed luminance. One keeps the CIE derived color.");
 
 	ImGui::Spacing();
-	if (render_accretion_disk_editor(params.primary_disk, false)) {
+	const bool hydro_changed = render_hydro_disk_editor(orchestrator);
+	ImGui::Separator();
+	const bool structure_changed = render_accretion_disk_editor(params.primary_disk, false);
+	if (hydro_changed || structure_changed) {
 		orchestrator.notify_state_changed();
 	}
 	ImGui::PopID();

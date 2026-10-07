@@ -29,6 +29,14 @@ public:
 			out[field.key] = (p.*(field.member)) ? "1" : "0";
 		}
 		out["overlay_flags"] = std::to_string(p.visual_overlays_flags & kPersistedOverlayFlags);
+		const Render::HydroDiskSettings& hydro = p.hydro_disk;
+		out["hydro_disk_model"] = std::to_string(static_cast<uint32_t>(hydro.model));
+		out["hydro_disk_accretion_rate_scale"] = format_real(static_cast<double>(hydro.accretion_rate_scale));
+		out["hydro_disk_torus_inner_radius"] = format_real(static_cast<double>(hydro.torus_inner_radius));
+		out["hydro_disk_torus_center_radius"] = format_real(static_cast<double>(hydro.torus_center_radius));
+		out["hydro_disk_adiabatic_index"] = format_real(static_cast<double>(hydro.adiabatic_index));
+		out["hydro_disk_optical_depth_scale"] = format_real(static_cast<double>(hydro.optical_depth_scale));
+		out["hydro_disk_sampling_density"] = format_real(static_cast<double>(hydro.sampling_density));
 		const CameraState& camera = orchestrator.camera();
 		out["cam_x"] = format_real(camera.position[0]);
 		out["cam_y"] = format_real(camera.position[1]);
@@ -69,6 +77,26 @@ public:
 			p.visual_overlays_flags = (p.visual_overlays_flags & ~kPersistedOverlayFlags) | (saved & kPersistedOverlayFlags);
 		}
 		p.spin = std::clamp(p.spin, -0.999 * p.mass, 0.999 * p.mass);
+
+		const auto read_hydro_value = [&in](const char* key, float fallback) noexcept -> float {
+			const auto it = in.find(key);
+			if (it == in.end()) {
+				return fallback;
+			}
+			const double value = std::strtod(it->second.c_str(), nullptr);
+			return std::isfinite(value) ? static_cast<float>(value) : fallback;
+		};
+		Render::HydroDiskSettings& hydro = p.hydro_disk;
+		if (const auto it = in.find("hydro_disk_model"); it != in.end()) {
+			hydro.model = static_cast<Render::HydroDiskModel>(std::min<unsigned long long>(std::strtoull(it->second.c_str(), nullptr, 10), static_cast<unsigned long long>(Render::kHydroDiskModelCount - 1)));
+		}
+		hydro.accretion_rate_scale = read_hydro_value("hydro_disk_accretion_rate_scale", hydro.accretion_rate_scale);
+		hydro.torus_inner_radius = read_hydro_value("hydro_disk_torus_inner_radius", hydro.torus_inner_radius);
+		hydro.torus_center_radius = read_hydro_value("hydro_disk_torus_center_radius", hydro.torus_center_radius);
+		hydro.adiabatic_index = read_hydro_value("hydro_disk_adiabatic_index", hydro.adiabatic_index);
+		hydro.optical_depth_scale = read_hydro_value("hydro_disk_optical_depth_scale", hydro.optical_depth_scale);
+		hydro.sampling_density = read_hydro_value("hydro_disk_sampling_density", hydro.sampling_density);
+		hydro.sanitize();
 
 		CameraState& camera = orchestrator.camera();
 		const auto real = [&in](const char* key, double fallback) noexcept {

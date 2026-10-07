@@ -3,6 +3,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/double_single.hpp"
 #include "relativistic/render/accretion_disk/accretion_disk_model.hpp"
+#include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
 #include "relativistic/render/bodies/body_surface_shading.hpp"
 #include "relativistic/render/bodies/earth_surface_shading.hpp"
 #include "relativistic/render/bodies/earth_terminator.hpp"
@@ -892,6 +893,61 @@ private:
 		return {r * sin_t * std::cos(phi), r * sin_t * std::sin(phi), r * std::cos(theta)};
 	}
 
+	[[nodiscard]] static bool uses_novikov_thorne_disk(const GpuCameraPushConstants& params) noexcept {
+		return params.hydro_disk.model == static_cast<uint32_t>(HydroDiskModel::NovikovThorne);
+	}
+
+	[[nodiscard]] static bool uses_fishbone_moncrief_disk(const GpuCameraPushConstants& params) noexcept {
+		return params.hydro_disk.model == static_cast<uint32_t>(HydroDiskModel::FishboneMoncrief);
+	}
+
+	static void accumulate_novikov_thorne_crossing(
+		const GpuCameraPushConstants& params,
+		const GpuDiskProfile& disk,
+		const DiskSurfacePoint& point,
+		double& accum_r,
+		double& accum_g,
+		double& accum_b,
+		double& throughput
+	) noexcept {
+		const auto& context = HydroDiskShader::context(params.hydro_disk, point.mass, point.spin, point.inner_radius, point.outer_radius);
+		const auto shaded = context.shade_thin_disk(disk, point);
+		accum_r += throughput * static_cast<double>(shaded.radiance[0]);
+		accum_g += throughput * static_cast<double>(shaded.radiance[1]);
+		accum_b += throughput * static_cast<double>(shaded.radiance[2]);
+		throughput *= (1.0 - shaded.opacity);
+	}
+
+	static void accumulate_fishbone_moncrief_segment(
+		const GpuCameraPushConstants& params,
+		const GpuDiskProfile& disk,
+		double mass,
+		double spin,
+		double inner_radius,
+		double outer_radius,
+		const std::array<double, 3>& from,
+		const std::array<double, 3>& to,
+		double angular_momentum_ratio,
+		double& accum_r,
+		double& accum_g,
+		double& accum_b,
+		double& throughput,
+		double& redshift,
+		uint32_t& status
+	) noexcept {
+		const auto& context = HydroDiskShader::context(params.hydro_disk, mass, spin, inner_radius, outer_radius);
+		const auto segment = context.integrate_segment(disk, from, to, angular_momentum_ratio);
+		if (segment.opacity <= 1e-6) {
+			return;
+		}
+		accum_r += throughput * segment.radiance[0];
+		accum_g += throughput * segment.radiance[1];
+		accum_b += throughput * segment.radiance[2];
+		throughput *= (1.0 - segment.opacity);
+		redshift = segment.redshift;
+		status |= PixelFlags::ACCRETION_DISK_HIT;
+	}
+
 	template <typename Scalar>
 	[[nodiscard]] static std::array<Scalar, 3> local_frame_to_travel_direction(
 		Scalar theta,
@@ -1265,7 +1321,16 @@ private:
 			}
 
 			const double mid_plane = std::numbers::pi_v<double> * 0.5;
-			if (has_accretion_disk && disk_profile.enabled > 0.5f && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && uses_fishbone_moncrief_disk(params)) {
+				const double torus_sin = std::sin(x(2));
+				accumulate_fishbone_moncrief_segment(
+					params, disk_profile, m, disk_spin, disk_inner, disk_outer,
+					spherical_to_cartesian(prev_r, prev_theta, prev_phi), spherical_to_cartesian(x(1), x(2), x(3)),
+					u(3) * (x(1) * x(1) * torus_sin * torus_sin),
+					accum_r, accum_g, accum_b, throughput, redshift_rec, status
+				);
+			}
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && (prev_theta - mid_plane) * (x(2) - mid_plane) <= 0.0) {
 				const double d_th_span = std::abs(x(2) - prev_theta);
 				const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 				const double r_cross = prev_r + s_cross * (x(1) - prev_r);
@@ -1276,6 +1341,16 @@ private:
 
 					const double sin2_x = std::max(std::sin(x(2)) * std::sin(x(2)), 1e-8);
 					const double l_over_e = u(3) * (r_cross * r_cross * sin2_x);
+					if (uses_novikov_thorne_disk(params)) {
+						const double nt_redshift = AccretionDiskModel::redshift_at(m, disk_spin, r_cross, l_over_e);
+						redshift_rec = nt_redshift;
+						accumulate_novikov_thorne_crossing(params, disk_profile, DiskSurfacePoint{
+							.mass = m, .spin = disk_spin, .inner_radius = disk_inner, .outer_radius = disk_outer,
+							.radius = r_cross, .azimuth = phi_cross, .redshift = nt_redshift,
+							.time = params.time, .detail_scale = turbulence_aa_factor
+						}, accum_r, accum_g, accum_b, throughput);
+						continue;
+					}
 					const double g_doppler = AccretionDiskModel::redshift_at(m, disk_spin, r_cross, l_over_e);
 					redshift_rec = g_doppler;
 
@@ -1425,7 +1500,15 @@ private:
 			}
 
 			const double mid_plane = std::numbers::pi_v<double> * 0.5;
-			if (has_accretion_disk && disk_profile.enabled > 0.5f && (previous.theta - mid_plane) * (point.theta - mid_plane) <= 0.0) {
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && uses_fishbone_moncrief_disk(params)) {
+				accumulate_fishbone_moncrief_segment(
+					params, disk_profile, m, disk_spin, disk_inner, disk_outer,
+					spherical_to_cartesian(previous.r, previous.theta, previous.phi), spherical_to_cartesian(point.r, point.theta, point.phi),
+					angular_momentum_z,
+					accum_r, accum_g, accum_b, throughput, redshift_rec, status
+				);
+			}
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && (previous.theta - mid_plane) * (point.theta - mid_plane) <= 0.0) {
 				const double span = std::abs(point.theta - previous.theta);
 				const double s_cross = (span > 1e-12) ? std::clamp(std::abs(previous.theta - mid_plane) / span, 0.0, 1.0) : 0.5;
 				const double r_cross = previous.r + s_cross * (point.r - previous.r);
@@ -1434,6 +1517,15 @@ private:
 				if (r_cross >= disk_inner && r_cross <= disk_outer && r_cross > rh * 1.02) {
 					status |= PixelFlags::ACCRETION_DISK_HIT;
 					const double g_doppler = AccretionDiskModel::redshift_at(m, disk_spin, r_cross, angular_momentum_z);
+					if (uses_novikov_thorne_disk(params)) {
+						redshift_rec = g_doppler;
+						accumulate_novikov_thorne_crossing(params, disk_profile, DiskSurfacePoint{
+							.mass = m, .spin = disk_spin, .inner_radius = disk_inner, .outer_radius = disk_outer,
+							.radius = r_cross, .azimuth = phi_cross, .redshift = g_doppler,
+							.time = params.time, .detail_scale = turbulence_aa_factor
+						}, accum_r, accum_g, accum_b, throughput);
+						continue;
+					}
 					redshift_rec = g_doppler;
 
 					const auto shaded = AccretionDiskModel::shade(disk_profile, DiskSurfacePoint{
@@ -1620,7 +1712,14 @@ private:
 				}
 			}
 
-			if (has_accretion_disk && disk_profile.enabled > 0.5f && from[2] * to[2] <= 0.0) {
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && uses_fishbone_moncrief_disk(params)) {
+				accumulate_fishbone_moncrief_segment(
+					params, disk_profile, m, 0.0, disk_inner, disk_outer,
+					from, to, angular_momentum_z,
+					accum_r, accum_g, accum_b, throughput, redshift_rec, status
+				);
+			}
+			if (has_accretion_disk && disk_profile.enabled > 0.5f && !uses_fishbone_moncrief_disk(params) && from[2] * to[2] <= 0.0) {
 				const double z_span = std::abs(from[2]) + std::abs(to[2]);
 				const double s_cross = (z_span > 1e-15) ? (std::abs(from[2]) / z_span) : 0.5;
 				const double r_cross = previous.r + s_cross * (state.r - previous.r);
@@ -1631,6 +1730,15 @@ private:
 					const double azimuth = std::atan2(cross_position[1], cross_position[0]);
 					status |= PixelFlags::ACCRETION_DISK_HIT;
 					const double g_doppler = AccretionDiskModel::redshift_at(m, 0.0, r_cross, angular_momentum_z);
+					if (uses_novikov_thorne_disk(params)) {
+						redshift_rec = g_doppler;
+						accumulate_novikov_thorne_crossing(params, disk_profile, DiskSurfacePoint{
+							.mass = m, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+							.radius = r_cross, .azimuth = azimuth, .redshift = g_doppler,
+							.time = params.time, .detail_scale = turbulence_aa_factor
+						}, accum_r, accum_g, accum_b, throughput);
+						continue;
+					}
 					redshift_rec = g_doppler;
 
 					const auto shaded = AccretionDiskModel::shade(disk_profile, DiskSurfacePoint{
@@ -2672,7 +2780,15 @@ public:
 						}
 
 						const double mid_plane = std::numbers::pi_v<double> * 0.5;
-						if (has_accretion_disk && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0) {
+						if (has_accretion_disk && primary_disk.enabled > 0.5f && uses_fishbone_moncrief_disk(params)) {
+							accumulate_fishbone_moncrief_segment(
+								params, primary_disk, m, 0.0, disk_inner, disk_outer,
+								spherical_to_cartesian(prev_r, prev_theta, prev_phi), spherical_to_cartesian(ray_r, ray_theta, ray_phi),
+								Lz_cons / std::max(std::abs(E_cons), 1e-12),
+								accumulated_r, accumulated_g, accumulated_b, throughput, redshift_rec, status
+							);
+						}
+						if (has_accretion_disk && !uses_fishbone_moncrief_disk(params) && (prev_theta - mid_plane) * (ray_theta - mid_plane) <= 0.0) {
 							const double d_th_span = std::abs(ray_theta - prev_theta);
 							const double s_cross = (d_th_span > 1e-12) ? std::clamp(std::abs(prev_theta - mid_plane) / d_th_span, 0.0, 1.0) : 0.5;
 							const double r_cross = prev_r + s_cross * (ray_r - prev_r);
@@ -2682,6 +2798,16 @@ public:
 								status |= PixelFlags::ACCRETION_DISK_HIT;
 
 								const double l_over_e = Lz_cons / std::max(std::abs(E_cons), 1e-12);
+								if (uses_novikov_thorne_disk(params)) {
+									const double nt_redshift = AccretionDiskModel::redshift_at(m, 0.0, r_cross, l_over_e);
+									redshift_rec = nt_redshift;
+									accumulate_novikov_thorne_crossing(params, primary_disk, DiskSurfacePoint{
+										.mass = m, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+										.radius = r_cross, .azimuth = phi_cross, .redshift = nt_redshift,
+										.time = params.time, .detail_scale = turbulence_aa_factor
+									}, accumulated_r, accumulated_g, accumulated_b, throughput);
+									continue;
+								}
 								const double g_doppler = AccretionDiskModel::redshift_at(m, 0.0, r_cross, l_over_e);
 								redshift_rec = g_doppler;
 
@@ -4004,6 +4130,10 @@ public:
 		static_cast<void>(stage_stats);
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk)) {
+			dispatch_fp64(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
+			return;
+		}
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp32_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
@@ -4042,6 +4172,10 @@ public:
 	) noexcept {
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk)) {
+			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
+			return;
+		}
 		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;

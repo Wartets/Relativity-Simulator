@@ -10,6 +10,8 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/bodies/body_lighting.hpp"
 #include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/hydro_disk_settings.hpp"
+#include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -135,6 +137,7 @@ struct PhysicalParameters {
 	double disk_doppler_beaming_exponent{0.0};
 	double disk_color_saturation{1.0};
 	Render::AccretionDiskSettings primary_disk{};
+	Render::HydroDiskSettings hydro_disk{};
 	uint32_t light_source_mode{0};
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
@@ -1748,6 +1751,8 @@ public:
 	void apply_primary_disk_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
 		push.primary_disk = params_.primary_disk.to_gpu_profile();
 		push.primary_disk = Relativistic::Render::AccretionDiskModel::resolve_primary_profile(push);
+		push.hydro_disk = params_.hydro_disk.to_gpu_profile();
+		Relativistic::Render::HydroDiskShader::resolve_gpu_profile(push);
 	}
 
 	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {

@@ -69,6 +69,39 @@ struct GpuDiskProfile {
 
 static_assert(sizeof(GpuDiskProfile) == 128);
 
+enum class HydroDiskModel : uint32_t {
+	ThinProcedural = 0,
+	NovikovThorne = 1,
+	FishboneMoncrief = 2
+};
+
+namespace HydroDiskFlags {
+	static constexpr uint32_t TORUS_VALID = 1U << 0;
+}
+
+struct GpuHydroDiskProfile {
+	uint32_t model{0};
+	float accretion_rate_scale{1.0f};
+	float torus_inner_radius{6.0f};
+	float torus_center_radius{12.0f};
+	float adiabatic_index{1.3333334f};
+	float optical_depth_scale{0.35f};
+	float sampling_density{2.0f};
+	uint32_t flags{0};
+	float specific_angular_momentum{0.0f};
+	float potential_inner{0.0f};
+	float max_enthalpy{1.0f};
+	float inner_bound{0.0f};
+	float outer_bound{0.0f};
+	float flux_peak{1.0f};
+	float rate_factor{1.0f};
+	float reserved{0.0f};
+
+	[[nodiscard]] bool operator==(const GpuHydroDiskProfile&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuHydroDiskProfile) == 64);
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -192,6 +225,7 @@ struct alignas(16) GpuCameraPushConstants {
 	float body_emission_lighting_reference_distance{30.0f};
 
 	GpuDiskProfile primary_disk{};
+	GpuHydroDiskProfile hydro_disk{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

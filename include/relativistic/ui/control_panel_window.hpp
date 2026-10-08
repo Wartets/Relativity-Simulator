@@ -2692,6 +2692,9 @@ private:
 		ImGui::BulletText("Spectrograph Quick Readout mirrors the observer's live circular-orbit Doppler factor and exposure from the Radiative Transfer & Spectrograph Monitor.");
 		ImGui::BulletText("Diagnostics Quick Readout mirrors the active metric and integrator from the Curvature Diagnostics window.");
 		ImGui::BulletText("Profiler: GPU/CPU Split Readout mirrors the render path distribution from the Performance Analysis & Profiling window.");
+		ImGui::BulletText("Ray Probe readouts show the exact termination, spectral shift, impact parameter, Carter constant and emission coordinates of the geodesic traced under the cursor.");
+		ImGui::BulletText("Polarization Summary mirrors DoLP, DoCP and EVPA at the selected wavelength of the Polarization tab in the Radiative Transfer & Spectrograph Monitor.");
+		ImGui::BulletText("Interferometry Summary mirrors the visibility count, maximum baseline, nominal resolution and mean SNR of the last VLBI synthesis.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Keybind Summary Panel Contents:");

@@ -49,6 +49,10 @@ enum class HudElementId : uint32_t {
 	GpuComputeStatusReadout,
 	IntegratorStatsReadout,
 	ConstantsQuickReadout,
+	RayProbeReadout,
+	RayProbeEmissionReadout,
+	PolarizationQuickReadout,
+	InterferometryQuickReadout,
 	Count
 };
 
@@ -79,6 +83,10 @@ enum class HudElementId : uint32_t {
 		case HudElementId::GpuComputeStatusReadout: return "GPU Compute Status (Linked)";
 		case HudElementId::IntegratorStatsReadout: return "Integrator Statistics (Linked)";
 		case HudElementId::ConstantsQuickReadout: return "Physical Constants Summary (Linked)";
+		case HudElementId::RayProbeReadout: return "Ray Probe: Termination & Spectral Shift (Linked)";
+		case HudElementId::RayProbeEmissionReadout: return "Ray Probe: Emission Coordinates (Linked)";
+		case HudElementId::PolarizationQuickReadout: return "Polarization Summary (Linked)";
+		case HudElementId::InterferometryQuickReadout: return "Interferometry Summary (Linked)";
 		default: return "Unknown Element";
 	}
 }
@@ -289,6 +297,34 @@ struct HudLayoutConfig {
 		constants_ro.offset_x = 16.0f;
 		constants_ro.offset_y = 346.0f;
 		constants_ro.text_color = {0.8f, 0.75f, 1.0f, 1.0f};
+
+		auto& probe_ro = element(HudElementId::RayProbeReadout);
+		probe_ro.enabled = false;
+		probe_ro.anchor = HudAnchor::BottomLeft;
+		probe_ro.offset_x = 16.0f;
+		probe_ro.offset_y = 368.0f;
+		probe_ro.text_color = {1.0f, 0.85f, 0.45f, 1.0f};
+
+		auto& probe_emission_ro = element(HudElementId::RayProbeEmissionReadout);
+		probe_emission_ro.enabled = false;
+		probe_emission_ro.anchor = HudAnchor::BottomLeft;
+		probe_emission_ro.offset_x = 16.0f;
+		probe_emission_ro.offset_y = 390.0f;
+		probe_emission_ro.text_color = {1.0f, 0.85f, 0.45f, 1.0f};
+
+		auto& polarization_ro = element(HudElementId::PolarizationQuickReadout);
+		polarization_ro.enabled = false;
+		polarization_ro.anchor = HudAnchor::BottomLeft;
+		polarization_ro.offset_x = 16.0f;
+		polarization_ro.offset_y = 412.0f;
+		polarization_ro.text_color = {0.65f, 0.9f, 1.0f, 1.0f};
+
+		auto& interferometry_ro = element(HudElementId::InterferometryQuickReadout);
+		interferometry_ro.enabled = false;
+		interferometry_ro.anchor = HudAnchor::BottomLeft;
+		interferometry_ro.offset_x = 16.0f;
+		interferometry_ro.offset_y = 434.0f;
+		interferometry_ro.text_color = {0.6f, 1.0f, 0.75f, 1.0f};
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

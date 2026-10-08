@@ -3,622 +3,482 @@
 #include <imgui.h>
 #include <implot.h>
 #include "relativistic/core/constants.hpp"
-#include "relativistic/interferometry/oifits_writer.hpp"
-#include "relativistic/interferometry/visibility_synthesis.hpp"
-#include "relativistic/interferometry/vlbi_array.hpp"
+#include "relativistic/magnetosphere/blandford_znajek.hpp"
+#include "relativistic/optics/polarization_spectrum.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
-#include "relativistic/ui/numeric_slider_utils.hpp"
+#include "relativistic/ui/hud/hud_linked_readouts.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
-#include <functional>
-#include <future>
-#include <memory>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <numbers>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace Relativistic::UI {
 
-class InterferometryPanel {
+class PolarizationPanel {
 public:
-	using ImageProvider = std::function<bool(Interferometry::IntensityImage&, uint32_t)>;
-
-	InterferometryPanel() {
-		array_ = Interferometry::VlbiArrayCatalog::preset(0);
-		apply_source_preset(0);
-		std::snprintf(output_path_.data(), output_path_.size(), "%s", "output/oifits/synthetic_eht.oifits");
+	PolarizationPanel() {
+		std::snprintf(export_path_.data(), export_path_.size(), "%s", "output/polarization/polarized_spectrum.csv");
 	}
 
-	~InterferometryPanel() {
-		if (control_) {
-			control_->cancel.store(true);
+	void update(const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const Optics::PolarizedPlasmaState<double>& spectrograph_plasma, double spectrograph_g) {
+		const Optics::PolarizedSpectrumSettings desired = resolve_settings(orchestrator, spectrograph_plasma, spectrograph_g);
+		if (!has_spectrum_ || !same_settings(desired, active_settings_)) {
+			active_settings_ = desired;
+			spectrum_ = Optics::PolarizedSpectrumSynthesizer::synthesize(active_settings_);
+			has_spectrum_ = true;
+			rebuild_plot_cache();
 		}
-		if (task_.valid()) {
-			task_.wait();
+		if (!spectrum_.empty()) {
+			selected_wavelength_nm_ = std::clamp(selected_wavelength_nm_, spectrum_.wavelength_nm.front(), spectrum_.wavelength_nm.back());
 		}
 	}
 
-	InterferometryPanel(const InterferometryPanel&) = delete;
-	InterferometryPanel& operator=(const InterferometryPanel&) = delete;
-
-	void set_image_provider(ImageProvider provider) {
-		provider_ = std::move(provider);
+	[[nodiscard]] HudPolarizationReadout hud_summary() const {
+		HudPolarizationReadout readout;
+		if (!has_spectrum_ || spectrum_.empty()) {
+			return readout;
+		}
+		const auto summary = Optics::PolarizedSpectrumSynthesizer::summarize(spectrum_, selected_wavelength_nm_);
+		readout.valid = summary.valid;
+		readout.wavelength_nm = summary.wavelength_nm;
+		readout.intensity = summary.intensity;
+		readout.dolp = summary.dolp;
+		readout.docp = summary.docp;
+		readout.evpa_deg = summary.evpa_deg;
+		return readout;
 	}
 
 	void render(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
-		poll_task();
 		render_source_controls(orchestrator);
-		render_array_controls();
 		render_observation_controls();
-		render_actions(orchestrator);
-		render_results();
+		if (spectrum_.empty()) {
+			ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.3f, 1.0f), "No polarized spectrum is available for the current plasma state.");
+			return;
+		}
+		render_statistics();
+		render_plots();
+		render_export();
 	}
 
 private:
-	struct PlotCache {
-		std::vector<double> sky_u_glambda{};
-		std::vector<double> sky_v_glambda{};
-		std::vector<double> sky_u_conj_glambda{};
-		std::vector<double> sky_v_conj_glambda{};
-		std::vector<double> baseline_glambda{};
-		std::vector<double> amplitude{};
-		std::vector<double> amplitude_error{};
-		std::vector<double> phase_deg{};
-		std::vector<double> phase_error_deg{};
-		std::vector<double> closure_time_hours{};
-		std::vector<double> closure_phase_deg{};
-		std::vector<double> closure_phase_err_deg{};
-		std::vector<double> profile_baseline_glambda{};
-		std::vector<double> profile_amplitude_jy{};
-	};
-
-	[[nodiscard]] double theta_g_rad() const noexcept {
-		constexpr double g = Core::PhysicalConstants<double>::GRAVITATIONAL_CONSTANT;
-		constexpr double c = Core::PhysicalConstants<double>::SPEED_OF_LIGHT;
-		constexpr double solar = Core::PhysicalConstants<double>::SOLAR_MASS;
-		constexpr double parsec = Core::PhysicalConstants<double>::PARSEC;
-		return g * mass_msun_ * solar / (c * c * std::max(distance_pc_, 1e-6) * parsec);
-	}
-
-	[[nodiscard]] double theta_g_uas() const noexcept {
-		constexpr double rad_to_uas = 206264.806247096355 * 1.0e6;
-		return theta_g_rad() * rad_to_uas;
-	}
-
-	void apply_source_preset(int preset) {
-		switch (preset) {
-			case 0:
-				mass_msun_ = 6.5e9;
-				distance_pc_ = 16.8e6;
-				right_ascension_deg_ = 187.7059;
-				declination_deg_ = 12.3911;
-				flux_jy_ = 0.5;
-				position_angle_deg_ = 288.0;
-				frequency_ghz_ = 230.0;
-				std::snprintf(target_name_.data(), target_name_.size(), "%s", "M87");
-				break;
-			case 1:
-				mass_msun_ = 4.15e6;
-				distance_pc_ = 8178.0;
-				right_ascension_deg_ = 266.4168;
-				declination_deg_ = -29.0078;
-				flux_jy_ = 2.4;
-				position_angle_deg_ = 0.0;
-				frequency_ghz_ = 230.0;
-				std::snprintf(target_name_.data(), target_name_.size(), "%s", "SGRA");
-				break;
-			default:
-				break;
+	void rebuild_plot_cache() {
+		const size_t count = spectrum_.wavelength_nm.size();
+		double peak = 0.0;
+		for (const double value : spectrum_.intensity) {
+			peak = std::max(peak, value);
 		}
+		const double floor_value = (peak > 0.0) ? (peak * 1.0e-14) : 1.0e-300;
+		intensity_plot_.resize(count);
+		linear_flux_.resize(count);
+		circular_flux_.resize(count);
+		q_norm_.resize(count);
+		u_norm_.resize(count);
+		v_norm_.resize(count);
+		for (size_t i = 0; i < count; ++i) {
+			const double intensity = spectrum_.intensity[i];
+			intensity_plot_[i] = std::max(intensity, floor_value);
+			linear_flux_[i] = std::max(std::hypot(spectrum_.stokes_q[i], spectrum_.stokes_u[i]), floor_value);
+			circular_flux_[i] = std::max(std::abs(spectrum_.stokes_v[i]), floor_value);
+			const double inverse = (intensity > 1.0e-300) ? (1.0 / intensity) : 0.0;
+			q_norm_[i] = spectrum_.stokes_q[i] * inverse;
+			u_norm_[i] = spectrum_.stokes_u[i] * inverse;
+			v_norm_[i] = spectrum_.stokes_v[i] * inverse;
+		}
+		plot_refit_ = true;
+	}
+
+	[[nodiscard]] static bool same_settings(const Optics::PolarizedSpectrumSettings& a, const Optics::PolarizedSpectrumSettings& b) noexcept {
+		return a.model == b.model
+			&& a.path_length_m == b.path_length_m
+			&& a.doppler_factor == b.doppler_factor
+			&& a.field_position_angle_rad == b.field_position_angle_rad
+			&& a.wavelength_min_nm == b.wavelength_min_nm
+			&& a.wavelength_max_nm == b.wavelength_max_nm
+			&& a.sample_count == b.sample_count
+			&& a.plasma.electron_density == b.plasma.electron_density
+			&& a.plasma.ion_density == b.plasma.ion_density
+			&& a.plasma.electron_temperature_k == b.plasma.electron_temperature_k
+			&& a.plasma.magnetic_field_tesla == b.plasma.magnetic_field_tesla
+			&& a.plasma.pitch_angle_rad == b.plasma.pitch_angle_rad
+			&& a.plasma.power_law_index == b.plasma.power_law_index
+			&& a.plasma.non_thermal_fraction == b.plasma.non_thermal_fraction
+			&& a.plasma.gamma_min == b.plasma.gamma_min
+			&& a.plasma.gamma_max == b.plasma.gamma_max;
+	}
+
+	[[nodiscard]] Optics::PolarizedSpectrumSettings resolve_settings(const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const Optics::PolarizedPlasmaState<double>& spectrograph_plasma, double spectrograph_g) {
+		constexpr double degrees = std::numbers::pi_v<double> / 180.0;
+		Optics::PolarizedSpectrumSettings settings;
+		settings.model = static_cast<Optics::PolarizationEmissionModel>(std::clamp(model_index_, 0, 2));
+		settings.path_length_m = static_cast<double>(path_length_m_);
+		settings.field_position_angle_rad = static_cast<double>(field_angle_deg_) * degrees;
+		settings.wavelength_min_nm = static_cast<double>(wavelength_min_nm_);
+		settings.wavelength_max_nm = std::max(static_cast<double>(wavelength_max_nm_), settings.wavelength_min_nm * 1.05);
+		settings.sample_count = static_cast<size_t>(std::clamp(sample_count_, 16, 4096));
+
+		if (link_mode_ == 1) {
+			settings.plasma = spectrograph_plasma;
+			settings.doppler_factor = std::max(spectrograph_g, 1.0e-3);
+			status_message_ = "Plasma state and Doppler factor are driven by the Spectrum tab.";
+			return settings;
+		}
+
+		if (link_mode_ == 2) {
+			const auto& params = orchestrator.parameters();
+			const Render::GpuJetProfile profile = params.jet.to_gpu_profile(params.mass, params.spin, orchestrator.constants_engine().length_scale());
+			const Magnetosphere::BlandfordZnajekModel model(profile);
+			const double inner = static_cast<double>(profile.inner_radius);
+			const double outer = std::max(static_cast<double>(profile.outer_radius), inner * 1.01);
+			const double radius = std::clamp(inner + static_cast<double>(jet_radius_fraction_) * (outer - inner), inner, outer);
+			const double view = static_cast<double>(jet_view_angle_deg_) * degrees;
+			const Magnetosphere::Vec3 photon{std::cos(view), std::sin(view), 0.0};
+			const auto sample = model.sample_local(radius, static_cast<double>(jet_polar_angle_deg_) * degrees, photon);
+			if (sample.valid) {
+				jet_plasma_.electron_density = sample.electron_density * sample.weight;
+				jet_plasma_.ion_density = jet_plasma_.electron_density;
+				jet_plasma_.electron_temperature_k = std::max(sample.temperature_k, 1.0);
+				jet_plasma_.magnetic_field_tesla = std::max(sample.field_tesla, 1.0e-12);
+				jet_plasma_.pitch_angle_rad = sample.pitch_angle;
+				jet_plasma_.power_law_index = static_cast<double>(profile.power_law_index);
+				jet_plasma_.non_thermal_fraction = static_cast<double>(profile.non_thermal_fraction);
+				jet_plasma_.gamma_min = static_cast<double>(profile.gamma_min);
+				jet_doppler_ = sample.doppler;
+				jet_radius_resolved_ = radius;
+				status_message_ = params.jet.enabled
+					? "Plasma sampled from the Blandford-Znajek magnetosphere at the selected point."
+					: "Jet rendering is disabled in the Master Controls; the magnetosphere model is still sampled here.";
+			} else {
+				status_message_ = "The selected point lies outside the emitting jet volume; the previous sample is kept.";
+			}
+			settings.plasma = jet_plasma_;
+			settings.doppler_factor = jet_doppler_;
+			settings.model = static_cast<Optics::PolarizationEmissionModel>(std::clamp(static_cast<int>(profile.emission_model + 0.5f), 0, 2));
+			return settings;
+		}
+
+		settings.plasma.electron_density = static_cast<double>(electron_density_);
+		settings.plasma.ion_density = settings.plasma.electron_density;
+		settings.plasma.electron_temperature_k = static_cast<double>(electron_temperature_k_);
+		settings.plasma.magnetic_field_tesla = static_cast<double>(magnetic_field_tesla_);
+		settings.plasma.pitch_angle_rad = static_cast<double>(pitch_angle_deg_) * degrees;
+		settings.plasma.power_law_index = static_cast<double>(power_law_index_);
+		settings.plasma.non_thermal_fraction = static_cast<double>(non_thermal_fraction_);
+		settings.plasma.gamma_min = static_cast<double>(gamma_min_);
+		settings.plasma.gamma_max = static_cast<double>(gamma_max_);
+		settings.doppler_factor = static_cast<double>(doppler_factor_);
+		status_message_ = "Plasma state is edited manually.";
+		return settings;
 	}
 
 	void render_source_controls(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
-		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Source Calibration");
-		const char* presets[] = {"M87* (EHT 2017)", "Sgr A* (EHT 2017)", "Custom"};
-		if (ImGui::Combo("Source Preset", &source_preset_, presets, IM_ARRAYSIZE(presets))) {
-			apply_source_preset(source_preset_);
+		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Plasma Source");
+		const char* links[] = {"Manual Plasma", "Spectrum Tab Plasma (Linked)", "Jet Magnetosphere Sample (Linked)"};
+		ImGui::SetNextItemWidth(300.0f);
+		ImGui::Combo("Plasma Source", &link_mode_, links, IM_ARRAYSIZE(links));
+		render_setting_tooltip("Manual edits every plasma parameter here. The linked modes take the plasma state from the Spectrum tab or sample the Blandford-Znajek jet model at a chosen point, so the polarization always follows the other widgets.");
+
+		const bool model_locked = (link_mode_ == 2);
+		if (model_locked) {
+			ImGui::BeginDisabled(true);
 		}
-		render_setting_tooltip("Loads the black hole mass, distance, sky position, total flux and jet position angle of a reference source.");
-
-		slider_double_with_input("Black Hole Mass (M_sun)", &mass_msun_, 1e3, 1e12, "%.4e", &log_mass_, 1e3f, 1e12f);
-		slider_double_with_input("Distance (pc)", &distance_pc_, 1.0, 1e10, "%.4e", &log_distance_, 1.0f, 1e10f);
-		ImGui::SameLine();
-		if (ImGui::Button("Use Simulation Mass")) {
-			const double mass_kg = orchestrator.parameters().mass * orchestrator.constants_engine().mass_scale();
-			mass_msun_ = std::clamp(mass_kg / Core::PhysicalConstants<double>::SOLAR_MASS, 1e3, 1e12);
-			source_preset_ = 2;
+		const char* models[] = {"Non-Thermal Power Law", "Thermal Maxwell-Juttner", "Hybrid (Thermal + Non-Thermal)"};
+		ImGui::SetNextItemWidth(300.0f);
+		ImGui::Combo("Emission Model", &model_index_, models, IM_ARRAYSIZE(models));
+		if (model_locked) {
+			ImGui::EndDisabled();
 		}
-		render_setting_tooltip("Replaces the mass above with the central mass of the running simulation converted through the active constants.");
+		render_setting_tooltip("Selects which electron population produces the polarized synchrotron emission. In jet-linked mode the model follows the jet emission model.");
 
-		ImGui::InputDouble("Right Ascension (deg)", &right_ascension_deg_, 0.0, 0.0, "%.5f");
-		ImGui::InputDouble("Declination (deg)", &declination_deg_, 0.0, 0.0, "%.5f");
-		ImGui::InputDouble("Total Flux Density (Jy)", &flux_jy_, 0.0, 0.0, "%.4f");
-		ImGui::InputDouble("Image Position Angle (deg E of N)", &position_angle_deg_, 0.0, 0.0, "%.2f");
-		render_setting_tooltip("Position angle on the sky of the image vertical axis, measured from north through east. East is displayed to the left.");
-
-		ImGui::InputText("Target Name", target_name_.data(), target_name_.size());
-		ImGui::TextDisabled("Gravitational angular scale theta_g = GM/(c^2 D): %.4f microarcseconds per M", theta_g_uas());
-		render_setting_tooltip("Angular size subtended by one gravitational radius at the source distance. It converts simulation lengths to sky angles.");
-	}
-
-	void render_array_controls() {
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "VLBI Array");
-		if (ImGui::BeginCombo("Array Preset", Interferometry::VlbiArrayCatalog::preset_name(static_cast<size_t>(array_preset_)))) {
-			for (size_t i = 0; i < Interferometry::VlbiArrayCatalog::kPresetCount; ++i) {
-				if (ImGui::Selectable(Interferometry::VlbiArrayCatalog::preset_name(i), static_cast<int>(i) == array_preset_)) {
-					array_preset_ = static_cast<int>(i);
-					array_ = Interferometry::VlbiArrayCatalog::preset(i);
-				}
-			}
-			ImGui::EndCombo();
+		if (link_mode_ == 0) {
+			ImGui::SliderFloat("Electron Density (m^-3)", &electron_density_, 1.0e8f, 1.0e24f, "%.3e", ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat("Electron Temperature (K)", &electron_temperature_k_, 1.0e6f, 1.0e13f, "%.3e", ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat("Magnetic Field (T)", &magnetic_field_tesla_, 1.0e-6f, 1.0e5f, "%.3e", ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat("Pitch Angle (deg)", &pitch_angle_deg_, 1.0f, 179.0f, "%.1f");
+			ImGui::SliderFloat("Power Law Index (p)", &power_law_index_, 1.5f, 5.0f, "%.2f");
+			ImGui::SliderFloat("Non-Thermal Fraction", &non_thermal_fraction_, 0.0f, 1.0f, "%.3f");
+			ImGui::SliderFloat("Minimum Lorentz Factor", &gamma_min_, 1.0f, 1.0e4f, "%.1f", ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat("Maximum Lorentz Factor", &gamma_max_, 100.0f, 1.0e8f, "%.3e", ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat("Doppler Factor (g)", &doppler_factor_, 0.05f, 10.0f, "%.3f");
+			render_setting_tooltip("Spectral shift g = nu_obs / nu_emit applied to the emitted plasma. The emissivity and absorptivity are evaluated at nu_obs / g and boosted by g^2 and g^-1.");
+		} else if (link_mode_ == 2) {
+			ImGui::SliderFloat("Jet Radial Position", &jet_radius_fraction_, 0.0f, 1.0f, "%.3f");
+			render_setting_tooltip("Position between the inner and outer radius of the emitting jet volume.");
+			ImGui::SliderFloat("Jet Polar Angle (deg)", &jet_polar_angle_deg_, 0.5f, 179.5f, "%.1f");
+			ImGui::SliderFloat("Line-Of-Sight Angle (deg)", &jet_view_angle_deg_, 0.0f, 180.0f, "%.1f");
+			render_setting_tooltip("Angle between the local radial direction and the photon direction toward the observer, used for the pitch angle and the Doppler factor.");
+			ImGui::TextDisabled("Resolved radius: %.3f | Doppler g: %.4f | Pitch: %.1f deg", jet_radius_resolved_, jet_doppler_, jet_plasma_.pitch_angle_rad * 180.0 / std::numbers::pi_v<double>);
+		} else {
+			ImGui::TextDisabled("n_e: %.3e m^-3 | T_e: %.3e K | B: %.3e T | g: %.4f", active_settings_.plasma.electron_density, active_settings_.plasma.electron_temperature_k, active_settings_.plasma.magnetic_field_tesla, active_settings_.doppler_factor);
 		}
-		render_setting_tooltip("Selects a ground array. Space-orbiter presets add an orbiting antenna with a Keplerian circular orbit.");
-
-		if (ImGui::BeginTable("##VlbiStations", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-			ImGui::TableSetupColumn("Use", ImGuiTableColumnFlags_WidthFixed, 40.0f);
-			ImGui::TableSetupColumn("Station");
-			ImGui::TableSetupColumn("Diameter (m)", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("SEFD (Jy)", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-			ImGui::TableSetupColumn("Visible Epochs", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableHeadersRow();
-
-			for (size_t i = 0; i < array_.stations.size(); ++i) {
-				auto& station = array_.stations[i];
-				ImGui::PushID(static_cast<int>(i));
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::Checkbox("##use", &station.enabled);
-				ImGui::TableSetColumnIndex(1);
-				ImGui::Text("%s (%s)%s", station.telescope.c_str(), station.code.c_str(), station.kind == Interferometry::StationKind::SpaceOrbit ? " [space]" : "");
-				ImGui::TableSetColumnIndex(2);
-				ImGui::Text("%.1f", station.diameter_m);
-				ImGui::TableSetColumnIndex(3);
-				ImGui::SetNextItemWidth(90.0f);
-				ImGui::InputDouble("##sefd", &station.sefd_jy, 0.0, 0.0, "%.0f");
-				ImGui::TableSetColumnIndex(4);
-				if (dataset_.valid && i < dataset_.station_visible_epochs.size()) {
-					ImGui::Text("%u / %zu", dataset_.station_visible_epochs[i], dataset_.epoch_count);
-				} else {
-					ImGui::TextDisabled("-");
-				}
-				ImGui::PopID();
-			}
-			ImGui::EndTable();
-		}
-
-		for (size_t i = 0; i < array_.stations.size(); ++i) {
-			auto& station = array_.stations[i];
-			if (station.kind != Interferometry::StationKind::SpaceOrbit) continue;
-			ImGui::PushID(static_cast<int>(i) + 5000);
-			ImGui::TextDisabled("Orbit of %s", station.telescope.c_str());
-			slider_double_with_input("Orbit Altitude (km)", &station.orbit_altitude_km, 300.0, 400000.0, "%.0f", &log_altitude_, 300.0f, 400000.0f);
-			slider_double_with_input("Inclination (deg)", &station.orbit_inclination_deg, 0.0, 180.0, "%.1f");
-			slider_double_with_input("RAAN (deg)", &station.orbit_raan_deg, 0.0, 360.0, "%.1f");
-			slider_double_with_input("Initial Phase (deg)", &station.orbit_phase_deg, 0.0, 360.0, "%.1f");
-			ImGui::PopID();
-		}
+		ImGui::TextDisabled("%s", status_message_.c_str());
+		static_cast<void>(orchestrator);
 	}
 
 	void render_observation_controls() {
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1.0f), "Observation Schedule And Noise");
-
-		slider_double_with_input("Observing Frequency (GHz)", &frequency_ghz_, 1.0, 1000.0, "%.2f", &log_frequency_, 1.0f, 1000.0f);
-		slider_double_with_input("Bandwidth (GHz)", &bandwidth_ghz_, 0.01, 32.0, "%.3f", &log_bandwidth_, 0.01f, 32.0f);
-		slider_double_with_input("Integration Time (s)", &integration_time_s_, 0.5, 300.0, "%.1f");
-		render_setting_tooltip("Accumulation time per raw visibility record. Standard EHT continuum scans use 10 seconds.");
-
-		slider_double_with_input("Track Cadence (s)", &cadence_s_, 30.0, 3600.0, "%.0f");
-		slider_double_with_input("Observation Duration (hours)", &duration_hours_, 1.0, 72.0, "%.1f");
-		slider_double_with_input("Start UT (hours)", &start_hour_ut_, 0.0, 24.0, "%.2f");
-		ImGui::InputDouble("Start MJD", &start_mjd_, 0.0, 0.0, "%.1f");
-		render_setting_tooltip("Modified Julian Date of the observing epoch (e.g. 57854 for April 11, 2017).");
-
-		slider_double_with_input("Min Station Elevation (deg)", &minimum_elevation_deg_, 0.0, 45.0, "%.1f");
-		slider_double_with_input("Quantization Efficiency", &quantization_efficiency_, 0.5, 1.0, "%.2f");
-		render_setting_tooltip("Digital 2-bit correlation loss factor (typically 0.88 for standard 2-bit 4-level sampling).");
-
-		ImGui::Checkbox("Add Thermal Gaussian Noise", &thermal_noise_);
-		render_setting_tooltip("Synthesizes baseline thermal noise from the station SEFD values, bandwidth and integration time.");
-		if (thermal_noise_) {
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(140.0f);
-			ImGui::InputScalar("Noise Seed", ImGuiDataType_U64, &noise_seed_);
+		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Radiative Transfer Window");
+		ImGui::SliderFloat("Path Length (m)", &path_length_m_, 1.0f, 1.0e15f, "%.3e", ImGuiSliderFlags_Logarithmic);
+		render_setting_tooltip("Geometric depth of the emitting slab. Larger depths push the spectrum toward the optically thick regime where Faraday rotation and conversion dominate.");
+		ImGui::SliderFloat("Field Position Angle (deg)", &field_angle_deg_, -90.0f, 90.0f, "%.1f");
+		render_setting_tooltip("Rotates the Stokes reference frame, i.e. the projected magnetic field direction on the sky.");
+		ImGui::SliderFloat("Minimum Wavelength (nm)", &wavelength_min_nm_, 1.0f, 1.0e7f, "%.1f", ImGuiSliderFlags_Logarithmic);
+		ImGui::SliderFloat("Maximum Wavelength (nm)", &wavelength_max_nm_, 2.0f, 1.0e9f, "%.1f", ImGuiSliderFlags_Logarithmic);
+		wavelength_max_nm_ = std::max(wavelength_max_nm_, wavelength_min_nm_ * 1.05f);
+		ImGui::SliderInt("Spectral Samples", &sample_count_, 64, 2048);
+		if (ImGui::Button("Optical (380-780 nm)")) {
+			wavelength_min_nm_ = 380.0f;
+			wavelength_max_nm_ = 780.0f;
 		}
-
-		const char* resolutions[] = {"64 x 64", "128 x 128", "256 x 256", "512 x 512"};
-		int res_index = 1;
-		if (image_resolution_ == 64) res_index = 0;
-		else if (image_resolution_ == 128) res_index = 1;
-		else if (image_resolution_ == 256) res_index = 2;
-		else if (image_resolution_ == 512) res_index = 3;
-		if (ImGui::Combo("Synthesis Grid Resolution", &res_index, resolutions, IM_ARRAYSIZE(resolutions))) {
-			const uint32_t values[] = {64, 128, 256, 512};
-			image_resolution_ = values[res_index];
+		ImGui::SameLine();
+		if (ImGui::Button("Near IR (0.78-2.5 um)")) {
+			wavelength_min_nm_ = 780.0f;
+			wavelength_max_nm_ = 2500.0f;
 		}
-		render_setting_tooltip("Resolution of the square intensity grid downsampled from the viewport for DFT and FFT processing.");
-
-		ImGui::Checkbox("Auto-Calibrate Pixel Scale From Simulation Viewport", &auto_pixel_scale_);
-		render_setting_tooltip("When checked, one mass unit M in the viewport corresponds to theta_g on the sky. When unchecked, the manual pixel scale below is used.");
-		if (!auto_pixel_scale_) {
-			slider_double_with_input("Manual Pixel Scale (microarcseconds)", &manual_pixel_scale_uas_, 0.01, 100.0, "%.3f", &log_scale_, 0.01f, 100.0f);
+		ImGui::SameLine();
+		if (ImGui::Button("Millimeter (0.3-3 mm)")) {
+			wavelength_min_nm_ = 3.0e5f;
+			wavelength_max_nm_ = 3.0e6f;
 		}
+		ImGui::SameLine();
+		if (ImGui::Button("Radio (1-100 cm)")) {
+			wavelength_min_nm_ = 1.0e7f;
+			wavelength_max_nm_ = 1.0e9f;
+		}
+		render_setting_tooltip("Quick wavelength windows. Faraday rotation and the EVPA slope are most visible in the millimeter and radio windows.");
 	}
 
-	void render_actions(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
+	void render_statistics() {
+		const auto summary = Optics::PolarizedSpectrumSynthesizer::summarize(spectrum_, selected_wavelength_nm_);
 		ImGui::Separator();
-		if (synthesizing_) {
-			const float progress = control_ ? control_->progress.load(std::memory_order_relaxed) : 0.0f;
-			ImGui::ProgressBar(progress, ImVec2(320.0f, 0.0f), "Synthesizing Visibilities...");
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) {
-				if (control_) {
-					control_->cancel.store(true, std::memory_order_relaxed);
-				}
-			}
-		} else {
-			if (ImGui::Button("Synthesize Visibilities From Viewport", ImVec2(320.0f, 32.0f))) {
-				start_synthesis(orchestrator);
-			}
-			render_setting_tooltip("Grabs the current viewport luminance frame, computes baseline tracks across the observing window, evaluates exact DFT visibilities and generates closure phases.");
-		}
-
-		if (!status_message_.empty()) {
-			ImVec4 msg_color(0.5f, 0.9f, 1.0f, 1.0f);
-			if (status_message_.find("Error") != std::string::npos || status_message_.find("invalid") != std::string::npos || status_message_.find("missing") != std::string::npos) {
-				msg_color = ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
-			}
-			ImGui::TextColored(msg_color, "%s", status_message_.c_str());
-		}
-	}
-
-	void start_synthesis(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
-		if (!provider_) {
-			status_message_ = "Error: no image provider is hooked to the interferometry panel.";
-			return;
-		}
-
-		Interferometry::IntensityImage image;
-		if (!provider_(image, image_resolution_)) {
-			status_message_ = "Error: unable to capture the viewport intensity frame.";
-			return;
-		}
-
-		double pixel_scale_rad = 0.0;
-		if (auto_pixel_scale_) {
-			if (image.simulation_pixel_scale_rad > 0.0) {
-				pixel_scale_rad = image.simulation_pixel_scale_rad * theta_g_rad();
-			} else {
-				const double r_obs = std::max(orchestrator.parameters().observer_radius, 20.0);
-				const double screen_span_m = 2.0 * r_obs * std::tan(0.5 * 45.0 * std::numbers::pi_v<double> / 180.0);
-				pixel_scale_rad = (screen_span_m / static_cast<double>(image.size)) * theta_g_rad();
-			}
-		} else {
-			constexpr double uas_to_rad = (1.0 / 206264.806247096355) * 1.0e-6;
-			pixel_scale_rad = manual_pixel_scale_uas_ * uas_to_rad;
-		}
-
-		Interferometry::ObservationSettings settings;
-		settings.frequency_hz = frequency_ghz_ * 1.0e9;
-		settings.bandwidth_hz = bandwidth_ghz_ * 1.0e9;
-		settings.integration_time_s = integration_time_s_;
-		settings.source_right_ascension_deg = right_ascension_deg_;
-		settings.source_declination_deg = declination_deg_;
-		settings.image_position_angle_deg = position_angle_deg_;
-		settings.total_flux_jy = flux_jy_;
-		settings.start_mjd = start_mjd_;
-		settings.start_hour_ut = start_hour_ut_;
-		settings.duration_hours = duration_hours_;
-		settings.cadence_s = cadence_s_;
-		settings.minimum_elevation_deg = minimum_elevation_deg_;
-		settings.quantization_efficiency = quantization_efficiency_;
-		settings.thermal_noise = thermal_noise_;
-		settings.noise_seed = noise_seed_;
-
-		control_ = std::make_shared<Interferometry::SynthesisControl>();
-		synthesizing_ = true;
-		status_message_ = "Synthesis started in background threads...";
-
-		auto array_snapshot = array_;
-		task_ = std::async(std::launch::async, [img = std::move(image), arr = std::move(array_snapshot), set = settings, scale = pixel_scale_rad, ctrl = control_]() {
-			return Interferometry::VisibilitySynthesizer::synthesize(img, arr, set, scale, ctrl.get());
-		});
-	}
-
-	void poll_task() {
-		if (!synthesizing_ || !task_.valid()) return;
-		if (task_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-			dataset_ = task_.get();
-			synthesizing_ = false;
-			status_message_ = dataset_.message;
-			if (dataset_.valid) {
-				update_cache();
-			}
-		}
-	}
-
-	void update_cache() {
-		cache_ = PlotCache{};
-		constexpr double rad_to_deg = 180.0 / std::numbers::pi_v<double>;
-		const double t0 = dataset_.samples.empty() ? 0.0 : dataset_.samples.front().time_seconds;
-
-		for (const auto& sample : dataset_.samples) {
-			if (sample.flagged) continue;
-			const double u_gl = sample.u_lambda * 1.0e-9;
-			const double v_gl = sample.v_lambda * 1.0e-9;
-			const double bl = std::hypot(u_gl, v_gl);
-			const double amp = std::abs(sample.value);
-			const double phi = std::arg(sample.value) * rad_to_deg;
-			const double phi_err = (amp > 1e-30) ? std::min((sample.sigma_jy / amp) * rad_to_deg, 180.0) : 180.0;
-
-			cache_.sky_u_glambda.push_back(u_gl);
-			cache_.sky_v_glambda.push_back(v_gl);
-			cache_.sky_u_conj_glambda.push_back(-u_gl);
-			cache_.sky_v_conj_glambda.push_back(-v_gl);
-
-			cache_.baseline_glambda.push_back(bl);
-			cache_.amplitude.push_back(amp);
-			cache_.amplitude_error.push_back(sample.sigma_jy);
-			cache_.phase_deg.push_back(phi);
-			cache_.phase_error_deg.push_back(phi_err);
-		}
-
-		for (const auto& closure : dataset_.closures) {
-			cache_.closure_time_hours.push_back((closure.time_seconds - t0) / 3600.0);
-			cache_.closure_phase_deg.push_back(closure.phase_rad * rad_to_deg);
-			cache_.closure_phase_err_deg.push_back(closure.phase_error_rad * rad_to_deg);
-		}
-
-		cache_.profile_baseline_glambda = dataset_.profile_baseline_glambda;
-		cache_.profile_amplitude_jy.resize(dataset_.profile_amplitude.size());
-		for (size_t i = 0; i < dataset_.profile_amplitude.size(); ++i) {
-			cache_.profile_amplitude_jy[i] = dataset_.profile_amplitude[i] * dataset_.settings.total_flux_jy;
-		}
-	}
-
-	void render_results() {
-		if (!dataset_.valid) return;
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "Synthesized Dataset Summary");
-
-		const double max_bl_gl = dataset_.maximum_baseline_lambda * 1.0e-9;
-		const double res_uas = (dataset_.maximum_baseline_lambda > 0.0)
-			? ((1.0 / dataset_.maximum_baseline_lambda) * 206264.806247096355 * 1.0e6)
-			: 0.0;
-		const double max_bl_km = dataset_.maximum_baseline_lambda * dataset_.wavelength_m * 1.0e-3;
-
-		ImGui::Text("Valid Visibilities: %zu | Flagged: %zu | Closure Triangles: %zu", cache_.amplitude.size(), dataset_.flagged_count, dataset_.closures.size());
-		ImGui::Text("Maximum Baseline: %.2f Glambda (%.0f km) | Nominal Resolution: %.2f uas", max_bl_gl, max_bl_km, res_uas);
-		render_setting_tooltip("Nominal fringe spacing lambda / B_max. Ground-based 230 GHz EHT reaches ~25 uas; space orbiters extend this to sub-10 uas.");
-		ImGui::Text("Mean Baseline SNR: %.2f | Observing Wavelength: %.3f mm", dataset_.mean_snr, dataset_.wavelength_m * 1000.0);
-
-		if (ImGui::BeginTabBar("##InterferometryTabs")) {
-			if (ImGui::BeginTabItem("UV Coverage")) {
-				render_uv_tab();
-				ImGui::EndTabItem();
-			}
-			if (ImGui::BeginTabItem("Visibility Amplitude")) {
-				render_amplitude_tab();
-				ImGui::EndTabItem();
-			}
-			if (ImGui::BeginTabItem("Closure Phases")) {
-				render_closure_tab();
-				ImGui::EndTabItem();
-			}
-			if (ImGui::BeginTabItem("Synthesized UV Plane Heatmap")) {
-				render_plane_tab();
-				ImGui::EndTabItem();
-			}
-			if (ImGui::BeginTabItem("Visibility Table")) {
-				render_table_tab();
-				ImGui::EndTabItem();
-			}
-			ImGui::EndTabBar();
-		}
-
-		render_export();
-	}
-
-	void render_uv_tab() {
-		ImGui::Checkbox("Show Hermitian Conjugate Tracks (-u, -v)", &show_conjugate_uv_);
-		render_setting_tooltip("Radio astronomy convention: visibilities are Hermitian V(-u, -v) = V*(u, v). Displaying conjugates completes the synthesized aperture.");
-
-		if (ImPlot::BeginPlot("Synthesized UV Coverage", ImVec2(-1, 380), ImPlotFlags_Equal)) {
-			ImPlot::SetupAxes("u (Glambda) [East -> Left]", "v (Glambda) [North]", ImPlotAxisFlags_Invert, ImPlotAxisFlags_None);
-			if (!cache_.sky_u_glambda.empty()) {
-				ImPlot::PlotScatter("Visibilities", cache_.sky_u_glambda.data(), cache_.sky_v_glambda.data(), static_cast<int>(cache_.sky_u_glambda.size()));
-				if (show_conjugate_uv_) {
-					ImPlot::PlotScatter("Conjugates", cache_.sky_u_conj_glambda.data(), cache_.sky_v_conj_glambda.data(), static_cast<int>(cache_.sky_u_conj_glambda.size()));
-				}
-			}
-			ImPlot::EndPlot();
-		}
-	}
-
-	void render_amplitude_tab() {
-		if (ImPlot::BeginPlot("Visibility Amplitude vs Baseline Length", ImVec2(-1, 380))) {
-			ImPlot::SetupAxes("Baseline (Glambda)", "Correlated Flux Density (Jy)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-
-			if (!cache_.profile_baseline_glambda.empty()) {
-				ImPlot::PlotLine("Radial Profile (FFT)", cache_.profile_baseline_glambda.data(), cache_.profile_amplitude_jy.data(), static_cast<int>(cache_.profile_baseline_glambda.size()));
-			}
-
-			if (!cache_.baseline_glambda.empty()) {
-				ImPlot::PlotScatter("Measured Visibilities", cache_.baseline_glambda.data(), cache_.amplitude.data(), static_cast<int>(cache_.baseline_glambda.size()));
-				if (dataset_.settings.thermal_noise) {
-					ImPlot::PlotErrorBars("1-sigma Noise", cache_.baseline_glambda.data(), cache_.amplitude.data(), cache_.amplitude_error.data(), static_cast<int>(cache_.baseline_glambda.size()));
-				}
-			}
-			ImPlot::EndPlot();
-		}
-		ImGui::TextDisabled("The prominent dip and second bounce near 3-4 Glambda are the signature Bessel ring nulls of the photon ring / accretion disk shadow.");
-	}
-
-	void render_closure_tab() {
-		if (cache_.closure_time_hours.empty()) {
-			ImGui::TextDisabled("No closed station triangles were observed in this run.");
-			return;
-		}
-
-		if (ImPlot::BeginPlot("Closure Phase vs Observing Time", ImVec2(-1, 380))) {
-			ImPlot::SetupAxes("Elapsed Time (hours)", "Closure Phase (deg)");
-			ImPlot::SetupAxisLimits(ImAxis_Y1, -190.0, 190.0, ImPlotCond_Always);
-
-			ImPlot::PlotScatter("Closure Phase", cache_.closure_time_hours.data(), cache_.closure_phase_deg.data(), static_cast<int>(cache_.closure_time_hours.size()));
-			if (dataset_.settings.thermal_noise) {
-				ImPlot::PlotErrorBars("Phase Uncertainty", cache_.closure_time_hours.data(), cache_.closure_phase_deg.data(), cache_.closure_phase_err_deg.data(), static_cast<int>(cache_.closure_time_hours.size()));
-			}
-			ImPlot::EndPlot();
-		}
-		ImGui::TextDisabled("Closure phase is invariant to station-based atmospheric phase errors. Deviations from 0 deg and 180 deg indicate source structural asymmetry.");
-	}
-
-	void render_plane_tab() {
-		if (dataset_.plane_log_amplitude.empty() || dataset_.plane_size == 0) return;
-
-		const double half_span = 0.5 * static_cast<double>(dataset_.plane_size) * dataset_.plane_cell_lambda * 1.0e-9;
-		if (ImPlot::BeginPlot("Synthesized UV Fourier Plane Heatmap", ImVec2(-1, 380), ImPlotFlags_Equal)) {
-			ImPlot::SetupAxes("u (Glambda)", "v (Glambda)");
-			ImPlot::SetupAxisLimits(ImAxis_X1, -half_span, half_span);
-			ImPlot::SetupAxisLimits(ImAxis_Y1, -half_span, half_span);
-
-			const ImPlotPoint bmin(-half_span, -half_span);
-			const ImPlotPoint bmax(half_span, half_span);
-			ImPlot::PlotHeatmap("log10 Correlated Amplitude", dataset_.plane_log_amplitude.data(), static_cast<int>(dataset_.plane_size), static_cast<int>(dataset_.plane_size), -4.0, 0.0, nullptr, bmin, bmax);
-
-			if (!cache_.sky_u_glambda.empty()) {
-				ImPlot::PlotScatter("Coverage Points", cache_.sky_u_glambda.data(), cache_.sky_v_glambda.data(), static_cast<int>(cache_.sky_u_glambda.size()));
-			}
-			ImPlot::EndPlot();
-		}
-	}
-
-	void render_table_tab() {
-		if (ImGui::BeginTable("##VisibilitySamplesTable", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, ImVec2(0, 340.0f))) {
-			ImGui::TableSetupColumn("Time (s)", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-			ImGui::TableSetupColumn("Baseline", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableSetupColumn("u (Glambda)");
-			ImGui::TableSetupColumn("v (Glambda)");
-			ImGui::TableSetupColumn("Amp (Jy)");
-			ImGui::TableSetupColumn("Phase (deg)");
-			ImGui::TableSetupColumn("SNR");
+		ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "Polarization Statistics");
+		if (ImGui::BeginTable("##PolarizationStatistics", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+			ImGui::TableSetupColumn("Quantity", ImGuiTableColumnFlags_WidthFixed, 260.0f);
+			ImGui::TableSetupColumn("Value");
 			ImGui::TableHeadersRow();
-
-			const size_t display_count = std::min<size_t>(dataset_.samples.size(), 300);
-			for (size_t i = 0; i < display_count; ++i) {
-				const auto& sample = dataset_.samples[i];
-				if (sample.flagged) continue;
-				const std::string baseline = dataset_.array.stations[sample.station_a].code + "-" + dataset_.array.stations[sample.station_b].code;
-				const double amp = std::abs(sample.value);
-				const double snr = (sample.sigma_jy > 0.0) ? (amp / sample.sigma_jy) : 999.0;
-
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::Text("%.1f", sample.time_seconds);
-				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted(baseline.c_str());
-				ImGui::TableSetColumnIndex(2);
-				ImGui::Text("%.4f", sample.u_lambda * 1.0e-9);
-				ImGui::TableSetColumnIndex(3);
-				ImGui::Text("%.4f", sample.v_lambda * 1.0e-9);
-				ImGui::TableSetColumnIndex(4);
-				ImGui::Text("%.4f", amp);
-				ImGui::TableSetColumnIndex(5);
-				ImGui::Text("%.2f", std::arg(sample.value) * 180.0 / std::numbers::pi_v<double>);
-				ImGui::TableSetColumnIndex(6);
-				ImGui::Text("%.1f", snr);
-			}
+			table_row("Selected Wavelength", number("%.4g nm", summary.wavelength_nm), "Wavelength marked by the draggable line in the plots.");
+			table_row("Stokes I, Q, U, V", number("%.3e", summary.intensity) + ", " + number("%.3e", summary.stokes_q) + ", " + number("%.3e", summary.stokes_u) + ", " + number("%.3e", summary.stokes_v), "Spectral Stokes parameters per unit wavelength at the selected wavelength.");
+			table_row("Linear Polarization (DoLP)", number("%.3f %%", 100.0 * summary.dolp), "sqrt(Q^2 + U^2) / I.");
+			table_row("Circular Polarization (DoCP)", number("%.3f %%", 100.0 * summary.docp), "V / I. The sign gives the handedness.");
+			table_row("Total Polarization (DoP)", number("%.3f %%", 100.0 * summary.dop), "sqrt(Q^2 + U^2 + V^2) / I.");
+			table_row("EVPA chi", number("%.3f deg", summary.evpa_deg), "Electric vector position angle chi = 0.5 atan2(U, Q).");
+			const double axial_ratio = (summary.ellipse_semi_major > 1.0e-12) ? (summary.ellipse_semi_minor / summary.ellipse_semi_major) : 0.0;
+			table_row("Ellipse Semi-Axes (a, b)", number("%.4f", summary.ellipse_semi_major) + ", " + number("%.4f", summary.ellipse_semi_minor), "Normalized semi-axes of the polarization ellipse.");
+			table_row("Axial Ratio b / a", number("%.4f", axial_ratio), "Zero for purely linear polarization, one for purely circular polarization.");
+			table_row("Handedness", (summary.stokes_v > 0.0) ? std::string("Positive V") : ((summary.stokes_v < 0.0) ? std::string("Negative V") : std::string("Linear")), "Sign of Stokes V.");
+			table_row("Peak DoLP", number("%.3f %%", 100.0 * spectrum_.peak_dolp) + " at " + number("%.4g nm", spectrum_.peak_dolp_wavelength_nm), "Highest linear polarization over the window.");
+			table_row("Mean DoLP / DoCP", number("%.3f %%", 100.0 * spectrum_.mean_dolp) + " / " + number("%.3f %%", 100.0 * spectrum_.mean_docp), "Averages over the sampled window.");
+			table_row("Rotation Measure", number("%.4e rad/m^2", spectrum_.rotation_measure_rad_m2), "Linear fit of the unwrapped EVPA versus lambda^2.");
+			table_row("Spectral Index (nu^alpha)", number("%.4f", spectrum_.spectral_index), "Power-law slope of the specific intensity between the window edges.");
 			ImGui::EndTable();
 		}
-		if (dataset_.samples.size() > 300) {
-			ImGui::TextDisabled("Showing first 300 of %zu visibilities. Use OIFITS export for the complete dataset.", dataset_.samples.size());
+	}
+
+	void render_plots() {
+		const double lower = spectrum_.wavelength_nm.front();
+		const double upper = spectrum_.wavelength_nm.back();
+		const ImPlotCond limit_condition = plot_refit_ ? ImPlotCond_Always : ImPlotCond_Once;
+		const int count = static_cast<int>(spectrum_.wavelength_nm.size());
+
+		if (ImPlot::BeginSubplots("##PolarizationSubplots", 3, 1, ImVec2(-1.0f, 640.0f), ImPlotSubplotFlags_LinkAllX)) {
+			if (ImPlot::BeginPlot("Polarized Intensity")) {
+				ImPlot::SetupAxes("Wavelength (nm)", "Spectral Flux (W/m^2/sr/m)");
+				ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
+				ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
+				ImPlot::SetupAxisLimits(ImAxis_X1, lower, upper, limit_condition);
+				ImPlot::PlotLine("I", spectrum_.wavelength_nm.data(), intensity_plot_.data(), count);
+				ImPlot::PlotLine("Linear Flux sqrt(Q^2+U^2)", spectrum_.wavelength_nm.data(), linear_flux_.data(), count);
+				ImPlot::PlotLine("Circular Flux |V|", spectrum_.wavelength_nm.data(), circular_flux_.data(), count);
+				ImPlot::DragLineX(0, &selected_wavelength_nm_, ImVec4(1.0f, 0.85f, 0.2f, 1.0f));
+				ImPlot::EndPlot();
+			}
+			if (ImPlot::BeginPlot("Degrees Of Polarization")) {
+				ImPlot::SetupAxes("Wavelength (nm)", "Fraction");
+				ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
+				ImPlot::SetupAxisLimits(ImAxis_X1, lower, upper, limit_condition);
+				ImPlot::SetupAxisLimits(ImAxis_Y1, -1.05, 1.05, ImPlotCond_Once);
+				ImPlot::PlotLine("DoLP", spectrum_.wavelength_nm.data(), spectrum_.dolp.data(), count);
+				ImPlot::PlotLine("DoCP", spectrum_.wavelength_nm.data(), spectrum_.docp.data(), count);
+				ImPlot::PlotLine("DoP", spectrum_.wavelength_nm.data(), spectrum_.dop.data(), count);
+				ImPlot::DragLineX(1, &selected_wavelength_nm_, ImVec4(1.0f, 0.85f, 0.2f, 1.0f));
+				ImPlot::EndPlot();
+			}
+			if (ImPlot::BeginPlot("Electric Vector Position Angle")) {
+				ImPlot::SetupAxes("Wavelength (nm)", "EVPA chi (deg)");
+				ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
+				ImPlot::SetupAxisLimits(ImAxis_X1, lower, upper, limit_condition);
+				ImPlot::SetupAxisLimits(ImAxis_Y1, -95.0, 95.0, ImPlotCond_Once);
+				ImPlot::PlotLine("chi", spectrum_.wavelength_nm.data(), spectrum_.evpa_deg.data(), count);
+				ImPlot::DragLineX(2, &selected_wavelength_nm_, ImVec4(1.0f, 0.85f, 0.2f, 1.0f));
+				ImPlot::EndPlot();
+			}
+			ImPlot::EndSubplots();
 		}
+		plot_refit_ = false;
+		selected_wavelength_nm_ = std::clamp(selected_wavelength_nm_, lower, upper);
+
+		const auto summary = Optics::PolarizedSpectrumSynthesizer::summarize(spectrum_, selected_wavelength_nm_);
+		ImGui::SliderFloat("##SelectedWavelengthSlider", &selected_slider_value_, 0.0f, 1.0f, "Selected Wavelength Position");
+		selected_wavelength_nm_ = lower * std::pow(upper / lower, static_cast<double>(selected_slider_value_)) * ((std::abs(selected_slider_value_ - last_slider_value_) > 1.0e-6f) ? 1.0 : 0.0)
+			+ ((std::abs(selected_slider_value_ - last_slider_value_) > 1.0e-6f) ? 0.0 : selected_wavelength_nm_);
+		last_slider_value_ = selected_slider_value_;
+		selected_slider_value_ = static_cast<float>(std::clamp(std::log(selected_wavelength_nm_ / lower) / std::max(std::log(upper / lower), 1.0e-12), 0.0, 1.0));
+		last_slider_value_ = selected_slider_value_;
+		render_setting_tooltip("Moves the analysis wavelength logarithmically. The draggable vertical line in the plots does the same.");
+
+		if (ImPlot::BeginSubplots("##PolarizationEllipseSubplots", 1, 2, ImVec2(-1.0f, 320.0f))) {
+			if (ImPlot::BeginPlot("Polarization Ellipse", ImVec2(-1.0f, -1.0f), ImPlotFlags_Equal)) {
+				ImPlot::SetupAxes("Q direction", "U direction");
+				ImPlot::SetupAxisLimits(ImAxis_X1, -1.15, 1.15, ImPlotCond_Always);
+				ImPlot::SetupAxisLimits(ImAxis_Y1, -1.15, 1.15, ImPlotCond_Always);
+				constexpr size_t points = 129;
+				std::array<double, points> circle_x{};
+				std::array<double, points> circle_y{};
+				std::array<double, points> ellipse_x{};
+				std::array<double, points> ellipse_y{};
+				const double orientation = summary.ellipse_orientation_rad;
+				const double handedness = (summary.stokes_v >= 0.0) ? 1.0 : -1.0;
+				const double cos_psi = std::cos(orientation);
+				const double sin_psi = std::sin(orientation);
+				for (size_t i = 0; i < points; ++i) {
+					const double angle = 2.0 * std::numbers::pi_v<double> * static_cast<double>(i) / static_cast<double>(points - 1);
+					circle_x[i] = std::cos(angle);
+					circle_y[i] = std::sin(angle);
+					const double ex = summary.ellipse_semi_major * std::cos(angle);
+					const double ey = handedness * summary.ellipse_semi_minor * std::sin(angle);
+					ellipse_x[i] = ex * cos_psi - ey * sin_psi;
+					ellipse_y[i] = ex * sin_psi + ey * cos_psi;
+				}
+				ImPlot::PlotLine("Unit Amplitude", circle_x.data(), circle_y.data(), static_cast<int>(points));
+				ImPlot::PlotLine("Ellipse", ellipse_x.data(), ellipse_y.data(), static_cast<int>(points));
+				const double axis_x[2] = {-summary.ellipse_semi_major * cos_psi * 1.1, summary.ellipse_semi_major * cos_psi * 1.1};
+				const double axis_y[2] = {-summary.ellipse_semi_major * sin_psi * 1.1, summary.ellipse_semi_major * sin_psi * 1.1};
+				ImPlot::PlotLine("EVPA Axis", axis_x, axis_y, 2);
+				ImPlot::EndPlot();
+			}
+			if (ImPlot::BeginPlot("Normalized Stokes Q/I - U/I Trajectory", ImVec2(-1.0f, -1.0f), ImPlotFlags_Equal)) {
+				ImPlot::SetupAxes("Q / I", "U / I");
+				ImPlot::SetupAxisLimits(ImAxis_X1, -1.1, 1.1, ImPlotCond_Once);
+				ImPlot::SetupAxisLimits(ImAxis_Y1, -1.1, 1.1, ImPlotCond_Once);
+				constexpr size_t points = 129;
+				std::array<double, points> circle_x{};
+				std::array<double, points> circle_y{};
+				for (size_t i = 0; i < points; ++i) {
+					const double angle = 2.0 * std::numbers::pi_v<double> * static_cast<double>(i) / static_cast<double>(points - 1);
+					circle_x[i] = std::cos(angle);
+					circle_y[i] = std::sin(angle);
+				}
+				ImPlot::PlotLine("Full Polarization", circle_x.data(), circle_y.data(), static_cast<int>(points));
+				ImPlot::PlotLine("Spectrum Trace", q_norm_.data(), u_norm_.data(), count);
+				const double marker_x = (summary.intensity > 1.0e-300) ? summary.stokes_q / summary.intensity : 0.0;
+				const double marker_y = (summary.intensity > 1.0e-300) ? summary.stokes_u / summary.intensity : 0.0;
+				ImPlot::PlotScatter("Selected Wavelength", &marker_x, &marker_y, 1);
+				ImPlot::EndPlot();
+			}
+			ImPlot::EndSubplots();
+		}
+		ImGui::TextDisabled("The ellipse is drawn in the (Q, U) frame with its major axis along the EVPA. Positive V is drawn counterclockwise. A circular trace in the Q/U plane indicates Faraday rotation.");
 	}
 
 	void render_export() {
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.4f, 1.0f), "OIFITS Standard Exporter");
 		ImGui::SetNextItemWidth(360.0f);
-		ImGui::InputText("Export Destination (.oifits / .fits)", output_path_.data(), output_path_.size());
+		ImGui::InputText("Export Path (.csv)", export_path_.data(), export_path_.size());
 		ImGui::SameLine();
-
-		if (ImGui::Button("Export OIFITS File", ImVec2(180.0f, 0.0f))) {
-			Interferometry::OifitsTarget target;
-			target.name = target_name_.data();
-			target.instrument = "EHT_VLBI_SYNTH";
-			target.observer = "Relativistic Engine";
-			target.right_ascension_deg = right_ascension_deg_;
-			target.declination_deg = declination_deg_;
-
-			std::string error;
-			const bool ok = Interferometry::OifitsWriter::write(dataset_, target, output_path_.data(), error);
-			if (ok) {
-				export_status_ = "Successfully exported OIFITS to: " + std::string(output_path_.data());
+		if (ImGui::Button("Export Polarized Spectrum")) {
+			std::error_code error_code;
+			const std::filesystem::path path(export_path_.data());
+			if (path.has_parent_path()) {
+				std::filesystem::create_directories(path.parent_path(), error_code);
+			}
+			std::ofstream out(path, std::ios::trunc);
+			if (!out.is_open()) {
+				export_status_ = "Export failed: unable to open " + path.string();
 			} else {
-				export_status_ = "Export failed: " + error;
+				out << "wavelength_nm,intensity,stokes_q,stokes_u,stokes_v,dolp,docp,dop,evpa_deg\n";
+				out << std::setprecision(12);
+				for (size_t i = 0; i < spectrum_.wavelength_nm.size(); ++i) {
+					out << spectrum_.wavelength_nm[i] << ',' << spectrum_.intensity[i] << ',' << spectrum_.stokes_q[i] << ',' << spectrum_.stokes_u[i] << ',' << spectrum_.stokes_v[i] << ',' << spectrum_.dolp[i] << ',' << spectrum_.docp[i] << ',' << spectrum_.dop[i] << ',' << spectrum_.evpa_deg[i] << '\n';
+				}
+				export_status_ = out.good() ? ("Exported " + std::to_string(spectrum_.wavelength_nm.size()) + " samples to " + path.string()) : "Export failed: write error";
 			}
 		}
-		render_setting_tooltip("Exports standard OI_TARGET, OI_ARRAY, OI_WAVELENGTH, OI_VIS, OI_VIS2 and OI_T3 binary tables, ready for eht-imaging, DIFMAP or SMILI.");
-
+		render_setting_tooltip("Writes the full Stokes spectrum, polarization degrees and EVPA as a CSV table.");
 		if (!export_status_.empty()) {
-			const bool is_err = export_status_.find("failed") != std::string::npos;
-			ImGui::TextColored(is_err ? ImVec4(1.0f, 0.4f, 0.3f, 1.0f) : ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "%s", export_status_.c_str());
+			const bool failed = export_status_.find("failed") != std::string::npos;
+			ImGui::TextColored(failed ? ImVec4(1.0f, 0.4f, 0.3f, 1.0f) : ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "%s", export_status_.c_str());
 		}
 	}
 
-	int source_preset_{0};
-	int array_preset_{0};
-	double mass_msun_{6.5e9};
-	double distance_pc_{16.8e6};
-	double right_ascension_deg_{187.7059};
-	double declination_deg_{12.3911};
-	double flux_jy_{0.5};
-	double position_angle_deg_{288.0};
-	std::array<char, 64> target_name_{"M87"};
+	static void table_row(const char* label, const std::string& value, const char* tip) {
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		ImGui::TextUnformatted(label);
+		render_setting_tooltip(tip);
+		ImGui::TableSetColumnIndex(1);
+		ImGui::TextUnformatted(value.c_str());
+	}
 
-	double frequency_ghz_{230.0};
-	double bandwidth_ghz_{2.0};
-	double integration_time_s_{10.0};
-	double cadence_s_{600.0};
-	double duration_hours_{24.0};
-	double start_hour_ut_{0.0};
-	double start_mjd_{57854.0};
-	double minimum_elevation_deg_{10.0};
-	double quantization_efficiency_{0.88};
-	bool thermal_noise_{true};
-	uint64_t noise_seed_{20170411ULL};
+	#if defined(__GNUC__) || defined(__clang__)
+	[[gnu::format(printf, 1, 2)]]
+#endif
+	[[nodiscard]] static std::string number(const char* format, ...) {
+		char buffer[96];
+		va_list args;
+		va_start(args, format);
+		std::vsnprintf(buffer, sizeof(buffer), format, args);
+		va_end(args);
+		return buffer;
+	}
 
-	uint32_t image_resolution_{128};
-	bool auto_pixel_scale_{true};
-	double manual_pixel_scale_uas_{1.0};
-	bool show_conjugate_uv_{true};
+	int link_mode_{1};
+	int model_index_{0};
+	float electron_density_{1.0e18f};
+	float electron_temperature_k_{1.0e9f};
+	float magnetic_field_tesla_{0.1f};
+	float pitch_angle_deg_{60.0f};
+	float power_law_index_{3.0f};
+	float non_thermal_fraction_{0.01f};
+	float gamma_min_{10.0f};
+	float gamma_max_{1.0e5f};
+	float doppler_factor_{1.0f};
+	float path_length_m_{1.0e3f};
+	float field_angle_deg_{0.0f};
+	float wavelength_min_nm_{380.0f};
+	float wavelength_max_nm_{780.0f};
+	int sample_count_{400};
+	float jet_radius_fraction_{0.15f};
+	float jet_polar_angle_deg_{20.0f};
+	float jet_view_angle_deg_{60.0f};
+	double jet_radius_resolved_{0.0};
+	double jet_doppler_{1.0};
+	Optics::PolarizedPlasmaState<double> jet_plasma_{};
 
-	bool log_mass_{true};
-	bool log_distance_{true};
-	bool log_frequency_{true};
-	bool log_bandwidth_{true};
-	bool log_altitude_{true};
-	bool log_scale_{true};
-
-	Interferometry::VlbiArray array_{};
-	Interferometry::VlbiDataset dataset_{};
-	PlotCache cache_{};
-
-	std::shared_ptr<Interferometry::SynthesisControl> control_{nullptr};
-	std::future<Interferometry::VlbiDataset> task_{};
-	bool synthesizing_{false};
+	double selected_wavelength_nm_{550.0};
+	float selected_slider_value_{0.0f};
+	float last_slider_value_{0.0f};
+	bool plot_refit_{true};
+	bool has_spectrum_{false};
 	std::string status_message_{};
 
-	std::array<char, 260> output_path_{};
+	Optics::PolarizedSpectrumSettings active_settings_{};
+	Optics::PolarizedSpectrum spectrum_{};
+	std::vector<double> intensity_plot_{};
+	std::vector<double> linear_flux_{};
+	std::vector<double> circular_flux_{};
+	std::vector<double> q_norm_{};
+	std::vector<double> u_norm_{};
+	std::vector<double> v_norm_{};
+
+	std::array<char, 260> export_path_{};
 	std::string export_status_{};
-	ImageProvider provider_{nullptr};
 };
 
 }

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdarg>
 #include <numbers>
 #include <string>
 #include <vector>
@@ -26,6 +27,10 @@ public:
 
 	[[nodiscard]] bool frozen() const noexcept {
 		return frozen_;
+	}
+
+	void toggle_freeze() noexcept {
+		frozen_ = !frozen_;
 	}
 
 	void render(const Orchestrator::SimulationOrchestrator<1024>& orchestrator, const Optics::RayProbeResult& probe) {
@@ -68,7 +73,7 @@ public:
 			ImGui::TableSetupColumn("Value");
 			ImGui::TableHeadersRow();
 
-			row("Probed Pixel", number("(%.0f", probe.pixel_x) + ", " + number("%.0f)", probe.pixel_y), "Pixel of the render target selected by the probe.");
+			row("Probed Pixel", number("(%u, %u)", probe.pixel_x, probe.pixel_y), "Pixel of the render target selected by the probe.");
 			row("Spectral Shift g", number("%.6f", probe.spectral_shift_g), "Ratio of observed to emitted frequency, g = nu_obs / nu_emit. Disk hits use the orbiting emitter, sky rays use the static emitter at infinity, horizon rays are infinitely redshifted.");
 			row("Static Redshift 1/E", number("%.6f", probe.static_redshift_factor), "Frequency ratio between the observer frame and a static emitter at infinity along this ray.");
 			row("Impact Parameter b = Lz / E", number("%.6f M", probe.impact_parameter / mass), "Axial impact parameter in units of the central mass.");
@@ -105,9 +110,15 @@ private:
 		ImGui::TextUnformatted(value.c_str());
 	}
 
-	[[nodiscard]] static std::string number(const char* format, double value) {
+	#if defined(__GNUC__) || defined(__clang__)
+	[[gnu::format(printf, 1, 2)]]
+#endif
+	[[nodiscard]] static std::string number(const char* format, ...) {
 		char buffer[96];
-		std::snprintf(buffer, sizeof(buffer), format, value);
+		va_list args;
+		va_start(args, format);
+		std::vsnprintf(buffer, sizeof(buffer), format, args);
+		va_end(args);
 		return buffer;
 	}
 

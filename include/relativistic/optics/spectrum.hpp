@@ -24,7 +24,7 @@ enum class SpectralBand : uint32_t {
 template <typename Scalar = double>
 class ContinuousSpectrum {
 public:
-	static constexpr size_t NUM_SAMPLES = 64;
+	static constexpr size_t NUM_SAMPLES = 4096;
 
 private:
 	Scalar min_wavelength_m_{static_cast<Scalar>(1e-14)};
@@ -118,12 +118,13 @@ public:
 
 	[[nodiscard]] ContinuousSpectrum transform_doppler(Scalar g) const noexcept {
 		ContinuousSpectrum result;
-		const Scalar g3 = g * g * g;
+		const Scalar g2 = g * g;
+		const Scalar g5 = g2 * g2 * g;
 		for (size_t i = 0; i < NUM_SAMPLES; ++i) {
 			const Scalar lambda_obs = std::exp(result.log_wavelengths_[i]);
 			const Scalar lambda_emit = lambda_obs * g;
 			const Scalar i_emit = sample_radiance(lambda_emit);
-			result.radiance_values_[i] = g3 * i_emit;
+			result.radiance_values_[i] = g5 * i_emit;
 		}
 		return result;
 	}
@@ -144,8 +145,36 @@ public:
 		return sum * d_lambda;
 	}
 
-	[[nodiscard]] Scalar bolometric_radiance(size_t steps = 500) const noexcept {
-		return integrate_band(min_wavelength_m_, max_wavelength_m_, steps);
+	[[nodiscard]] Scalar integrate_band_logarithmic(Scalar lambda_start_m, Scalar lambda_end_m, size_t steps = 2000) const noexcept {
+		const Scalar lambda_a = std::max(lambda_start_m, min_wavelength_m_);
+		const Scalar lambda_b = std::min(lambda_end_m, max_wavelength_m_);
+		if (lambda_a >= lambda_b || steps == 0) {
+			return static_cast<Scalar>(0);
+		}
+		const Scalar log_a = std::log(lambda_a);
+		const Scalar log_step = (std::log(lambda_b) - log_a) / static_cast<Scalar>(steps);
+		Scalar sum = static_cast<Scalar>(0);
+		for (size_t i = 0; i <= steps; ++i) {
+			const Scalar lambda = std::exp(log_a + static_cast<Scalar>(i) * log_step);
+			const Scalar weight = (i == 0 || i == steps) ? static_cast<Scalar>(0.5) : static_cast<Scalar>(1);
+			sum += weight * sample_radiance(lambda) * lambda;
+		}
+		return sum * log_step;
+	}
+
+	[[nodiscard]] Scalar bolometric_radiance(size_t steps = 4000) const noexcept {
+		return integrate_band_logarithmic(min_wavelength_m_, max_wavelength_m_, steps);
+	}
+
+	template <typename Function>
+	[[nodiscard]] static ContinuousSpectrum from_wavelength_function(Function&& function) {
+		ContinuousSpectrum spec;
+		for (size_t i = 0; i < NUM_SAMPLES; ++i) {
+			const double lambda = std::exp(static_cast<double>(spec.log_wavelengths_[i]));
+			const double value = static_cast<double>(function(lambda));
+			spec.radiance_values_[i] = std::isfinite(value) ? static_cast<Scalar>(std::max(value, 0.0)) : static_cast<Scalar>(0);
+		}
+		return spec;
 	}
 };
 

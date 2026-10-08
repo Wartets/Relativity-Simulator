@@ -188,6 +188,10 @@ public:
 		performance_window_.attach_performance_analysis_window(performance_analysis_window_.open_state());
 		control_panel_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
 		performance_analysis_window_.attach_render_pipeline(viewport_window_->pipeline_ref());
+		spectrograph_window_.attach_ray_probe(&viewport_window_->ray_probe_result());
+		spectrograph_window_.set_intensity_provider([this](Interferometry::IntensityImage& image, uint32_t size) {
+			return viewport_window_ != nullptr && viewport_window_->capture_intensity_image(image, size);
+		});
 		last_frame_time_ = std::chrono::steady_clock::now();
 
 		telemetry_window_.open_state() = user_settings_.window_telemetry_open;
@@ -454,6 +458,7 @@ public:
 		show_viewport_ = true;
 		if (viewport_window_) {
 			try {
+				synchronize_analysis_links();
 				auto theme = window_chrome_.scope(WindowThemeId::Viewport);
 				viewport_window_->render(main_window_, dt, multi_window_mode_);
 			} catch (const std::exception& ex) {
@@ -582,6 +587,21 @@ public:
 	}
 
 private:
+	void synchronize_analysis_links() noexcept {
+		if (!viewport_window_) {
+			return;
+		}
+		const auto& hud = user_settings_.hud_layout;
+		const bool hud_needs_probe = hud.master_enabled
+			&& (hud.element(HudElementId::RayProbeReadout).enabled || hud.element(HudElementId::RayProbeEmissionReadout).enabled);
+		viewport_window_->configure_ray_probe(
+			spectrograph_window_.open_state() || hud_needs_probe,
+			spectrograph_window_.ray_probe_source(),
+			spectrograph_window_.ray_probe_frozen()
+		);
+		viewport_window_->set_linked_readouts(spectrograph_window_.linked_readouts());
+	}
+
 	void queue_session_restore() {
 		if (user_settings_.session_values.empty()) {
 			return;
@@ -687,6 +707,9 @@ private:
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleSpectrographWindow, main_window_)) {
 			spectrograph_window_.open_state() = !spectrograph_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleRayProbeFreeze, main_window_)) {
+			spectrograph_window_.toggle_ray_probe_freeze();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::TogglePerformanceAnalysisWindow, main_window_)) {
 			performance_analysis_window_.open_state() = !performance_analysis_window_.open_state();

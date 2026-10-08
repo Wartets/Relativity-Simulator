@@ -14,6 +14,10 @@
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
+#include "relativistic/optics/geodesic_ray_probe.hpp"
+#include "relativistic/observer/camera_projections.hpp"
+#include "relativistic/interferometry/visibility_synthesis.hpp"
+#include "relativistic/ui/hud/hud_linked_readouts.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/io/capture/screenshot_exporter.hpp"
 #include "relativistic/io/capture/screenshot_capture_settings.hpp"
@@ -97,6 +101,16 @@ private:
 	ImVec2 viewport_content_size_{0.0f, 0.0f};
 	ImVec2 viewport_window_origin_{0.0f, 0.0f};
 	ImVec2 viewport_window_extent_{0.0f, 0.0f};
+	Optics::RayProbeResult ray_probe_result_{};
+	Optics::RayProbeQuery ray_probe_query_{};
+	bool ray_probe_has_query_{false};
+	bool ray_probe_active_{false};
+	bool ray_probe_frozen_{false};
+	int ray_probe_source_{0};
+	ImVec2 ray_probe_texture_position_{0.5f, 0.5f};
+	uint32_t display_frame_width_{0};
+	uint32_t display_frame_height_{0};
+	HudLinkedReadouts linked_readouts_{};
 
 	struct DynamicLookAtTarget {
 		std::string label;
@@ -345,6 +359,173 @@ public:
 
 	[[nodiscard]] Render::GeodesicComputePipeline& pipeline_ref() noexcept {
 		return pipeline_;
+	}
+
+	void configure_ray_probe(bool active, int source, bool frozen) noexcept {
+		ray_probe_active_ = active;
+		ray_probe_source_ = source;
+		ray_probe_frozen_ = frozen;
+	}
+
+	[[nodiscard]] const Optics::RayProbeResult& ray_probe_result() const noexcept {
+		return ray_probe_result_;
+	}
+
+	void set_linked_readouts(const HudLinkedReadouts& readouts) noexcept {
+		linked_readouts_ = readouts;
+	}
+
+	[[nodiscard]] bool capture_intensity_image(Interferometry::IntensityImage& image, uint32_t size) const {
+		const uint32_t frame_w = display_frame_width_;
+		const uint32_t frame_h = display_frame_height_;
+		if (size < 8U || frame_w == 0U || frame_h == 0U || display_framebuffer_.size() < static_cast<size_t>(frame_w) * static_cast<size_t>(frame_h)) {
+			return false;
+		}
+		static const std::array<double, 4096> decode_table = [] {
+			std::array<double, 4096> table{};
+			for (size_t i = 0; i < table.size(); ++i) {
+				const double encoded = static_cast<double>(i) / 4095.0;
+				table[i] = (encoded <= 0.04045) ? (encoded / 12.92) : std::pow((encoded + 0.055) / 1.055, 2.4);
+			}
+			return table;
+		}();
+		const auto linearize = [](float value) noexcept -> size_t {
+			return static_cast<size_t>(std::clamp(value, 0.0f, 1.0f) * 4095.0f + 0.5f);
+		};
+
+		const uint32_t side = std::min(frame_w, frame_h);
+		const uint32_t origin_x = (frame_w - side) / 2U;
+		const uint32_t origin_y = (frame_h - side) / 2U;
+		image.size = size;
+		image.pixels.assign(static_cast<size_t>(size) * size, 0.0);
+		for (uint32_t j = 0; j < size; ++j) {
+			const uint32_t y_begin = origin_y + static_cast<uint32_t>(static_cast<uint64_t>(j) * side / size);
+			const uint32_t y_end = std::min(origin_y + side, std::max(y_begin + 1U, origin_y + static_cast<uint32_t>(static_cast<uint64_t>(j + 1U) * side / size)));
+			for (uint32_t i = 0; i < size; ++i) {
+				const uint32_t x_begin = origin_x + static_cast<uint32_t>(static_cast<uint64_t>(i) * side / size);
+				const uint32_t x_end = std::min(origin_x + side, std::max(x_begin + 1U, origin_x + static_cast<uint32_t>(static_cast<uint64_t>(i + 1U) * side / size)));
+				double sum = 0.0;
+				uint32_t samples = 0;
+				for (uint32_t y = y_begin; y < y_end; ++y) {
+					for (uint32_t x = x_begin; x < x_end; ++x) {
+						const auto& px = display_framebuffer_[static_cast<size_t>(y) * frame_w + x];
+						sum += 0.2126 * decode_table[linearize(px.r)] + 0.7152 * decode_table[linearize(px.g)] + 0.0722 * decode_table[linearize(px.b)];
+						++samples;
+					}
+				}
+				image.pixels[static_cast<size_t>(j) * size + i] = (samples > 0U) ? (sum / static_cast<double>(samples)) : 0.0;
+			}
+		}
+
+		const auto& cam = orchestrator_.camera();
+		const auto& params = orchestrator_.parameters();
+		const double mass = std::max(params.mass, 1e-9);
+		const double fov_rad = cam.fov_deg * (std::numbers::pi / 180.0);
+		const double vertical_extent = (params.projection_mode <= 1U) ? (2.0 * std::tan(0.5 * fov_rad)) : fov_rad;
+		const double extent = vertical_extent * static_cast<double>(side) / static_cast<double>(frame_h);
+		image.observer_radius = cam.radius;
+		image.simulation_pixel_scale_rad = cam.radius * extent / mass / static_cast<double>(size);
+		return true;
+	}
+
+	void update_ray_probe(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius) {
+		constexpr uint32_t kProbeMaxSteps = 16384U;
+		if (!ray_probe_active_ || ray_probe_frozen_ || avail.x < 1.0f || avail.y < 1.0f) {
+			return;
+		}
+		if (ray_probe_source_ == 1) {
+			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
+		} else if (image_hovered) {
+			const ImVec2 mouse = ImGui::GetMousePos();
+			const float fx = std::clamp((mouse.x - image_pos.x) / avail.x, 0.0f, 1.0f);
+			const float fy = std::clamp((mouse.y - image_pos.y) / avail.y, 0.0f, 1.0f);
+			ray_probe_texture_position_ = ImVec2(uv0.x + fx * (uv1.x - uv0.x), uv0.y + fy * (uv1.y - uv0.y));
+		} else if (ray_probe_has_query_) {
+			return;
+		} else {
+			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
+		}
+
+		const uint32_t frame_w = (display_frame_width_ > 0U) ? display_frame_width_ : current_width_;
+		const uint32_t frame_h = (display_frame_height_ > 0U) ? display_frame_height_ : current_height_;
+		if (frame_w == 0U || frame_h == 0U) {
+			return;
+		}
+		const uint32_t pixel_x = std::min(frame_w - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.x, 0.0f, 1.0f) * static_cast<float>(frame_w)));
+		const uint32_t pixel_y = std::min(frame_h - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.y, 0.0f, 1.0f) * static_cast<float>(frame_h)));
+
+		const auto& params = orchestrator_.parameters();
+		const auto& cam = orchestrator_.camera();
+		const auto spherical = cam.spherical_coordinates();
+		const auto basis = cam.orientation_basis();
+		const double aspect = static_cast<double>(frame_w) / static_cast<double>(frame_h);
+		const double v_norm = 1.0 - (static_cast<double>(pixel_y) + 0.5) / static_cast<double>(frame_h) * 2.0;
+		const double u_raw = (static_cast<double>(pixel_x) + 0.5) / static_cast<double>(frame_w) * 2.0 - 1.0;
+		const bool all_sky = (params.projection_mode == 3U || params.projection_mode == 7U);
+		const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
+			static_cast<Observer::ProjectionMode>(params.projection_mode),
+			all_sky ? u_raw : (u_raw * aspect), v_norm, cam.fov_deg * (std::numbers::pi / 180.0)
+		);
+
+		Optics::RayProbeQuery query;
+		query.metric_type = get_metric_id_from_name(orchestrator_.active_metric_name());
+		query.mass = params.mass;
+		query.spin = params.spin;
+		query.charge = params.charge;
+		query.cosmological_lambda = params.cosmological_lambda;
+		query.observer_radius = spherical[0];
+		query.observer_theta = spherical[1];
+		query.observer_phi = spherical[2];
+		for (size_t i = 0; i < 3; ++i) {
+			query.direction[i] = n_local[0] * basis.forward[i] + n_local[2] * basis.right[i] + n_local[1] * basis.up[i];
+		}
+		query.escape_radius = escape_radius;
+		query.max_steps = std::min(params.max_ray_steps, kProbeMaxSteps);
+		query.step_size_factor = params.integration_step_factor;
+		query.min_step_size = params.integration_min_step;
+		query.max_step_size = params.integration_max_step;
+		query.far_field_step_scale = params.far_field_step_scale;
+		query.pole_guard_precision_scale = params.pole_guard_precision_scale;
+		query.disk_enabled = params.primary_disk.enabled;
+		query.disk_inner_radius_scale = params.primary_disk.inner_radius_scale;
+		query.disk_outer_radius_mass_units = params.primary_disk.outer_radius_mass_units;
+		query.pixel_x = pixel_x;
+		query.pixel_y = pixel_y;
+
+		if (ray_probe_has_query_ && query == ray_probe_query_) {
+			return;
+		}
+		ray_probe_query_ = query;
+		ray_probe_has_query_ = true;
+		ray_probe_result_ = Optics::GeodesicRayProbe::trace(query);
+	}
+
+	void draw_ray_probe_marker(ImDrawList* draw_list, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1) const {
+		if (!ray_probe_active_ || !ray_probe_result_.valid) {
+			return;
+		}
+		const float span_x = uv1.x - uv0.x;
+		const float span_y = uv1.y - uv0.y;
+		if (span_x <= 0.0f || span_y <= 0.0f) {
+			return;
+		}
+		const float fx = (ray_probe_texture_position_.x - uv0.x) / span_x;
+		const float fy = (ray_probe_texture_position_.y - uv0.y) / span_y;
+		if (fx < 0.0f || fx > 1.0f || fy < 0.0f || fy > 1.0f) {
+			return;
+		}
+		const ImVec2 center(image_pos.x + fx * avail.x, image_pos.y + fy * avail.y);
+		ImU32 color = IM_COL32(120, 220, 255, 235);
+		if (ray_probe_result_.disk_hit) color = IM_COL32(255, 180, 60, 235);
+		else if (ray_probe_result_.termination == Optics::RayTermination::HorizonAbsorbed) color = IM_COL32(255, 80, 70, 235);
+		draw_list->AddCircle(center, 9.0f, color, 24, 1.8f);
+		draw_list->AddLine(ImVec2(center.x - 15.0f, center.y), ImVec2(center.x - 5.0f, center.y), color, 1.6f);
+		draw_list->AddLine(ImVec2(center.x + 5.0f, center.y), ImVec2(center.x + 15.0f, center.y), color, 1.6f);
+		draw_list->AddLine(ImVec2(center.x, center.y - 15.0f), ImVec2(center.x, center.y - 5.0f), color, 1.6f);
+		draw_list->AddLine(ImVec2(center.x, center.y + 5.0f), ImVec2(center.x, center.y + 15.0f), color, 1.6f);
+		char label[64];
+		std::snprintf(label, sizeof(label), "g=%.4f%s", ray_probe_result_.spectral_shift_g, ray_probe_frozen_ ? " [frozen]" : "");
+		draw_list->AddText(ImVec2(center.x + 14.0f, center.y + 10.0f), color, label);
 	}
 
 	void render(GLFWwindow* window, double dt, bool fullscreen_bg) {
@@ -684,6 +865,8 @@ public:
 			}
 			if (got_new_frame) {
 				const auto& fb = display_framebuffer_;
+				display_frame_width_ = fb_w;
+				display_frame_height_ = fb_h;
 				const size_t pixel_count = static_cast<size_t>(fb_w) * static_cast<size_t>(fb_h);
 				if (pixel_count > 0 && fb.size() >= pixel_count) {
 					const auto post_processing_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::PostProcessing);
@@ -802,6 +985,9 @@ public:
 				reinterpret_cast<void*>(static_cast<intptr_t>(gl_texture_id_)),
 				avail, zoom_uv0, zoom_uv1
 			);
+			const bool probe_image_hovered = ImGui::IsItemHovered();
+			update_ray_probe(probe_image_hovered, viewport_image_pos, avail, zoom_uv0, zoom_uv1, cam_consts.escape_radius);
+			draw_ray_probe_marker(ImGui::GetWindowDrawList(), viewport_image_pos, avail, zoom_uv0, zoom_uv1);
 
 			if (schematic_cfg_.show_overlay_in_raytraced_view) {
 				const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
@@ -1752,6 +1938,85 @@ private:
 				std::snprintf(buf, sizeof(buf), "Constants: %s Preset", kPresetLabels[preset_idx]);
 			}
 			push_block(HudElementId::ConstantsQuickReadout, {HudTextLine{buf}});
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::RayProbeReadout);
+			const auto& probe = ray_probe_result_;
+			if (style.enabled && probe.valid) {
+				const double mass_scale = std::max(params.mass, 1e-9);
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const char* fate = probe.disk_hit ? "Disk" : Optics::ray_termination_name(probe.termination);
+				char buf[224];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "%s | g=%.*f", fate, prec, probe.spectral_shift_g);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Probe (%u, %u): %s | g=%.*f | b=%.*f M | Q=%.*e | Iterations: %u", probe.pixel_x, probe.pixel_y, fate, prec, probe.spectral_shift_g, prec, probe.impact_parameter / mass_scale, prec, probe.carter_constant, probe.iterations);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Probe: %s | g=%.*f | b=%.*f M", fate, prec, probe.spectral_shift_g, prec, probe.impact_parameter / mass_scale);
+				}
+				const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+				push_block(HudElementId::RayProbeReadout, {HudTextLine{buf, hud_resolve_dynamic_color(style, probe.spectral_shift_g, base_col)}});
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::RayProbeEmissionReadout);
+			const auto& probe = ray_probe_result_;
+			if (style.enabled && probe.valid) {
+				const double mass_scale = std::max(params.mass, 1e-9);
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const auto& unit_prefs = orchestrator_.unit_preferences();
+				const double length_scale = orchestrator_.constants_engine().length_scale();
+				const std::string r_text = Units::format_distance(probe.emission_r * length_scale, unit_prefs.distance, prec);
+				const std::string theta_text = Units::format_angle(probe.emission_theta, unit_prefs.angle);
+				const std::string phi_text = Units::format_angle(probe.emission_phi, unit_prefs.angle);
+				char buf[224];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "r_e=%.*f M", prec, probe.emission_r / mass_scale);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Emission: r=%s (%.*f M) | theta=%s | phi=%s | Closest Approach: %.*f M", r_text.c_str(), prec, probe.emission_r / mass_scale, theta_text.c_str(), phi_text.c_str(), prec, probe.minimum_radius / mass_scale);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Emission: r=%s | theta=%s | phi=%s", r_text.c_str(), theta_text.c_str(), phi_text.c_str());
+				}
+				push_block(HudElementId::RayProbeEmissionReadout, {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::PolarizationQuickReadout);
+			const auto& pol = linked_readouts_.polarization;
+			if (style.enabled && pol.valid) {
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				char buf[224];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "DoLP %.*f%% | EVPA %.*f deg", prec, 100.0 * pol.dolp, prec, pol.evpa_deg);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Polarization @ %.4g nm: DoLP %.*f%% | DoCP %.*f%% | EVPA %.*f deg | I=%.*e", pol.wavelength_nm, prec, 100.0 * pol.dolp, prec, 100.0 * pol.docp, prec, pol.evpa_deg, prec, pol.intensity);
+				} else {
+					std::snprintf(buf, sizeof(buf), "Polarization @ %.4g nm: DoLP %.*f%% | DoCP %.*f%% | EVPA %.*f deg", pol.wavelength_nm, prec, 100.0 * pol.dolp, prec, 100.0 * pol.docp, prec, pol.evpa_deg);
+				}
+				const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+				push_block(HudElementId::PolarizationQuickReadout, {HudTextLine{buf, hud_resolve_dynamic_color(style, pol.dolp * 100.0, base_col)}});
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::InterferometryQuickReadout);
+			const auto& vlbi = linked_readouts_.interferometry;
+			if (style.enabled && vlbi.valid) {
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				char buf[224];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "VLBI %.*f uas", prec, vlbi.resolution_uas);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "VLBI: %zu visibilities | %zu closure phases | B_max %.*f Glambda | Resolution %.*f uas | Mean SNR %.*f", vlbi.visibility_count, vlbi.closure_count, prec, vlbi.maximum_baseline_glambda, prec, vlbi.resolution_uas, prec, vlbi.mean_snr);
+				} else {
+					std::snprintf(buf, sizeof(buf), "VLBI: %zu vis | B_max %.*f Glambda | Resolution %.*f uas", vlbi.visibility_count, prec, vlbi.maximum_baseline_glambda, prec, vlbi.resolution_uas);
+				}
+				const ImU32 base_col = ImGui::ColorConvertFloat4ToU32(ImVec4(style.text_color[0], style.text_color[1], style.text_color[2], style.text_color[3]));
+				push_block(HudElementId::InterferometryQuickReadout, {HudTextLine{buf, hud_resolve_dynamic_color(style, vlbi.mean_snr, base_col)}});
+			}
 		}
 
 		{

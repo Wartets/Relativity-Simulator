@@ -86,6 +86,7 @@ enum class InputAction : uint32_t {
 	BulkAverageBodyMasses,
 	BulkZeroAllSpins,
 	ToggleCaptureStudio,
+	ToggleRayProbeFreeze,
 	Count
 };
 
@@ -188,6 +189,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::TogglePerformanceAnalysisWindow:
 		case InputAction::ToggleConstantsWindow:
 		case InputAction::ToggleCaptureStudio:
+		case InputAction::ToggleRayProbeFreeze:
 			return InputActionCategory::InterfaceWindows;
 		case InputAction::StartStopBenchmarkCapture:
 		case InputAction::QuickSaveBenchmarkRun:
@@ -259,6 +261,7 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::QuickSaveBenchmarkRun: return "Quick Save Live Window As Benchmark Run";
 		case InputAction::ToggleConstantsWindow: return "Toggle Physical Constants Engine";
 		case InputAction::ToggleCaptureStudio: return "Toggle Capture Studio";
+		case InputAction::ToggleRayProbeFreeze: return "Freeze / Unfreeze Ray Probe";
 		case InputAction::BulkInvertAllVelocities: return "Bulk: Invert All Body Velocities";
 		case InputAction::BulkScatterBodyPositions: return "Bulk: Scatter Body Positions";
 		case InputAction::BulkSnapBodiesToGrid: return "Bulk: Snap Bodies To Grid";
@@ -521,6 +524,7 @@ public:
 			case InputAction::StartStopBenchmarkCapture: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			case InputAction::QuickSaveBenchmarkRun: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			case InputAction::ToggleConstantsWindow: return KeyBinding{GLFW_KEY_SEMICOLON, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleRayProbeFreeze: return KeyBinding{GLFW_KEY_BACKSLASH, GLFW_KEY_UNKNOWN};
 			default: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 		}
 	}

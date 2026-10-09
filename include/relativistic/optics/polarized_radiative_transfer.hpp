@@ -192,6 +192,46 @@ public:
 
 		return step_delano_analytical(initial_stokes, j_obs, k_obs, path_length_m);
 	}
+
+	[[nodiscard]] static StokesVector<Scalar> integrate_hybrid_segment(
+		const StokesVector<Scalar>& initial_stokes,
+		Scalar nu_obs,
+		Scalar g_doppler,
+		const PolarizedPlasmaState<Scalar>& plasma,
+		Scalar path_length_m
+	) noexcept {
+		using Engine = RadiativeProcessEngine<Scalar>;
+		const Scalar nu_emit = nu_obs / g_doppler;
+		const Scalar fraction = std::clamp(plasma.non_thermal_fraction, static_cast<Scalar>(0.0), static_cast<Scalar>(1.0));
+
+		PolarizedPlasmaState<Scalar> thermal = plasma;
+		thermal.electron_density = plasma.electron_density * (static_cast<Scalar>(1.0) - fraction);
+		thermal.ion_density = thermal.electron_density;
+
+		const auto j_nt = Engine::non_thermal_synchrotron_emissivity(nu_emit, plasma);
+		const auto k_nt = Engine::non_thermal_synchrotron_absorptivity(nu_emit, plasma);
+		const auto j_th = Engine::thermal_synchrotron_emissivity(nu_emit, thermal);
+		const auto k_th = Engine::thermal_synchrotron_absorptivity(nu_emit, thermal);
+
+		const Scalar g2 = g_doppler * g_doppler;
+		const StokesEmissivity<Scalar> j_obs(
+			(j_nt.j_i + j_th.j_i) * g2,
+			(j_nt.j_q + j_th.j_q) * g2,
+			(j_nt.j_u + j_th.j_u) * g2,
+			(j_nt.j_v + j_th.j_v) * g2
+		);
+		const StokesTransferMatrix<Scalar> k_obs(
+			(k_nt.alpha_i + k_th.alpha_i) / g_doppler,
+			(k_nt.alpha_q + k_th.alpha_q) / g_doppler,
+			(k_nt.alpha_u + k_th.alpha_u) / g_doppler,
+			(k_nt.alpha_v + k_th.alpha_v) / g_doppler,
+			(k_nt.rho_q + k_th.rho_q) / g_doppler,
+			(k_nt.rho_u + k_th.rho_u) / g_doppler,
+			(k_nt.rho_v + k_th.rho_v) / g_doppler
+		);
+
+		return step_delano_analytical(initial_stokes, j_obs, k_obs, path_length_m);
+	}
 };
 
 }

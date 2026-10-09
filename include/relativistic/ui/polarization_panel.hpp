@@ -276,7 +276,15 @@ private:
 			table_row("Peak DoLP", number("%.3f %%", 100.0 * spectrum_.peak_dolp) + " at " + number("%.4g nm", spectrum_.peak_dolp_wavelength_nm), "Highest linear polarization over the window.");
 			table_row("Mean DoLP / DoCP", number("%.3f %%", 100.0 * spectrum_.mean_dolp) + " / " + number("%.3f %%", 100.0 * spectrum_.mean_docp), "Averages over the sampled window.");
 			table_row("Rotation Measure", number("%.4e rad/m^2", spectrum_.rotation_measure_rad_m2), "Linear fit of the unwrapped EVPA versus lambda^2.");
-			table_row("Spectral Index (nu^alpha)", number("%.4f", spectrum_.spectral_index), "Power-law slope of the specific intensity between the window edges.");
+			table_row("Spectral Index (nu^alpha)", number("%.4f", spectrum_.spectral_index), "Least-squares slope of ln I_nu versus ln nu over the whole window.");
+			if (active_settings_.model == Optics::PolarizationEmissionModel::NonThermalPowerLaw) {
+				const double p = active_settings_.plasma.power_law_index;
+				const double intrinsic = (p + 1.0) / (p + 7.0 / 3.0);
+				table_row("Intrinsic Linear Limit", number("%.3f %%", 100.0 * intrinsic), "Maximum linear polarization of optically thin power-law synchrotron emission, (p + 1) / (p + 7/3).");
+				table_row("Depolarization Ratio", number("%.4f", (intrinsic > 0.0) ? (summary.dolp / intrinsic) : 0.0), "Observed DoLP divided by the intrinsic limit. Values well below one reveal Faraday depolarization or optical depth effects.");
+			}
+			const double selected_lambda_m = summary.wavelength_nm * 1e-9;
+			table_row("Faraday Rotation At Selected Wavelength", number("%.3f deg", spectrum_.rotation_measure_rad_m2 * selected_lambda_m * selected_lambda_m * 180.0 / std::numbers::pi_v<double>), "Rotation of the EVPA relative to lambda = 0 predicted by the fitted rotation measure.");
 			ImGui::EndTable();
 		}
 	}
@@ -324,13 +332,13 @@ private:
 		plot_refit_ = false;
 		selected_wavelength_nm_ = std::clamp(selected_wavelength_nm_, lower, upper);
 
-		const auto summary = Optics::PolarizedSpectrumSynthesizer::summarize(spectrum_, selected_wavelength_nm_);
-		ImGui::SliderFloat("##SelectedWavelengthSlider", &selected_slider_value_, 0.0f, 1.0f, "Selected Wavelength Position");
-		selected_wavelength_nm_ = lower * std::pow(upper / lower, static_cast<double>(selected_slider_value_)) * ((std::abs(selected_slider_value_ - last_slider_value_) > 1.0e-6f) ? 1.0 : 0.0)
-			+ ((std::abs(selected_slider_value_ - last_slider_value_) > 1.0e-6f) ? 0.0 : selected_wavelength_nm_);
-		last_slider_value_ = selected_slider_value_;
 		selected_slider_value_ = static_cast<float>(std::clamp(std::log(selected_wavelength_nm_ / lower) / std::max(std::log(upper / lower), 1.0e-12), 0.0, 1.0));
-		last_slider_value_ = selected_slider_value_;
+		if (ImGui::SliderFloat("##SelectedWavelengthSlider", &selected_slider_value_, 0.0f, 1.0f, "Selected Wavelength Position")) {
+			selected_wavelength_nm_ = lower * std::pow(upper / lower, static_cast<double>(selected_slider_value_));
+		}
+		ImGui::SameLine();
+		ImGui::Text("%.4g nm", selected_wavelength_nm_);
+		const auto summary = Optics::PolarizedSpectrumSynthesizer::summarize(spectrum_, selected_wavelength_nm_);
 		render_setting_tooltip("Moves the analysis wavelength logarithmically. The draggable vertical line in the plots does the same.");
 
 		if (ImPlot::BeginSubplots("##PolarizationEllipseSubplots", 1, 2, ImVec2(-1.0f, 320.0f))) {

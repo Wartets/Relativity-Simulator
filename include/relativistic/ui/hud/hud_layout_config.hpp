@@ -53,6 +53,7 @@ enum class HudElementId : uint32_t {
 	RayProbeEmissionReadout,
 	PolarizationQuickReadout,
 	InterferometryQuickReadout,
+	RayProbeGeometryReadout,
 	Count
 };
 
@@ -87,6 +88,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::RayProbeEmissionReadout: return "Ray Probe: Emission Coordinates (Linked)";
 		case HudElementId::PolarizationQuickReadout: return "Polarization Summary (Linked)";
 		case HudElementId::InterferometryQuickReadout: return "Interferometry Summary (Linked)";
+		case HudElementId::RayProbeGeometryReadout: return "Ray Probe: Deflection & Disk Image Order (Linked)";
 		default: return "Unknown Element";
 	}
 }
@@ -325,6 +327,13 @@ struct HudLayoutConfig {
 		interferometry_ro.offset_x = 16.0f;
 		interferometry_ro.offset_y = 434.0f;
 		interferometry_ro.text_color = {0.6f, 1.0f, 0.75f, 1.0f};
+
+		auto& probe_geometry_ro = element(HudElementId::RayProbeGeometryReadout);
+		probe_geometry_ro.enabled = false;
+		probe_geometry_ro.anchor = HudAnchor::BottomLeft;
+		probe_geometry_ro.offset_x = 16.0f;
+		probe_geometry_ro.offset_y = 456.0f;
+		probe_geometry_ro.text_color = {1.0f, 0.85f, 0.45f, 1.0f};
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

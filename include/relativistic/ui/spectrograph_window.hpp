@@ -61,6 +61,7 @@ private:
 		double luminance_y{0.0};
 		double correlated_color_temperature_k{0.0};
 		double wien_temperature_k{0.0};
+		double spectral_index{0.0};
 	};
 
 	bool is_open_{true};
@@ -168,18 +169,62 @@ private:
 		}
 	}
 
-	void recompute_disk_profile(double mass, double spin) {
+	struct DiskBand {
+		double isco{0.0};
+		double inner{0.0};
+		double outer{0.0};
+		Render::GpuDiskProfile profile{};
+	};
+
+	[[nodiscard]] static double effective_spin(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
+		const auto& params = orchestrator.parameters();
+		if (orchestrator.active_metric_name().find("Kerr") == std::string::npos) {
+			return 0.0;
+		}
+		const double mass = std::max(params.mass, 1e-9);
+		return std::clamp(params.spin, -0.999 * mass, 0.999 * mass);
+	}
+
+	[[nodiscard]] static DiskBand resolve_disk_band(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
+		const auto& params = orchestrator.parameters();
+		const double mass = std::max(params.mass, 1e-9);
+		Render::GpuCameraPushConstants push{};
+		push.metric_mass = params.mass;
+		push.metric_spin = params.spin;
+		push.metric_charge = params.charge;
+		push.disk_temperature_scale_k = params.disk_temperature_scale_k;
+		push.disk_temperature_floor_k = params.disk_temperature_floor_k;
+		push.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
+		push.disk_color_saturation = params.disk_color_saturation;
+		orchestrator.apply_primary_disk_constants(push);
+		DiskBand band;
+		band.profile = push.primary_disk;
+		band.isco = std::max(Optics::DiskThermalProfile::kerr_isco_radius(mass, effective_spin(orchestrator)), 1e-6);
+		band.inner = band.isco * std::max(static_cast<double>(band.profile.inner_radius_scale), 1.0);
+		band.outer = std::max(static_cast<double>(band.profile.outer_radius_mass_units) * mass, band.inner * 1.05);
+		return band;
+	}
+
+	[[nodiscard]] static double profile_temperature(const DiskBand& band, double radius) noexcept {
+		return Optics::DiskThermalProfile::profile_temperature_kelvin(
+			band.inner, radius,
+			band.profile.peak_temperature_k, band.profile.floor_temperature_k,
+			band.profile.temperature_exponent, band.profile.zero_torque_strength, band.profile.temperature_normalization
+		);
+	}
+
+	void recompute_disk_profile(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 		disk_radius_.assign(kDiskProfileSamples, 0.0);
 		disk_temperature_k_.assign(kDiskProfileSamples, 0.0);
 
-		const double r_isco = std::max(Optics::DiskThermalProfile::kerr_isco_radius(mass, spin), 1e-6);
-		const double r_outer = Optics::DiskThermalProfile::disk_outer_radius(std::max(mass, 1e-6));
+		const DiskBand band = resolve_disk_band(orchestrator);
+		const double mass = std::max(orchestrator.parameters().mass, 1e-9);
 
 		for (size_t i = 0; i < kDiskProfileSamples; ++i) {
 			const double t = static_cast<double>(i) / static_cast<double>(kDiskProfileSamples - 1);
-			const double r = r_isco + t * (r_outer - r_isco);
-			disk_radius_[i] = r;
-			disk_temperature_k_[i] = Optics::DiskThermalProfile::effective_temperature_kelvin(r_isco, r);
+			const double r = band.inner + t * (band.outer - band.inner);
+			disk_radius_[i] = r / mass;
+			disk_temperature_k_[i] = profile_temperature(band, r);
 		}
 	}
 
@@ -244,16 +289,7 @@ private:
 		statistics_.window_integral = total * 1e-9;
 		statistics_.centroid_nm = (total > 0.0) ? (weighted / total) : 0.0;
 
-		const double half = 0.5 * statistics_.peak_intensity;
-		size_t left = peak_index;
-		while (left > 0 && intensities_[left] > half) {
-			--left;
-		}
-		size_t right = peak_index;
-		while (right + 1 < n && intensities_[right] > half) {
-			++right;
-		}
-		statistics_.fwhm_nm = wavelengths_nm_[right] - wavelengths_nm_[left];
+		statistics_.fwhm_nm = measure_width(intensities_, peak_index, 0.5 * statistics_.peak_intensity);
 
 		statistics_.bolometric = shifted_spectrum_.bolometric_radiance();
 		const double xyz_sum = perceived_xyz_.x + perceived_xyz_.y + perceived_xyz_.z;
@@ -270,6 +306,26 @@ private:
 		statistics_.luminance_y = perceived_xyz_.y;
 		const bool interior_peak = (peak_index > 0 && peak_index + 1 < n);
 		statistics_.wien_temperature_k = interior_peak ? (2.897771955e6 / statistics_.peak_wavelength_nm) : 0.0;
+
+		double sum_x = 0.0;
+		double sum_y = 0.0;
+		double sum_xx = 0.0;
+		double sum_xy = 0.0;
+		size_t regression_count = 0;
+		for (size_t i = 0; i < n; ++i) {
+			if (intensities_[i] <= 0.0 || wavelengths_nm_[i] <= 0.0) continue;
+			const double x = -std::log(wavelengths_nm_[i]);
+			const double y = std::log(intensities_[i]) + 2.0 * std::log(wavelengths_nm_[i]);
+			sum_x += x;
+			sum_y += y;
+			sum_xx += x * x;
+			sum_xy += x * y;
+			++regression_count;
+		}
+		const double regression_denominator = static_cast<double>(regression_count) * sum_xx - sum_x * sum_x;
+		statistics_.spectral_index = (regression_count >= 2 && std::abs(regression_denominator) > 1e-18)
+			? ((static_cast<double>(regression_count) * sum_xy - sum_x * sum_y) / regression_denominator)
+			: 0.0;
 
 		bands_.clear();
 		bands_.push_back(SpectralBandSummary{"Ultraviolet", 10.0, 380.0});
@@ -293,20 +349,34 @@ private:
 		if (n < 5) {
 			return;
 		}
-		std::vector<double> smooth(n);
-		smooth.front() = intensities_.front();
-		smooth.back() = intensities_.back();
+		std::vector<double> smooth(intensities_);
 		for (size_t i = 1; i + 1 < n; ++i) {
 			smooth[i] = 0.25 * intensities_[i - 1] + 0.5 * intensities_[i] + 0.25 * intensities_[i + 1];
+		}
+		for (size_t i = 2; i + 2 < n; ++i) {
+			smooth[i] = (intensities_[i - 2] + 4.0 * intensities_[i - 1] + 6.0 * intensities_[i] + 4.0 * intensities_[i + 1] + intensities_[i + 2]) / 16.0;
 		}
 		const double max_value = *std::max_element(smooth.begin(), smooth.end());
 		if (max_value <= 0.0) {
 			return;
 		}
-		const double threshold = static_cast<double>(detection_sensitivity_) * max_value;
+		std::vector<double> residual(n);
+		for (size_t i = 0; i < n; ++i) {
+			residual[i] = std::abs(intensities_[i] - smooth[i]);
+		}
+		std::nth_element(residual.begin(), residual.begin() + static_cast<std::ptrdiff_t>(n / 2), residual.end());
+		const double noise_floor = 1.4826 * residual[n / 2];
+		const double threshold = std::max(static_cast<double>(detection_sensitivity_) * max_value, 4.0 * noise_floor);
 
 		for (size_t i = 1; i + 1 < n; ++i) {
-			if (!(smooth[i] > smooth[i - 1] && smooth[i] >= smooth[i + 1])) {
+			if (!(smooth[i] > smooth[i - 1])) {
+				continue;
+			}
+			size_t after = i + 1;
+			while (after < n && smooth[after] == smooth[i]) {
+				++after;
+			}
+			if (after >= n || smooth[after] > smooth[i]) {
 				continue;
 			}
 			double left_min = smooth[i];
@@ -339,6 +409,29 @@ private:
 		}
 	}
 
+	[[nodiscard]] double measure_width(const std::vector<double>& values, size_t index, double level) const {
+		const size_t n = values.size();
+		size_t left = index;
+		while (left > 0 && values[left] > level) {
+			--left;
+		}
+		size_t right = index;
+		while (right + 1 < n && values[right] > level) {
+			++right;
+		}
+		double left_wavelength = wavelengths_nm_[left];
+		if (left < index && values[left] <= level && values[left + 1] != values[left]) {
+			const double t = (level - values[left]) / (values[left + 1] - values[left]);
+			left_wavelength = wavelengths_nm_[left] + t * (wavelengths_nm_[left + 1] - wavelengths_nm_[left]);
+		}
+		double right_wavelength = wavelengths_nm_[right];
+		if (right > index && values[right] <= level && values[right - 1] != values[right]) {
+			const double t = (values[right - 1] - level) / (values[right - 1] - values[right]);
+			right_wavelength = wavelengths_nm_[right - 1] + t * (wavelengths_nm_[right] - wavelengths_nm_[right - 1]);
+		}
+		return std::max(right_wavelength - left_wavelength, 0.0);
+	}
+
 	[[nodiscard]] SpectralPeak make_peak(const std::vector<double>& smooth, size_t index, double prominence, bool edge) const {
 		const size_t n = smooth.size();
 		const double half_level = smooth[index] - 0.5 * prominence;
@@ -363,6 +456,17 @@ private:
 		SpectralPeak peak;
 		peak.wavelength_nm = wavelengths_nm_[index];
 		peak.intensity = intensities_[index];
+		if (!edge && index > 0 && index + 1 < n) {
+			const double y0 = smooth[index - 1];
+			const double y1 = smooth[index];
+			const double y2 = smooth[index + 1];
+			const double curvature = y0 - 2.0 * y1 + y2;
+			if (std::abs(curvature) > 1e-300) {
+				const double offset = std::clamp(0.5 * (y0 - y2) / curvature, -1.0, 1.0);
+				peak.wavelength_nm = wavelengths_nm_[index] + offset * 0.5 * (wavelengths_nm_[index + 1] - wavelengths_nm_[index - 1]);
+				peak.intensity = y1 - 0.25 * (y0 - y2) * offset;
+			}
+		}
 		peak.prominence = prominence;
 		peak.fwhm_nm = std::max(right_wavelength - left_wavelength, 0.0);
 		peak.at_window_edge = edge;
@@ -393,18 +497,19 @@ private:
 		return "Red";
 	}
 
-	[[nodiscard]] double disk_link_temperature(const Orchestrator::PhysicalParameters& params) const noexcept {
-		const double r_isco = std::max(Optics::DiskThermalProfile::kerr_isco_radius(params.mass, params.spin), 1e-6);
-		const double sample_r = r_isco * static_cast<double>(disk_sample_radius_isco_multiple_);
-		return Optics::DiskThermalProfile::effective_temperature_kelvin(r_isco, sample_r);
+	[[nodiscard]] double disk_link_temperature(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) const {
+		const DiskBand band = resolve_disk_band(orchestrator);
+		const double sample_r = std::clamp(band.isco * static_cast<double>(disk_sample_radius_isco_multiple_), band.inner, band.outer);
+		return profile_temperature(band, sample_r);
 	}
 
 	void update_links(const Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 		const auto& params = orchestrator.parameters();
 		const auto& cam = orchestrator.camera();
 		camera_linked_radius_ = cam.radius;
-		camera_within_disk_band_ = Optics::DiskThermalProfile::radius_within_disk(params.mass, params.spin, cam.radius);
-		camera_linked_g_ = camera_within_disk_band_ ? Optics::DiskThermalProfile::circular_orbit_redshift_factor(params.mass, cam.radius) : 1.0;
+		const DiskBand band = resolve_disk_band(orchestrator);
+		camera_within_disk_band_ = cam.radius >= band.inner && cam.radius <= band.outer;
+		camera_linked_g_ = camera_within_disk_band_ ? Render::AccretionDiskModel::redshift_at(std::max(params.mass, 1e-9), effective_spin(orchestrator), cam.radius, 0.0) : 1.0;
 
 		bool changed = false;
 		const Optics::RayProbeResult& probe = (probe_result_ != nullptr) ? *probe_result_ : empty_probe_;
@@ -430,7 +535,7 @@ private:
 				target_temperature = probe.disk_temperature_k;
 				temperature_linked = true;
 			} else if (link_temperature_to_disk_) {
-				target_temperature = disk_link_temperature(params);
+				target_temperature = disk_link_temperature(orchestrator);
 				temperature_linked = true;
 			}
 			if (temperature_linked) {
@@ -541,7 +646,9 @@ private:
 		render_setting_tooltip("Combined gravitational and kinematic factor g = nu_obs / nu_emit applied to the spectrum with the exact g^5 wavelength-intensity beaming law.");
 		if (link_doppler_to_camera_) {
 			if (!camera_within_disk_band_) {
-				ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Observer at r=%.2f M is outside the disk band [%.2f M, %.2f M]; using g=1.0.", camera_linked_radius_, Optics::DiskThermalProfile::kerr_isco_radius(params.mass, params.spin), Optics::DiskThermalProfile::disk_outer_radius(params.mass));
+				const DiskBand band = resolve_disk_band(orchestrator);
+				const double mass_unit = std::max(params.mass, 1e-9);
+				ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Observer at r=%.2f M is outside the disk band [%.2f M, %.2f M]; using g=1.0.", camera_linked_radius_ / mass_unit, band.inner / mass_unit, band.outer / mass_unit);
 			} else {
 				ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "Linked to observer radius r=%.2f M -> g=%.4f.", camera_linked_radius_, camera_linked_g_);
 			}
@@ -703,6 +810,7 @@ private:
 			stat_row("Window-Integrated Radiance", number("%.4e W/m^2/sr", statistics_.window_integral), "Integral of the radiance over the displayed wavelength window.");
 			stat_row("Bolometric Radiance", number("%.4e W/m^2/sr", statistics_.bolometric), "Integral over the full spectral grid from gamma rays to radio, using logarithmic quadrature.");
 			stat_row("Wien-Equivalent Temperature", (statistics_.wien_temperature_k > 0.0) ? number("%.0f K", statistics_.wien_temperature_k) : std::string("Peak outside window"), "Blackbody temperature whose spectral peak matches the observed peak.");
+			stat_row("Spectral Index (nu^alpha)", number("%.4f", statistics_.spectral_index), "Least-squares slope of ln I_nu versus ln nu across the displayed window. Positive values indicate a rising spectrum, negative values a falling one.");
 			if (spectrum_type_ == 0) {
 				stat_row("Observed Temperature (g T)", number("%.0f K", static_cast<double>(temperature_k_) * static_cast<double>(doppler_shift_factor_)), "Color temperature after the spectral shift, T_obs = g T_emit.");
 			}
@@ -763,15 +871,16 @@ private:
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Live Accretion Disk Temperature Profile");
 		render_setting_tooltip("Local disk temperature versus radius using the profile of the viewport renderer, evaluated from the current mass and spin. The vertical lines mark the observer and the probed emission point.");
-		recompute_disk_profile(params.mass, params.spin);
+		const double plot_mass = std::max(params.mass, 1e-9);
+		recompute_disk_profile(orchestrator);
 
 		if (ImPlot::BeginPlot("Disk Temperature Profile", ImVec2(-1, 190))) {
 			ImPlot::SetupAxes("Radius (M)", "Temperature (K)");
 			ImPlot::PlotLine("T(r)", disk_radius_.data(), disk_temperature_k_.data(), static_cast<int>(kDiskProfileSamples));
-			const double observer_radius = camera_linked_radius_;
+			const double observer_radius = camera_linked_radius_ / plot_mass;
 			ImPlot::PlotInfLines("Observer Radius", &observer_radius, 1);
 			if (probe.valid && probe.disk_hit) {
-				const double emission_radius = probe.disk_radius;
+				const double emission_radius = probe.disk_radius / plot_mass;
 				ImPlot::PlotInfLines("Probe Emission Radius", &emission_radius, 1);
 			}
 			ImPlot::EndPlot();

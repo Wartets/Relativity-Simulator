@@ -428,7 +428,7 @@ public:
 		return true;
 	}
 
-	void update_ray_probe(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius) {
+	void update_ray_probe(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius, const Render::GpuDiskProfile& disk_profile) {
 		constexpr uint32_t kProbeMaxSteps = 16384U;
 		if (!ray_probe_active_ || ray_probe_frozen_ || avail.x < 1.0f || avail.y < 1.0f) {
 			return;
@@ -486,9 +486,14 @@ public:
 		query.max_step_size = params.integration_max_step;
 		query.far_field_step_scale = params.far_field_step_scale;
 		query.pole_guard_precision_scale = params.pole_guard_precision_scale;
-		query.disk_enabled = params.primary_disk.enabled;
-		query.disk_inner_radius_scale = params.primary_disk.inner_radius_scale;
-		query.disk_outer_radius_mass_units = params.primary_disk.outer_radius_mass_units;
+		query.disk_enabled = disk_profile.enabled > 0.5f;
+		query.disk_inner_radius_scale = disk_profile.inner_radius_scale;
+		query.disk_outer_radius_mass_units = disk_profile.outer_radius_mass_units;
+		query.disk_peak_temperature_k = disk_profile.peak_temperature_k;
+		query.disk_floor_temperature_k = disk_profile.floor_temperature_k;
+		query.disk_temperature_exponent = disk_profile.temperature_exponent;
+		query.disk_zero_torque_strength = disk_profile.zero_torque_strength;
+		query.disk_temperature_normalization = disk_profile.temperature_normalization;
 		query.pixel_x = pixel_x;
 		query.pixel_y = pixel_y;
 
@@ -986,7 +991,7 @@ public:
 				avail, zoom_uv0, zoom_uv1
 			);
 			const bool probe_image_hovered = ImGui::IsItemHovered();
-			update_ray_probe(probe_image_hovered, viewport_image_pos, avail, zoom_uv0, zoom_uv1, cam_consts.escape_radius);
+			update_ray_probe(probe_image_hovered, viewport_image_pos, avail, zoom_uv0, zoom_uv1, cam_consts.escape_radius, cam_consts.primary_disk);
 			draw_ray_probe_marker(ImGui::GetWindowDrawList(), viewport_image_pos, avail, zoom_uv0, zoom_uv1);
 
 			if (schematic_cfg_.show_overlay_in_raytraced_view) {
@@ -1980,6 +1985,27 @@ private:
 					std::snprintf(buf, sizeof(buf), "Emission: r=%s | theta=%s | phi=%s", r_text.c_str(), theta_text.c_str(), phi_text.c_str());
 				}
 				push_block(HudElementId::RayProbeEmissionReadout, {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::RayProbeGeometryReadout);
+			const auto& probe = ray_probe_result_;
+			if (style.enabled && probe.valid) {
+				const double mass_scale = std::max(params.mass, 1e-9);
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const auto& unit_prefs = orchestrator_.unit_preferences();
+				const std::string deflection_text = Units::format_angle(probe.deflection_angle, unit_prefs.angle);
+				char buf[256];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "Deflection %s | Order %u", deflection_text.c_str(), probe.image_order);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					const std::string temperature_text = probe.disk_hit ? Units::format_temperature(probe.disk_observed_temperature_k, unit_prefs.temperature) : std::string("n/a");
+					std::snprintf(buf, sizeof(buf), "Deflection: %s | Disk Image Order: %u | Closest Approach: %.*f M | E=%.*f | Observed Disk Temperature: %s", deflection_text.c_str(), probe.image_order, prec, probe.minimum_radius / mass_scale, prec, probe.energy, temperature_text.c_str());
+				} else {
+					std::snprintf(buf, sizeof(buf), "Deflection: %s | Disk Crossings: %u | Closest Approach: %.*f M", deflection_text.c_str(), probe.disk_crossings, prec, probe.minimum_radius / mass_scale);
+				}
+				push_block(HudElementId::RayProbeGeometryReadout, {HudTextLine{buf}});
 			}
 		}
 

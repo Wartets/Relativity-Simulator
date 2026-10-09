@@ -84,6 +84,10 @@ private:
 		std::vector<double> sky_v_glambda{};
 		std::vector<double> sky_u_conj_glambda{};
 		std::vector<double> sky_v_conj_glambda{};
+		std::vector<double> image_u_glambda{};
+		std::vector<double> image_v_glambda{};
+		std::vector<double> image_u_conj_glambda{};
+		std::vector<double> image_v_conj_glambda{};
 		std::vector<double> baseline_glambda{};
 		std::vector<double> amplitude{};
 		std::vector<double> amplitude_error{};
@@ -355,11 +359,14 @@ private:
 	void poll_task() {
 		if (!synthesizing_ || !task_.valid()) return;
 		if (task_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-			dataset_ = task_.get();
+			Interferometry::VlbiDataset result = task_.get();
 			synthesizing_ = false;
-			status_message_ = dataset_.message;
-			if (dataset_.valid) {
-				update_cache();
+			status_message_ = result.message;
+			if (result.valid || !dataset_.valid) {
+				dataset_ = std::move(result);
+				if (dataset_.valid) {
+					update_cache();
+				}
 			}
 		}
 	}
@@ -382,6 +389,10 @@ private:
 			cache_.sky_v_glambda.push_back(v_gl);
 			cache_.sky_u_conj_glambda.push_back(-u_gl);
 			cache_.sky_v_conj_glambda.push_back(-v_gl);
+			cache_.image_u_glambda.push_back(sample.image_u_lambda * 1.0e-9);
+			cache_.image_v_glambda.push_back(sample.image_v_lambda * 1.0e-9);
+			cache_.image_u_conj_glambda.push_back(-sample.image_u_lambda * 1.0e-9);
+			cache_.image_v_conj_glambda.push_back(-sample.image_v_lambda * 1.0e-9);
 
 			cache_.baseline_glambda.push_back(bl);
 			cache_.amplitude.push_back(amp);
@@ -469,6 +480,10 @@ private:
 
 			if (!cache_.profile_baseline_glambda.empty()) {
 				ImPlot::PlotLine("Radial Profile (FFT)", cache_.profile_baseline_glambda.data(), cache_.profile_amplitude_jy.data(), static_cast<int>(cache_.profile_baseline_glambda.size()));
+				if (dataset_.first_null_baseline_lambda > 0.0) {
+					const double first_null = dataset_.first_null_baseline_lambda * 1.0e-9;
+					ImPlot::PlotInfLines("First Null", &first_null, 1);
+				}
 			}
 
 			if (!cache_.baseline_glambda.empty()) {
@@ -479,7 +494,13 @@ private:
 			}
 			ImPlot::EndPlot();
 		}
-		ImGui::TextDisabled("The prominent dip and second bounce near 3-4 Glambda are the signature Bessel ring nulls of the photon ring / accretion disk shadow.");
+		if (dataset_.first_null_baseline_lambda > 0.0) {
+			constexpr double rad_to_uas = 206264.806247096355 * 1.0e6;
+			ImGui::Text("First visibility null: %.3f Glambda | Equivalent thin-ring diameter: %.2f uas | Image Nyquist limit: %.2f Glambda", dataset_.first_null_baseline_lambda * 1.0e-9, dataset_.estimated_ring_diameter_rad * rad_to_uas, dataset_.nyquist_baseline_lambda * 1.0e-9);
+			render_setting_tooltip("The first zero of the circularly averaged visibility amplitude of a thin ring of diameter d lies at u = 0.7655 / d, which yields the equivalent ring diameter of the synthesized image.");
+		} else {
+			ImGui::TextDisabled("No visibility null is resolved by the radial profile. The image field of view is too small or the source has no ring-like structure. Image Nyquist limit: %.2f Glambda.", dataset_.nyquist_baseline_lambda * 1.0e-9);
+		}
 	}
 
 	void render_closure_tab() {
@@ -514,8 +535,11 @@ private:
 			const ImPlotPoint bmax(half_span, half_span);
 			ImPlot::PlotHeatmap("log10 Correlated Amplitude", dataset_.plane_log_amplitude.data(), static_cast<int>(dataset_.plane_size), static_cast<int>(dataset_.plane_size), -4.0, 0.0, nullptr, bmin, bmax);
 
-			if (!cache_.sky_u_glambda.empty()) {
-				ImPlot::PlotScatter("Coverage Points", cache_.sky_u_glambda.data(), cache_.sky_v_glambda.data(), static_cast<int>(cache_.sky_u_glambda.size()));
+			if (!cache_.image_u_glambda.empty()) {
+				ImPlot::PlotScatter("Coverage Points", cache_.image_u_glambda.data(), cache_.image_v_glambda.data(), static_cast<int>(cache_.image_u_glambda.size()));
+				if (show_conjugate_uv_) {
+					ImPlot::PlotScatter("Hermitian Conjugates", cache_.image_u_conj_glambda.data(), cache_.image_v_conj_glambda.data(), static_cast<int>(cache_.image_u_conj_glambda.size()));
+				}
 			}
 			ImPlot::EndPlot();
 		}

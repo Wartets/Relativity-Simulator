@@ -29,6 +29,13 @@ public:
 		return std::pow(ratio, 0.75) * std::pow(std::max(1.0 - std::sqrt(ratio), 0.0), 0.25);
 	}
 
+	[[nodiscard]] static double profile_temperature_kelvin(double inner_radius, double r, double peak_k, double floor_k, double exponent, double zero_torque, double normalization) noexcept {
+		const double u = std::clamp(inner_radius / std::max(r, 1e-12), 1e-4, 1.0);
+		const double boundary = std::max(1.0 - zero_torque * std::sqrt(u), 0.0);
+		const double base = std::pow(u, exponent) * std::pow(boundary, 0.25) * normalization;
+		return floor_k + std::max(peak_k - floor_k, 0.0) * base;
+	}
+
 	[[nodiscard]] static double effective_temperature_kelvin(double isco_radius, double r) noexcept {
 		return 18000.0 * normalized_temperature(isco_radius, r) + 1200.0;
 	}

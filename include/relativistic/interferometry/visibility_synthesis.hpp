@@ -107,6 +107,9 @@ struct VlbiDataset {
 	double maximum_baseline_lambda{0.0};
 	double minimum_baseline_lambda{0.0};
 	double mean_snr{0.0};
+	double first_null_baseline_lambda{0.0};
+	double estimated_ring_diameter_rad{0.0};
+	double nyquist_baseline_lambda{0.0};
 	size_t epoch_count{0};
 	size_t flagged_count{0};
 };
@@ -548,6 +551,20 @@ private:
 			if (bin_count[r] <= 0.0) continue;
 			dataset.profile_baseline_glambda.push_back(static_cast<double>(r) * dataset.plane_cell_lambda * 1e-9);
 			dataset.profile_amplitude.push_back(bin_sum[r] / bin_count[r]);
+		}
+
+		dataset.nyquist_baseline_lambda = 0.5 / pixel_scale_rad;
+		const auto& amplitude = dataset.profile_amplitude;
+		for (size_t i = 2; i + 1 < amplitude.size(); ++i) {
+			if (amplitude[i] < amplitude[i - 1] && amplitude[i] <= amplitude[i + 1] && amplitude[i] < 0.6 * amplitude[0]) {
+				const double curvature = amplitude[i - 1] - 2.0 * amplitude[i] + amplitude[i + 1];
+				const double offset = (std::abs(curvature) > 1e-30) ? std::clamp(0.5 * (amplitude[i - 1] - amplitude[i + 1]) / curvature, -0.5, 0.5) : 0.0;
+				dataset.first_null_baseline_lambda = dataset.profile_baseline_glambda[i] * 1e9 + offset * dataset.plane_cell_lambda;
+				if (dataset.first_null_baseline_lambda > 0.0) {
+					dataset.estimated_ring_diameter_rad = 0.7655 / dataset.first_null_baseline_lambda;
+				}
+				break;
+			}
 		}
 	}
 };

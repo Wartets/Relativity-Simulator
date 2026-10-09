@@ -60,6 +60,11 @@ struct RayProbeQuery {
 	bool disk_enabled{true};
 	double disk_inner_radius_scale{1.0};
 	double disk_outer_radius_mass_units{24.0};
+	double disk_peak_temperature_k{12546.0};
+	double disk_floor_temperature_k{1200.0};
+	double disk_temperature_exponent{0.75};
+	double disk_zero_torque_strength{1.0};
+	double disk_temperature_normalization{1.0};
 	uint32_t pixel_x{0};
 	uint32_t pixel_y{0};
 
@@ -92,6 +97,10 @@ struct RayProbeResult {
 	double disk_radius{0.0};
 	double disk_azimuth{0.0};
 	double disk_temperature_k{0.0};
+	double disk_observed_temperature_k{0.0};
+	double disk_emitter_shift{1.0};
+	double deflection_angle{0.0};
+	uint32_t image_order{0};
 	double horizon_radius{0.0};
 	double disk_inner_radius{0.0};
 	double disk_outer_radius{0.0};
@@ -140,6 +149,23 @@ private:
 		result.path_y.push_back(r * sin_t * std::sin(phi));
 		result.path_z.push_back(r * std::cos(theta));
 		result.path_r.push_back(r);
+	}
+
+	[[nodiscard]] static double path_deflection(const std::array<double, 3>& initial, const RayProbeResult& result) noexcept {
+		const size_t count = result.path_x.size();
+		if (count < 2) {
+			return 0.0;
+		}
+		const std::array<double, 3> last{
+			result.path_x[count - 1] - result.path_x[count - 2],
+			result.path_y[count - 1] - result.path_y[count - 2],
+			result.path_z[count - 1] - result.path_z[count - 2]
+		};
+		const double length = std::sqrt(dot3(last, last));
+		if (length <= 1e-14) {
+			return 0.0;
+		}
+		return std::acos(std::clamp(dot3(initial, last) / length, -1.0, 1.0));
 	}
 
 	[[nodiscard]] static RayProbeResult trace_flat(const RayProbeQuery& query, RayProbeResult result) {
@@ -380,7 +406,7 @@ private:
 						result.disk_hit = true;
 						result.disk_radius = r_cross;
 						result.disk_azimuth = phi_cross;
-						result.disk_temperature_k = DiskThermalProfile::effective_temperature_kelvin(isco, r_cross);
+						result.disk_temperature_k = DiskThermalProfile::profile_temperature_kelvin(disk_inner, r_cross, query.disk_peak_temperature_k, query.disk_floor_temperature_k, query.disk_temperature_exponent, query.disk_zero_torque_strength, query.disk_temperature_normalization);
 						disk_g = Render::AccretionDiskModel::redshift_at(m, spin, r_cross, xi);
 					}
 				}
@@ -396,6 +422,8 @@ private:
 		}
 		append_path_point(result, x(1), x(2), x(3));
 
+		result.deflection_angle = path_deflection(direction, result);
+		result.image_order = result.disk_crossings;
 		result.valid = (fate != RayTermination::InvalidState);
 		result.termination = fate;
 		result.iterations = iterations;
@@ -408,7 +436,9 @@ private:
 			result.emission_r = result.disk_radius;
 			result.emission_theta = half_pi;
 			result.emission_phi = result.disk_azimuth;
-			result.spectral_shift_g = disk_g;
+			result.disk_emitter_shift = disk_g;
+			result.spectral_shift_g = disk_g * result.static_redshift_factor;
+			result.disk_observed_temperature_k = result.disk_temperature_k * result.spectral_shift_g;
 		} else {
 			result.emission_r = result.terminal_r;
 			result.emission_theta = result.terminal_theta;

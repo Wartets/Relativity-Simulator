@@ -593,7 +593,7 @@ private:
 		}
 		const auto& hud = user_settings_.hud_layout;
 		const bool hud_needs_probe = hud.master_enabled
-			&& (hud.element(HudElementId::RayProbeReadout).enabled || hud.element(HudElementId::RayProbeEmissionReadout).enabled);
+			&& (hud.element(HudElementId::RayProbeReadout).enabled || hud.element(HudElementId::RayProbeEmissionReadout).enabled || hud.element(HudElementId::RayProbeGeometryReadout).enabled);
 		viewport_window_->configure_ray_probe(
 			spectrograph_window_.open_state() || hud_needs_probe,
 			spectrograph_window_.ray_probe_source(),

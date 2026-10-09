@@ -117,7 +117,7 @@ public:
 					stokes = transfer(true);
 					break;
 				case PolarizationEmissionModel::Hybrid:
-					stokes = transfer(false) + transfer(true);
+					stokes = PolarizedRadiativeTransfer<double>::integrate_hybrid_segment(StokesVector<double>(0.0), nu, g, settings.plasma, settings.path_length_m);
 					break;
 				case PolarizationEmissionModel::NonThermalPowerLaw:
 				default:
@@ -243,17 +243,26 @@ private:
 	[[nodiscard]] static double fit_spectral_index(const PolarizedSpectrum& spectrum) noexcept {
 		if (spectrum.wavelength_nm.size() < 2) return 0.0;
 		constexpr double c = Core::PhysicalConstants<double>::SPEED_OF_LIGHT;
-		const size_t last = spectrum.wavelength_nm.size() - 1;
-		const double i_first = spectrum.intensity.front();
-		const double i_last = spectrum.intensity[last];
-		if (i_first <= 0.0 || i_last <= 0.0) return 0.0;
-		const double l_first = spectrum.wavelength_nm.front() * 1e-9;
-		const double l_last = spectrum.wavelength_nm[last] * 1e-9;
-		const double nu_first = i_first * l_first * l_first / c;
-		const double nu_last = i_last * l_last * l_last / c;
-		const double frequency_ratio = l_first / l_last;
-		if (nu_first <= 0.0 || nu_last <= 0.0 || frequency_ratio <= 0.0 || std::abs(std::log(frequency_ratio)) < 1e-12) return 0.0;
-		return std::log(nu_last / nu_first) / std::log(1.0 / frequency_ratio);
+		double sum_x = 0.0;
+		double sum_y = 0.0;
+		double sum_xx = 0.0;
+		double sum_xy = 0.0;
+		size_t count = 0;
+		for (size_t i = 0; i < spectrum.wavelength_nm.size(); ++i) {
+			if (spectrum.intensity[i] <= 0.0) continue;
+			const double lambda = spectrum.wavelength_nm[i] * 1e-9;
+			const double x = std::log(c / lambda);
+			const double y = std::log(spectrum.intensity[i] * lambda * lambda / c);
+			sum_x += x;
+			sum_y += y;
+			sum_xx += x * x;
+			sum_xy += x * y;
+			++count;
+		}
+		if (count < 2) return 0.0;
+		const double denominator = static_cast<double>(count) * sum_xx - sum_x * sum_x;
+		if (std::abs(denominator) < 1e-18) return 0.0;
+		return (static_cast<double>(count) * sum_xy - sum_x * sum_y) / denominator;
 	}
 };
 

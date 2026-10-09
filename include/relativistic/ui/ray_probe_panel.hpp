@@ -52,9 +52,8 @@ public:
 			return;
 		}
 
-		record(probe);
-
 		const auto& params = orchestrator.parameters();
+		record(probe, std::max(params.mass, 1e-9));
 		const auto& prefs = orchestrator.unit_preferences();
 		const double length_scale = orchestrator.constants_engine().length_scale();
 		const double mass = std::max(params.mass, 1e-9);
@@ -85,13 +84,16 @@ public:
 			row("Integration Iterations", std::to_string(probe.iterations), "Number of integrator steps consumed before termination.");
 			row("Affine Path Length", number("%.4f", probe.affine_length), "Integrated affine parameter along the traced ray.");
 			row("Closest Approach", number("%.4f M", probe.minimum_radius / mass), "Minimum coordinate radius reached by the ray.");
+			row("Total Deflection Angle", Units::format_angle(probe.deflection_angle, prefs.angle), "Angle between the launch direction of the ray and its final propagation direction.");
 			row("Disk Plane Crossings", std::to_string(probe.disk_crossings), "Number of equatorial disk crossings. Values above one indicate higher-order lensed images.");
+			row("Lensed Image Order", (probe.disk_crossings == 0) ? std::string("No disk image") : ((probe.disk_crossings == 1) ? std::string("Primary image") : ((probe.disk_crossings == 2) ? std::string("Secondary image (n = 1 photon ring)") : ("Photon ring n = " + std::to_string(probe.disk_crossings - 1)))), "Order of the lensed image of the disk seen along this ray, deduced from the number of equatorial crossings.");
 			row("Emission r", Units::format_distance(probe.emission_r * length_scale, prefs.distance) + "  (" + number("%.4f M)", probe.emission_r / mass), "Radial coordinate of the emission point (disk crossing) or of the ray termination point.");
 			row("Emission theta", Units::format_angle(probe.emission_theta, prefs.angle), "Colatitude of the emission point.");
 			row("Emission phi", Units::format_angle(probe.emission_phi, prefs.angle), "Azimuth of the emission point.");
 			if (probe.disk_hit) {
 				row("Disk Emitted Temperature", Units::format_temperature(probe.disk_temperature_k, prefs.temperature), "Effective disk temperature at the crossing radius before spectral shifting.");
-				row("Disk Observed Temperature", Units::format_temperature(probe.disk_temperature_k * probe.spectral_shift_g, prefs.temperature), "Temperature after multiplying by the spectral shift g.");
+				row("Orbital Emitter Shift", number("%.6f", probe.disk_emitter_shift), "Shift contributed by the orbiting emitter (time dilation and Doppler), independent of the observer frame.");
+				row("Disk Observed Temperature", Units::format_temperature(probe.disk_observed_temperature_k, prefs.temperature), "Temperature after multiplying by the total spectral shift g, including the observer frame.");
 			}
 			ImGui::EndTable();
 		}
@@ -122,14 +124,14 @@ private:
 		return buffer;
 	}
 
-	void record(const Optics::RayProbeResult& probe) {
+	void record(const Optics::RayProbeResult& probe, double mass) {
 		const uint64_t signature = (static_cast<uint64_t>(probe.pixel_x) * 73856093ULL) ^ (static_cast<uint64_t>(probe.pixel_y) * 19349663ULL)
 			^ (static_cast<uint64_t>(probe.iterations) * 83492791ULL) ^ static_cast<uint64_t>(std::abs(probe.spectral_shift_g) * 1.0e6);
 		if (signature == last_signature_) return;
 		last_signature_ = signature;
 		history_index_.push_back(static_cast<double>(sample_counter_++));
 		history_g_.push_back(probe.spectral_shift_g);
-		history_b_.push_back(probe.total_impact_parameter);
+		history_b_.push_back(probe.total_impact_parameter / mass);
 		if (history_index_.size() > kHistoryCapacity) {
 			history_index_.erase(history_index_.begin());
 			history_g_.erase(history_g_.begin());
@@ -148,16 +150,59 @@ private:
 		}
 	}
 
-	void render_path_plot(const Optics::RayProbeResult& probe, double mass) const {
-		if (probe.path_x.size() < 2) return;
-		if (ImPlot::BeginPlot("Probed Ray Path (x-y Projection)", ImVec2(-1, 240), ImPlotFlags_Equal)) {
-			ImPlot::SetupAxes("x (M)", "y (M)");
-			std::vector<double> px(probe.path_x.size());
-			std::vector<double> py(probe.path_y.size());
-			for (size_t i = 0; i < px.size(); ++i) {
-				px[i] = probe.path_x[i] / mass;
-				py[i] = probe.path_y[i] / mass;
+	void fill_projection(const Optics::RayProbeResult& probe, double mass, std::vector<double>& horizontal, std::vector<double>& vertical) const {
+		const size_t count = probe.path_x.size();
+		const auto point = [&probe](size_t index) noexcept -> std::array<double, 3> {
+			return {probe.path_x[index], probe.path_y[index], probe.path_z[index]};
+		};
+		const auto dot = [](const std::array<double, 3>& a, const std::array<double, 3>& b) noexcept {
+			return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+		};
+		const auto cross = [](const std::array<double, 3>& a, const std::array<double, 3>& b) noexcept -> std::array<double, 3> {
+			return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+		};
+		std::array<double, 3> axis_h{1.0, 0.0, 0.0};
+		std::array<double, 3> axis_v{0.0, 1.0, 0.0};
+		if (path_projection_ == 2) {
+			axis_v = {0.0, 0.0, 1.0};
+		} else if (path_projection_ == 3) {
+			axis_h = {0.0, 1.0, 0.0};
+			axis_v = {0.0, 0.0, 1.0};
+		} else if (path_projection_ == 0) {
+			const std::array<double, 3> origin = point(0);
+			const double origin_length = std::sqrt(dot(origin, origin));
+			for (size_t i = 1; i < count && origin_length > 0.0; ++i) {
+				const std::array<double, 3> candidate = point(i);
+				const std::array<double, 3> normal = cross(origin, candidate);
+				const double normal_length = std::sqrt(dot(normal, normal));
+				if (normal_length > 1e-9 * origin_length * std::sqrt(dot(candidate, candidate))) {
+					for (size_t c = 0; c < 3; ++c) {
+						axis_h[c] = origin[c] / origin_length;
+					}
+					const std::array<double, 3> unit_normal{normal[0] / normal_length, normal[1] / normal_length, normal[2] / normal_length};
+					axis_v = cross(unit_normal, axis_h);
+					break;
+				}
 			}
+		}
+		for (size_t i = 0; i < count; ++i) {
+			const std::array<double, 3> p = point(i);
+			horizontal[i] = dot(p, axis_h) / mass;
+			vertical[i] = dot(p, axis_v) / mass;
+		}
+	}
+
+	void render_path_plot(const Optics::RayProbeResult& probe, double mass) {
+		if (probe.path_x.size() < 2) return;
+		const char* projections[] = {"Orbital Plane Of The Ray", "x-y Plane", "x-z Plane", "y-z Plane"};
+		ImGui::SetNextItemWidth(240.0f);
+		ImGui::Combo("Path Projection", &path_projection_, projections, IM_ARRAYSIZE(projections));
+		render_setting_tooltip("Plane onto which the three-dimensional geodesic is projected. The orbital plane is spanned by the observer position and the ray, which shows the full bending of rays that are not equatorial.");
+		std::vector<double> px(probe.path_x.size());
+		std::vector<double> py(probe.path_x.size());
+		fill_projection(probe, mass, px, py);
+		if (ImPlot::BeginPlot("Probed Ray Path", ImVec2(-1, 240), ImPlotFlags_Equal)) {
+			ImPlot::SetupAxes("Plane Axis 1 (M)", "Plane Axis 2 (M)");
 			std::vector<double> rx;
 			std::vector<double> ry;
 			if (probe.horizon_radius > 0.0) {
@@ -181,12 +226,13 @@ private:
 			ImPlot::SetupAxes("Probe Sample", "Value");
 			ImPlot::SetupAxisLimits(ImAxis_X1, history_index_.front(), history_index_.back(), ImPlotCond_Always);
 			ImPlot::PlotLine("g", history_index_.data(), history_g_.data(), static_cast<int>(history_index_.size()));
-			ImPlot::PlotLine("Total b (M units x mass)", history_index_.data(), history_b_.data(), static_cast<int>(history_index_.size()));
+			ImPlot::PlotLine("Total b (M)", history_index_.data(), history_b_.data(), static_cast<int>(history_index_.size()));
 			ImPlot::EndPlot();
 		}
 	}
 
 	int source_{0};
+	int path_projection_{0};
 	bool frozen_{false};
 	std::vector<double> history_index_{};
 	std::vector<double> history_g_{};

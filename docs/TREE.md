@@ -113,6 +113,7 @@ Relativity-Simulator/
 │       │
 │       ├── dark_matter/
 │       │   ├── barnes_hut.hpp
+│       │   ├── dark_matter_field.hpp
 │       │   ├── dark_matter_profiles.hpp
 │       │   └── galaxy_model.hpp
 │       │
@@ -163,6 +164,12 @@ Relativity-Simulator/
 │       │   ├── symplectic_gauss_legendre.hpp
 │       │   └── vernier9.hpp
 │       │
+│       ├── interferometry/
+│       │   ├── fits_table.hpp
+│       │   ├── oifits_writer.hpp
+│       │   ├── visibility_synthesis.hpp
+│       │   └── vlbi_array.hpp
+│       │
 │       ├── io/
 │       │   ├── capture/
 │       │   │   ├── capture_settings_io.hpp
@@ -191,6 +198,9 @@ Relativity-Simulator/
 │       │   ├── telemetry_table.hpp
 │       │   ├── user_settings.hpp
 │       │   └── vtk_exporter.hpp
+│       │
+│       ├── magnetosphere/
+│       │   └── blandford_znajek.hpp
 │       │
 │       ├── metrics/
 │       │   ├── bssn/
@@ -247,8 +257,10 @@ Relativity-Simulator/
 │       │   ├── carter_ray_classifier.hpp
 │       │   ├── cie_observer.hpp
 │       │   ├── disk_thermal_profile.hpp
+│       │   ├── geodesic_ray_probe.hpp
 │       │   ├── inverse_compton.hpp
 │       │   ├── maxwell_juttner.hpp
+│       │   ├── polarization_spectrum.hpp
 │       │   ├── polarized_radiative_transfer.hpp
 │       │   ├── radiative_processes.hpp
 │       │   ├── spectral_shift.hpp
@@ -280,6 +292,9 @@ Relativity-Simulator/
 │       │   │   ├── earth_terminator.hpp
 │       │   │   └── earth_texture_requirements.hpp
 │       │   │
+│       │   ├── jet/
+│       │   │   └── jet_settings.hpp
+│       │   │
 │       │   ├── double_single.hpp
 │       │   ├── geodesic_compute_pipeline.hpp
 │       │   ├── gpu_types.hpp
@@ -290,6 +305,7 @@ Relativity-Simulator/
 │       ├── ui/
 │       │   ├── hud/
 │       │   │   ├── hud_layout_config.hpp
+│       │   │   ├── hud_linked_readouts.hpp
 │       │   │   ├── hud_manager_window.hpp
 │       │   │   └── hud_preferences.hpp
 │       │   │
@@ -312,16 +328,21 @@ Relativity-Simulator/
 │       │   ├── compatibility_notes.hpp
 │       │   ├── constants_window.hpp
 │       │   ├── control_panel_window.hpp
+│       │   ├── dark_matter_panel.hpp
 │       │   ├── horizon_zone_strip.hpp
 │       │   ├── input_actions.hpp
 │       │   ├── interactive_camera_controller.hpp
 │       │   ├── interface_persistence.hpp
+│       │   ├── interferometry_panel.hpp
+│       │   ├── jet_magnetosphere_editor.hpp
 │       │   ├── keybind_settings_window.hpp
 │       │   ├── log_console_window.hpp
 │       │   ├── motion_script_editor.hpp
 │       │   ├── numeric_slider_utils.hpp
 │       │   ├── performance_analysis_window.hpp
 │       │   ├── performance_settings_window.hpp
+│       │   ├── polarization_panel.hpp
+│       │   ├── ray_probe_panel.hpp
 │       │   ├── scenario_selector_window.hpp
 │       │   ├── secondary_view_window.hpp
 │       │   ├── secondary_viewport_manager.hpp
@@ -392,6 +413,7 @@ Relativity-Simulator/
 │   ├── test_cie_spectral_pipeline.cpp
 │   ├── test_concurrent_command_injection.cpp
 │   ├── test_covariance_propagation.cpp
+│   ├── test_dark_matter_field.cpp
 │   ├── test_dark_matter_profiles.cpp
 │   ├── test_default_startup_scenario.cpp
 │   ├── test_double_single.cpp

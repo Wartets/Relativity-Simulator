@@ -38,6 +38,7 @@ public:
 		out["hydro_disk_optical_depth_scale"] = format_real(static_cast<double>(hydro.optical_depth_scale));
 		out["hydro_disk_sampling_density"] = format_real(static_cast<double>(hydro.sampling_density));
 		p.jet.store(out);
+		p.dark_matter.store(out);
 		const CameraState& camera = orchestrator.camera();
 		out["cam_x"] = format_real(camera.position[0]);
 		out["cam_y"] = format_real(camera.position[1]);
@@ -99,6 +100,7 @@ public:
 		hydro.sampling_density = read_hydro_value("hydro_disk_sampling_density", hydro.sampling_density);
 		hydro.sanitize();
 		p.jet.restore(in);
+		p.dark_matter.restore(in);
 
 		CameraState& camera = orchestrator.camera();
 		const auto real = [&in](const char* key, double fallback) noexcept {

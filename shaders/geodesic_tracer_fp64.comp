@@ -111,6 +111,41 @@ struct JetProfile {
 	float electron_density_constant;
 };
 
+struct DarkMatterHalo {
+	uint profile;
+	uint flags;
+	float position_x;
+	float position_y;
+	float position_z;
+	float mass_norm;
+	float scale_radius;
+	float shape;
+	float softening;
+	float truncation_radius;
+	float axis_ratio_y;
+	float axis_ratio_z;
+	float basis[9];
+	float lens_scale;
+	float visual_gain;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float shape_aux;
+	float reserved0;
+};
+
+struct DarkMatterField {
+	uint halo_count;
+	uint flags;
+	float lensing_strength;
+	float visual_intensity;
+	float step_fraction;
+	float reserved0;
+	float reserved1;
+	float reserved2;
+	DarkMatterHalo halos[16];
+};
+
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
@@ -236,6 +271,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	DiskProfile primary_disk;
 	HydroDiskProfile hydro_disk;
 	JetProfile jet;
+	DarkMatterField dark_matter;
 } pc;
 
 struct PixelOutput {
@@ -2575,6 +2611,235 @@ void kerr_newman_rk4_step(inout double ray_r, inout double ray_th, inout double 
 	u = u_new;
 }
 
+double dm_fraction_nfw(double x) {
+	if (x < 0.25) {
+		double power = x * x;
+		double sign_value = 1.0;
+		double sum = 0.0;
+		for (int k = 2; k <= 20; ++k) {
+			sum += sign_value * power * double(k - 1) / double(k);
+			power *= x;
+			sign_value = -sign_value;
+		}
+		return sum;
+	}
+	return double(log(float(1.0 + x))) - x / (1.0 + x);
+}
+
+double dm_fraction_burkert(double x) {
+	if (x < 0.6) {
+		double x4 = x * x * x * x;
+		double p3 = x * x * x;
+		double p4 = x4;
+		double sum = 0.0;
+		for (int j = 0; j < 10; ++j) {
+			sum += 2.0 * p3 / double(4 * j + 3) - 2.0 * p4 / double(4 * j + 4);
+			p3 *= x4;
+			p4 *= x4;
+		}
+		return sum;
+	}
+	return double(log(float(1.0 + x))) + 0.5 * double(log(float(1.0 + x * x))) - double(atan(float(x)));
+}
+
+double dm_fraction_cored_isothermal(double x) {
+	if (x < 0.3) {
+		double x2 = x * x;
+		double power = x2 * x;
+		double sign_value = 1.0;
+		double sum = 0.0;
+		for (int k = 1; k <= 10; ++k) {
+			sum += sign_value * power / double(2 * k + 1);
+			power *= x2;
+			sign_value = -sign_value;
+		}
+		return sum;
+	}
+	return x - double(atan(float(x)));
+}
+
+double dm_fraction_einasto(double x, double alpha, double lgamma_s) {
+	double s = 3.0 / alpha;
+	double y = (2.0 / alpha) * double(pow(float(x), float(alpha)));
+	if (y < 1e-30) return 0.0;
+	if (y > s + 14.0 * sqrt(s) + 40.0) return 1.0;
+	double log_prefactor = s * double(log(float(y))) - y - lgamma_s - double(log(float(s)));
+	double term = 1.0;
+	double sum = 1.0;
+	for (int n = 1; n <= 320; ++n) {
+		term *= y / (s + double(n));
+		sum += term;
+		if (term < 1e-14 * sum) break;
+	}
+	return min(exp_d(log_prefactor) * sum, 1.0);
+}
+
+double dm_enclosed_fraction(uint profile, double x, double shape, double lgamma_s) {
+	if (x <= 0.0) return 0.0;
+	if (profile == 0u) return dm_fraction_nfw(x);
+	if (profile == 1u) {
+		double u = x / (1.0 + x);
+		return u * u;
+	}
+	if (profile == 2u) return dm_fraction_burkert(x);
+	if (profile == 3u) return dm_fraction_einasto(x, shape, lgamma_s);
+	if (profile == 4u) {
+		double q = 1.0 + x * x;
+		return x * x * x / (q * sqrt(q));
+	}
+	if (profile == 5u) return dm_fraction_cored_isothermal(x);
+	if (profile == 6u) return x;
+	if (profile == 7u) return double(pow(float(x / (1.0 + x)), float(3.0 - shape)));
+	return 1.0;
+}
+
+double dm_fraction_derivative(uint profile, double x, double shape, double lgamma_s) {
+	if (x <= 0.0) return 0.0;
+	if (profile == 0u) {
+		double u = 1.0 + x;
+		return x / (u * u);
+	}
+	if (profile == 1u) {
+		double u = 1.0 + x;
+		return 2.0 * x / (u * u * u);
+	}
+	if (profile == 2u) return 2.0 * x * x / ((1.0 + x) * (1.0 + x * x));
+	if (profile == 3u) {
+		double s = 3.0 / shape;
+		double y = (2.0 / shape) * double(pow(float(x), float(shape)));
+		if (y < 1e-30 || y > s + 14.0 * sqrt(s) + 120.0) return 0.0;
+		double log_value = (s - 1.0) * double(log(float(y))) - y - lgamma_s;
+		return exp_d(log_value) * 2.0 * double(pow(float(x), float(shape - 1.0)));
+	}
+	if (profile == 4u) {
+		double q = 1.0 + x * x;
+		return 3.0 * x * x / (q * q * sqrt(q));
+	}
+	if (profile == 5u) return x * x / (1.0 + x * x);
+	if (profile == 6u) return 1.0;
+	if (profile == 7u) {
+		double k = 3.0 - shape;
+		double u = x / (1.0 + x);
+		double v = 1.0 + x;
+		return k * double(pow(float(u), float(k - 1.0))) / (v * v);
+	}
+	return 0.0;
+}
+
+dvec3 dm_halo_local(DarkMatterHalo halo, dvec3 position) {
+	dvec3 rel = position - dvec3(double(halo.position_x), double(halo.position_y), double(halo.position_z));
+	return dvec3(
+		rel.x * double(halo.basis[0]) + rel.y * double(halo.basis[1]) + rel.z * double(halo.basis[2]),
+		rel.x * double(halo.basis[3]) + rel.y * double(halo.basis[4]) + rel.z * double(halo.basis[5]),
+		rel.x * double(halo.basis[6]) + rel.y * double(halo.basis[7]) + rel.z * double(halo.basis[8])
+	);
+}
+
+double dm_halo_radius(DarkMatterHalo halo, dvec3 local_position) {
+	double qy = max(double(halo.axis_ratio_y), 0.05);
+	double qz = max(double(halo.axis_ratio_z), 0.05);
+	return length(dvec3(local_position.x, local_position.y / qy, local_position.z / qz));
+}
+
+dvec3 dm_halo_acceleration(DarkMatterHalo halo, dvec3 position) {
+	dvec3 local_position = dm_halo_local(halo, position);
+	double m = dm_halo_radius(halo, local_position);
+	if (m < 1e-12) return dvec3(0.0);
+	double qy = max(double(halo.axis_ratio_y), 0.05);
+	double qz = max(double(halo.axis_ratio_z), 0.05);
+	double a = max(double(halo.scale_radius), 1e-9);
+	double truncation = double(halo.truncation_radius);
+	double reach = (truncation > 0.0) ? min(m, truncation) : m;
+	double enclosed = double(halo.mass_norm) * dm_enclosed_fraction(halo.profile, reach / a, double(halo.shape), double(halo.shape_aux));
+	double softening = double(halo.softening);
+	double denominator = m * m + softening * softening;
+	double magnitude = enclosed * m / (denominator * sqrt(denominator));
+	dvec3 local_acceleration = -magnitude * dvec3(local_position.x, local_position.y / (qy * qy), local_position.z / (qz * qz)) / m;
+	dvec3 axis_x = dvec3(double(halo.basis[0]), double(halo.basis[1]), double(halo.basis[2]));
+	dvec3 axis_y = dvec3(double(halo.basis[3]), double(halo.basis[4]), double(halo.basis[5]));
+	dvec3 axis_z = dvec3(double(halo.basis[6]), double(halo.basis[7]), double(halo.basis[8]));
+	return (local_acceleration.x * axis_x + local_acceleration.y * axis_y + local_acceleration.z * axis_z) * double(halo.lens_scale);
+}
+
+dvec3 dm_total_acceleration(dvec3 position) {
+	dvec3 total = dvec3(0.0);
+	uint count = min(pc.dark_matter.halo_count, 16u);
+	for (uint i = 0u; i < count; ++i) {
+		DarkMatterHalo halo = pc.dark_matter.halos[i];
+		if ((halo.flags & 2u) == 0u) continue;
+		total += dm_halo_acceleration(halo, position);
+	}
+	return total;
+}
+
+dvec3 dark_matter_kick(dvec3 position, dvec3 velocity, double dt) {
+	double speed_sq = dot(velocity, velocity);
+	if (speed_sq < 1e-24) return velocity;
+	double speed = sqrt(speed_sq);
+	dvec3 direction = velocity / speed;
+	dvec3 g = dm_total_acceleration(position) * double(pc.dark_matter.lensing_strength);
+	dvec3 g_perp = g - dot(g, direction) * direction;
+	double angle = 2.0 * length(g_perp) * abs(dt) * speed;
+	if (angle < 1e-18) return velocity;
+	double limiter = (angle > 0.2) ? (0.2 / angle) : 1.0;
+	dvec3 kicked = velocity + dt * 2.0 * speed_sq * limiter * g_perp;
+	double kicked_length = length(kicked);
+	return (kicked_length > 1e-18) ? kicked * (speed / kicked_length) : velocity;
+}
+
+void dark_matter_apply_spherical(dvec3 previous_position, double ray_r, double ray_th, double ray_phi, inout double ray_pr, inout double ray_pth, inout double ray_pphi, double dt) {
+	dvec3 current_position = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+	dvec2 sincos_th = precise_sincos(ray_th);
+	double sin_t = sincos_th.x;
+	double cos_t = sincos_th.y;
+	float phi_f = float(ray_phi);
+	double sin_p = double(sin(phi_f));
+	double cos_p = double(cos(phi_f));
+	dvec3 velocity = dvec3(
+		ray_pr * sin_t * cos_p + ray_r * ray_pth * cos_t * cos_p - ray_r * sin_t * ray_pphi * sin_p,
+		ray_pr * sin_t * sin_p + ray_r * ray_pth * cos_t * sin_p + ray_r * sin_t * ray_pphi * cos_p,
+		ray_pr * cos_t - ray_r * ray_pth * sin_t
+	);
+	dvec3 kicked = dark_matter_kick(0.5 * (previous_position + current_position), velocity, dt);
+	double safe_sin_t = (abs(sin_t) > 1e-9) ? sin_t : ((sin_t >= 0.0) ? 1e-9 : -1e-9);
+	ray_pr = kicked.x * sin_t * cos_p + kicked.y * sin_t * sin_p + kicked.z * cos_t;
+	ray_pth = (kicked.x * cos_t * cos_p + kicked.y * cos_t * sin_p - kicked.z * sin_t) / max(ray_r, 1e-9);
+	ray_pphi = (-kicked.x * sin_p + kicked.y * cos_p) / max(ray_r * safe_sin_t, 1e-9);
+}
+
+double dark_matter_step_limit(dvec3 position) {
+	double limit = 1.0e30;
+	uint count = min(pc.dark_matter.halo_count, 16u);
+	for (uint i = 0u; i < count; ++i) {
+		DarkMatterHalo halo = pc.dark_matter.halos[i];
+		if ((halo.flags & 6u) == 0u) continue;
+		double m = dm_halo_radius(halo, dm_halo_local(halo, position));
+		double a = max(double(halo.scale_radius), 1e-9);
+		limit = min(limit, max(double(pc.dark_matter.step_fraction) * max(m, 0.5 * a), 1e-4));
+	}
+	return limit;
+}
+
+vec3 dark_matter_emission(dvec3 position, double segment_length) {
+	vec3 total = vec3(0.0);
+	if ((pc.dark_matter.flags & 2u) == 0u) return total;
+	uint count = min(pc.dark_matter.halo_count, 16u);
+	for (uint i = 0u; i < count; ++i) {
+		DarkMatterHalo halo = pc.dark_matter.halos[i];
+		if ((halo.flags & 4u) == 0u) continue;
+		double m = dm_halo_radius(halo, dm_halo_local(halo, position));
+		double truncation = double(halo.truncation_radius);
+		if (truncation > 0.0 && m > truncation) continue;
+		double a = max(double(halo.scale_radius), 1e-9);
+		double x = max(m / a, 1e-6);
+		double density = dm_fraction_derivative(halo.profile, x, double(halo.shape), double(halo.shape_aux)) / (x * x);
+		double column = density * segment_length / a;
+		column = column / (1.0 + column);
+		total += vec3(halo.tint_r, halo.tint_g, halo.tint_b) * float(column * double(halo.visual_gain));
+	}
+	return total * pc.dark_matter.visual_intensity;
+}
+
 double subsidiary_step_guard(dvec3 pos) {
 	if (pc.body_count == 0u) return 1.0;
 	double nearest_ratio = 1.0e30;
@@ -2732,6 +2997,7 @@ void main() {
 		if (bodies[sbi].preset_3d == 8u) { subsidiary_sources_present = true; break; }
 	}
 
+	bool dark_matter_active = pc.dark_matter.halo_count > 0u && pc.dark_matter.flags != 0u;
 	bool early_done = false;
 	{
 		double obs_r0 = pc.observer_position.y;
@@ -2739,7 +3005,7 @@ void main() {
 		double obs_ph0 = pc.observer_position.w;
 		dvec3 obs_pos0 = spherical_to_cartesian(obs_r0, obs_th0, obs_ph0);
 
-		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && ((pc.metric_type == 0u && !subsidiary_sources_present) || (pc.render_flags & (1u << 17)) != 0u)) {
+		if ((pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && ((pc.metric_type == 0u && !subsidiary_sources_present && !dark_matter_active) || (pc.render_flags & (1u << 17)) != 0u)) {
 			vec3 body_color;
 			uint body_status;
 			double body_dist;
@@ -2779,7 +3045,7 @@ void main() {
 		dvec3 accum = dvec3(0.0);
 		double redshift_rec = 1.0;
 
-		bool needs_ray_march = (pc.metric_type != 0u) || (subsidiary_sources_present && (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u);
+		bool needs_ray_march = (pc.metric_type != 0u) || (subsidiary_sources_present && (pc.render_flags & (1u << 12)) != 0u && pc.body_count > 0u && (pc.render_flags & (1u << 17)) == 0u) || (dark_matter_active && (pc.render_flags & (1u << 17)) == 0u);
 
 		if (!needs_ray_march) {
 			iters = 1u;
@@ -2879,7 +3145,7 @@ void main() {
 					break;
 				}
 
-				if (!use_kerr_newman_metric && !subsidiary_sources_present && (pc.render_flags & (1u << 10)) != 0u) {
+				if (!use_kerr_newman_metric && !subsidiary_sources_present && !dark_matter_active && (pc.render_flags & (1u << 10)) != 0u) {
 					double effective_skip_r = has_accretion_disk ? max(pc.space_skip_radius_scale * m, disk_outer * 1.05) : max(pc.space_skip_radius_scale * m, rh * 2.0);
 					if (ray_r > effective_skip_r) {
 						dvec3 skip_origin = spherical_to_cartesian(ray_r, ray_th, ray_phi);
@@ -2908,9 +3174,13 @@ void main() {
 				double sin_t = sincos_ray_th.x;
 				double cos_t = sincos_ray_th.y;
 				double pole_guard = (use_kerr_newman_metric && !use_kerr_schild) ? clamp(abs(sin_t) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0) : 1.0;
-				double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
+				double far_field_factor = 1.0 + (pc.far_field_step_scale - 1.0) * clamp((ray_r - 20.0 * rh) / max(80.0 * rh, 1e-9), 0.0, 1.0);
 				double subsidiary_guard = subsidiary_step_guard(spherical_to_cartesian(ray_r, ray_th, ray_phi));
-				double dt = -clamp(pc.step_size_factor * sqrt(ray_r * r_scale) * far_field_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
+				double dt_magnitude = clamp(pc.step_size_factor * sqrt(ray_r * r_scale) * far_field_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale) * pole_guard * subsidiary_guard;
+				if (dark_matter_active) {
+					dt_magnitude = min(dt_magnitude, dark_matter_step_limit(spherical_to_cartesian(ray_r, ray_th, ray_phi)));
+				}
+				double dt = -dt_magnitude;
 
 				double prev_r = ray_r;
 				double prev_th = ray_th;
@@ -2945,6 +3215,18 @@ void main() {
 
 				if (bodies_traced) {
 					apply_subsidiary_deflection(ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt);
+				}
+
+				if (dark_matter_active) {
+					dvec3 dm_previous = spherical_to_cartesian(prev_r, prev_th, prev_phi);
+					dvec3 dm_current = spherical_to_cartesian(ray_r, ray_th, ray_phi);
+					dvec3 dm_middle = 0.5 * (dm_previous + dm_current);
+					if (use_kerr_schild) {
+						ks_mom = dark_matter_kick(dm_middle, ks_mom, dt);
+					} else {
+						dark_matter_apply_spherical(dm_previous, ray_r, ray_th, ray_phi, ray_pr, ray_pth, ray_pphi, dt);
+					}
+					accum += throughput * dvec3(dark_matter_emission(dm_middle, length(dm_current - dm_previous)));
 				}
 
 				if (ray_th < 0.0) {

@@ -13,6 +13,7 @@
 #include "relativistic/render/accretion_disk/hydro_disk_settings.hpp"
 #include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
 #include "relativistic/render/jet/jet_settings.hpp"
+#include "relativistic/dark_matter/dark_matter_field.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -140,6 +141,7 @@ struct PhysicalParameters {
 	Render::AccretionDiskSettings primary_disk{};
 	Render::HydroDiskSettings hydro_disk{};
 	Render::JetSettings jet{};
+	DarkMatter::DarkMatterFieldSettings dark_matter{};
 	uint32_t light_source_mode{0};
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
@@ -489,6 +491,7 @@ public:
 
 		sync_central_body_with_system();
 		nbody_system_.set_interaction_config(interaction_config_);
+		nbody_system_.set_external_field(resolve_dark_matter_field(nbody_system_.time()));
 
 		if (nbody_system_.body_count() > 0) {
 			step_nbody_dynamics(dt);
@@ -1758,6 +1761,25 @@ public:
 		push.jet = params_.jet.to_gpu_profile(params_.mass, params_.spin, constants_engine_.length_scale());
 	}
 
+	[[nodiscard]] DarkMatter::ResolvedDarkMatterField resolve_dark_matter_field(double time) const {
+		std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
+		const auto bodies = nbody_system_.bodies();
+		const auto resolver = [&bodies](uint32_t id, std::array<double, 3>& out) noexcept -> bool {
+			for (const auto& body : bodies) {
+				if (body.id == id && body.enabled) {
+					out = body.position;
+					return true;
+				}
+			}
+			return false;
+		};
+		return params_.dark_matter.resolve(time, resolver);
+	}
+
+	void apply_dark_matter_constants(Relativistic::Render::GpuCameraPushConstants& push) const {
+		push.dark_matter = resolve_dark_matter_field(push.time).gpu;
+	}
+
 	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
 		constexpr double degrees_to_radians = std::numbers::pi_v<double> / 180.0;
 		push.light_source_mode = std::min<uint32_t>(params_.light_source_mode, Relativistic::Render::kLightSourceModeCount - 1U);
@@ -1895,6 +1917,7 @@ public:
 
 		apply_lighting_constants(push);
 		apply_primary_disk_constants(push);
+		apply_dark_matter_constants(push);
 
 		return push;
 	}

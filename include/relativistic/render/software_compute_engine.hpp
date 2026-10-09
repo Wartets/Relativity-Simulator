@@ -31,6 +31,7 @@
 #include "relativistic/core/spherical_planar_null_integrator.hpp"
 #include "relativistic/metrics/schwarzschild_de_sitter.hpp"
 #include "relativistic/observer/direction_projection.hpp"
+#include "relativistic/dark_matter/dark_matter_field.hpp"
 #include <vector>
 #include <span>
 #include <thread>
@@ -1237,7 +1238,7 @@ private:
 				break;
 			}
 
-			if ((params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U) {
+			if ((params.render_flags & RenderFlags::SPACE_SKIP_ENABLED) != 0U && !DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
 				const double effective_skip_r = has_accretion_disk
 					? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
 					: std::max(params.space_skip_radius_scale * m, rh * 2.0);
@@ -1264,7 +1265,11 @@ private:
 			const double r_scale = std::max(cur_r - rh, 0.02 * m);
 			const double pole_guard = std::clamp(std::abs(std::sin(x(2))) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
 			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((cur_r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			const double dt = -std::clamp(params.step_size_factor * std::sqrt(cur_r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * pole_guard;
+			double dt_magnitude = std::clamp(params.step_size_factor * std::sqrt(cur_r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * pole_guard;
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				dt_magnitude = std::min(dt_magnitude, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, spherical_to_cartesian(x(1), x(2), x(3))));
+			}
+			const double dt = -dt_magnitude;
 
 			const double prev_r = x(1);
 			const double prev_theta = x(2);
@@ -1307,6 +1312,12 @@ private:
 				status = PixelFlags::HORIZON_ABSORBED;
 				throughput = 0.0;
 				break;
+			}
+
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				const auto dm_from = spherical_to_cartesian(prev_r, prev_theta, prev_phi);
+				apply_dark_matter_spherical_kick(params, dm_from, x(1), x(2), x(3), u(1), u(2), u(3), dt);
+				accumulate_dark_matter_emission(params, dm_from, spherical_to_cartesian(x(1), x(2), x(3)), accum_r, accum_g, accum_b, throughput);
 			}
 
 			if (x(2) < 0.0) {
@@ -1495,7 +1506,11 @@ private:
 
 			const double r_scale = std::max(point.r - rh, 0.02 * m);
 			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((point.r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			const double dt = -std::clamp(params.step_size_factor * std::sqrt(point.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			double dt_magnitude = std::clamp(params.step_size_factor * std::sqrt(point.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				dt_magnitude = std::min(dt_magnitude, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, spherical_to_cartesian(point.r, point.theta, point.phi)));
+			}
+			const double dt = -dt_magnitude;
 
 			const auto previous = point;
 			Core::step_kerr_schild_null_rk4(state, dt, m, a_spin);
@@ -1505,6 +1520,17 @@ private:
 				status = PixelFlags::HORIZON_ABSORBED;
 				throughput = 0.0;
 				break;
+			}
+
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				const auto dm_from = spherical_to_cartesian(previous.r, previous.theta, previous.phi);
+				const std::array<double, 3> dm_to{state.position[0], state.position[1], state.position[2]};
+				const std::array<double, 3> dm_middle{0.5 * (dm_from[0] + dm_to[0]), 0.5 * (dm_from[1] + dm_to[1]), 0.5 * (dm_from[2] + dm_to[2])};
+				const auto dm_kicked = DarkMatter::DarkMatterLensing::kick(params.dark_matter, dm_middle, {state.momentum[0], state.momentum[1], state.momentum[2]}, dt);
+				state.momentum[0] = dm_kicked[0];
+				state.momentum[1] = dm_kicked[1];
+				state.momentum[2] = dm_kicked[2];
+				accumulate_dark_matter_emission(params, dm_from, dm_to, accum_r, accum_g, accum_b, throughput);
 			}
 
 			point = Core::boyer_lindquist_from_kerr_schild(state.position, a_spin, previous.phi);
@@ -1713,7 +1739,11 @@ private:
 
 			const double r_scale = std::max(state.r - rh, 0.02 * m);
 			const double far_field_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((state.r - 20.0 * rh) / (80.0 * rh), 0.0, 1.0);
-			const double dt = -std::clamp(params.step_size_factor * std::sqrt(state.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			double dt_magnitude = std::clamp(params.step_size_factor * std::sqrt(state.r * r_scale) * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				dt_magnitude = std::min(dt_magnitude, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, position_at(state.r, state.psi)));
+			}
+			const double dt = -dt_magnitude;
 
 			const auto previous = state;
 			Core::step_planar_null_rk4(metric, state, dt);
@@ -1722,6 +1752,38 @@ private:
 				status = PixelFlags::HORIZON_ABSORBED;
 				throughput = 0.0;
 				break;
+			}
+
+			if (DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+				const auto dm_from = position_at(previous.r, previous.psi);
+				const auto dm_to = position_at(state.r, state.psi);
+				const std::array<double, 3> dm_middle{0.5 * (dm_from[0] + dm_to[0]), 0.5 * (dm_from[1] + dm_to[1]), 0.5 * (dm_from[2] + dm_to[2])};
+				const double dm_cos = std::cos(state.psi);
+				const double dm_sin = std::sin(state.psi);
+				std::array<double, 3> dm_radial{};
+				std::array<double, 3> dm_tangent{};
+				std::array<double, 3> dm_velocity{};
+				for (size_t i = 0; i < 3; ++i) {
+					dm_radial[i] = dm_cos * e_r[i] + dm_sin * e_t[i];
+					dm_tangent[i] = -dm_sin * e_r[i] + dm_cos * e_t[i];
+					dm_velocity[i] = state.ur * dm_radial[i] + state.r * state.upsi * dm_tangent[i];
+				}
+				const auto dm_kicked = DarkMatter::DarkMatterLensing::kick(params.dark_matter, dm_middle, dm_velocity, dt);
+				std::array<double, 3> dm_delta{dm_kicked[0] - dm_velocity[0], dm_kicked[1] - dm_velocity[1], dm_kicked[2] - dm_velocity[2]};
+				const double dm_normal_component = dm_delta[0] * orbit_normal[0] + dm_delta[1] * orbit_normal[1] + dm_delta[2] * orbit_normal[2];
+				double dm_radial_speed = 0.0;
+				double dm_tangential_speed = 0.0;
+				for (size_t i = 0; i < 3; ++i) {
+					dm_delta[i] -= dm_normal_component * orbit_normal[i];
+					const double component = dm_velocity[i] + dm_delta[i];
+					dm_radial_speed += component * dm_radial[i];
+					dm_tangential_speed += component * dm_tangent[i];
+				}
+				state.ur = dm_radial_speed;
+				if (state.r > 1e-12) {
+					state.upsi = dm_tangential_speed / state.r;
+				}
+				accumulate_dark_matter_emission(params, dm_from, dm_to, accum_r, accum_g, accum_b, throughput);
 			}
 
 			const auto from = position_at(previous.r, previous.psi);
@@ -2321,6 +2383,44 @@ private:
 		pphi = (-v[0] * sin_p + v[1] * cos_p) / std::max(r * safe_sin_t, 1e-9);
 	}
 
+	static void apply_dark_matter_spherical_kick(
+		const GpuCameraPushConstants& params,
+		const std::array<double, 3>& previous_position,
+		double ray_r, double ray_theta, double ray_phi,
+		double& ray_pr, double& ray_ptheta, double& ray_pphi,
+		double dt
+	) noexcept {
+		const auto current_position = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
+		const auto velocity = spherical_state_to_cartesian_velocity(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi);
+		const std::array<double, 3> middle{
+			0.5 * (previous_position[0] + current_position[0]),
+			0.5 * (previous_position[1] + current_position[1]),
+			0.5 * (previous_position[2] + current_position[2])
+		};
+		const auto kicked = DarkMatter::DarkMatterLensing::kick(params.dark_matter, middle, velocity, dt);
+		cartesian_velocity_to_spherical_state(ray_r, ray_theta, ray_phi, kicked, ray_pr, ray_ptheta, ray_pphi);
+	}
+
+	static void accumulate_dark_matter_emission(
+		const GpuCameraPushConstants& params,
+		const std::array<double, 3>& from,
+		const std::array<double, 3>& to,
+		double& accum_r, double& accum_g, double& accum_b,
+		double throughput
+	) noexcept {
+		if ((params.dark_matter.flags & DarkMatterFieldFlags::VISUALIZATION) == 0U) {
+			return;
+		}
+		const std::array<double, 3> middle{0.5 * (from[0] + to[0]), 0.5 * (from[1] + to[1]), 0.5 * (from[2] + to[2])};
+		const double dx = to[0] - from[0];
+		const double dy = to[1] - from[1];
+		const double dz = to[2] - from[2];
+		const auto emission = DarkMatter::DarkMatterLensing::emission(params.dark_matter, middle, std::sqrt(dx * dx + dy * dy + dz * dz));
+		accum_r += throughput * emission[0];
+		accum_g += throughput * emission[1];
+		accum_b += throughput * emission[2];
+	}
+
 	static void apply_subsidiary_deflection_step(
 		double& ray_r, double ray_theta, double ray_phi,
 		double& ray_pr, double& ray_ptheta, double& ray_pphi,
@@ -2497,6 +2597,7 @@ public:
 		}
 
 		const auto subsidiary_sources = collect_subsidiary_sources(bodies);
+		const bool dark_matter_present = DarkMatter::DarkMatterLensing::is_active(params.dark_matter);
 
 		const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
 		std::vector<std::jthread> workers;
@@ -2588,7 +2689,7 @@ public:
 					}
 
 					const bool bodies_only_mode_active = (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U;
-					const bool bodies_need_curved_path = (has_event_horizon || !subsidiary_sources.empty())
+					const bool bodies_need_curved_path = (has_event_horizon || !subsidiary_sources.empty() || dark_matter_present)
 						&& !bodies_only_mode_active
 						&& ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U)
 						&& !bodies.empty();
@@ -2675,7 +2776,7 @@ public:
 						};
 						continue;
 					}
-					const bool force_ray_space_skip = (carter_phase.phase == Optics::GeodesicPhaseClass::CertainEscape);
+					const bool force_ray_space_skip = (carter_phase.phase == Optics::GeodesicPhaseClass::CertainEscape) && !dark_matter_present;
 					const double effective_space_skip_radius_for_ray = force_ray_space_skip
 						? std::min(effective_space_skip_radius, carter_phase.outer_turning_point * 1.05)
 						: effective_space_skip_radius;
@@ -2705,7 +2806,7 @@ public:
 							break;
 						}
 
-						if ((space_skip_enabled || force_ray_space_skip) && ray_r > effective_space_skip_radius_for_ray && subsidiary_sources.empty()) {
+						if ((space_skip_enabled || force_ray_space_skip) && ray_r > effective_space_skip_radius_for_ray && subsidiary_sources.empty() && !dark_matter_present) {
 							const auto skip_origin = spherical_to_cartesian(ray_r, ray_theta, ray_phi);
 							if (attempt_analytic_space_skip(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, effective_space_skip_radius_for_ray, params.escape_radius, m)) {
 								if (bodies_need_curved_path) {
@@ -2735,7 +2836,11 @@ public:
 							}
 							subsidiary_horizon_guard = std::clamp(nearest_horizon_ratio / 8.0, 0.03, 1.0);
 						}
-						const double dt = -std::clamp(smooth_dt * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * subsidiary_horizon_guard;
+						double dt_magnitude = std::clamp(smooth_dt * far_field_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale) * subsidiary_horizon_guard;
+						if (dark_matter_present) {
+							dt_magnitude = std::min(dt_magnitude, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, spherical_to_cartesian(ray_r, ray_theta, ray_phi)));
+						}
+						const double dt = -dt_magnitude;
 
 						const double prev_r = ray_r;
 						const double prev_theta = ray_theta;
@@ -2749,6 +2854,12 @@ public:
 						ray_pr = photon_state.dr;
 						ray_ptheta = photon_state.dtheta;
 						ray_pphi = photon_state.dphi;
+
+						if (dark_matter_present) {
+							const auto dark_matter_from = spherical_to_cartesian(prev_r, prev_theta, prev_phi);
+							apply_dark_matter_spherical_kick(params, dark_matter_from, ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, dt);
+							accumulate_dark_matter_emission(params, dark_matter_from, spherical_to_cartesian(ray_r, ray_theta, ray_phi), accumulated_r, accumulated_g, accumulated_b, throughput);
+						}
 
 						if (bodies_need_curved_path && !subsidiary_sources.empty()) {
 							apply_subsidiary_deflection_step(ray_r, ray_theta, ray_phi, ray_pr, ray_ptheta, ray_pphi, dt, subsidiary_sources);
@@ -4159,7 +4270,7 @@ public:
 		static_cast<void>(stage_stats);
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
 			dispatch_fp64(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 			return;
 		}
@@ -4201,7 +4312,7 @@ public:
 	) noexcept {
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}

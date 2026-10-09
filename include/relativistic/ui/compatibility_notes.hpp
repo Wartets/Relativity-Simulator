@@ -41,6 +41,22 @@ namespace Relativistic::UI {
 	return {};
 }
 
+[[nodiscard]] inline std::string_view dark_matter_path_note(std::string_view metric_name, bool use_gpu_compute, int precision_mode) noexcept {
+	const bool cpu_only_metric = metric_name.find("FLRW") != std::string_view::npos
+		|| metric_name.find("Morris") != std::string_view::npos
+		|| metric_name.find("Wormhole") != std::string_view::npos
+		|| metric_name.find("Alcubierre") != std::string_view::npos
+		|| metric_name.find("Warp") != std::string_view::npos
+		|| metric_name.find("BSSN") != std::string_view::npos;
+	if (cpu_only_metric) {
+		return "This spacetime is traced by the CPU renderer. The dark matter field is applied there with identical halo parameters, but rendering is considerably slower than on the GPU path.";
+	}
+	if (use_gpu_compute && precision_mode == 1) {
+		return "Double-single emulation runs on the CPU fp64 tracer when dark matter is active; GPU acceleration is unavailable in this precision mode.";
+	}
+	return {};
+}
+
 [[nodiscard]] inline std::string_view render_distance_lod_incompatibility(double render_distance_scale, bool lod_enabled, double lod_distance_scale) noexcept {
 	if (render_distance_scale > 0.0 && lod_enabled && lod_distance_scale > render_distance_scale) {
 		return "LOD threshold distance is farther than the render distance cutoff, so the reduced-detail tier is unreachable; geodesics escape to the sky before LOD ever activates.";

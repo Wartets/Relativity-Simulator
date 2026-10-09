@@ -347,6 +347,10 @@ add_executable(test_dark_matter_profiles tests/test_dark_matter_profiles.cpp)
 target_link_libraries(test_dark_matter_profiles PRIVATE relativistic_core)
 add_test(NAME test_dark_matter_profiles COMMAND test_dark_matter_profiles)
 
+add_executable(test_dark_matter_field tests/test_dark_matter_field.cpp)
+target_link_libraries(test_dark_matter_field PRIVATE relativistic_core)
+add_test(NAME test_dark_matter_field COMMAND test_dark_matter_field)
+
 add_executable(test_barnes_hut_octree tests/test_barnes_hut_octree.cpp)
 target_link_libraries(test_barnes_hut_octree PRIVATE relativistic_core)
 add_test(NAME test_barnes_hut_octree COMMAND test_barnes_hut_octree)

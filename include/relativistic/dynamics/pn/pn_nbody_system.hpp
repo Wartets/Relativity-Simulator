@@ -7,6 +7,7 @@
 #include "relativistic/dynamics/pn/pn_gravitational_waves.hpp"
 #include "relativistic/dynamics/interaction_config.hpp"
 #include "relativistic/dynamics/interaction_solver.hpp"
+#include "relativistic/dark_matter/dark_matter_field.hpp"
 #include <vector>
 #include <array>
 #include <cmath>
@@ -29,6 +30,7 @@ private:
 	InteractionConfig interaction_config_{};
 	bool has_central_body_{false};
 	bool central_body_stationary_{true};
+	DarkMatter::ResolvedDarkMatterField external_field_{};
 	PostNewtonianBody central_body_{};
 	uint32_t next_body_id_{1};
 	mutable std::recursive_mutex bodies_mutex_{};
@@ -206,6 +208,15 @@ public:
 		return interaction_config_;
 	}
 
+	void set_external_field(const DarkMatter::ResolvedDarkMatterField& field) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		external_field_ = field;
+	}
+
+	[[nodiscard]] const DarkMatter::ResolvedDarkMatterField& external_field() const noexcept {
+		return external_field_;
+	}
+
 	void set_interaction_config(const InteractionConfig& cfg) noexcept {
 		interaction_config_ = cfg;
 	}
@@ -339,6 +350,16 @@ public:
 					for (size_t c = 0; c < 3; ++c) {
 						body.acceleration[c] += f_i * acc_cen.a_total[c];
 					}
+				}
+			}
+		}
+
+		if (!external_field_.empty()) {
+			for (const size_t index : active_indices) {
+				auto& body = bodies_[index];
+				const auto halo_acceleration = external_field_.body_acceleration(body.position, body.id, config_.gravitational_constant);
+				for (size_t c = 0; c < 3; ++c) {
+					body.acceleration[c] += halo_acceleration[c];
 				}
 			}
 		}

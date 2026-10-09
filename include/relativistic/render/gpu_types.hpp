@@ -183,6 +183,62 @@ struct GpuJetProfile {
 
 static_assert(sizeof(GpuJetProfile) == 200);
 
+inline constexpr size_t kMaxDarkMatterHalos = 16;
+
+namespace DarkMatterHaloFlags {
+	static constexpr uint32_t ENABLED = 1U << 0;
+	static constexpr uint32_t LENSING = 1U << 1;
+	static constexpr uint32_t VISUAL = 1U << 2;
+}
+
+namespace DarkMatterFieldFlags {
+	static constexpr uint32_t LENSING = 1U << 0;
+	static constexpr uint32_t VISUALIZATION = 1U << 1;
+}
+
+struct GpuDarkMatterHalo {
+	uint32_t profile{0};
+	uint32_t flags{0};
+	float position_x{0.0f};
+	float position_y{0.0f};
+	float position_z{0.0f};
+	float mass_norm{0.0f};
+	float scale_radius{1.0f};
+	float shape{0.0f};
+	float softening{0.0f};
+	float truncation_radius{0.0f};
+	float axis_ratio_y{1.0f};
+	float axis_ratio_z{1.0f};
+	std::array<float, 9> basis{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+	float lens_scale{1.0f};
+	float visual_gain{1.0f};
+	float tint_r{0.55f};
+	float tint_g{0.4f};
+	float tint_b{1.0f};
+	float shape_aux{0.0f};
+	float reserved0{0.0f};
+
+	[[nodiscard]] bool operator==(const GpuDarkMatterHalo&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuDarkMatterHalo) == 112);
+
+struct GpuDarkMatterField {
+	uint32_t halo_count{0};
+	uint32_t flags{0};
+	float lensing_strength{1.0f};
+	float visual_intensity{0.25f};
+	float step_fraction{0.35f};
+	float reserved0{0.0f};
+	float reserved1{0.0f};
+	float reserved2{0.0f};
+	std::array<GpuDarkMatterHalo, kMaxDarkMatterHalos> halos{};
+
+	[[nodiscard]] bool operator==(const GpuDarkMatterField&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuDarkMatterField) == 32 + kMaxDarkMatterHalos * 112);
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -308,6 +364,7 @@ struct alignas(16) GpuCameraPushConstants {
 	GpuDiskProfile primary_disk{};
 	GpuHydroDiskProfile hydro_disk{};
 	GpuJetProfile jet{};
+	GpuDarkMatterField dark_matter{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

@@ -313,6 +313,7 @@ public:
 		constants.metric_charge = params.charge;
 		constants.horizon_radius = 2.0 * params.mass;
 		constants.time = orchestrator_.scheduler().snapshot().logical_time;
+		orchestrator_.apply_dark_matter_constants(constants);
 		constants.disk_temperature_scale_k = params.disk_temperature_scale_k;
 		constants.disk_temperature_floor_k = params.disk_temperature_floor_k;
 		constants.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
@@ -777,6 +778,7 @@ public:
 			cam_consts.tetrad_e2 = {0.0, orientation.right[0], orientation.right[1], orientation.right[2]};
 			cam_consts.tetrad_e3 = {0.0, orientation.up[0], orientation.up[1], orientation.up[2]};
 			cam_consts.time = orchestrator_.scheduler().snapshot().logical_time;
+			orchestrator_.apply_dark_matter_constants(cam_consts);
 			}
 
 			uint32_t total_enabled_bodies_this_frame = 0;

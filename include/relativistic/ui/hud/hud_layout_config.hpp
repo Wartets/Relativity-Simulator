@@ -54,6 +54,7 @@ enum class HudElementId : uint32_t {
 	PolarizationQuickReadout,
 	InterferometryQuickReadout,
 	RayProbeGeometryReadout,
+	DarkMatterQuickReadout,
 	Count
 };
 
@@ -89,6 +90,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::PolarizationQuickReadout: return "Polarization Summary (Linked)";
 		case HudElementId::InterferometryQuickReadout: return "Interferometry Summary (Linked)";
 		case HudElementId::RayProbeGeometryReadout: return "Ray Probe: Deflection & Disk Image Order (Linked)";
+		case HudElementId::DarkMatterQuickReadout: return "Dark Matter Field Summary (Linked)";
 		default: return "Unknown Element";
 	}
 }
@@ -334,6 +336,13 @@ struct HudLayoutConfig {
 		probe_geometry_ro.offset_x = 16.0f;
 		probe_geometry_ro.offset_y = 456.0f;
 		probe_geometry_ro.text_color = {1.0f, 0.85f, 0.45f, 1.0f};
+
+		auto& dark_matter_ro = element(HudElementId::DarkMatterQuickReadout);
+		dark_matter_ro.enabled = false;
+		dark_matter_ro.anchor = HudAnchor::BottomLeft;
+		dark_matter_ro.offset_x = 16.0f;
+		dark_matter_ro.offset_y = 478.0f;
+		dark_matter_ro.text_color = {0.75f, 0.6f, 1.0f, 1.0f};
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

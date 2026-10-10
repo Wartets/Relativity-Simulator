@@ -183,7 +183,7 @@ struct GpuJetProfile {
 
 static_assert(sizeof(GpuJetProfile) == 200);
 
-inline constexpr size_t kMaxDarkMatterHalos = 16;
+inline constexpr size_t kMaxDarkMatterHalos = 64;
 
 namespace DarkMatterHaloFlags {
 	static constexpr uint32_t ENABLED = 1U << 0;
@@ -229,7 +229,7 @@ struct GpuDarkMatterField {
 	float lensing_strength{1.0f};
 	float visual_intensity{0.25f};
 	float step_fraction{0.35f};
-	float reserved0{0.0f};
+	float visual_mode{0.0f};
 	float reserved1{0.0f};
 	float reserved2{0.0f};
 	std::array<GpuDarkMatterHalo, kMaxDarkMatterHalos> halos{};

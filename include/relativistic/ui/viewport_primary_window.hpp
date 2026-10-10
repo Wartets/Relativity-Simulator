@@ -2048,6 +2048,28 @@ private:
 		}
 
 		{
+			const auto& style = hud_layout_.element(HudElementId::DarkMatterQuickReadout);
+			const auto& dm_field = params.dark_matter;
+			if (style.enabled && dm_field.enabled) {
+				uint32_t active_halos = 0;
+				for (uint32_t i = 0; i < dm_field.count; ++i) {
+					if (dm_field.halos[i].enabled) ++active_halos;
+				}
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const size_t mode_index = std::min<size_t>(dm_field.visualization_mode, DarkMatter::kDarkMatterVisualizationModeCount - 1);
+				char buf[224];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "DM %u/%u", active_halos, dm_field.count);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Dark Matter: %u/%u halos | Mass %.*f M | Lensing %s | Glow %s (%s) | N-Body %s", active_halos, dm_field.count, prec, dm_field.total_halo_mass(), dm_field.lensing_enabled ? "On" : "Off", dm_field.visualization_enabled ? "On" : "Off", DarkMatter::kDarkMatterVisualizationModeNames[mode_index], dm_field.affects_bodies ? "On" : "Off");
+				} else {
+					std::snprintf(buf, sizeof(buf), "Dark Matter: %u/%u halos | Mass %.*f M | Lensing %s", active_halos, dm_field.count, prec, dm_field.total_halo_mass(), dm_field.lensing_enabled ? "On" : "Off");
+				}
+				push_block(HudElementId::DarkMatterQuickReadout, {HudTextLine{buf}});
+			}
+		}
+
+		{
 			const auto& kb = camera_controller_.config().keybinds;
 			std::vector<HudTextLine> nav_lines;
 			nav_lines.push_back(HudTextLine{"Keybind Summary:", IM_COL32(102, 204, 255, 255)});

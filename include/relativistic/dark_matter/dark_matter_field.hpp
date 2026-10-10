@@ -29,10 +29,14 @@ enum class DarkMatterProfileType : uint32_t {
 	CoredIsothermal = 5,
 	SingularIsothermal = 6,
 	Dehnen = 7,
-	PointMass = 8
+	PointMass = 8,
+	Jaffe = 9,
+	Moore = 10,
+	Soliton = 11,
+	BetaModel = 12
 };
 
-inline constexpr size_t kDarkMatterProfileCount = 9;
+inline constexpr size_t kDarkMatterProfileCount = 13;
 
 inline constexpr std::array<const char*, kDarkMatterProfileCount> kDarkMatterProfileNames{
 	"Navarro-Frenk-White (Cuspy)",
@@ -43,7 +47,11 @@ inline constexpr std::array<const char*, kDarkMatterProfileCount> kDarkMatterPro
 	"Cored Isothermal",
 	"Singular Isothermal Sphere",
 	"Dehnen Gamma Model",
-	"Point Mass Perturber"
+	"Point Mass Perturber",
+	"Jaffe",
+	"Moore (Steep Cusp)",
+	"Soliton Core (Fuzzy Dark Matter)",
+	"King Beta Model (Cluster)"
 };
 
 enum class DarkMatterHaloPreset : uint32_t {
@@ -53,10 +61,14 @@ enum class DarkMatterHaloPreset : uint32_t {
 	CompactSubhalo = 3,
 	IsothermalLens = 4,
 	PlummerClump = 5,
-	PointMassPerturber = 6
+	PointMassPerturber = 6,
+	SolitonCore = 7,
+	MooreCuspyHalo = 8,
+	JaffeSpheroid = 9,
+	BetaModelCluster = 10
 };
 
-inline constexpr size_t kDarkMatterPresetCount = 7;
+inline constexpr size_t kDarkMatterPresetCount = 11;
 
 inline constexpr std::array<const char*, kDarkMatterPresetCount> kDarkMatterPresetNames{
 	"Galactic Halo (NFW)",
@@ -65,7 +77,25 @@ inline constexpr std::array<const char*, kDarkMatterPresetCount> kDarkMatterPres
 	"Compact Subhalo (Hernquist)",
 	"Truncated Isothermal Lens",
 	"Plummer Clump",
-	"Point Mass Perturber"
+	"Point Mass Perturber",
+	"Soliton Core (Fuzzy Dark Matter)",
+	"Moore Cuspy Halo",
+	"Jaffe Spheroid",
+	"Beta Model Cluster Halo"
+};
+
+enum class DarkMatterVisualizationMode : uint32_t {
+	Density = 0,
+	FieldStrength = 1,
+	CircularSpeed = 2
+};
+
+inline constexpr size_t kDarkMatterVisualizationModeCount = 3;
+
+inline constexpr std::array<const char*, kDarkMatterVisualizationModeCount> kDarkMatterVisualizationModeNames{
+	"Column Density",
+	"Gravitational Field Strength",
+	"Local Circular Speed Squared"
 };
 
 class DarkMatterProfileMath {
@@ -118,6 +148,14 @@ public:
 				return x;
 			case DarkMatterProfileType::Dehnen:
 				return std::pow(x / (1.0 + x), 3.0 - shape);
+			case DarkMatterProfileType::Jaffe:
+				return x / (1.0 + x);
+			case DarkMatterProfileType::Moore:
+				return std::log1p(x * std::sqrt(x));
+			case DarkMatterProfileType::Soliton:
+				return soliton_fraction(x);
+			case DarkMatterProfileType::BetaModel:
+				return beta_model_fraction(x);
 			case DarkMatterProfileType::PointMass:
 			default:
 				return 1.0;
@@ -150,6 +188,16 @@ public:
 				const double v = 1.0 + x;
 				return k * std::pow(u, k - 1.0) / (v * v);
 			}
+			case DarkMatterProfileType::Jaffe: {
+				const double v = 1.0 + x;
+				return 1.0 / (v * v);
+			}
+			case DarkMatterProfileType::Moore:
+				return 1.5 * std::sqrt(x) / (1.0 + x * std::sqrt(x));
+			case DarkMatterProfileType::Soliton:
+				return soliton_derivative(x);
+			case DarkMatterProfileType::BetaModel:
+				return x * x / ((1.0 + x * x) * std::sqrt(1.0 + x * x));
 			case DarkMatterProfileType::PointMass:
 			default:
 				return 0.0;
@@ -166,6 +214,44 @@ private:
 		const double d = 2.0 / alpha;
 		const double rho_e = std::exp(std::log(alpha) + s * std::log(d) - d - std::lgamma(s)) * kInverseFourPi;
 		return EinastoProfile<double>(rho_e, 1.0, alpha, 1.0);
+	}
+
+	static constexpr double kSolitonCoreCoefficient = 0.091;
+
+	[[nodiscard]] static double soliton_fraction(double x) noexcept {
+		constexpr double b = kSolitonCoreCoefficient;
+		if (x < 0.3) {
+			const double x2 = x * x;
+			return x * x2 * (1.0 / 3.0 - x2 * (8.0 * b / 5.0 - x2 * 36.0 * b * b / 7.0));
+		}
+		const double theta = std::atan(std::sqrt(b) * x);
+		const double s = std::sin(theta);
+		const double c = std::cos(theta);
+		const double c2 = c * c;
+		double c_odd = c;
+		double current = theta;
+		double i12 = 0.0;
+		for (int n = 2; n <= 14; n += 2) {
+			current = c_odd * s / static_cast<double>(n) + static_cast<double>(n - 1) / static_cast<double>(n) * current;
+			if (n == 12) i12 = current;
+			c_odd *= c2;
+		}
+		return (current - i12) / (b * std::sqrt(b));
+	}
+
+	[[nodiscard]] static double soliton_derivative(double x) noexcept {
+		const double q = 1.0 + kSolitonCoreCoefficient * x * x;
+		const double q2 = q * q;
+		const double q4 = q2 * q2;
+		return x * x / (q4 * q4);
+	}
+
+	[[nodiscard]] static double beta_model_fraction(double x) noexcept {
+		if (x < 0.15) {
+			const double x2 = x * x;
+			return x * x2 * (1.0 / 3.0 - x2 * (0.3 - x2 * (15.0 / 56.0 - x2 * 35.0 / 144.0)));
+		}
+		return std::asinh(x) - x / std::sqrt(1.0 + x * x);
 	}
 
 	[[nodiscard]] static double cored_isothermal_fraction(double x) noexcept {
@@ -297,12 +383,28 @@ public:
 			if ((halo.flags & Render::DarkMatterHaloFlags::VISUAL) == 0U) continue;
 			std::array<double, 3> local{};
 			const double m = ellipsoidal_radius(halo, position, local);
+			const auto mode = static_cast<DarkMatterVisualizationMode>(static_cast<uint32_t>(std::max(field.visual_mode, 0.0f) + 0.5f));
+			const auto profile = static_cast<DarkMatterProfileType>(halo.profile);
+			const double shape = static_cast<double>(halo.shape);
 			const double truncation = static_cast<double>(halo.truncation_radius);
-			if (truncation > 0.0 && m > truncation) continue;
 			const double a = std::max(static_cast<double>(halo.scale_radius), 1e-9);
-			const double x = std::max(m / a, 1e-6);
-			const double density = DarkMatterProfileMath::fraction_derivative(static_cast<DarkMatterProfileType>(halo.profile), x, static_cast<double>(halo.shape)) / (x * x);
-			double column = density * segment_length / a;
+			double column = 0.0;
+			if (mode == DarkMatterVisualizationMode::Density) {
+				if (truncation > 0.0 && m > truncation) continue;
+				const double x = std::max(m / a, 1e-6);
+				const double density = DarkMatterProfileMath::fraction_derivative(profile, x, shape) / (x * x);
+				column = density * segment_length / a;
+			} else {
+				const double reach = (truncation > 0.0) ? std::min(m, truncation) : m;
+				const double mass_norm = static_cast<double>(halo.mass_norm);
+				const double enclosed = mass_norm * DarkMatterProfileMath::enclosed_fraction(profile, reach / a, shape);
+				const double softening = static_cast<double>(halo.softening);
+				const double denominator = std::max(m * m + softening * softening, 1e-24);
+				const double field_strength = enclosed * m / (denominator * std::sqrt(denominator));
+				const double norm = std::max(mass_norm, 1e-30);
+				const double ratio = (mode == DarkMatterVisualizationMode::FieldStrength) ? (field_strength * a * a / norm) : (field_strength * m * a / norm);
+				column = ratio * segment_length / a;
+			}
 			column = column / (1.0 + column);
 			const double weight = column * static_cast<double>(halo.visual_gain);
 			total[0] += static_cast<double>(halo.tint_r) * weight;
@@ -361,6 +463,70 @@ private:
 	uint64_t state_;
 };
 
+struct DarkMatterHaloOrbit {
+	bool enabled{false};
+	double radius{0.0};
+	double eccentricity{0.0};
+	double angular_speed{0.0};
+	double inclination_deg{0.0};
+	double node_deg{0.0};
+	double periapsis_deg{0.0};
+	double phase_deg{0.0};
+
+	[[nodiscard]] static double mean_motion(double gravitational_constant, double interior_mass, double semi_major_axis) noexcept {
+		if (!(semi_major_axis > 0.0)) return 0.0;
+		return std::sqrt(std::max(gravitational_constant * interior_mass, 0.0) / (semi_major_axis * semi_major_axis * semi_major_axis));
+	}
+
+	void sanitize() noexcept {
+		const auto finite_or = [](double value, double fallback) noexcept { return std::isfinite(value) ? value : fallback; };
+		radius = std::clamp(finite_or(radius, 0.0), 0.0, 1.0e15);
+		eccentricity = std::clamp(finite_or(eccentricity, 0.0), 0.0, 0.95);
+		angular_speed = std::clamp(finite_or(angular_speed, 0.0), -1.0e6, 1.0e6);
+		inclination_deg = std::clamp(finite_or(inclination_deg, 0.0), -90.0, 90.0);
+		node_deg = finite_or(node_deg, 0.0);
+		periapsis_deg = finite_or(periapsis_deg, 0.0);
+		phase_deg = finite_or(phase_deg, 0.0);
+	}
+
+	[[nodiscard]] std::array<double, 3> offset(double time) const noexcept {
+		if (!enabled || !(radius > 0.0)) {
+			return {0.0, 0.0, 0.0};
+		}
+		constexpr double degrees = std::numbers::pi_v<double> / 180.0;
+		constexpr double two_pi = 2.0 * std::numbers::pi_v<double>;
+		const double e = std::clamp(eccentricity, 0.0, 0.95);
+		const double mean = std::remainder(angular_speed * time + phase_deg * degrees, two_pi);
+		double eccentric = (e > 0.8) ? std::numbers::pi_v<double> : mean;
+		for (int iteration = 0; iteration < 24; ++iteration) {
+			const double delta = (eccentric - e * std::sin(eccentric) - mean) / (1.0 - e * std::cos(eccentric));
+			eccentric -= delta;
+			if (std::abs(delta) < 1e-13) break;
+		}
+		const double in_plane_x = radius * (std::cos(eccentric) - e);
+		const double in_plane_y = radius * std::sqrt(1.0 - e * e) * std::sin(eccentric);
+		const double cw = std::cos(periapsis_deg * degrees);
+		const double sw = std::sin(periapsis_deg * degrees);
+		const double px = in_plane_x * cw - in_plane_y * sw;
+		const double py = in_plane_x * sw + in_plane_y * cw;
+		const double ci = std::cos(inclination_deg * degrees);
+		const double si = std::sin(inclination_deg * degrees);
+		const double cn = std::cos(node_deg * degrees);
+		const double sn = std::sin(node_deg * degrees);
+		return {px * cn - py * ci * sn, px * sn + py * ci * cn, py * si};
+	}
+
+	[[nodiscard]] std::array<double, 3> velocity(double time) const noexcept {
+		if (!enabled || !(radius > 0.0) || angular_speed == 0.0) {
+			return {0.0, 0.0, 0.0};
+		}
+		const double h = 1.0e-4 / std::max(std::abs(angular_speed), 1.0e-9);
+		const auto ahead = offset(time + h);
+		const auto behind = offset(time - h);
+		return {(ahead[0] - behind[0]) / (2.0 * h), (ahead[1] - behind[1]) / (2.0 * h), (ahead[2] - behind[2]) / (2.0 * h)};
+	}
+};
+
 struct DarkMatterHaloSettings {
 	bool enabled{true};
 	std::array<char, kHaloNameCapacity> name{};
@@ -385,6 +551,7 @@ struct DarkMatterHaloSettings {
 	bool visualize{true};
 	double visual_gain{1.0};
 	std::array<float, 3> tint{0.55f, 0.4f, 1.0f};
+	DarkMatterHaloOrbit orbit{};
 
 	DarkMatterHaloSettings() noexcept {
 		set_name("Dark Matter Halo");
@@ -421,6 +588,7 @@ struct DarkMatterHaloSettings {
 		for (double& component : position) component = finite_or(component, 0.0);
 		for (double& component : velocity) component = finite_or(component, 0.0);
 		for (float& channel : tint) channel = std::clamp(channel, 0.0f, 1.0f);
+		orbit.sanitize();
 		name[name.size() - 1] = '\0';
 	}
 
@@ -449,6 +617,61 @@ struct DarkMatterHaloSettings {
 		return normalization() * DarkMatterProfileMath::fraction_derivative(profile, x, shape) / (4.0 * std::numbers::pi_v<double> * scale_radius * scale_radius * scale_radius * x * x);
 	}
 
+	[[nodiscard]] double half_mass_radius() const noexcept {
+		const double boundary = mass_radius();
+		const double total = enclosed_mass(boundary);
+		if (!(total > 0.0)) return 0.0;
+		double low = 0.0;
+		double high = boundary;
+		for (int iteration = 0; iteration < 80; ++iteration) {
+			const double middle = 0.5 * (low + high);
+			if (enclosed_mass(middle) < 0.5 * total) {
+				low = middle;
+			} else {
+				high = middle;
+			}
+		}
+		return 0.5 * (low + high);
+	}
+
+	[[nodiscard]] double logarithmic_slope(double radius) const noexcept {
+		if (!(radius > 0.0)) return 0.0;
+		constexpr double h = 1.0e-3;
+		const double r_low = radius * (1.0 - h);
+		const double r_high = radius * (1.0 + h);
+		const double d_low = density(r_low);
+		const double d_high = density(r_high);
+		if (!(d_low > 0.0) || !(d_high > 0.0)) return 0.0;
+		return (std::log(d_high) - std::log(d_low)) / (std::log(r_high) - std::log(r_low));
+	}
+
+	[[nodiscard]] double dynamical_time(double radius) const noexcept {
+		const double enclosed = enclosed_mass(radius);
+		return (enclosed > 0.0 && radius > 0.0) ? std::sqrt(radius * radius * radius / enclosed) : 0.0;
+	}
+
+	[[nodiscard]] double mean_density(double radius) const noexcept {
+		return (radius > 0.0) ? (3.0 * enclosed_mass(radius) / (4.0 * std::numbers::pi_v<double> * radius * radius * radius)) : 0.0;
+	}
+
+	[[nodiscard]] double peak_circular_velocity(double& radius_at_peak) const noexcept {
+		constexpr size_t samples = 256;
+		const double r_low = 0.02 * scale_radius;
+		const double r_high = std::max(4.0 * mass_radius(), 20.0 * scale_radius);
+		const double span = std::log(r_high / r_low);
+		double best = 0.0;
+		radius_at_peak = r_low;
+		for (size_t i = 0; i < samples; ++i) {
+			const double r = r_low * std::exp(span * static_cast<double>(i) / static_cast<double>(samples - 1));
+			const double v = circular_velocity(r);
+			if (v > best) {
+				best = v;
+				radius_at_peak = r;
+			}
+		}
+		return best;
+	}
+
 	[[nodiscard]] std::array<double, 9> orientation_axes() const noexcept {
 		constexpr double degrees = std::numbers::pi_v<double> / 180.0;
 		const double cy = std::cos(yaw_deg * degrees);
@@ -470,8 +693,9 @@ struct DarkMatterHaloSettings {
 		if (anchor_body_id != 0U && !body_position(anchor_body_id, base)) {
 			return false;
 		}
+		const auto orbital = orbit.offset(time);
 		for (size_t c = 0; c < 3; ++c) {
-			out[c] = base[c] + position[c] + velocity[c] * time;
+			out[c] = base[c] + position[c] + velocity[c] * time + orbital[c];
 		}
 		return true;
 	}
@@ -563,6 +787,43 @@ struct DarkMatterHaloSettings {
 				halo.concentration = 10.0;
 				halo.tint = {0.8f, 0.5f, 1.0f};
 				break;
+			case DarkMatterHaloPreset::SolitonCore:
+				halo.set_name("Soliton Core");
+				halo.profile = DarkMatterProfileType::Soliton;
+				halo.mass = 0.8 * u;
+				halo.scale_radius = 6.0 * u;
+				halo.concentration = 5.0;
+				halo.softening = 0.05 * u;
+				halo.tint = {0.9f, 0.5f, 1.0f};
+				break;
+			case DarkMatterHaloPreset::MooreCuspyHalo:
+				halo.set_name("Moore Cuspy Halo");
+				halo.profile = DarkMatterProfileType::Moore;
+				halo.mass = 12.0 * u;
+				halo.scale_radius = 30.0 * u;
+				halo.concentration = 12.0;
+				halo.softening = 0.1 * u;
+				halo.tint = {1.0f, 0.5f, 0.3f};
+				break;
+			case DarkMatterHaloPreset::JaffeSpheroid:
+				halo.set_name("Jaffe Spheroid");
+				halo.profile = DarkMatterProfileType::Jaffe;
+				halo.mass = 3.0 * u;
+				halo.scale_radius = 12.0 * u;
+				halo.concentration = 15.0;
+				halo.softening = 0.2 * u;
+				halo.tint = {0.5f, 1.0f, 0.9f};
+				break;
+			case DarkMatterHaloPreset::BetaModelCluster:
+				halo.set_name("Beta Model Cluster");
+				halo.profile = DarkMatterProfileType::BetaModel;
+				halo.mass = 30.0 * u;
+				halo.scale_radius = 60.0 * u;
+				halo.concentration = 10.0;
+				halo.axis_ratio_y = 0.9;
+				halo.axis_ratio_z = 0.8;
+				halo.tint = {0.4f, 0.7f, 1.0f};
+				break;
 			case DarkMatterHaloPreset::PointMassPerturber:
 			default:
 				halo.set_name("Point Mass Perturber");
@@ -600,6 +861,125 @@ struct DarkMatterPopulationSettings {
 	bool visualize{true};
 };
 
+enum class DarkMatterLayoutPattern : uint32_t {
+	Ring = 0,
+	BinaryPair = 1,
+	LinearChain = 2,
+	CubicLattice = 3,
+	SphericalShell = 4
+};
+
+inline constexpr size_t kDarkMatterLayoutPatternCount = 5;
+
+inline constexpr std::array<const char*, kDarkMatterLayoutPatternCount> kDarkMatterLayoutPatternNames{
+	"Orbiting Ring",
+	"Binary Pair",
+	"Linear Chain",
+	"Cubic Lattice",
+	"Spherical Shell"
+};
+
+struct DarkMatterLayoutSettings {
+	DarkMatterLayoutPattern pattern{DarkMatterLayoutPattern::Ring};
+	uint32_t count{6};
+	double radius{80.0};
+	double mass_ratio{0.5};
+	double inclination_deg{0.0};
+	double node_deg{0.0};
+	double eccentricity{0.0};
+	double jitter{0.0};
+	bool orbiting{true};
+	uint64_t seed{777ULL};
+};
+
+struct DarkMatterPreferences {
+	uint32_t default_preset{0};
+	uint32_t unit_mode{0};
+	double custom_unit_mass{1.0};
+	uint32_t spawn_anchor_mode{0};
+	double spawn_camera_distance{60.0};
+	bool auto_enable_on_spawn{true};
+	bool select_after_spawn{true};
+	bool show_diagnostics{true};
+	bool show_plots{true};
+	bool show_population_tool{true};
+	bool show_tracer_tool{true};
+	uint32_t plot_samples{180};
+	double plot_radius_span{8.0};
+	double compactness_warning{0.1};
+
+	void sanitize() noexcept {
+		const auto finite_or = [](double value, double fallback) noexcept { return std::isfinite(value) ? value : fallback; };
+		default_preset = std::min<uint32_t>(default_preset, static_cast<uint32_t>(kDarkMatterPresetCount - 1));
+		unit_mode = std::min<uint32_t>(unit_mode, 1U);
+		custom_unit_mass = std::clamp(finite_or(custom_unit_mass, 1.0), 1.0e-6, 1.0e12);
+		spawn_anchor_mode = std::min<uint32_t>(spawn_anchor_mode, 2U);
+		spawn_camera_distance = std::clamp(finite_or(spawn_camera_distance, 60.0), 1.0e-3, 1.0e9);
+		plot_samples = std::clamp<uint32_t>(plot_samples, 32U, 2048U);
+		plot_radius_span = std::clamp(finite_or(plot_radius_span, 8.0), 1.0, 1000.0);
+		compactness_warning = std::clamp(finite_or(compactness_warning, 0.1), 1.0e-4, 10.0);
+	}
+
+	void store(std::unordered_map<std::string, std::string>& out) const {
+		char buffer[40];
+		const auto real = [&buffer](double value) {
+			std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+			return std::string(buffer);
+		};
+		const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
+		out["dm_pref_preset"] = std::to_string(default_preset);
+		out["dm_pref_unit_mode"] = std::to_string(unit_mode);
+		out["dm_pref_unit_mass"] = real(custom_unit_mass);
+		out["dm_pref_spawn_anchor"] = std::to_string(spawn_anchor_mode);
+		out["dm_pref_spawn_distance"] = real(spawn_camera_distance);
+		out["dm_pref_auto_enable"] = flag(auto_enable_on_spawn);
+		out["dm_pref_select_spawned"] = flag(select_after_spawn);
+		out["dm_pref_diagnostics"] = flag(show_diagnostics);
+		out["dm_pref_plots"] = flag(show_plots);
+		out["dm_pref_population"] = flag(show_population_tool);
+		out["dm_pref_tracers"] = flag(show_tracer_tool);
+		out["dm_pref_plot_samples"] = std::to_string(plot_samples);
+		out["dm_pref_plot_span"] = real(plot_radius_span);
+		out["dm_pref_compactness"] = real(compactness_warning);
+	}
+
+	void restore(const std::unordered_map<std::string, std::string>& in) {
+		const auto find = [&in](const char* key) -> const std::string* {
+			const auto it = in.find(key);
+			return (it != in.end()) ? &it->second : nullptr;
+		};
+		const auto real = [&find](const char* key, double fallback) {
+			const std::string* value = find(key);
+			if (value == nullptr) return fallback;
+			const double parsed = std::strtod(value->c_str(), nullptr);
+			return std::isfinite(parsed) ? parsed : fallback;
+		};
+		const auto flag = [&find](const char* key, bool fallback) {
+			const std::string* value = find(key);
+			return (value != nullptr) ? (std::strtoul(value->c_str(), nullptr, 10) != 0UL) : fallback;
+		};
+		const auto integer = [&find](const char* key, uint32_t fallback) {
+			const std::string* value = find(key);
+			return (value != nullptr) ? static_cast<uint32_t>(std::strtoul(value->c_str(), nullptr, 10)) : fallback;
+		};
+		default_preset = integer("dm_pref_preset", default_preset);
+		unit_mode = integer("dm_pref_unit_mode", unit_mode);
+		custom_unit_mass = real("dm_pref_unit_mass", custom_unit_mass);
+		spawn_anchor_mode = integer("dm_pref_spawn_anchor", spawn_anchor_mode);
+		spawn_camera_distance = real("dm_pref_spawn_distance", spawn_camera_distance);
+		auto_enable_on_spawn = flag("dm_pref_auto_enable", auto_enable_on_spawn);
+		select_after_spawn = flag("dm_pref_select_spawned", select_after_spawn);
+		show_diagnostics = flag("dm_pref_diagnostics", show_diagnostics);
+		show_plots = flag("dm_pref_plots", show_plots);
+		show_population_tool = flag("dm_pref_population", show_population_tool);
+		show_tracer_tool = flag("dm_pref_tracers", show_tracer_tool);
+		plot_samples = integer("dm_pref_plot_samples", plot_samples);
+		plot_radius_span = real("dm_pref_plot_span", plot_radius_span);
+		compactness_warning = real("dm_pref_compactness", compactness_warning);
+		sanitize();
+	}
+};
+
 struct DarkMatterFieldSettings {
 	bool enabled{false};
 	bool lensing_enabled{true};
@@ -608,6 +988,8 @@ struct DarkMatterFieldSettings {
 	double lensing_strength{1.0};
 	double visual_intensity{0.25};
 	double step_fraction{0.35};
+	uint32_t visualization_mode{0};
+	DarkMatterPreferences preferences{};
 	uint32_t count{0};
 	std::array<DarkMatterHaloSettings, kMaxHalos> halos{};
 
@@ -616,6 +998,8 @@ struct DarkMatterFieldSettings {
 		lensing_strength = std::clamp(finite_or(lensing_strength, 1.0), 0.0, 8.0);
 		visual_intensity = std::clamp(finite_or(visual_intensity, 0.25), 0.0, 20.0);
 		step_fraction = std::clamp(finite_or(step_fraction, 0.35), 0.02, 1.0);
+		visualization_mode = std::min<uint32_t>(visualization_mode, static_cast<uint32_t>(kDarkMatterVisualizationModeCount - 1));
+		preferences.sanitize();
 		count = std::min<uint32_t>(count, static_cast<uint32_t>(kMaxHalos));
 		for (uint32_t i = 0; i < count; ++i) {
 			halos[i].sanitize();
@@ -676,6 +1060,180 @@ struct DarkMatterFieldSettings {
 			if (halos[i].enabled) total += halos[i].mass;
 		}
 		return total;
+	}
+
+	double rescale_total_mass(double target) noexcept {
+		const double total = total_halo_mass();
+		if (!(total > 0.0) || !(target > 0.0)) {
+			return 1.0;
+		}
+		const double factor = target / total;
+		for (uint32_t i = 0; i < count; ++i) {
+			if (halos[i].enabled) {
+				halos[i].mass *= factor;
+				halos[i].sanitize();
+			}
+		}
+		return factor;
+	}
+
+	void sort_by_mass(bool descending) noexcept {
+		for (uint32_t i = 1; i < count; ++i) {
+			DarkMatterHaloSettings key = halos[i];
+			uint32_t j = i;
+			while (j > 0 && (descending ? (halos[j - 1].mass < key.mass) : (halos[j - 1].mass > key.mass))) {
+				halos[j] = halos[j - 1];
+				--j;
+			}
+			halos[j] = key;
+		}
+	}
+
+	void apply_profile_to_all(DarkMatterProfileType profile) noexcept {
+		for (uint32_t i = 0; i < count; ++i) {
+			halos[i].profile = profile;
+			halos[i].shape = DarkMatterProfileMath::default_shape(profile);
+			halos[i].sanitize();
+		}
+	}
+
+	bool mirror_halo(size_t index) noexcept {
+		if (index >= count) {
+			return false;
+		}
+		DarkMatterHaloSettings& halo = halos[index];
+		for (double& component : halo.position) component = -component;
+		for (double& component : halo.velocity) component = -component;
+		halo.orbit.periapsis_deg += 180.0;
+		return true;
+	}
+
+	uint32_t spawn_layout(
+		const DarkMatterLayoutSettings& layout,
+		const DarkMatterHaloSettings& prototype,
+		const std::array<double, 3>& center,
+		const std::array<double, 3>& velocity,
+		uint32_t anchor_body_id,
+		double gravitational_constant,
+		double central_mass
+	) noexcept {
+		constexpr double degrees = std::numbers::pi_v<double> / 180.0;
+		DarkMatterRandom random(layout.seed);
+		const uint32_t requested = (layout.pattern == DarkMatterLayoutPattern::BinaryPair)
+			? 2U
+			: std::clamp<uint32_t>(layout.count, 1U, static_cast<uint32_t>(kMaxHalos));
+		const double extent = std::max(layout.radius, 1e-6);
+		const double jitter = std::clamp(layout.jitter, 0.0, 1.0);
+		const double g = std::max(gravitational_constant, 1e-30);
+		uint32_t added = 0;
+
+		const auto emit = [&](const std::array<double, 3>& offset, const DarkMatterHaloOrbit& orbit, double mass, uint32_t ordinal) noexcept {
+			if (count >= kMaxHalos) return;
+			DarkMatterHaloSettings halo = prototype;
+			char label[kHaloNameCapacity];
+			std::snprintf(label, sizeof(label), "%.20s %u", prototype.name.data(), ordinal + 1U);
+			halo.set_name(label);
+			halo.mass = mass;
+			halo.scale_radius = prototype.scale_radius * std::cbrt(mass / std::max(prototype.mass, 1e-30));
+			halo.anchor_body_id = anchor_body_id;
+			halo.position = {center[0] + offset[0], center[1] + offset[1], center[2] + offset[2]};
+			halo.velocity = velocity;
+			halo.orbit = orbit;
+			if (add_halo(halo) >= 0) ++added;
+		};
+
+		const auto place = [&](DarkMatterHaloOrbit orbit, double mass, uint32_t ordinal) noexcept {
+			if (layout.orbiting) {
+				orbit.enabled = true;
+				emit({0.0, 0.0, 0.0}, orbit, mass, ordinal);
+				return;
+			}
+			DarkMatterHaloOrbit probe = orbit;
+			probe.enabled = true;
+			probe.angular_speed = 0.0;
+			const auto offset = probe.offset(0.0);
+			orbit.enabled = false;
+			emit(offset, orbit, mass, ordinal);
+		};
+
+		switch (layout.pattern) {
+			case DarkMatterLayoutPattern::Ring: {
+				const double interior = central_mass + 0.5 * prototype.mass * static_cast<double>(requested);
+				for (uint32_t i = 0; i < requested; ++i) {
+					DarkMatterHaloOrbit orbit;
+					orbit.radius = std::max(extent * (1.0 + jitter * (2.0 * random.next_uniform() - 1.0)), 1e-3 * extent);
+					orbit.eccentricity = layout.eccentricity;
+					orbit.inclination_deg = layout.inclination_deg;
+					orbit.node_deg = layout.node_deg;
+					orbit.phase_deg = 360.0 * static_cast<double>(i) / static_cast<double>(requested);
+					orbit.angular_speed = DarkMatterHaloOrbit::mean_motion(g, interior, orbit.radius);
+					place(orbit, prototype.mass, i);
+				}
+				break;
+			}
+			case DarkMatterLayoutPattern::BinaryPair: {
+				const double primary = prototype.mass;
+				const double secondary = primary * std::max(layout.mass_ratio, 1e-3);
+				const double total = primary + secondary;
+				const double rate = DarkMatterHaloOrbit::mean_motion(g, total, extent);
+				DarkMatterHaloOrbit first;
+				first.radius = extent * secondary / total;
+				first.eccentricity = layout.eccentricity;
+				first.inclination_deg = layout.inclination_deg;
+				first.node_deg = layout.node_deg;
+				first.angular_speed = rate;
+				DarkMatterHaloOrbit second = first;
+				second.radius = extent * primary / total;
+				second.periapsis_deg = first.periapsis_deg + 180.0;
+				place(first, primary, 0U);
+				place(second, secondary, 1U);
+				break;
+			}
+			case DarkMatterLayoutPattern::LinearChain: {
+				const double axis_x = std::cos(layout.node_deg * degrees) * std::cos(layout.inclination_deg * degrees);
+				const double axis_y = std::sin(layout.node_deg * degrees) * std::cos(layout.inclination_deg * degrees);
+				const double axis_z = std::sin(layout.inclination_deg * degrees);
+				for (uint32_t i = 0; i < requested; ++i) {
+					const double t = (requested > 1U) ? (-1.0 + 2.0 * static_cast<double>(i) / static_cast<double>(requested - 1U)) : 0.0;
+					const double wobble = 0.1 * jitter * extent;
+					emit({
+						extent * t * axis_x + wobble * (random.next_uniform() - 0.5),
+						extent * t * axis_y + wobble * (random.next_uniform() - 0.5),
+						extent * t * axis_z + wobble * (random.next_uniform() - 0.5)
+					}, DarkMatterHaloOrbit{}, prototype.mass, i);
+				}
+				break;
+			}
+			case DarkMatterLayoutPattern::CubicLattice: {
+				const uint32_t side = std::max<uint32_t>(static_cast<uint32_t>(std::ceil(std::cbrt(static_cast<double>(requested)))), 1U);
+				const double spacing = 2.0 * extent / static_cast<double>(side);
+				const double half = 0.5 * static_cast<double>(side - 1U);
+				for (uint32_t i = 0; i < requested; ++i) {
+					const double gx = static_cast<double>(i % side) - half;
+					const double gy = static_cast<double>((i / side) % side) - half;
+					const double gz = static_cast<double>(i / (side * side)) - half;
+					emit({
+						spacing * (gx + jitter * (random.next_uniform() - 0.5)),
+						spacing * (gy + jitter * (random.next_uniform() - 0.5)),
+						spacing * (gz + jitter * (random.next_uniform() - 0.5))
+					}, DarkMatterHaloOrbit{}, prototype.mass, i);
+				}
+				break;
+			}
+			case DarkMatterLayoutPattern::SphericalShell:
+			default: {
+				constexpr double golden_angle = 2.399963229728653;
+				for (uint32_t i = 0; i < requested; ++i) {
+					const double z = 1.0 - 2.0 * (static_cast<double>(i) + 0.5) / static_cast<double>(requested);
+					const double rho = std::sqrt(std::max(1.0 - z * z, 0.0));
+					const double phi = golden_angle * static_cast<double>(i);
+					const double radius = std::max(extent * (1.0 + jitter * (2.0 * random.next_uniform() - 1.0)), 1e-3 * extent);
+					emit({radius * rho * std::cos(phi), radius * rho * std::sin(phi), radius * z}, DarkMatterHaloOrbit{}, prototype.mass, i);
+				}
+				break;
+			}
+		}
+		return added;
 	}
 
 	uint32_t spawn_population(const DarkMatterPopulationSettings& settings, const std::array<double, 3>& center, const std::array<double, 3>& velocity, uint32_t anchor_body_id) noexcept {
@@ -746,6 +1304,7 @@ struct DarkMatterFieldSettings {
 		result.gpu.lensing_strength = static_cast<float>(lensing_strength);
 		result.gpu.visual_intensity = static_cast<float>(visual_intensity);
 		result.gpu.step_fraction = static_cast<float>(step_fraction);
+		result.gpu.visual_mode = static_cast<float>(std::min<uint32_t>(visualization_mode, static_cast<uint32_t>(kDarkMatterVisualizationModeCount - 1)));
 		uint32_t used = 0;
 		uint32_t flags = 0;
 		for (uint32_t i = 0; i < count && used < kMaxHalos; ++i) {
@@ -782,6 +1341,8 @@ struct DarkMatterFieldSettings {
 		out["dm_visual_intensity"] = real(visual_intensity);
 		out["dm_step_fraction"] = real(step_fraction);
 		out["dm_count"] = std::to_string(count);
+		out["dm_vis_mode"] = std::to_string(visualization_mode);
+		preferences.store(out);
 		for (uint32_t i = 0; i < count; ++i) {
 			const DarkMatterHaloSettings& h = halos[i];
 			const std::string p = "dm_h" + std::to_string(i) + "_";
@@ -814,6 +1375,14 @@ struct DarkMatterFieldSettings {
 			out[p + "tr"] = real(h.tint[0]);
 			out[p + "tg"] = real(h.tint[1]);
 			out[p + "tb"] = real(h.tint[2]);
+			out[p + "orbit_on"] = flag(h.orbit.enabled);
+			out[p + "orbit_a"] = real(h.orbit.radius);
+			out[p + "orbit_e"] = real(h.orbit.eccentricity);
+			out[p + "orbit_w"] = real(h.orbit.angular_speed);
+			out[p + "orbit_i"] = real(h.orbit.inclination_deg);
+			out[p + "orbit_n"] = real(h.orbit.node_deg);
+			out[p + "orbit_p"] = real(h.orbit.periapsis_deg);
+			out[p + "orbit_m"] = real(h.orbit.phase_deg);
 		}
 	}
 
@@ -846,6 +1415,8 @@ struct DarkMatterFieldSettings {
 		lensing_strength = real("dm_lensing_strength", lensing_strength);
 		visual_intensity = real("dm_visual_intensity", visual_intensity);
 		step_fraction = real("dm_step_fraction", step_fraction);
+		visualization_mode = std::min<uint32_t>(integer("dm_vis_mode", visualization_mode), static_cast<uint32_t>(kDarkMatterVisualizationModeCount - 1));
+		preferences.restore(in);
 		clear();
 		count = std::min<uint32_t>(integer("dm_count", 0U), static_cast<uint32_t>(kMaxHalos));
 		for (uint32_t i = 0; i < count; ++i) {
@@ -874,6 +1445,14 @@ struct DarkMatterFieldSettings {
 			h.visualize = flag(p + "visualize", true);
 			h.visual_gain = real(p + "gain", 1.0);
 			h.tint = {static_cast<float>(real(p + "tr", 0.55)), static_cast<float>(real(p + "tg", 0.4)), static_cast<float>(real(p + "tb", 1.0))};
+			h.orbit.enabled = flag(p + "orbit_on", false);
+			h.orbit.radius = real(p + "orbit_a", 0.0);
+			h.orbit.eccentricity = real(p + "orbit_e", 0.0);
+			h.orbit.angular_speed = real(p + "orbit_w", 0.0);
+			h.orbit.inclination_deg = real(p + "orbit_i", 0.0);
+			h.orbit.node_deg = real(p + "orbit_n", 0.0);
+			h.orbit.periapsis_deg = real(p + "orbit_p", 0.0);
+			h.orbit.phase_deg = real(p + "orbit_m", 0.0);
 		}
 		sanitize();
 	}

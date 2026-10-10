@@ -29,25 +29,44 @@ public:
 		auto& field = orchestrator.parameters().dark_matter;
 		bool changed = false;
 
+		DarkMatter::DarkMatterPreferences& prefs = field.preferences;
+		if (!preferences_applied_) {
+			new_halo_preset_ = static_cast<int>(std::min<uint32_t>(prefs.default_preset, static_cast<uint32_t>(DarkMatter::kDarkMatterPresetCount - 1)));
+			preferences_applied_ = true;
+		}
+
 		changed = render_global_controls(orchestrator, field, pipeline) || changed;
 		ImGui::Separator();
 		changed = render_halo_catalog(orchestrator, field) || changed;
+		changed = render_catalog_tools(orchestrator, field) || changed;
 
 		if (field.count > 0U) {
 			selected_ = std::clamp(selected_, 0, static_cast<int>(field.count) - 1);
 			DarkMatter::DarkMatterHaloSettings& halo = field.halos[static_cast<size_t>(selected_)];
 			ImGui::Separator();
 			changed = render_halo_editor(orchestrator, halo) || changed;
-			ImGui::Separator();
-			render_halo_diagnostics(orchestrator, halo);
-			ImGui::Separator();
-			render_profile_plots(orchestrator, field, halo);
+			if (prefs.show_diagnostics) {
+				ImGui::Separator();
+				render_halo_diagnostics(orchestrator, halo);
+			}
+			if (prefs.show_plots) {
+				ImGui::Separator();
+				render_profile_plots(orchestrator, field, halo);
+			}
 		}
 
 		ImGui::Separator();
-		changed = render_population_tool(orchestrator, field) || changed;
+		changed = render_layout_generator(orchestrator, field) || changed;
+		if (prefs.show_population_tool) {
+			ImGui::Separator();
+			changed = render_population_tool(orchestrator, field) || changed;
+		}
+		if (prefs.show_tracer_tool) {
+			ImGui::Separator();
+			render_tracer_tool(orchestrator, field);
+		}
 		ImGui::Separator();
-		render_tracer_tool(orchestrator, field);
+		changed = render_preferences(field) || changed;
 
 		if (changed) {
 			field.sanitize();
@@ -63,6 +82,12 @@ private:
 
 	int selected_{0};
 	int new_halo_preset_{0};
+	bool preferences_applied_{false};
+	bool use_selected_as_prototype_{false};
+	double target_total_mass_{10.0};
+	int apply_all_profile_{0};
+	double lens_scale_all_{1.0};
+	DarkMatter::DarkMatterLayoutSettings layout_{};
 	bool mass_log_{true};
 	bool scale_log_{true};
 	bool softening_log_{true};
@@ -93,6 +118,42 @@ private:
 		return entries;
 	}
 
+	[[nodiscard]] static double effective_central_mass(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
+		return metric_uses_central_mass(orchestrator.active_metric_name()) ? std::max(orchestrator.parameters().mass, 0.0) : 0.0;
+	}
+
+	[[nodiscard]] static double halo_unit(Orchestrator::SimulationOrchestrator<1024>& orchestrator, const DarkMatter::DarkMatterFieldSettings& field) noexcept {
+		const double central = effective_central_mass(orchestrator);
+		if (field.preferences.unit_mode == 1U || central <= 0.0) {
+			return std::max(field.preferences.custom_unit_mass, 1e-3);
+		}
+		return std::max(central, 1e-3);
+	}
+
+	[[nodiscard]] static double anchor_body_mass(Orchestrator::SimulationOrchestrator<1024>& orchestrator, uint32_t id) {
+		if (id == 0U) return 0.0;
+		auto& system = orchestrator.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(system.bodies_mutex());
+		for (const auto& body : system.bodies()) {
+			if (body.id == id && body.enabled) return body.mass;
+		}
+		return 0.0;
+	}
+
+	[[nodiscard]] std::array<double, 3> spawn_position(Orchestrator::SimulationOrchestrator<1024>& orchestrator, const DarkMatter::DarkMatterFieldSettings& field) const {
+		const uint32_t mode = field.preferences.spawn_anchor_mode;
+		if (mode == 1U && field.count > 0U) {
+			return field.halos[static_cast<size_t>(std::clamp(selected_, 0, static_cast<int>(field.count) - 1))].position;
+		}
+		if (mode == 2U) {
+			const auto& cam = orchestrator.camera();
+			const auto basis = cam.orientation_basis();
+			const double distance = field.preferences.spawn_camera_distance;
+			return {cam.position[0] + basis.forward[0] * distance, cam.position[1] + basis.forward[1] * distance, cam.position[2] + basis.forward[2] * distance};
+		}
+		return {0.0, 0.0, 0.0};
+	}
+
 	[[nodiscard]] static bool resolve_halo_center(
 		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
 		const DarkMatter::DarkMatterHaloSettings& halo,
@@ -117,8 +178,9 @@ private:
 		if (!halo.resolve_center(time, resolver, center)) {
 			return false;
 		}
+		const auto orbital_velocity = halo.orbit.velocity(time);
 		for (size_t c = 0; c < 3; ++c) {
-			velocity[c] += halo.velocity[c];
+			velocity[c] += halo.velocity[c] + orbital_velocity[c];
 		}
 		return true;
 	}
@@ -138,6 +200,10 @@ private:
 		const auto note = dark_matter_path_note(orchestrator.active_metric_name(), params.use_gpu_compute, precision_mode);
 		if (!note.empty()) {
 			ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.3f, 1.0f), "%s", std::string(note).c_str());
+		}
+		const auto regime = dark_matter_metric_regime_note(orchestrator.active_metric_name());
+		if (!regime.empty()) {
+			ImGui::TextDisabled("%s", std::string(regime).c_str());
 		}
 		if (pipeline != nullptr) {
 			ImGui::TextDisabled("Render Dispatch Path: %s | Precision: %s",
@@ -159,6 +225,12 @@ private:
 
 		changed = slider_double_with_input("Global Lensing Multiplier", &field.lensing_strength, 0.0, 10.0, "%.3fx") || changed;
 		render_setting_tooltip("Scales the gravitational photon kick across all halos. 1.0 represents the physical weak-field Einstein angle deflection. Exaggerating this parameter helps highlight subtle subhalo lensing.");
+		int visualization_mode = static_cast<int>(field.visualization_mode);
+		if (ImGui::Combo("Visualization Quantity", &visualization_mode, DarkMatter::kDarkMatterVisualizationModeNames.data(), static_cast<int>(DarkMatter::kDarkMatterVisualizationModeNames.size()))) {
+			field.visualization_mode = static_cast<uint32_t>(visualization_mode);
+			changed = true;
+		}
+		render_setting_tooltip("Quantity integrated along each ray for the false-color glow: volumetric column density, the local gravitational field strength (which also shows point-mass perturbers), or the local circular speed squared. All three are evaluated on the GPU.");
 		changed = slider_double_with_input("Density Visualization Intensity", &field.visual_intensity, 0.0, 15.0, "%.3f") || changed;
 		render_setting_tooltip("Global gain factor for the optical emissivity of dark matter halos. Integrates normalized column density along rays without obscuring background stars or accretion disks.");
 		changed = slider_double_with_input("Geodesic Step Fraction", &field.step_fraction, 0.02, 1.0, "%.3f") || changed;
@@ -179,11 +251,12 @@ private:
 		render_setting_tooltip("Astrophysical presets scaling automatically with the central black hole mass unit: Galactic NFW, cored dwarf Burkert, triaxial galaxy cluster, compact Hernquist subhalo, or point perturber.");
 		ImGui::SameLine();
 		if (ImGui::Button("Spawn Halo From Preset")) {
-			const double unit = std::max(orchestrator.parameters().mass, 1e-3);
-			const int index = field.add_halo(DarkMatter::DarkMatterHaloSettings::from_preset(static_cast<DarkMatter::DarkMatterHaloPreset>(new_halo_preset_), unit));
+			DarkMatter::DarkMatterHaloSettings spawned = DarkMatter::DarkMatterHaloSettings::from_preset(static_cast<DarkMatter::DarkMatterHaloPreset>(new_halo_preset_), halo_unit(orchestrator, field));
+			spawned.position = spawn_position(orchestrator, field);
+			const int index = field.add_halo(spawned);
 			if (index >= 0) {
-				selected_ = index;
-				field.enabled = true;
+				if (field.preferences.select_after_spawn) selected_ = index;
+				if (field.preferences.auto_enable_on_spawn) field.enabled = true;
 				changed = true;
 				status_ = "Spawned new halo preset in slot #" + std::to_string(index + 1);
 			} else {
@@ -261,6 +334,187 @@ private:
 			ImGui::TextDisabled("Catalog is empty. Choose a preset template above and press 'Spawn Halo From Preset'.");
 		}
 		ImGui::EndChild();
+		return changed;
+	}
+
+	bool render_catalog_tools(
+		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
+		DarkMatter::DarkMatterFieldSettings& field
+	) {
+		if (!ImGui::CollapsingHeader("Catalog Composition Tools")) {
+			return false;
+		}
+		bool changed = false;
+		const double central = effective_central_mass(orchestrator);
+		const double total = field.total_halo_mass();
+		ImGui::TextDisabled("Enabled Halo Mass: %.5g M | Central Mass In Effect: %.5g M | Halo To Central Ratio: %.4g", total, central, central > 0.0 ? total / central : 0.0);
+
+		slider_double_with_input("Target Total Halo Mass", &target_total_mass_, 1e-6, 1e12, "%.5g", &mass_log_, 1e-6f, 1e12f);
+		if (ImGui::Button("Rescale Enabled Halos To Target", ImVec2(260.0f, 24.0f))) {
+			const double factor = field.rescale_total_mass(target_total_mass_);
+			status_ = "Rescaled enabled halo masses by a factor of " + std::to_string(factor).substr(0, 8) + ".";
+			changed = true;
+		}
+		render_setting_tooltip("Multiplies every enabled halo mass by a common factor so that the catalog reaches the requested total mass while preserving mass ratios.");
+
+		ImGui::SetNextItemWidth(260.0f);
+		ImGui::Combo("Profile For All Halos", &apply_all_profile_, DarkMatter::kDarkMatterProfileNames.data(), static_cast<int>(DarkMatter::kDarkMatterProfileNames.size()));
+		ImGui::SameLine();
+		if (ImGui::Button("Apply To All")) {
+			field.apply_profile_to_all(static_cast<DarkMatter::DarkMatterProfileType>(apply_all_profile_));
+			changed = true;
+		}
+		render_setting_tooltip("Switches every halo in the catalog to the chosen density law with its default shape parameter, which is useful to compare models on an identical configuration.");
+
+		slider_double_with_input("Lens Scale For All", &lens_scale_all_, 0.0, 25.0, "%.3fx");
+		ImGui::SameLine();
+		if (ImGui::Button("Apply Lens Scale")) {
+			for (uint32_t i = 0; i < field.count; ++i) field.halos[i].lens_scale = lens_scale_all_;
+			changed = true;
+		}
+
+		if (ImGui::Button("Sort By Mass (Descending)")) {
+			field.sort_by_mass(true);
+			selected_ = 0;
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Sort By Mass (Ascending)")) {
+			field.sort_by_mass(false);
+			selected_ = 0;
+			changed = true;
+		}
+		ImGui::SameLine();
+		ImGui::BeginDisabled(field.count == 0U);
+		if (ImGui::Button("Mirror Selected Through Origin")) {
+			changed = field.mirror_halo(static_cast<size_t>(selected_)) || changed;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Reset All Orientations")) {
+			for (uint32_t i = 0; i < field.count; ++i) {
+				field.halos[i].axis_ratio_y = 1.0;
+				field.halos[i].axis_ratio_z = 1.0;
+				field.halos[i].yaw_deg = 0.0;
+				field.halos[i].pitch_deg = 0.0;
+				field.halos[i].roll_deg = 0.0;
+			}
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		return changed;
+	}
+
+	bool render_layout_generator(
+		Orchestrator::SimulationOrchestrator<1024>& orchestrator,
+		DarkMatter::DarkMatterFieldSettings& field
+	) {
+		if (!ImGui::CollapsingHeader("Multi-Halo Layout Generator")) {
+			return false;
+		}
+		bool changed = false;
+		ImGui::TextDisabled("Spawns several halos at once from a preset prototype in a controlled geometry: an orbiting ring, a binary pair around its barycenter, a chain, a lattice or a spherical shell.");
+
+		int pattern = static_cast<int>(layout_.pattern);
+		if (ImGui::Combo("Layout Pattern", &pattern, DarkMatter::kDarkMatterLayoutPatternNames.data(), static_cast<int>(DarkMatter::kDarkMatterLayoutPatternNames.size()))) {
+			layout_.pattern = static_cast<DarkMatter::DarkMatterLayoutPattern>(pattern);
+		}
+		ImGui::SetNextItemWidth(260.0f);
+		ImGui::Combo("Prototype Preset", &new_halo_preset_, DarkMatter::kDarkMatterPresetNames.data(), static_cast<int>(DarkMatter::kDarkMatterPresetNames.size()));
+		ImGui::BeginDisabled(field.count == 0U);
+		ImGui::Checkbox("Use Selected Halo As Prototype", &use_selected_as_prototype_);
+		ImGui::EndDisabled();
+
+		const bool binary = (layout_.pattern == DarkMatter::DarkMatterLayoutPattern::BinaryPair);
+		if (!binary) {
+			int count = static_cast<int>(layout_.count);
+			if (ImGui::SliderInt("Halo Count", &count, 1, static_cast<int>(DarkMatter::kMaxHalos))) {
+				layout_.count = static_cast<uint32_t>(count);
+			}
+		} else {
+			slider_double_with_input("Secondary To Primary Mass Ratio", &layout_.mass_ratio, 0.01, 10.0, "%.3f");
+		}
+		slider_double_with_input("Layout Extent (M)", &layout_.radius, 1e-2, 1e7, "%.5g", &scale_log_, 1e-2f, 1e7f);
+		slider_double_with_input("Plane Inclination", &layout_.inclination_deg, -90.0, 90.0, "%.1f deg");
+		slider_double_with_input("Plane Node Angle", &layout_.node_deg, -180.0, 180.0, "%.1f deg");
+		slider_double_with_input("Random Jitter", &layout_.jitter, 0.0, 1.0, "%.2f");
+		const bool orbital_pattern = (layout_.pattern == DarkMatter::DarkMatterLayoutPattern::Ring || binary);
+		if (orbital_pattern) {
+			ImGui::Checkbox("Halos Orbit Dynamically", &layout_.orbiting);
+			slider_double_with_input("Orbital Eccentricity", &layout_.eccentricity, 0.0, 0.95, "%.3f");
+		}
+		ImGui::InputScalar("Layout Seed", ImGuiDataType_U64, &layout_.seed);
+
+		if (ImGui::Button("Generate Halo Layout", ImVec2(260.0f, 28.0f))) {
+			DarkMatter::DarkMatterHaloSettings prototype = DarkMatter::DarkMatterHaloSettings::from_preset(static_cast<DarkMatter::DarkMatterHaloPreset>(new_halo_preset_), halo_unit(orchestrator, field));
+			uint32_t anchor = 0U;
+			if (use_selected_as_prototype_ && field.count > 0U) {
+				prototype = field.halos[static_cast<size_t>(std::clamp(selected_, 0, static_cast<int>(field.count) - 1))];
+				anchor = prototype.anchor_body_id;
+			}
+			const auto center = spawn_position(orchestrator, field);
+			const double gravitational_constant = orchestrator.nbody_system().config().gravitational_constant;
+			const uint32_t added = field.spawn_layout(layout_, prototype, center, {0.0, 0.0, 0.0}, anchor, gravitational_constant, effective_central_mass(orchestrator));
+			if (added > 0U) {
+				if (field.preferences.auto_enable_on_spawn) field.enabled = true;
+				changed = true;
+				status_ = "Generated " + std::to_string(added) + " halos from the selected layout.";
+			} else {
+				status_ = "Error: Halo catalog capacity reached (" + std::to_string(DarkMatter::kMaxHalos) + " maximum).";
+			}
+		}
+		return changed;
+	}
+
+	bool render_preferences(DarkMatter::DarkMatterFieldSettings& field) {
+		if (!ImGui::CollapsingHeader("Dark Matter Preferences")) {
+			return false;
+		}
+		bool changed = false;
+		DarkMatter::DarkMatterPreferences& prefs = field.preferences;
+
+		int default_preset = static_cast<int>(prefs.default_preset);
+		if (ImGui::Combo("Default Spawn Preset", &default_preset, DarkMatter::kDarkMatterPresetNames.data(), static_cast<int>(DarkMatter::kDarkMatterPresetNames.size()))) {
+			prefs.default_preset = static_cast<uint32_t>(default_preset);
+			new_halo_preset_ = default_preset;
+			changed = true;
+		}
+		const char* unit_modes[] = {"Central Mass (Falls Back To Custom)", "Custom Unit Mass"};
+		int unit_mode = static_cast<int>(prefs.unit_mode);
+		if (ImGui::Combo("Preset Mass Unit", &unit_mode, unit_modes, IM_ARRAYSIZE(unit_modes))) {
+			prefs.unit_mode = static_cast<uint32_t>(unit_mode);
+			changed = true;
+		}
+		render_setting_tooltip("Chooses the mass unit that every preset and layout scales with. The central mass is used only when the active metric actually has one; otherwise the custom unit applies.");
+		changed = slider_double_with_input("Custom Unit Mass", &prefs.custom_unit_mass, 1e-6, 1e12, "%.5g", &mass_log_, 1e-6f, 1e12f) || changed;
+
+		const char* spawn_modes[] = {"World Origin", "Selected Halo Position", "In Front Of Camera"};
+		int spawn_mode = static_cast<int>(prefs.spawn_anchor_mode);
+		if (ImGui::Combo("New Halo Placement", &spawn_mode, spawn_modes, IM_ARRAYSIZE(spawn_modes))) {
+			prefs.spawn_anchor_mode = static_cast<uint32_t>(spawn_mode);
+			changed = true;
+		}
+		if (prefs.spawn_anchor_mode == 2U) {
+			changed = slider_double_with_input("Camera Placement Distance (M)", &prefs.spawn_camera_distance, 1e-3, 1e9, "%.5g", &scale_log_, 1e-3f, 1e9f) || changed;
+		}
+		changed = ImGui::Checkbox("Enable Field When Spawning", &prefs.auto_enable_on_spawn) || changed;
+		ImGui::SameLine();
+		changed = ImGui::Checkbox("Select Spawned Halo", &prefs.select_after_spawn) || changed;
+
+		changed = ImGui::Checkbox("Show Diagnostics", &prefs.show_diagnostics) || changed;
+		ImGui::SameLine();
+		changed = ImGui::Checkbox("Show Profile Plots", &prefs.show_plots) || changed;
+		changed = ImGui::Checkbox("Show Population Tool", &prefs.show_population_tool) || changed;
+		ImGui::SameLine();
+		changed = ImGui::Checkbox("Show Tracer Tool", &prefs.show_tracer_tool) || changed;
+
+		int plot_samples = static_cast<int>(prefs.plot_samples);
+		if (ImGui::SliderInt("Plot Resolution (Samples)", &plot_samples, 32, 2048)) {
+			prefs.plot_samples = static_cast<uint32_t>(plot_samples);
+			changed = true;
+		}
+		changed = slider_double_with_input("Plot Radial Span (x Mass Radius)", &prefs.plot_radius_span, 1.0, 1000.0, "%.1f") || changed;
+		changed = slider_double_with_input("Compactness Warning Threshold", &prefs.compactness_warning, 1e-4, 10.0, "%.4f") || changed;
+		render_setting_tooltip("Peak M(r)/r above which the weak-field deflection approximation is flagged as unreliable.");
 		return changed;
 	}
 
@@ -434,6 +688,41 @@ private:
 				ImGui::EndTabItem();
 			}
 
+			if (ImGui::BeginTabItem("Orbital Motion")) {
+				ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.55f, 1.0f), "Keplerian Halo Motion Around The Anchor Or Origin");
+				DarkMatter::DarkMatterHaloOrbit& orbit = halo.orbit;
+				changed = ImGui::Checkbox("Enable Orbital Motion", &orbit.enabled) || changed;
+				render_setting_tooltip("Moves the halo center along a Keplerian ellipse around its anchor body (or the world origin) as simulation time advances. Lensing, glow and N-body pulls all follow the moving center.");
+				changed = slider_double_with_input("Semi-Major Axis (M)", &orbit.radius, 0.0, 1.0e8, "%.5g") || changed;
+				changed = slider_double_with_input("Eccentricity", &orbit.eccentricity, 0.0, 0.95, "%.3f") || changed;
+				changed = slider_double_with_input("Inclination", &orbit.inclination_deg, -90.0, 90.0, "%.1f deg") || changed;
+				changed = slider_double_with_input("Longitude Of Ascending Node", &orbit.node_deg, -180.0, 180.0, "%.1f deg") || changed;
+				changed = slider_double_with_input("Argument Of Periapsis", &orbit.periapsis_deg, -180.0, 180.0, "%.1f deg") || changed;
+				changed = slider_double_with_input("Initial Mean Anomaly", &orbit.phase_deg, 0.0, 360.0, "%.1f deg") || changed;
+				changed = slider_double_with_input("Mean Motion (rad / time unit)", &orbit.angular_speed, -100.0, 100.0, "%.6g") || changed;
+				render_setting_tooltip("Angular rate of the mean anomaly in radians per simulation time unit. Negative values give retrograde motion.");
+
+				const auto& dm_field = orchestrator.parameters().dark_matter;
+				const double gravitational_constant = orchestrator.nbody_system().config().gravitational_constant;
+				double interior = effective_central_mass(orchestrator) + anchor_body_mass(orchestrator, halo.anchor_body_id);
+				for (uint32_t h = 0; h < dm_field.count; ++h) {
+					if (&dm_field.halos[h] != &halo && dm_field.halos[h].enabled) {
+						interior += dm_field.halos[h].enclosed_mass(orbit.radius);
+					}
+				}
+				if (ImGui::Button("Set Circular Kepler Rate", ImVec2(220.0f, 24.0f))) {
+					orbit.angular_speed = DarkMatter::DarkMatterHaloOrbit::mean_motion(gravitational_constant, interior, orbit.radius);
+					changed = true;
+				}
+				render_setting_tooltip("Sets the mean motion from the mass interior to the semi-major axis: central mass in effect, anchor body, and the enclosed mass of the other enabled halos.");
+				const double rate = std::abs(orbit.angular_speed);
+				ImGui::TextDisabled("Interior Mass: %.5g M | Period: %.5g | Periapsis Speed: %.5g c",
+					interior,
+					rate > 0.0 ? (2.0 * std::numbers::pi_v<double> / rate) : 0.0,
+					rate * orbit.radius * std::sqrt((1.0 + orbit.eccentricity) / std::max(1.0 - orbit.eccentricity, 1e-3)));
+				ImGui::EndTabItem();
+			}
+
 			ImGui::EndTabBar();
 		}
 
@@ -446,8 +735,13 @@ private:
 		const DarkMatter::DarkMatterHaloSettings& halo
 	) {
 		ImGui::TextColored(ImVec4(0.45f, 0.95f, 0.55f, 1.0f), "Physical Halo Diagnostics & Weak-Field Verification");
-		ImGui::TextDisabled("Normalization M0: %.5g | Scale Radius a: %.5g M | Mass Boundary Radius: %.5g M | Central Mass: %.4g M",
-			halo.normalization(), halo.scale_radius, halo.mass_radius(), orchestrator.parameters().mass);
+		ImGui::TextDisabled("Normalization M0: %.5g | Scale Radius a: %.5g M | Mass Boundary Radius: %.5g M | Central Mass In Effect: %.4g M",
+			halo.normalization(), halo.scale_radius, halo.mass_radius(), effective_central_mass(orchestrator));
+		double peak_radius = 0.0;
+		const double peak_speed = halo.peak_circular_velocity(peak_radius);
+		ImGui::TextDisabled("Half-Mass Radius: %.5g M | Peak Circular Speed: %.4f c at %.5g M | Dynamical Time At a: %.5g | Slope At 0.1a: %.3f | Slope At 5a: %.3f",
+			halo.half_mass_radius(), peak_speed, peak_radius, halo.dynamical_time(halo.scale_radius),
+			-halo.logarithmic_slope(0.1 * halo.scale_radius), -halo.logarithmic_slope(5.0 * halo.scale_radius));
 
 		const std::array<double, 6> radii{
 			0.1 * halo.scale_radius,
@@ -490,7 +784,7 @@ private:
 			ImGui::EndTable();
 		}
 
-		if (peak_compactness > 0.1) {
+		if (peak_compactness > orchestrator.parameters().dark_matter.preferences.compactness_warning) {
 			ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
 				"Warning: Peak compactness M(r)/r reaches %.2f. The weak-field light deflection approximation assumes M/r << 1; higher compactness will cause non-linear general relativistic corrections to deviate.",
 				peak_compactness);
@@ -504,16 +798,16 @@ private:
 		const DarkMatter::DarkMatterFieldSettings& field,
 		const DarkMatter::DarkMatterHaloSettings& halo
 	) {
-		constexpr size_t samples = 180;
+		const size_t samples = std::clamp<size_t>(field.preferences.plot_samples, 32, 2048);
 		const double r_min = std::max(0.01 * halo.scale_radius, 1e-4);
-		const double r_max = std::max(8.0 * halo.mass_radius(), 20.0 * r_min);
+		const double r_max = std::max(field.preferences.plot_radius_span * halo.mass_radius(), 20.0 * r_min);
 		std::vector<double> radius(samples);
 		std::vector<double> selected_speed(samples);
 		std::vector<double> total_speed(samples);
 		std::vector<double> central_speed(samples);
 		std::vector<double> density(samples);
 
-		const double central_mass = std::max(orchestrator.parameters().mass, 0.0);
+		const double central_mass = effective_central_mass(orchestrator);
 		const double log_span = std::log(r_max / r_min);
 
 		for (size_t i = 0; i < samples; ++i) {
@@ -546,6 +840,26 @@ private:
 			ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
 			ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
 			ImPlot::PlotLine("rho(r)", radius.data(), density.data(), static_cast<int>(samples));
+			ImPlot::EndPlot();
+		}
+
+		std::vector<double> enclosed_curve(samples);
+		std::vector<double> slope_curve(samples);
+		for (size_t i = 0; i < samples; ++i) {
+			enclosed_curve[i] = std::max(halo.enclosed_mass(radius[i]), 1e-300);
+			slope_curve[i] = -halo.logarithmic_slope(radius[i]);
+		}
+		if (ImPlot::BeginPlot("Enclosed Mass M(<r)", ImVec2(-1.0f, 170.0f))) {
+			ImPlot::SetupAxes("Radius r (M)", "Enclosed Mass (M)");
+			ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
+			ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
+			ImPlot::PlotLine("M(<r)", radius.data(), enclosed_curve.data(), static_cast<int>(samples));
+			ImPlot::EndPlot();
+		}
+		if (ImPlot::BeginPlot("Logarithmic Density Slope", ImVec2(-1.0f, 170.0f))) {
+			ImPlot::SetupAxes("Radius r (M)", "-d ln(rho) / d ln(r)");
+			ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
+			ImPlot::PlotLine("slope", radius.data(), slope_curve.data(), static_cast<int>(samples));
 			ImPlot::EndPlot();
 		}
 	}
@@ -651,7 +965,7 @@ private:
 
 				const double G = system.config().gravitational_constant;
 				const double central_mass = (std::abs(center[0]) + std::abs(center[1]) + std::abs(center[2]) < 1e-6)
-					? orchestrator.parameters().mass
+					? effective_central_mass(orchestrator)
 					: 0.0;
 
 				const double r_min = std::max(std::min(tracer_inner_radius_, tracer_outer_radius_), 1e-4);

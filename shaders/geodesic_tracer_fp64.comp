@@ -140,10 +140,10 @@ struct DarkMatterField {
 	float lensing_strength;
 	float visual_intensity;
 	float step_fraction;
-	float reserved0;
+	float visual_mode;
 	float reserved1;
 	float reserved2;
-	DarkMatterHalo halos[16];
+	DarkMatterHalo halos[64];
 };
 
 layout(scalar, binding = 0) uniform CameraParams {
@@ -2674,6 +2674,43 @@ double dm_fraction_einasto(double x, double alpha, double lgamma_s) {
 	return min(exp_d(log_prefactor) * sum, 1.0);
 }
 
+const double DM_SOLITON_B = 0.091;
+
+double dm_fraction_moore(double x) {
+	double y = x * sqrt(x);
+	if (y < 1e-4) return y * (1.0 - 0.5 * y + y * y / 3.0);
+	return log_d(1.0 + y);
+}
+
+double dm_fraction_beta_model(double x) {
+	if (x < 0.15) {
+		double x2 = x * x;
+		return x * x2 * (1.0 / 3.0 - x2 * (0.3 - x2 * (15.0 / 56.0 - x2 * 35.0 / 144.0)));
+	}
+	return log_d(x + sqrt(x * x + 1.0)) - x / sqrt(1.0 + x * x);
+}
+
+double dm_fraction_soliton(double x) {
+	if (x < 0.3) {
+		double x2 = x * x;
+		return x * x2 * (1.0 / 3.0 - x2 * (8.0 * DM_SOLITON_B / 5.0 - x2 * 36.0 * DM_SOLITON_B * DM_SOLITON_B / 7.0));
+	}
+	double theta = double(atan(float(sqrt(DM_SOLITON_B) * x)));
+	dvec2 sc = precise_sincos(theta);
+	double s = sc.x;
+	double c = sc.y;
+	double c2 = c * c;
+	double c_odd = c;
+	double current = theta;
+	double i12 = 0.0;
+	for (int n = 2; n <= 14; n += 2) {
+		current = c_odd * s / double(n) + double(n - 1) / double(n) * current;
+		if (n == 12) i12 = current;
+		c_odd *= c2;
+	}
+	return (current - i12) / (DM_SOLITON_B * sqrt(DM_SOLITON_B));
+}
+
 double dm_enclosed_fraction(uint profile, double x, double shape, double lgamma_s) {
 	if (x <= 0.0) return 0.0;
 	if (profile == 0u) return dm_fraction_nfw(x);
@@ -2690,6 +2727,10 @@ double dm_enclosed_fraction(uint profile, double x, double shape, double lgamma_
 	if (profile == 5u) return dm_fraction_cored_isothermal(x);
 	if (profile == 6u) return x;
 	if (profile == 7u) return double(pow(float(x / (1.0 + x)), float(3.0 - shape)));
+	if (profile == 9u) return x / (1.0 + x);
+	if (profile == 10u) return dm_fraction_moore(x);
+	if (profile == 11u) return dm_fraction_soliton(x);
+	if (profile == 12u) return dm_fraction_beta_model(x);
 	return 1.0;
 }
 
@@ -2722,6 +2763,21 @@ double dm_fraction_derivative(uint profile, double x, double shape, double lgamm
 		double u = x / (1.0 + x);
 		double v = 1.0 + x;
 		return k * double(pow(float(u), float(k - 1.0))) / (v * v);
+	}
+	if (profile == 9u) {
+		double v = 1.0 + x;
+		return 1.0 / (v * v);
+	}
+	if (profile == 10u) return 1.5 * sqrt(x) / (1.0 + x * sqrt(x));
+	if (profile == 11u) {
+		double q = 1.0 + DM_SOLITON_B * x * x;
+		double q2 = q * q;
+		double q4 = q2 * q2;
+		return x * x / (q4 * q4);
+	}
+	if (profile == 12u) {
+		double q = 1.0 + x * x;
+		return x * x / (q * sqrt(q));
 	}
 	return 0.0;
 }
@@ -2763,7 +2819,7 @@ dvec3 dm_halo_acceleration(DarkMatterHalo halo, dvec3 position) {
 
 dvec3 dm_total_acceleration(dvec3 position) {
 	dvec3 total = dvec3(0.0);
-	uint count = min(pc.dark_matter.halo_count, 16u);
+	uint count = min(pc.dark_matter.halo_count, 64u);
 	for (uint i = 0u; i < count; ++i) {
 		DarkMatterHalo halo = pc.dark_matter.halos[i];
 		if ((halo.flags & 2u) == 0u) continue;
@@ -2809,7 +2865,7 @@ void dark_matter_apply_spherical(dvec3 previous_position, double ray_r, double r
 
 double dark_matter_step_limit(dvec3 position) {
 	double limit = 1.0e30;
-	uint count = min(pc.dark_matter.halo_count, 16u);
+	uint count = min(pc.dark_matter.halo_count, 64u);
 	for (uint i = 0u; i < count; ++i) {
 		DarkMatterHalo halo = pc.dark_matter.halos[i];
 		if ((halo.flags & 6u) == 0u) continue;
@@ -2823,17 +2879,30 @@ double dark_matter_step_limit(dvec3 position) {
 vec3 dark_matter_emission(dvec3 position, double segment_length) {
 	vec3 total = vec3(0.0);
 	if ((pc.dark_matter.flags & 2u) == 0u) return total;
-	uint count = min(pc.dark_matter.halo_count, 16u);
+	uint count = min(pc.dark_matter.halo_count, 64u);
+	uint mode = uint(max(pc.dark_matter.visual_mode, 0.0) + 0.5);
 	for (uint i = 0u; i < count; ++i) {
 		DarkMatterHalo halo = pc.dark_matter.halos[i];
 		if ((halo.flags & 4u) == 0u) continue;
 		double m = dm_halo_radius(halo, dm_halo_local(halo, position));
 		double truncation = double(halo.truncation_radius);
-		if (truncation > 0.0 && m > truncation) continue;
 		double a = max(double(halo.scale_radius), 1e-9);
-		double x = max(m / a, 1e-6);
-		double density = dm_fraction_derivative(halo.profile, x, double(halo.shape), double(halo.shape_aux)) / (x * x);
-		double column = density * segment_length / a;
+		double column;
+		if (mode == 0u) {
+			if (truncation > 0.0 && m > truncation) continue;
+			double x = max(m / a, 1e-6);
+			double density = dm_fraction_derivative(halo.profile, x, double(halo.shape), double(halo.shape_aux)) / (x * x);
+			column = density * segment_length / a;
+		} else {
+			double reach = (truncation > 0.0) ? min(m, truncation) : m;
+			double enclosed = double(halo.mass_norm) * dm_enclosed_fraction(halo.profile, reach / a, double(halo.shape), double(halo.shape_aux));
+			double softening = double(halo.softening);
+			double denominator = max(m * m + softening * softening, 1e-24);
+			double field_strength = enclosed * m / (denominator * sqrt(denominator));
+			double norm = max(double(halo.mass_norm), 1e-30);
+			double ratio = (mode == 1u) ? (field_strength * a * a / norm) : (field_strength * m * a / norm);
+			column = ratio * segment_length / a;
+		}
 		column = column / (1.0 + column);
 		total += vec3(halo.tint_r, halo.tint_g, halo.tint_b) * float(column * double(halo.visual_gain));
 	}

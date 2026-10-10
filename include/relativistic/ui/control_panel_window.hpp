@@ -14,6 +14,7 @@
 #include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/ui/jet_magnetosphere_editor.hpp"
+#include "relativistic/ui/dark_matter_panel.hpp"
 #include "relativistic/ui/horizon_zone_strip.hpp"
 #include "relativistic/metrics/horizon_regime.hpp"
 #include "relativistic/units/unit_system.hpp"
@@ -117,6 +118,7 @@ private:
 	int sky_panorama_quality_{1};
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
+	DarkMatterPanel dark_matter_panel_{};
 
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open)
@@ -238,6 +240,10 @@ public:
 				}
 				if (ImGui::BeginTabItem("Skybox & Environment")) {
 					render_skybox_tab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Dark Matter")) {
+					render_dark_matter_tab();
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem("Solvers & Integrators")) {
@@ -1276,6 +1282,10 @@ private:
 			}
 			render_setting_tooltip("Angular radius footprint of star cluster formations.");
 		}
+	}
+
+	void render_dark_matter_tab() noexcept {
+		dark_matter_panel_.render(orchestrator_, render_pipeline_);
 	}
 
 	void render_sky_panorama_controls() noexcept {

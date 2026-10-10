@@ -10,6 +10,7 @@
 #include "relativistic/ui/interface_persistence.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/observer/coordinate_systems.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -81,6 +82,7 @@ struct UserSettings {
 	UI::SchematicViewConfig schematic_view{};
 	UI::SpatialReferenceConfig spatial_reference{};
 	Units::UnitDisplayPreferences unit_preferences{};
+	Observer::CoordinatePreferences coordinate_preferences{};
 
 	uint32_t last_window_layout{0};
 	bool multi_window_mode{true};
@@ -291,6 +293,7 @@ struct UserSettings {
 		result.unit_preferences.force = static_cast<Units::ForceUnit>(get_u32("unit_force", static_cast<uint32_t>(result.unit_preferences.force)));
 		result.unit_preferences.magnetic_field = static_cast<Units::MagneticFieldUnit>(get_u32("unit_magnetic_field", static_cast<uint32_t>(result.unit_preferences.magnetic_field)));
 		result.unit_preferences.voltage = static_cast<Units::VoltageUnit>(get_u32("unit_voltage", static_cast<uint32_t>(result.unit_preferences.voltage)));
+		result.coordinate_preferences.widget_default = Observer::coordinate_system_from_index(get_u32("coord_widget_default", static_cast<uint32_t>(result.coordinate_preferences.widget_default)));
 
 		result.camera_controls.free_fly.forward_speed = get_dbl("cam_ff_forward_speed", result.camera_controls.free_fly.forward_speed);
 		result.camera_controls.free_fly.lateral_speed = get_dbl("cam_ff_lateral_speed", result.camera_controls.free_fly.lateral_speed);
@@ -530,6 +533,7 @@ struct UserSettings {
 		out << "unit_force=" << static_cast<uint32_t>(unit_preferences.force) << "\n";
 		out << "unit_magnetic_field=" << static_cast<uint32_t>(unit_preferences.magnetic_field) << "\n";
 		out << "unit_voltage=" << static_cast<uint32_t>(unit_preferences.voltage) << "\n";
+		out << "coord_widget_default=" << static_cast<uint32_t>(coordinate_preferences.widget_default) << "\n";
 		out << "cam_ff_forward_speed=" << camera_controls.free_fly.forward_speed << "\n";
 		out << "cam_ff_lateral_speed=" << camera_controls.free_fly.lateral_speed << "\n";
 		out << "cam_ff_vertical_speed=" << camera_controls.free_fly.vertical_speed << "\n";

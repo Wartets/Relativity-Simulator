@@ -13,6 +13,10 @@
 #include <cstdlib>
 #include <cstdio>
 #include <ctime>
+#include <algorithm>
+#include <cctype>
+#include <memory>
+#include <string_view>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -61,6 +65,47 @@ LONG WINAPI relativistic_crash_handler(EXCEPTION_POINTERS* info) noexcept {
 }
 #endif
 
+namespace {
+
+std::string trim_console_line(const std::string& text) {
+	const size_t first = text.find_first_not_of(" \t\r\n");
+	if (first == std::string::npos) {
+		return {};
+	}
+	const size_t last = text.find_last_not_of(" \t\r\n");
+	return text.substr(first, last - first + 1);
+}
+
+std::string lowercase_console_line(std::string text) {
+	std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	return text;
+}
+
+void process_console_line(Relativistic::Orchestrator::MasterTerminalRepl<1024>& repl, const std::string& raw_line) {
+	const std::string line = trim_console_line(raw_line);
+	if (line.empty()) {
+		return;
+	}
+	const std::string lowered = lowercase_console_line(line);
+	if (lowered == "help" || lowered == "?") {
+		repl.print_help();
+		return;
+	}
+	if (lowered == "status") {
+		repl.print_status();
+		return;
+	}
+	Relativistic::Orchestrator::CommandResult result{};
+	const bool ok = repl.execute_line(line, &result);
+	if (!ok) {
+		std::cout << "Error: " << result.message << "\n";
+	} else if (result.message[0] != '\0') {
+		std::cout << "OK: " << result.message << "\n";
+	}
+}
+
+}
+
 int main(int argc, char* argv[]) {
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
 	std::setvbuf(stderr, nullptr, _IONBF, 0);
@@ -85,6 +130,7 @@ int main(int argc, char* argv[]) {
 	using namespace Relativistic::Orchestrator;
 
 	bool headless = false;
+	bool console_attached = false;
 	for (int i = 1; i < argc; ++i) {
 		if (std::string_view(argv[i]) == "--headless" || std::string_view(argv[i]) == "-h") {
 			headless = true;
@@ -142,14 +188,7 @@ int main(int argc, char* argv[]) {
 				if (!std::getline(std::cin, line)) {
 					break;
 				}
-				if (line.empty()) continue;
-				if (line == "help") { repl.print_help(); continue; }
-				if (line == "status") { repl.print_status(); continue; }
-
-				CommandResult result{};
-				const bool ok = repl.execute_line(line, &result);
-				if (!ok) std::cout << "Error: " << result.message << "\n";
-				else if (result.message[0] != '\0') std::cout << "OK: " << result.message << "\n";
+				process_console_line(repl, line);
 			} catch (const std::exception& ex) {
 				Relativistic::Core::log_error(std::string("Headless command loop caught an exception and will continue: ") + ex.what());
 			} catch (...) {
@@ -157,6 +196,25 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	} else {
+		console_attached = true;
+		std::thread console_thread([&repl, &orchestrator]() {
+			std::string console_line;
+			while (orchestrator->is_running()) {
+				repl.print_prompt();
+				if (!std::getline(std::cin, console_line)) {
+					break;
+				}
+				try {
+					process_console_line(repl, console_line);
+				} catch (const std::exception& ex) {
+					Relativistic::Core::log_error(std::string("Console command failed: ") + ex.what());
+				} catch (...) {
+					Relativistic::Core::log_error("Console command failed with an unknown error.");
+				}
+			}
+		});
+		console_thread.detach();
+
 		Relativistic::IO::UserSettings user_settings = Relativistic::IO::UserSettings::load_or_default();
 		Relativistic::IO::UserSettings::mark_session_started();
 		Relativistic::Core::SystemConsole::set_visible(user_settings.show_system_console);
@@ -183,5 +241,11 @@ int main(int argc, char* argv[]) {
 	orchestrator->profiler().save_to_disk();
 	orchestrator->stop();
 	sim_thread.request_stop();
+	sim_thread.join();
+	if (console_attached) {
+		std::fflush(stdout);
+		std::fflush(stderr);
+		std::_Exit(0);
+	}
 	return 0;
 }

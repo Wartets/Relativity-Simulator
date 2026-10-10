@@ -12,6 +12,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/compatibility_notes.hpp"
+#include "relativistic/ui/coordinate_aware_widgets.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/ui/jet_magnetosphere_editor.hpp"
 #include "relativistic/ui/dark_matter_panel.hpp"
@@ -702,31 +703,10 @@ private:
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Manual Camera Placement:");
 
-		const char* coord_systems[] = {"Cartesian (x, y, z)", "Spherical (r, theta, phi)"};
-		if (ImGui::Combo("Coordinate System", &camera_coord_system_, coord_systems, IM_ARRAYSIZE(coord_systems))) {
+		if (coordinate_aware_input_position("Position", manual_cartesian_position_, orchestrator_)) {
 			manual_placement_dirty_ = true;
 		}
-		render_setting_tooltip("Switches manual camera input between Cartesian (x, y, z) and Boyer-Lindquist spherical (r, theta, phi) coordinates.");
-
-		if (camera_coord_system_ == 0) {
-			if (ImGui::InputFloat3("Position (x, y, z)", manual_cartesian_position_)) {
-				manual_placement_dirty_ = true;
-			}
-			render_setting_tooltip("World-space Cartesian coordinates in geometric length units.");
-		} else {
-			if (ImGui::InputFloat("Radius (r)", &manual_spherical_position_[0])) {
-				manual_placement_dirty_ = true;
-			}
-			render_setting_tooltip("Radial Boyer-Lindquist / spherical distance from central origin.");
-			if (ImGui::SliderAngle("Polar Angle (theta)", &manual_spherical_position_[1], 0.1f, 179.9f)) {
-				manual_placement_dirty_ = true;
-			}
-			render_setting_tooltip("Polar colatitude angle theta (0 deg = North Pole, 90 deg = Equator, 180 deg = South Pole).");
-			if (ImGui::SliderAngle("Azimuthal Angle (phi)", &manual_spherical_position_[2], -180.0f, 180.0f)) {
-				manual_placement_dirty_ = true;
-			}
-			render_setting_tooltip("Azimuthal longitude angle phi around the central rotation axis.");
-		}
+		render_setting_tooltip("Observer position expressed in the selected coordinate system. Use the system button to switch between Cartesian, spherical, cylindrical and metric-adapted coordinates.");
 
 		if (ImGui::InputFloat3("Orientation (pitch, yaw, roll)", manual_orientation_)) {
 			manual_placement_dirty_ = true;
@@ -1930,19 +1910,13 @@ private:
 		}
 
 		if (selected_mode == Render::LightSourceMode::FixedPoint) {
-			float position_x = static_cast<float>(params.light_position_x);
-			float position_y = static_cast<float>(params.light_position_y);
-			float position_z = static_cast<float>(params.light_position_z);
-			if (slider_float_with_input("Light Position X", &position_x, -10000.0f, 10000.0f, "%.2f")) {
-				enqueue_lighting_param(PT::LightPositionX, static_cast<double>(position_x));
+			std::array<double, 3> light_position{params.light_position_x, params.light_position_y, params.light_position_z};
+			if (coordinate_aware_input_position("Light Position", light_position, orchestrator_)) {
+				enqueue_lighting_param(PT::LightPositionX, light_position[0]);
+				enqueue_lighting_param(PT::LightPositionY, light_position[1]);
+				enqueue_lighting_param(PT::LightPositionZ, light_position[2]);
 			}
-			if (slider_float_with_input("Light Position Y", &position_y, -10000.0f, 10000.0f, "%.2f")) {
-				enqueue_lighting_param(PT::LightPositionY, static_cast<double>(position_y));
-			}
-			if (slider_float_with_input("Light Position Z", &position_z, -10000.0f, 10000.0f, "%.2f")) {
-				enqueue_lighting_param(PT::LightPositionZ, static_cast<double>(position_z));
-			}
-			render_setting_tooltip("World-space position of the point light in simulation units. Shadows are cast along the line from each surface point to this position.");
+			render_setting_tooltip("Position of the point light in the selected coordinate system. Shadows are cast along the line from each surface point to this position.");
 		}
 
 		if (selected_mode == Render::LightSourceMode::SpecificBody) {
@@ -2538,6 +2512,18 @@ private:
 		render_setting_tooltip("Display unit for electric potential and voltage.");
 
 		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Coordinate Systems");
+		static_cast<void>(coordinate_system_combo("Default Coordinate System", orchestrator_.coordinate_preferences().widget_default));
+		render_setting_tooltip("Coordinate system used by every position field that follows the global default. Each field also has its own system button to override this choice locally.");
+		const Observer::CoordinateFrame preview_frame = make_coordinate_frame(orchestrator_);
+		const double preview_length_scale = orchestrator_.constants_engine().length_scale();
+		for (size_t system_index = 0; system_index < Observer::kCoordinateSystemCount; ++system_index) {
+			const auto preview_system = static_cast<Observer::CoordinateSystem>(system_index);
+			const std::string preview = std::string("Camera ") + Observer::kCoordinateSystemTitles[system_index] + ": " + describe_position(preview_system, orchestrator_.camera().position, preview_frame, preview_length_scale, prefs, 4);
+			ImGui::TextUnformatted(preview.c_str());
+		}
+
+		ImGui::Separator();
 		ImGui::TextDisabled("Live Previews:");
 		const auto& cam = orchestrator_.camera();
 		const double distance_meters = cam.radius * orchestrator_.constants_engine().length_scale();
@@ -2580,6 +2566,18 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::RollingAverageFrameCount, static_cast<double>(rolling_count))));
 		}
 		render_setting_tooltip("Number of historical frame times averaged into the HUD frame-time and FPS readouts. Larger windows produce smoother, slower-reacting numbers.");
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.7f, 1.0f), "Coordinate Display:");
+		static_cast<void>(coordinate_system_combo("Primary Coordinate System", hud_layout_.coordinates.primary));
+		render_setting_tooltip("Coordinate system used by the Camera Position, Mouse Cursor and Ray Probe Emission readouts. Metric-adapted coordinates use the proper radial distance from the horizon of the active spacetime and also report the tortoise radius r*.");
+		ImGui::Checkbox("Show Secondary Coordinate System", &hud_layout_.coordinates.secondary_enabled);
+		render_setting_tooltip("Displays every coordinate readout in a second coordinate system on an additional line.");
+		if (hud_layout_.coordinates.secondary_enabled) {
+			static_cast<void>(coordinate_system_combo("Secondary Coordinate System", hud_layout_.coordinates.secondary));
+		}
+		ImGui::Checkbox("Show Coordinate Axis Labels", &hud_layout_.coordinates.show_axis_labels);
+		render_setting_tooltip("Prefixes every component with its axis name. Disable for a more compact readout.");
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.0f, 1.0f), "Viewport Toolbar Buttons:");

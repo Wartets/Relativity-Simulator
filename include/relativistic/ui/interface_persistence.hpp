@@ -23,6 +23,10 @@ public:
 		emit(out, "hud_ext_toolbar_padding_scale", hud.toolbar_padding_scale);
 		emit(out, "hud_ext_auto_arrange", hud.auto_arrange_enabled);
 		emit(out, "hud_ext_auto_arrange_spacing", hud.auto_arrange_spacing);
+		emit(out, "hud_coord_primary", hud.coordinates.primary);
+		emit(out, "hud_coord_secondary", hud.coordinates.secondary);
+		emit(out, "hud_coord_secondary_enabled", hud.coordinates.secondary_enabled);
+		emit(out, "hud_coord_axis_labels", hud.coordinates.show_axis_labels);
 		visit_toolbar(hud.toolbar_buttons, [&out](const std::string& name, const auto& field) {
 			emit(out, "hud_tb_" + name, field);
 		});
@@ -44,6 +48,12 @@ public:
 		ingest(entries, "hud_ext_toolbar_padding_scale", hud.toolbar_padding_scale);
 		ingest(entries, "hud_ext_auto_arrange", hud.auto_arrange_enabled);
 		ingest(entries, "hud_ext_auto_arrange_spacing", hud.auto_arrange_spacing);
+		ingest(entries, "hud_coord_primary", hud.coordinates.primary);
+		ingest(entries, "hud_coord_secondary", hud.coordinates.secondary);
+		ingest(entries, "hud_coord_secondary_enabled", hud.coordinates.secondary_enabled);
+		ingest(entries, "hud_coord_axis_labels", hud.coordinates.show_axis_labels);
+		hud.coordinates.primary = Observer::coordinate_system_from_index(static_cast<uint32_t>(hud.coordinates.primary));
+		hud.coordinates.secondary = Observer::coordinate_system_from_index(static_cast<uint32_t>(hud.coordinates.secondary));
 		visit_toolbar(hud.toolbar_buttons, [&entries](const std::string& name, auto& field) {
 			ingest(entries, "hud_tb_" + name, field);
 		});

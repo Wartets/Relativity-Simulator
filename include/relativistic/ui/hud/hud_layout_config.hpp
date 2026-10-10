@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 #include "relativistic/ui/input_actions.hpp"
+#include "relativistic/observer/coordinate_systems.hpp"
 #include <array>
 #include <cstdint>
 #include <algorithm>
@@ -55,6 +56,8 @@ enum class HudElementId : uint32_t {
 	InterferometryQuickReadout,
 	RayProbeGeometryReadout,
 	DarkMatterQuickReadout,
+	CameraPositionReadout,
+	CursorReadout,
 	Count
 };
 
@@ -91,6 +94,8 @@ enum class HudElementId : uint32_t {
 		case HudElementId::InterferometryQuickReadout: return "Interferometry Summary (Linked)";
 		case HudElementId::RayProbeGeometryReadout: return "Ray Probe: Deflection & Disk Image Order (Linked)";
 		case HudElementId::DarkMatterQuickReadout: return "Dark Matter Field Summary (Linked)";
+		case HudElementId::CameraPositionReadout: return "Camera Position (Selectable Coordinates)";
+		case HudElementId::CursorReadout: return "Mouse Cursor: Pixel & Ray Coordinates";
 		default: return "Unknown Element";
 	}
 }
@@ -155,6 +160,13 @@ struct ToolbarButtonVisibility {
 	bool pole_precision_nudge{false};
 };
 
+struct HudCoordinateDisplay {
+	Observer::CoordinateSystem primary{Observer::CoordinateSystem::Spherical};
+	Observer::CoordinateSystem secondary{Observer::CoordinateSystem::Cartesian};
+	bool secondary_enabled{false};
+	bool show_axis_labels{true};
+};
+
 struct HudLayoutConfig {
 	bool master_enabled{true};
 	bool auto_arrange_enabled{false};
@@ -162,6 +174,7 @@ struct HudLayoutConfig {
 	float toolbar_padding_scale{1.0f};
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
 	ToolbarButtonVisibility toolbar_buttons{};
+	HudCoordinateDisplay coordinates{};
 	std::array<bool, static_cast<size_t>(InputAction::Count)> keybind_summary_visible{};
 
 	HudLayoutConfig() noexcept {
@@ -343,6 +356,20 @@ struct HudLayoutConfig {
 		dark_matter_ro.offset_x = 16.0f;
 		dark_matter_ro.offset_y = 478.0f;
 		dark_matter_ro.text_color = {0.75f, 0.6f, 1.0f, 1.0f};
+
+		auto& camera_position_ro = element(HudElementId::CameraPositionReadout);
+		camera_position_ro.enabled = false;
+		camera_position_ro.anchor = HudAnchor::BottomLeft;
+		camera_position_ro.offset_x = 16.0f;
+		camera_position_ro.offset_y = 500.0f;
+		camera_position_ro.text_color = {0.7f, 1.0f, 0.8f, 1.0f};
+
+		auto& cursor_ro = element(HudElementId::CursorReadout);
+		cursor_ro.enabled = false;
+		cursor_ro.anchor = HudAnchor::BottomLeft;
+		cursor_ro.offset_x = 16.0f;
+		cursor_ro.offset_y = 544.0f;
+		cursor_ro.text_color = {1.0f, 0.95f, 0.6f, 1.0f};
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

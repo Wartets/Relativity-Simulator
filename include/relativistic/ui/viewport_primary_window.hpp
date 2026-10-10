@@ -18,6 +18,7 @@
 #include "relativistic/observer/camera_projections.hpp"
 #include "relativistic/interferometry/visibility_synthesis.hpp"
 #include "relativistic/ui/hud/hud_linked_readouts.hpp"
+#include "relativistic/ui/coordinate_display.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/io/capture/screenshot_exporter.hpp"
 #include "relativistic/io/capture/screenshot_capture_settings.hpp"
@@ -111,6 +112,14 @@ private:
 	uint32_t display_frame_width_{0};
 	uint32_t display_frame_height_{0};
 	HudLinkedReadouts linked_readouts_{};
+	bool cursor_inside_{false};
+	uint32_t cursor_pixel_x_{0};
+	uint32_t cursor_pixel_y_{0};
+	ImVec2 cursor_uv_{0.0f, 0.0f};
+	ImVec2 cursor_viewport_position_{0.0f, 0.0f};
+	Optics::RayProbeResult cursor_probe_result_{};
+	Optics::RayProbeQuery cursor_probe_query_{};
+	bool cursor_probe_has_query_{false};
 
 	struct DynamicLookAtTarget {
 		std::string label;
@@ -429,32 +438,8 @@ public:
 		return true;
 	}
 
-	void update_ray_probe(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius, const Render::GpuDiskProfile& disk_profile) {
+	[[nodiscard]] Optics::RayProbeQuery build_ray_probe_query(uint32_t pixel_x, uint32_t pixel_y, uint32_t frame_w, uint32_t frame_h, double escape_radius, const Render::GpuDiskProfile& disk_profile) const {
 		constexpr uint32_t kProbeMaxSteps = 16384U;
-		if (!ray_probe_active_ || ray_probe_frozen_ || avail.x < 1.0f || avail.y < 1.0f) {
-			return;
-		}
-		if (ray_probe_source_ == 1) {
-			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
-		} else if (image_hovered) {
-			const ImVec2 mouse = ImGui::GetMousePos();
-			const float fx = std::clamp((mouse.x - image_pos.x) / avail.x, 0.0f, 1.0f);
-			const float fy = std::clamp((mouse.y - image_pos.y) / avail.y, 0.0f, 1.0f);
-			ray_probe_texture_position_ = ImVec2(uv0.x + fx * (uv1.x - uv0.x), uv0.y + fy * (uv1.y - uv0.y));
-		} else if (ray_probe_has_query_) {
-			return;
-		} else {
-			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
-		}
-
-		const uint32_t frame_w = (display_frame_width_ > 0U) ? display_frame_width_ : current_width_;
-		const uint32_t frame_h = (display_frame_height_ > 0U) ? display_frame_height_ : current_height_;
-		if (frame_w == 0U || frame_h == 0U) {
-			return;
-		}
-		const uint32_t pixel_x = std::min(frame_w - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.x, 0.0f, 1.0f) * static_cast<float>(frame_w)));
-		const uint32_t pixel_y = std::min(frame_h - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.y, 0.0f, 1.0f) * static_cast<float>(frame_h)));
-
 		const auto& params = orchestrator_.parameters();
 		const auto& cam = orchestrator_.camera();
 		const auto spherical = cam.spherical_coordinates();
@@ -497,6 +482,64 @@ public:
 		query.disk_temperature_normalization = disk_profile.temperature_normalization;
 		query.pixel_x = pixel_x;
 		query.pixel_y = pixel_y;
+		return query;
+	}
+
+	void update_cursor_state(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius, const Render::GpuDiskProfile& disk_profile) {
+		cursor_inside_ = false;
+		const auto& style = hud_layout_.element(HudElementId::CursorReadout);
+		if (!image_hovered || !hud_layout_.master_enabled || !style.enabled || avail.x < 1.0f || avail.y < 1.0f) {
+			return;
+		}
+		const uint32_t frame_w = (display_frame_width_ > 0U) ? display_frame_width_ : current_width_;
+		const uint32_t frame_h = (display_frame_height_ > 0U) ? display_frame_height_ : current_height_;
+		if (frame_w == 0U || frame_h == 0U) {
+			return;
+		}
+		const ImVec2 mouse = ImGui::GetMousePos();
+		const float fx = std::clamp((mouse.x - image_pos.x) / avail.x, 0.0f, 1.0f);
+		const float fy = std::clamp((mouse.y - image_pos.y) / avail.y, 0.0f, 1.0f);
+		cursor_viewport_position_ = ImVec2(mouse.x - image_pos.x, mouse.y - image_pos.y);
+		cursor_uv_ = ImVec2(uv0.x + fx * (uv1.x - uv0.x), uv0.y + fy * (uv1.y - uv0.y));
+		cursor_pixel_x_ = std::min(frame_w - 1U, static_cast<uint32_t>(std::clamp(cursor_uv_.x, 0.0f, 1.0f) * static_cast<float>(frame_w)));
+		cursor_pixel_y_ = std::min(frame_h - 1U, static_cast<uint32_t>(std::clamp(cursor_uv_.y, 0.0f, 1.0f) * static_cast<float>(frame_h)));
+		cursor_inside_ = true;
+
+		const Optics::RayProbeQuery query = build_ray_probe_query(cursor_pixel_x_, cursor_pixel_y_, frame_w, frame_h, escape_radius, disk_profile);
+		if (cursor_probe_has_query_ && query == cursor_probe_query_) {
+			return;
+		}
+		cursor_probe_query_ = query;
+		cursor_probe_has_query_ = true;
+		cursor_probe_result_ = Optics::GeodesicRayProbe::trace(query);
+	}
+
+	void update_ray_probe(bool image_hovered, const ImVec2& image_pos, const ImVec2& avail, const ImVec2& uv0, const ImVec2& uv1, double escape_radius, const Render::GpuDiskProfile& disk_profile) {
+		if (!ray_probe_active_ || ray_probe_frozen_ || avail.x < 1.0f || avail.y < 1.0f) {
+			return;
+		}
+		if (ray_probe_source_ == 1) {
+			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
+		} else if (image_hovered) {
+			const ImVec2 mouse = ImGui::GetMousePos();
+			const float fx = std::clamp((mouse.x - image_pos.x) / avail.x, 0.0f, 1.0f);
+			const float fy = std::clamp((mouse.y - image_pos.y) / avail.y, 0.0f, 1.0f);
+			ray_probe_texture_position_ = ImVec2(uv0.x + fx * (uv1.x - uv0.x), uv0.y + fy * (uv1.y - uv0.y));
+		} else if (ray_probe_has_query_) {
+			return;
+		} else {
+			ray_probe_texture_position_ = ImVec2(0.5f * (uv0.x + uv1.x), 0.5f * (uv0.y + uv1.y));
+		}
+
+		const uint32_t frame_w = (display_frame_width_ > 0U) ? display_frame_width_ : current_width_;
+		const uint32_t frame_h = (display_frame_height_ > 0U) ? display_frame_height_ : current_height_;
+		if (frame_w == 0U || frame_h == 0U) {
+			return;
+		}
+		const uint32_t pixel_x = std::min(frame_w - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.x, 0.0f, 1.0f) * static_cast<float>(frame_w)));
+		const uint32_t pixel_y = std::min(frame_h - 1U, static_cast<uint32_t>(std::clamp(ray_probe_texture_position_.y, 0.0f, 1.0f) * static_cast<float>(frame_h)));
+
+		const Optics::RayProbeQuery query = build_ray_probe_query(pixel_x, pixel_y, frame_w, frame_h, escape_radius, disk_profile);
 
 		if (ray_probe_has_query_ && query == ray_probe_query_) {
 			return;
@@ -643,6 +686,7 @@ public:
 			const auto obs_sph = cam.spherical_coordinates();
 
 			if (params.schematic_mode_enabled) {
+				cursor_inside_ = false;
 				const ImVec2 schematic_pos = ImGui::GetCursorScreenPos();
 				const auto schematic_projection_mode = schematic_cfg_.human_perspective_mode
 					? Observer::ProjectionMode::Pinhole
@@ -995,6 +1039,7 @@ public:
 			const bool probe_image_hovered = ImGui::IsItemHovered();
 			update_ray_probe(probe_image_hovered, viewport_image_pos, avail, zoom_uv0, zoom_uv1, cam_consts.escape_radius, cam_consts.primary_disk);
 			draw_ray_probe_marker(ImGui::GetWindowDrawList(), viewport_image_pos, avail, zoom_uv0, zoom_uv1);
+			update_cursor_state(probe_image_hovered, viewport_image_pos, avail, zoom_uv0, zoom_uv1, cam_consts.escape_radius, cam_consts.primary_disk);
 
 			if (schematic_cfg_.show_overlay_in_raytraced_view) {
 				const auto schematic_stage_timer = orchestrator_.profiler().scoped_stage(Orchestrator::ProfilerTaskStage::SchematicOverlay);
@@ -1577,6 +1622,9 @@ private:
 		const auto snap = orchestrator_.scheduler().snapshot();
 		ImDrawList* draw_list = ImGui::GetWindowDrawList();
 		const ImVec2 window_pos = ImGui::GetWindowPos();
+		const Observer::CoordinateFrame coordinate_frame = make_coordinate_frame(orchestrator_);
+		const double coordinate_length_scale = orchestrator_.constants_engine().length_scale();
+		const HudCoordinateDisplay& coordinate_display = hud_layout_.coordinates;
 
 		current_frame_time_ms_ = tel.execution_time_ms;
 		if (current_frame_time_ms_ > 0.0) {
@@ -1975,18 +2023,27 @@ private:
 				const int prec = std::clamp(style.decimal_precision, 0, 6);
 				const auto& unit_prefs = orchestrator_.unit_preferences();
 				const double length_scale = orchestrator_.constants_engine().length_scale();
-				const std::string r_text = Units::format_distance(probe.emission_r * length_scale, unit_prefs.distance, prec);
-				const std::string theta_text = Units::format_angle(probe.emission_theta, unit_prefs.angle);
-				const std::string phi_text = Units::format_angle(probe.emission_phi, unit_prefs.angle);
-				char buf[224];
-				if (style.display_mode == HudDisplayMode::Compact) {
-					std::snprintf(buf, sizeof(buf), "r_e=%.*f M", prec, probe.emission_r / mass_scale);
-				} else if (style.display_mode == HudDisplayMode::Extended) {
-					std::snprintf(buf, sizeof(buf), "Emission: r=%s (%.*f M) | theta=%s | phi=%s | Closest Approach: %.*f M", r_text.c_str(), prec, probe.emission_r / mass_scale, theta_text.c_str(), phi_text.c_str(), prec, probe.minimum_radius / mass_scale);
-				} else {
-					std::snprintf(buf, sizeof(buf), "Emission: r=%s | theta=%s | phi=%s", r_text.c_str(), theta_text.c_str(), phi_text.c_str());
+				const double emission_sin_theta = std::sin(probe.emission_theta);
+				const Observer::CoordinateVector emission_cartesian{
+					probe.emission_r * emission_sin_theta * std::cos(probe.emission_phi),
+					probe.emission_r * emission_sin_theta * std::sin(probe.emission_phi),
+					probe.emission_r * std::cos(probe.emission_theta)
+				};
+				const auto emission_lines = describe_position_lines(
+					"Emission", emission_cartesian, coordinate_frame, length_scale, unit_prefs,
+					coordinate_display.primary, coordinate_display.secondary, coordinate_display.secondary_enabled,
+					prec, style.display_mode == HudDisplayMode::Compact, coordinate_display.show_axis_labels
+				);
+				std::vector<HudTextLine> emission_block;
+				for (const auto& emission_line : emission_lines) {
+					emission_block.push_back(HudTextLine{emission_line});
 				}
-				push_block(HudElementId::RayProbeEmissionReadout, {HudTextLine{buf}});
+				if (style.display_mode == HudDisplayMode::Extended) {
+					char buf[96];
+					std::snprintf(buf, sizeof(buf), "Closest Approach: %.*f M | r_e=%.*f M", prec, probe.minimum_radius / mass_scale, prec, probe.emission_r / mass_scale);
+					emission_block.push_back(HudTextLine{buf});
+				}
+				push_block(HudElementId::RayProbeEmissionReadout, std::move(emission_block));
 			}
 		}
 
@@ -2066,6 +2123,78 @@ private:
 					std::snprintf(buf, sizeof(buf), "Dark Matter: %u/%u halos | Mass %.*f M | Lensing %s", active_halos, dm_field.count, prec, dm_field.total_halo_mass(), dm_field.lensing_enabled ? "On" : "Off");
 				}
 				push_block(HudElementId::DarkMatterQuickReadout, {HudTextLine{buf}});
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::CameraPositionReadout);
+			if (style.enabled) {
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const auto position_lines = describe_position_lines(
+					"Camera", cam.position, coordinate_frame, coordinate_length_scale, orchestrator_.unit_preferences(),
+					coordinate_display.primary, coordinate_display.secondary, coordinate_display.secondary_enabled,
+					prec, style.display_mode == HudDisplayMode::Compact, coordinate_display.show_axis_labels
+				);
+				std::vector<HudTextLine> position_block;
+				for (const auto& position_line : position_lines) {
+					position_block.push_back(HudTextLine{position_line});
+				}
+				push_block(HudElementId::CameraPositionReadout, std::move(position_block));
+			}
+		}
+
+		{
+			const auto& style = hud_layout_.element(HudElementId::CursorReadout);
+			if (style.enabled && cursor_inside_) {
+				const int prec = std::clamp(style.decimal_precision, 0, 6);
+				const ImVec2 mouse_screen = ImGui::GetMousePos();
+				const uint32_t cursor_frame_w = (display_frame_width_ > 0U) ? display_frame_width_ : current_width_;
+				const uint32_t cursor_frame_h = (display_frame_height_ > 0U) ? display_frame_height_ : current_height_;
+				const auto& unit_prefs = orchestrator_.unit_preferences();
+				std::vector<HudTextLine> cursor_block;
+				char buf[256];
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(buf, sizeof(buf), "Cursor px (%u, %u)", cursor_pixel_x_, cursor_pixel_y_);
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(buf, sizeof(buf), "Cursor: screen (%.0f, %.0f) | viewport (%.0f, %.0f) | pixel (%u, %u) / %ux%u | UV (%.*f, %.*f)", static_cast<double>(mouse_screen.x), static_cast<double>(mouse_screen.y), static_cast<double>(cursor_viewport_position_.x), static_cast<double>(cursor_viewport_position_.y), cursor_pixel_x_, cursor_pixel_y_, cursor_frame_w, cursor_frame_h, prec, static_cast<double>(cursor_uv_.x), prec, static_cast<double>(cursor_uv_.y));
+				} else {
+					std::snprintf(buf, sizeof(buf), "Cursor: screen (%.0f, %.0f) | pixel (%u, %u) / %ux%u", static_cast<double>(mouse_screen.x), static_cast<double>(mouse_screen.y), cursor_pixel_x_, cursor_pixel_y_, cursor_frame_w, cursor_frame_h);
+				}
+				cursor_block.push_back(HudTextLine{buf});
+
+				const auto& cursor_probe = cursor_probe_result_;
+				if (cursor_probe.valid && style.display_mode != HudDisplayMode::Compact) {
+					const double cursor_mass_scale = std::max(params.mass, 1e-9);
+					const char* cursor_fate = cursor_probe.disk_hit ? "Disk" : Optics::ray_termination_name(cursor_probe.termination);
+					std::snprintf(buf, sizeof(buf), "Cursor Ray: %s | g=%.*f | b=%.*f M", cursor_fate, prec, cursor_probe.spectral_shift_g, prec, cursor_probe.impact_parameter / cursor_mass_scale);
+					cursor_block.push_back(HudTextLine{buf});
+
+					const double cursor_sin_theta = std::sin(cursor_probe.emission_theta);
+					const Observer::CoordinateVector cursor_emission{
+						cursor_probe.emission_r * cursor_sin_theta * std::cos(cursor_probe.emission_phi),
+						cursor_probe.emission_r * cursor_sin_theta * std::sin(cursor_probe.emission_phi),
+						cursor_probe.emission_r * std::cos(cursor_probe.emission_theta)
+					};
+					const auto cursor_lines = describe_position_lines(
+						"Cursor Ray Emission", cursor_emission, coordinate_frame, coordinate_length_scale, unit_prefs,
+						coordinate_display.primary, coordinate_display.secondary, coordinate_display.secondary_enabled,
+						prec, false, coordinate_display.show_axis_labels
+					);
+					for (const auto& cursor_line : cursor_lines) {
+						cursor_block.push_back(HudTextLine{cursor_line});
+					}
+
+					if (style.display_mode == HudDisplayMode::Extended) {
+						const auto& direction = cursor_probe_query_.direction;
+						const double direction_length = std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]);
+						const double direction_theta = (direction_length > 1e-12) ? std::acos(std::clamp(direction[2] / direction_length, -1.0, 1.0)) : 0.0;
+						const double direction_phi = std::atan2(direction[1], direction[0]);
+						const char* angle_suffix = Units::angle_unit_suffix(unit_prefs.angle);
+						std::snprintf(buf, sizeof(buf), "Ray Direction: theta=%.*f %s | phi=%.*f %s", prec, Units::convert_angle_from_radians(direction_theta, unit_prefs.angle), angle_suffix, prec, Units::convert_angle_from_radians(direction_phi, unit_prefs.angle), angle_suffix);
+						cursor_block.push_back(HudTextLine{buf});
+					}
+				}
+				push_block(HudElementId::CursorReadout, std::move(cursor_block));
 			}
 		}
 

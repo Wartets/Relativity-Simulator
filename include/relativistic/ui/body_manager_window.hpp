@@ -15,6 +15,7 @@
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
+#include "relativistic/ui/coordinate_aware_widgets.hpp"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -1008,12 +1009,10 @@ private:
 		}
 		render_setting_tooltip(("Net electric charge, displayed in " + std::string(Units::charge_unit_suffix(prefs.charge)) + ".").c_str());
 
-		double position_m[3] = {b.position[0] * length_scale_m, b.position[1] * length_scale_m, b.position[2] * length_scale_m};
-		if (unit_aware_input_double3("Position (x, y, z)", position_m, UnitCategory::Distance, prefs)) {
-			b.position = {position_m[0] / length_scale_m, position_m[1] / length_scale_m, position_m[2] / length_scale_m};
+		if (coordinate_aware_input_position("Position", b.position, orchestrator_)) {
 			changed = true;
 		}
-		render_setting_tooltip(("Cartesian position relative to the central object, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ".").c_str());
+		render_setting_tooltip("Position relative to the central object in the selected coordinate system. The system button switches between Cartesian, spherical, cylindrical and metric-adapted coordinates.");
 
 		double velocity_mps[3] = {b.velocity[0] * speed_scale_mps, b.velocity[1] * speed_scale_mps, b.velocity[2] * speed_scale_mps};
 		if (unit_aware_input_double3("Velocity (vx, vy, vz)", velocity_mps, UnitCategory::Velocity, prefs)) {
@@ -1180,12 +1179,10 @@ private:
 		}
 		render_setting_tooltip(("Net electric charge, displayed in " + std::string(Units::charge_unit_suffix(prefs.charge)) + ", limited to the extremal bound |Q| <= M. It only acts through the electromagnetic interactions between bodies.").c_str());
 
-		double position_m[3] = {b.position[0] * length_scale_m, b.position[1] * length_scale_m, b.position[2] * length_scale_m};
-		if (unit_aware_input_double3("Position (x, y, z)", position_m, UnitCategory::Distance, prefs)) {
-			b.position = {position_m[0] / length_scale_m, position_m[1] / length_scale_m, position_m[2] / length_scale_m};
+		if (coordinate_aware_input_position("Position", b.position, orchestrator_)) {
 			changed = true;
 		}
-		render_setting_tooltip(("Cartesian position of the black hole relative to the primary source, displayed in " + std::string(Units::distance_unit_suffix(prefs.distance)) + ".").c_str());
+		render_setting_tooltip("Position of the black hole relative to the primary source in the selected coordinate system. The system button switches between Cartesian, spherical, cylindrical and metric-adapted coordinates.");
 
 		double velocity_mps[3] = {b.velocity[0] * speed_scale_mps, b.velocity[1] * speed_scale_mps, b.velocity[2] * speed_scale_mps};
 		if (unit_aware_input_double3("Velocity (vx, vy, vz)", velocity_mps, UnitCategory::Velocity, prefs)) {
@@ -1650,6 +1647,7 @@ private:
 					ImGui::Text("Identifier: #%u", bodies[i].id);
 					ImGui::Text("Mass: %.6e", bodies[i].mass);
 					ImGui::Text("Distance from center: %.6f", dist);
+					ImGui::TextUnformatted(("Position: " + describe_position(orchestrator_.coordinate_preferences().widget_default, bodies[i].position, make_coordinate_frame(orchestrator_), length_scale(), orchestrator_.unit_preferences(), 4)).c_str());
 					ImGui::Text("Speed: %.6e", bodies[i].speed());
 					ImGui::EndTooltip();
 				}
@@ -2081,7 +2079,7 @@ private:
 
 		ImGui::Text("Total System Mass:     %.6e", sys.total_mass());
 		const auto cm = sys.center_of_mass();
-		ImGui::Text("Center of Mass (x,y,z): (%.2e, %.2e, %.2e)", cm[0], cm[1], cm[2]);
+		ImGui::TextUnformatted(("Center of Mass: " + describe_position(orchestrator_.coordinate_preferences().widget_default, Observer::CoordinateVector{cm[0], cm[1], cm[2]}, make_coordinate_frame(orchestrator_), length_scale(), orchestrator_.unit_preferences(), 4)).c_str());
 		render_setting_tooltip("Mass-weighted average position of all orbiting bodies.");
 
 		const auto p_tot = sys.total_linear_momentum();

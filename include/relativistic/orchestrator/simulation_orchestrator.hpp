@@ -19,6 +19,7 @@
 #include "relativistic/dynamics/body_surface_layers.hpp"
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
+#include "relativistic/observer/coordinate_systems.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -252,6 +253,8 @@ private:
 	std::array<CustomParameterEntry, 32> custom_params_{};
 	std::mutex post_command_mutex_{};
 	std::vector<PostCommandAction> post_command_actions_{};
+	std::mutex command_producer_mutex_{};
+	Observer::CoordinatePreferences coordinate_preferences_{};
 	std::atomic<bool> post_command_pending_{false};
 
 	std::atomic<bool> is_running_{true};
@@ -529,10 +532,12 @@ public:
 	}
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {
+		std::lock_guard<std::mutex> lock(command_producer_mutex_);
 		return command_queue_.try_push(cmd);
 	}
 
 	[[nodiscard]] bool enqueue_command(Command&& cmd) noexcept {
+		std::lock_guard<std::mutex> lock(command_producer_mutex_);
 		return command_queue_.try_push(std::move(cmd));
 	}
 
@@ -1677,6 +1682,14 @@ public:
 
 	[[nodiscard]] const Units::UnitDisplayPreferences& unit_preferences() const noexcept {
 		return unit_preferences_;
+	}
+
+	[[nodiscard]] Observer::CoordinatePreferences& coordinate_preferences() noexcept {
+		return coordinate_preferences_;
+	}
+
+	[[nodiscard]] const Observer::CoordinatePreferences& coordinate_preferences() const noexcept {
+		return coordinate_preferences_;
 	}
 
 	[[nodiscard]] double physical_speed_of_light() const noexcept {

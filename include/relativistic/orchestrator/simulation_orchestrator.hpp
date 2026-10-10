@@ -49,6 +49,9 @@ struct PhysicalParameters {
 	double cosmological_lambda{0.0};
 	double wormhole_throat{1.0};
 	double warp_velocity{1.0};
+	double warp_bubble_radius{15.0};
+	double warp_wall_sharpness{0.4};
+	double wormhole_tidal_potential{0.0};
 	uint32_t projection_mode{3};
 	uint32_t time_flow_mode{0};
 	double camera_speed{10.0};
@@ -1145,6 +1148,15 @@ public:
 			case ParameterType::WarpVelocity:
 				params_.warp_velocity = val;
 				break;
+			case ParameterType::WarpBubbleRadius:
+				params_.warp_bubble_radius = std::clamp(val, 0.5, 1000.0);
+				break;
+			case ParameterType::WarpWallSharpness:
+				params_.warp_wall_sharpness = std::clamp(val, 0.01, 20.0);
+				break;
+			case ParameterType::WormholeTidalPotential:
+				params_.wormhole_tidal_potential = std::clamp(val, -20.0, 20.0);
+				break;
 			case ParameterType::ProjectionMode:
 				params_.projection_mode = static_cast<uint32_t>(val);
 				break;
@@ -1853,6 +1865,9 @@ public:
 
 		push.wormhole_throat = params_.wormhole_throat;
 		push.warp_velocity = params_.warp_velocity;
+		push.warp_bubble_radius = params_.warp_bubble_radius;
+		push.warp_wall_sharpness = params_.warp_wall_sharpness;
+		push.wormhole_tidal_potential = params_.wormhole_tidal_potential;
 		push.camera_exposure = params_.camera_exposure;
 
 		push.lod_distance_threshold = params_.lod_distance_scale;

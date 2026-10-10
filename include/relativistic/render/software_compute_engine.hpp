@@ -1898,6 +1898,296 @@ private:
 		};
 	}
 
+	static void extended_warp_shape(const GpuCameraPushConstants& params, double rs, double& f, double& df) noexcept {
+		const double sigma = std::max(params.warp_wall_sharpness, 1.0e-3);
+		const double radius = std::max(params.warp_bubble_radius, 1.0e-3);
+		const double tp = std::tanh(sigma * (rs + radius));
+		const double tm = std::tanh(sigma * (rs - radius));
+		const double tr = std::tanh(sigma * radius);
+		f = (tp - tm) / (2.0 * tr);
+		df = sigma * ((1.0 - tp * tp) - (1.0 - tm * tm)) / (2.0 * tr);
+	}
+
+	[[nodiscard]] static double extended_hubble(const GpuCameraPushConstants& params, double a) noexcept {
+		const double h0 = std::max(std::sqrt(std::max(params.cosmological_lambda, 0.0) / 2.1), 1.0e-3);
+		const double inv_a = 1.0 / std::max(a, 1.0e-6);
+		const double inv_a3 = inv_a * inv_a * inv_a;
+		return h0 * std::sqrt(9.0e-5 * inv_a3 * inv_a + 0.3 * inv_a3 + 0.7);
+	}
+
+	[[nodiscard]] static std::array<double, 4> extended_derivatives(
+		const GpuCameraPushConstants& params,
+		uint32_t kind,
+		const std::array<double, 4>& x,
+		const std::array<double, 4>& u,
+		std::array<double, 4>& dx
+	) noexcept {
+		if (kind == 7U) {
+			const double a = std::max(x[0], 1.0e-6);
+			const double h = extended_hubble(params, a);
+			const double speed_sq = u[1] * u[1] + u[2] * u[2] + u[3] * u[3];
+			dx = {a * h * u[0], u[1], u[2], u[3]};
+			return {-a * a * h * speed_sq, -2.0 * h * u[0] * u[1], -2.0 * h * u[0] * u[2], -2.0 * h * u[0] * u[3]};
+		}
+		dx = u;
+		if (kind == 8U) {
+			const double b0 = std::max(params.wormhole_throat, 1.0e-3);
+			const double l = x[1];
+			const double r2 = l * l + b0 * b0;
+			const double r = std::sqrt(r2);
+			const double tidal = params.wormhole_tidal_potential;
+			const double dphi = tidal * l / (r2 * r);
+			const double e2 = std::exp(-2.0 * tidal / r);
+			const double sin_t = std::sin(x[2]);
+			const double cos_t = std::cos(x[2]);
+			const double safe_sin = (std::abs(sin_t) > 1.0e-9) ? sin_t : ((sin_t >= 0.0) ? 1.0e-9 : -1.0e-9);
+			const double g = l / r2;
+			return {
+				-2.0 * dphi * u[0] * u[1],
+				-dphi * e2 * u[0] * u[0] + l * u[2] * u[2] + l * sin_t * sin_t * u[3] * u[3],
+				-2.0 * g * u[1] * u[2] + sin_t * cos_t * u[3] * u[3],
+				-2.0 * g * u[1] * u[3] - 2.0 * (cos_t / safe_sin) * u[2] * u[3]
+			};
+		}
+		const double rs = std::max(std::sqrt(x[1] * x[1] + x[2] * x[2] + x[3] * x[3]), 1.0e-9);
+		double f = 0.0;
+		double df = 0.0;
+		extended_warp_shape(params, rs, f, df);
+		const double s = params.warp_velocity * f;
+		const double gradient_scale = params.warp_velocity * df / rs;
+		const std::array<double, 3> grad{gradient_scale * x[1], gradient_scale * x[2], gradient_scale * x[3]};
+		const double ug = u[1] * grad[0] + u[2] * grad[1] + u[3] * grad[2];
+		const double term_common = s * u[0] * u[0] - u[0] * u[1];
+		const double a_t = ug * (2.0 * s * u[0] - u[1]);
+		const double a_x = -ug * u[0] - grad[0] * term_common;
+		const double a_y = -grad[1] * term_common;
+		const double a_z = -grad[2] * term_common;
+		return {a_t + s * a_x, s * a_t - (1.0 - s * s) * a_x, -a_y, -a_z};
+	}
+
+	[[nodiscard]] static GpuPixelOutput trace_extended_photon(
+		const GpuCameraPushConstants& params,
+		const std::array<double, 3>& ray_dir,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		const uint32_t kind = params.metric_type;
+		const double pi = std::numbers::pi_v<double>;
+		const double obs_r = std::max(params.observer_position[1], 1.0e-6);
+		const double obs_th = std::clamp(params.observer_position[2], 0.001, pi - 0.001);
+		const double obs_ph = params.observer_position[3];
+		const auto obs_cart = spherical_to_cartesian(obs_r, obs_th, obs_ph);
+		const double sin_t = std::sin(obs_th);
+		const double cos_t = std::cos(obs_th);
+		const double sin_p = std::sin(obs_ph);
+		const double cos_p = std::cos(obs_ph);
+		const std::array<double, 3> er{sin_t * cos_p, sin_t * sin_p, cos_t};
+		const std::array<double, 3> eth{cos_t * cos_p, cos_t * sin_p, -sin_t};
+		const std::array<double, 3> eph{-sin_p, cos_p, 0.0};
+		const auto dot3 = [](const std::array<double, 3>& a, const std::array<double, 3>& b) noexcept {
+			return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+		};
+		const double b0 = std::max(params.wormhole_throat, 1.0e-3);
+
+		std::array<double, 4> x{0.0, obs_cart[0], obs_cart[1], obs_cart[2]};
+		std::array<double, 4> u{-1.0, ray_dir[0], ray_dir[1], ray_dir[2]};
+		if (kind == 8U) {
+			const double r_areal = std::max(obs_r, b0 * 1.0001);
+			const double l0 = std::sqrt(std::max(r_areal * r_areal - b0 * b0, 0.0));
+			x = {0.0, l0, obs_th, obs_ph};
+			u = {-std::exp(params.wormhole_tidal_potential / r_areal), dot3(ray_dir, er), dot3(ray_dir, eth) / r_areal, dot3(ray_dir, eph) / (r_areal * sin_t)};
+		} else if (kind == 9U) {
+			double wf = 0.0;
+			double wdf = 0.0;
+			extended_warp_shape(params, std::sqrt(dot3(obs_cart, obs_cart)), wf, wdf);
+			u[1] -= params.warp_velocity * wf;
+		} else {
+			x[0] = 1.0;
+		}
+
+		const auto to_cartesian = [&](const std::array<double, 4>& state) noexcept -> std::array<double, 3> {
+			if (kind == 8U) {
+				return spherical_to_cartesian(std::sqrt(state[1] * state[1] + b0 * b0), state[2], state[3]);
+			}
+			return {state[1], state[2], state[3]};
+		};
+
+		std::array<double, 3> accum{0.0, 0.0, 0.0};
+		double throughput = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+		double redshift = 1.0;
+		bool exited = false;
+		const bool bodies_traced = ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty();
+		const bool dark_matter_active = (kind != 8U) && DarkMatter::DarkMatterLensing::is_active(params.dark_matter);
+		const double escape = std::max(params.escape_radius, 1.0);
+		const double warp_radius = std::max(params.warp_bubble_radius, 1.0e-3);
+		const double warp_sigma = std::max(params.warp_wall_sharpness, 1.0e-3);
+		const double far_scale = params.far_field_step_scale;
+		std::array<double, 3> prev_cart = to_cartesian(x);
+		bool prev_valid = (kind != 8U) || (x[1] > 0.0);
+
+		for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+			const double radius_xyz = std::sqrt(x[1] * x[1] + x[2] * x[2] + x[3] * x[3]);
+			if (kind == 8U && std::abs(x[1]) >= escape) {
+				exited = true;
+				break;
+			}
+			if (kind == 9U && radius_xyz >= escape) {
+				exited = true;
+				break;
+			}
+			if (kind == 7U) {
+				if (x[0] < 1.0e-3) {
+					status = PixelFlags::HORIZON_ABSORBED;
+					throughput = 0.0;
+					break;
+				}
+				if (radius_xyz >= escape) {
+					exited = true;
+					break;
+				}
+			}
+
+			double dt = 0.0;
+			if (kind == 8U) {
+				const double r_areal = std::sqrt(x[1] * x[1] + b0 * b0);
+				const double pole_guard = std::clamp(std::abs(std::sin(x[2])) * 12.0 * params.pole_guard_precision_scale, 0.02, 1.0);
+				const double far_factor = 1.0 + (far_scale - 1.0) * std::clamp((r_areal - 20.0 * b0) / std::max(80.0 * b0, 1.0e-9), 0.0, 1.0);
+				dt = std::clamp(params.step_size_factor * std::sqrt(r_areal * b0) * far_factor, params.min_step_size, params.max_step_size * far_scale) * pole_guard;
+			} else if (kind == 9U) {
+				const double wall_scale = std::abs(radius_xyz - warp_radius) + 1.0 / warp_sigma;
+				const double far_factor = 1.0 + (far_scale - 1.0) * std::clamp((radius_xyz - 3.0 * warp_radius) / std::max(10.0 * warp_radius, 1.0e-9), 0.0, 1.0);
+				dt = std::clamp(params.step_size_factor * wall_scale * far_factor, params.min_step_size, params.max_step_size * far_scale);
+			} else {
+				const double h = extended_hubble(params, x[0]);
+				const double speed = std::max(std::sqrt(u[1] * u[1] + u[2] * u[2] + u[3] * u[3]), 1.0e-9);
+				const double spatial_step = params.step_size_factor * 30.0 / speed;
+				const double time_step = 0.03 / std::max(h * std::abs(u[0]), 1.0e-12);
+				dt = std::clamp(std::min(spatial_step, time_step), 1.0e-9, params.max_step_size * far_scale);
+			}
+			if (dark_matter_active) {
+				const double speed = std::max(std::sqrt(u[1] * u[1] + u[2] * u[2] + u[3] * u[3]), 1.0);
+				dt = std::min(dt, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, prev_cart) / speed);
+			}
+
+			std::array<double, 4> k1x{};
+			std::array<double, 4> k2x{};
+			std::array<double, 4> k3x{};
+			std::array<double, 4> k4x{};
+			std::array<double, 4> xs{};
+			std::array<double, 4> us{};
+			const auto k1u = extended_derivatives(params, kind, x, u, k1x);
+			for (size_t i = 0; i < 4; ++i) {
+				xs[i] = x[i] + 0.5 * dt * k1x[i];
+				us[i] = u[i] + 0.5 * dt * k1u[i];
+			}
+			const auto k2u = extended_derivatives(params, kind, xs, us, k2x);
+			for (size_t i = 0; i < 4; ++i) {
+				xs[i] = x[i] + 0.5 * dt * k2x[i];
+				us[i] = u[i] + 0.5 * dt * k2u[i];
+			}
+			const auto k3u = extended_derivatives(params, kind, xs, us, k3x);
+			for (size_t i = 0; i < 4; ++i) {
+				xs[i] = x[i] + dt * k3x[i];
+				us[i] = u[i] + dt * k3u[i];
+			}
+			const auto k4u = extended_derivatives(params, kind, xs, us, k4x);
+			const double sixth = dt / 6.0;
+			for (size_t i = 0; i < 4; ++i) {
+				x[i] += sixth * (k1x[i] + 2.0 * k2x[i] + 2.0 * k3x[i] + k4x[i]);
+				u[i] += sixth * (k1u[i] + 2.0 * k2u[i] + 2.0 * k3u[i] + k4u[i]);
+			}
+
+			if (!std::isfinite(x[0]) || !std::isfinite(x[1]) || !std::isfinite(x[2]) || !std::isfinite(x[3])
+				|| !std::isfinite(u[0]) || !std::isfinite(u[1]) || !std::isfinite(u[2]) || !std::isfinite(u[3])) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+
+			if (kind == 8U) {
+				if (x[2] < 0.0) {
+					x[2] = -x[2];
+					x[3] += pi;
+					u[2] = -u[2];
+				} else if (x[2] > pi) {
+					x[2] = 2.0 * pi - x[2];
+					x[3] += pi;
+					u[2] = -u[2];
+				}
+			}
+
+			const std::array<double, 3> cart = to_cartesian(x);
+			if (dark_matter_active) {
+				const std::array<double, 3> middle{0.5 * (prev_cart[0] + cart[0]), 0.5 * (prev_cart[1] + cart[1]), 0.5 * (prev_cart[2] + cart[2])};
+				std::array<double, 3> shift{0.0, 0.0, 0.0};
+				if (kind == 9U) {
+					double wf = 0.0;
+					double wdf = 0.0;
+					extended_warp_shape(params, std::sqrt(x[1] * x[1] + x[2] * x[2] + x[3] * x[3]), wf, wdf);
+					shift[0] = params.warp_velocity * wf;
+				}
+				const std::array<double, 3> view{u[1] + shift[0], u[2] + shift[1], u[3] + shift[2]};
+				const auto kicked = DarkMatter::DarkMatterLensing::kick(params.dark_matter, middle, view, dt);
+				u[1] = kicked[0] - shift[0];
+				u[2] = kicked[1] - shift[1];
+				u[3] = kicked[2] - shift[2];
+				accumulate_dark_matter_emission(params, prev_cart, cart, accum[0], accum[1], accum[2], throughput);
+			}
+
+			const bool cart_valid = (kind != 8U) || (x[1] > 0.0);
+			if (bodies_traced && prev_valid && cart_valid) {
+				const auto segment_hit = evaluate_3d_body_segment(prev_cart, cart, bodies, params, {});
+				if (segment_hit.hit) {
+					accum[0] += throughput * static_cast<double>(segment_hit.color.r);
+					accum[1] += throughput * static_cast<double>(segment_hit.color.g);
+					accum[2] += throughput * static_cast<double>(segment_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					throughput = 0.0;
+					break;
+				}
+			}
+			prev_cart = cart;
+			prev_valid = cart_valid;
+		}
+
+		if (exited) {
+			std::array<double, 3> sky_dir{};
+			if (kind == 8U) {
+				sky_dir = spherical_to_cartesian(1.0, x[2], x[3]);
+			} else {
+				const double length = std::max(std::sqrt(u[1] * u[1] + u[2] * u[2] + u[3] * u[3]), 1.0e-12);
+				sky_dir = {u[1] / length, u[2] / length, u[3] / length};
+			}
+			auto sky = compute_sky_radiance(sky_dir[0], sky_dir[1], sky_dir[2], params);
+			if (kind == 8U && x[1] < 0.0) {
+				sky = {sky[2], sky[1], sky[0]};
+			}
+			if (kind == 7U) {
+				const float a = static_cast<float>(x[0]);
+				sky = {sky[0] * a * a, sky[1] * a * a * a, sky[2] * a * a * a * a};
+				redshift = x[0];
+			}
+			accum[0] += throughput * static_cast<double>(sky[0]);
+			accum[1] += throughput * static_cast<double>(sky[1]);
+			accum[2] += throughput * static_cast<double>(sky[2]);
+			status |= PixelFlags::CELESTIAL_HIT;
+		}
+
+		const auto mapped = apply_tonemapping({accum[0], accum[1], accum[2]}, params.tonemapping_mode, params.camera_exposure);
+		return GpuPixelOutput{
+			.r = mapped[0],
+			.g = mapped[1],
+			.b = mapped[2],
+			.a = 1.0f,
+			.redshift = static_cast<float>(redshift),
+			.affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status,
+			.iterations_used = iters
+		};
+	}
+
 	[[nodiscard]] static GpuPixelOutput trace_exact_photon_dispatch(
 		uint32_t metric_type,
 		double m, double a_spin, double charge,
@@ -2673,6 +2963,11 @@ public:
 					const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
+
+					if (params.metric_type >= 7U && params.metric_type <= 9U && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
+						output_framebuffer[pixel_idx] = trace_extended_photon(params, {ray_dir_x, ray_dir_y, ray_dir_z}, bodies);
+						continue;
+					}
 
 					bool has_deferred_body = false;
 					GpuPixelOutput deferred_body_color{};
@@ -4270,7 +4565,7 @@ public:
 		static_cast<void>(stage_stats);
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
 			dispatch_fp64(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 			return;
 		}
@@ -4312,7 +4607,7 @@ public:
 	) noexcept {
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter)) {
+		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}

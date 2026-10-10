@@ -736,6 +736,9 @@ public:
 			cam_consts.cosmological_lambda = params.cosmological_lambda;
 			cam_consts.wormhole_throat = params.wormhole_throat;
 			cam_consts.warp_velocity = params.warp_velocity;
+			cam_consts.warp_bubble_radius = params.warp_bubble_radius;
+			cam_consts.warp_wall_sharpness = params.warp_wall_sharpness;
+			cam_consts.wormhole_tidal_potential = params.wormhole_tidal_potential;
 			cam_consts.camera_exposure = params.camera_exposure;
 			cam_consts.tonemapping_mode = params.tonemapping_mode;
 			cam_consts.horizon_radius = 2.0 * params.mass;

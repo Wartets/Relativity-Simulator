@@ -267,9 +267,9 @@ public:
 			{
 				const auto gpu_warning = precision_gpu_incompatibility(use_gpu, precision_mode_);
 				if (!gpu_warning.empty()) {
-					render_setting_tooltip_warning("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.", std::string(gpu_warning).c_str());
+					render_setting_tooltip_warning("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for exact-Kerr geodesics combined with bodies, de Sitter metrics with a non-zero cosmological constant, non-thermal jets, interlaced rendering, and double-single emulated precision.", std::string(gpu_warning).c_str());
 				} else {
-					render_setting_tooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for wormhole, warp, and cosmological metrics, exact-Kerr high-spin geodesics, and double-single emulated precision.");
+					render_setting_tooltip("Dispatches the null-geodesic integration directly on a Vulkan compute-capable GPU instead of the CPU SIMD/scalar solver. Automatically falls back to the CPU path for exact-Kerr geodesics combined with bodies, de Sitter metrics with a non-zero cosmological constant, non-thermal jets, interlaced rendering, and double-single emulated precision.");
 				}
 			}
 

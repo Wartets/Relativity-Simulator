@@ -171,6 +171,9 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double wormhole_throat;
 	double warp_velocity;
 	double camera_exposure;
+	double warp_bubble_radius;
+	double warp_wall_sharpness;
+	double wormhole_tidal_potential;
 
 	double lod_distance_threshold;
 
@@ -3029,6 +3032,273 @@ dvec3 ks_initial_momentum(dvec3 x, double mass, double a, dvec3 outward) {
 	return p / max(-pt, 1e-12);
 }
 
+double ext_tanh(double x) {
+	return 1.0 - 2.0 / (exp_d(2.0 * x) + 1.0);
+}
+
+void warp_shape(double rs, out double f, out double df) {
+	double sigma = max(pc.warp_wall_sharpness, 1.0e-3);
+	double radius = max(pc.warp_bubble_radius, 1.0e-3);
+	double tp = ext_tanh(sigma * (rs + radius));
+	double tm = ext_tanh(sigma * (rs - radius));
+	double tr = ext_tanh(sigma * radius);
+	f = (tp - tm) / (2.0 * tr);
+	df = sigma * ((1.0 - tp * tp) - (1.0 - tm * tm)) / (2.0 * tr);
+}
+
+double flrw_hubble(double a) {
+	double h0 = max(sqrt(max(pc.cosmological_lambda, 0.0) / 2.1), 1.0e-3);
+	double inv_a = 1.0 / max(a, 1.0e-6);
+	double inv_a3 = inv_a * inv_a * inv_a;
+	return h0 * sqrt(9.0e-5 * inv_a3 * inv_a + 0.3 * inv_a3 + 0.7);
+}
+
+dvec4 warp_acceleration(dvec3 x, dvec4 u) {
+	double rs = max(length(x), 1.0e-9);
+	double f;
+	double df;
+	warp_shape(rs, f, df);
+	double s = pc.warp_velocity * f;
+	dvec3 grad = (pc.warp_velocity * df / rs) * x;
+	double ut = u.x;
+	dvec3 us = u.yzw;
+	double ug = dot(us, grad);
+	double term_common = s * ut * ut - ut * us.x;
+	double a_t = ug * (2.0 * s * ut - us.x);
+	double a_x = -ug * ut - grad.x * term_common;
+	double a_y = -grad.y * term_common;
+	double a_z = -grad.z * term_common;
+	return dvec4(a_t + s * a_x, s * a_t - (1.0 - s * s) * a_x, -a_y, -a_z);
+}
+
+dvec4 wormhole_acceleration(dvec4 x, dvec4 u) {
+	double b0 = max(pc.wormhole_throat, 1.0e-3);
+	double l = x.y;
+	double r2 = l * l + b0 * b0;
+	double r = sqrt(r2);
+	double tidal = pc.wormhole_tidal_potential;
+	double dphi = tidal * l / (r2 * r);
+	double e2 = exp_d(-2.0 * tidal / r);
+	dvec2 sc = precise_sincos(x.z);
+	double sin_t = sc.x;
+	double cos_t = sc.y;
+	double safe_sin = (abs(sin_t) > 1.0e-9) ? sin_t : ((sin_t >= 0.0) ? 1.0e-9 : -1.0e-9);
+	double g = l / r2;
+	return dvec4(
+		-2.0 * dphi * u.x * u.y,
+		-dphi * e2 * u.x * u.x + l * u.z * u.z + l * sin_t * sin_t * u.w * u.w,
+		-2.0 * g * u.y * u.z + sin_t * cos_t * u.w * u.w,
+		-2.0 * g * u.y * u.w - 2.0 * (cos_t / safe_sin) * u.z * u.w
+	);
+}
+
+void ext_derivative(uint kind, dvec4 x, dvec4 u, out dvec4 dx, out dvec4 du) {
+	if (kind == 7u) {
+		double a = max(x.x, 1.0e-6);
+		double h = flrw_hubble(a);
+		double speed_sq = dot(u.yzw, u.yzw);
+		dx = dvec4(a * h * u.x, u.yzw);
+		du = dvec4(-a * a * h * speed_sq, -2.0 * h * u.x * u.yzw);
+	} else if (kind == 8u) {
+		dx = u;
+		du = wormhole_acceleration(x, u);
+	} else {
+		dx = u;
+		du = warp_acceleration(x.yzw, u);
+	}
+}
+
+void ext_rk4(uint kind, inout dvec4 x, inout dvec4 u, double dt) {
+	dvec4 k1x;
+	dvec4 k1u;
+	dvec4 k2x;
+	dvec4 k2u;
+	dvec4 k3x;
+	dvec4 k3u;
+	dvec4 k4x;
+	dvec4 k4u;
+	ext_derivative(kind, x, u, k1x, k1u);
+	ext_derivative(kind, x + 0.5 * dt * k1x, u + 0.5 * dt * k1u, k2x, k2u);
+	ext_derivative(kind, x + 0.5 * dt * k2x, u + 0.5 * dt * k2u, k3x, k3u);
+	ext_derivative(kind, x + dt * k3x, u + dt * k3u, k4x, k4u);
+	double sixth = dt / 6.0;
+	x += sixth * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+	u += sixth * (k1u + 2.0 * k2u + 2.0 * k3u + k4u);
+}
+
+dvec3 ext_cartesian(uint kind, dvec4 x, double b0) {
+	if (kind == 8u) {
+		return spherical_to_cartesian(sqrt(x.y * x.y + b0 * b0), x.z, x.w);
+	}
+	return x.yzw;
+}
+
+void trace_extended_metric(dvec3 ray_dir, out dvec3 accum_out, out uint status_out, out uint iters_out, out double redshift_out) {
+	uint kind = pc.metric_type;
+	double obs_r = max(pc.observer_position.y, 1.0e-6);
+	double obs_th = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
+	double obs_ph = pc.observer_position.w;
+	dvec3 obs_cart = spherical_to_cartesian(obs_r, obs_th, obs_ph);
+	dvec2 sc_obs = precise_sincos(obs_th);
+	double sin_po = double(sin(float(obs_ph)));
+	double cos_po = double(cos(float(obs_ph)));
+	dvec3 er = dvec3(sc_obs.x * cos_po, sc_obs.x * sin_po, sc_obs.y);
+	dvec3 eth = dvec3(sc_obs.y * cos_po, sc_obs.y * sin_po, -sc_obs.x);
+	dvec3 eph = dvec3(-sin_po, cos_po, 0.0);
+	double b0 = max(pc.wormhole_throat, 1.0e-3);
+
+	dvec4 x = dvec4(0.0, obs_cart);
+	dvec4 u = dvec4(-1.0, ray_dir);
+	if (kind == 8u) {
+		double r_areal = max(obs_r, b0 * 1.0001);
+		double l0 = sqrt(max(r_areal * r_areal - b0 * b0, 0.0));
+		x = dvec4(0.0, l0, obs_th, obs_ph);
+		u = dvec4(-exp_d(pc.wormhole_tidal_potential / r_areal), dot(ray_dir, er), dot(ray_dir, eth) / r_areal, dot(ray_dir, eph) / (r_areal * sc_obs.x));
+	} else if (kind == 9u) {
+		double wf;
+		double wdf;
+		warp_shape(length(obs_cart), wf, wdf);
+		u = dvec4(-1.0, ray_dir.x - pc.warp_velocity * wf, ray_dir.y, ray_dir.z);
+	} else {
+		x = dvec4(1.0, obs_cart);
+	}
+
+	dvec3 accum = dvec3(0.0);
+	double throughput = 1.0;
+	uint status = 0u;
+	uint iters = 0u;
+	double redshift = 1.0;
+	bool exited = false;
+	bool bodies_traced = ((pc.render_flags & (1u << 12)) != 0u) && pc.body_count > 0u;
+	bool dark_matter_active = pc.dark_matter.halo_count > 0u && pc.dark_matter.flags != 0u && kind != 8u;
+	double escape = max(pc.escape_radius, 1.0);
+	double warp_radius = max(pc.warp_bubble_radius, 1.0e-3);
+	double warp_sigma = max(pc.warp_wall_sharpness, 1.0e-3);
+	double far_scale = pc.far_field_step_scale;
+	dvec3 prev_cart = ext_cartesian(kind, x, b0);
+	bool prev_valid = (kind != 8u) || (x.y > 0.0);
+
+	for (uint step = 0u; step < pc.max_integration_steps && throughput > 0.01; ++step) {
+		iters = step + 1u;
+		double radius_xyz = length(x.yzw);
+		if (kind == 8u && abs(x.y) >= escape) {
+			exited = true;
+			break;
+		}
+		if (kind == 9u && radius_xyz >= escape) {
+			exited = true;
+			break;
+		}
+		if (kind == 7u) {
+			if (x.x < 1.0e-3) {
+				status = 1u;
+				throughput = 0.0;
+				break;
+			}
+			if (radius_xyz >= escape) {
+				exited = true;
+				break;
+			}
+		}
+
+		double dt_mag;
+		if (kind == 8u) {
+			double r_areal = sqrt(x.y * x.y + b0 * b0);
+			dvec2 sc = precise_sincos(x.z);
+			double pole_guard = clamp(abs(sc.x) * 12.0 * pc.pole_guard_precision_scale, 0.02, 1.0);
+			double far_factor = 1.0 + (far_scale - 1.0) * clamp((r_areal - 20.0 * b0) / max(80.0 * b0, 1.0e-9), 0.0, 1.0);
+			dt_mag = clamp(pc.step_size_factor * sqrt(r_areal * b0) * far_factor, pc.min_step_size, pc.max_step_size * far_scale) * pole_guard;
+		} else if (kind == 9u) {
+			double wall_scale = abs(radius_xyz - warp_radius) + 1.0 / warp_sigma;
+			double far_factor = 1.0 + (far_scale - 1.0) * clamp((radius_xyz - 3.0 * warp_radius) / max(10.0 * warp_radius, 1.0e-9), 0.0, 1.0);
+			dt_mag = clamp(pc.step_size_factor * wall_scale * far_factor, pc.min_step_size, pc.max_step_size * far_scale);
+		} else {
+			double h = flrw_hubble(x.x);
+			double speed = max(length(u.yzw), 1.0e-9);
+			double spatial_step = pc.step_size_factor * 30.0 / speed;
+			double time_step = 0.03 / max(h * abs(u.x), 1.0e-12);
+			dt_mag = clamp(min(spatial_step, time_step), 1.0e-9, pc.max_step_size * far_scale);
+		}
+		if (dark_matter_active) {
+			dt_mag = min(dt_mag, dark_matter_step_limit(prev_cart) / max(length(u.yzw), 1.0));
+		}
+
+		ext_rk4(kind, x, u, dt_mag);
+
+		if (any(isnan(x)) || any(isinf(x)) || any(isnan(u)) || any(isinf(u))) {
+			status = 1u;
+			throughput = 0.0;
+			break;
+		}
+
+		if (kind == 8u) {
+			if (x.z < 0.0) {
+				x.z = -x.z;
+				x.w += PI_D;
+				u.z = -u.z;
+			} else if (x.z > PI_D) {
+				x.z = 2.0 * PI_D - x.z;
+				x.w += PI_D;
+				u.z = -u.z;
+			}
+		}
+
+		dvec3 cart = ext_cartesian(kind, x, b0);
+		if (dark_matter_active) {
+			dvec3 middle = 0.5 * (prev_cart + cart);
+			if (kind == 9u) {
+				double wf;
+				double wdf;
+				warp_shape(length(x.yzw), wf, wdf);
+				dvec3 shift = dvec3(pc.warp_velocity * wf, 0.0, 0.0);
+				u = dvec4(u.x, dark_matter_kick(middle, u.yzw + shift, dt_mag) - shift);
+			} else {
+				u = dvec4(u.x, dark_matter_kick(middle, u.yzw, dt_mag));
+			}
+			accum += throughput * dvec3(dark_matter_emission(middle, length(cart - prev_cart)));
+		}
+
+		bool cart_valid = (kind != 8u) || (x.y > 0.0);
+		if (bodies_traced && prev_valid && cart_valid) {
+			dvec3 segment = cart - prev_cart;
+			double segment_length = length(segment);
+			if (segment_length > 1.0e-12) {
+				vec3 body_color;
+				uint body_status;
+				double body_dist;
+				if (intersect_bodies(prev_cart, segment / segment_length, segment_length, body_color, body_status, body_dist)) {
+					accum += throughput * dvec3(body_color);
+					status |= 16u;
+					throughput = 0.0;
+					break;
+				}
+			}
+		}
+		prev_cart = cart;
+		prev_valid = cart_valid;
+	}
+
+	if (exited) {
+		dvec3 sky_dir = (kind == 8u) ? spherical_to_cartesian(1.0, x.z, x.w) : (u.yzw / max(length(u.yzw), 1.0e-12));
+		vec3 sky = compute_sky_radiance(sky_dir, pc.sky_rotation_rad);
+		if (kind == 8u && x.y < 0.0) {
+			sky = sky.bgr;
+		}
+		if (kind == 7u) {
+			float a = float(x.x);
+			sky *= vec3(a * a, a * a * a, a * a * a * a);
+			redshift = x.x;
+		}
+		accum += throughput * dvec3(sky);
+		status |= 2u;
+	}
+
+	accum_out = accum;
+	status_out = status;
+	iters_out = iters;
+	redshift_out = redshift;
+}
+
 void main() {
 	uint spectral_index = gl_LocalInvocationIndex;
 	if (spectral_index < 33u) {
@@ -3099,6 +3369,21 @@ void main() {
 			pixels[pixel_index].iterations_used = 0u;
 			early_done = true;
 		}
+	}
+
+	if (!early_done && pc.metric_type >= 7u && pc.metric_type <= 9u) {
+		dvec3 ext_accum;
+		uint ext_status;
+		uint ext_iters;
+		double ext_redshift;
+		trace_extended_metric(ray_dir, ext_accum, ext_status, ext_iters, ext_redshift);
+		vec3 ext_mapped = apply_tonemapping(vec3(ext_accum), pc.tonemapping_mode, pc.camera_exposure);
+		pixels[pixel_index].rgba = vec4(ext_mapped, 1.0);
+		pixels[pixel_index].redshift = float(ext_redshift);
+		pixels[pixel_index].affine_parameter = float(ext_iters) * 0.05;
+		pixels[pixel_index].status_flags = ext_status;
+		pixels[pixel_index].iterations_used = ext_iters;
+		early_done = true;
 	}
 
 	if (!early_done) {

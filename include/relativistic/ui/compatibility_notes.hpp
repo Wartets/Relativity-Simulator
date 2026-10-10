@@ -42,12 +42,7 @@ namespace Relativistic::UI {
 }
 
 [[nodiscard]] inline std::string_view dark_matter_path_note(std::string_view metric_name, bool use_gpu_compute, int precision_mode) noexcept {
-	const bool cpu_only_metric = metric_name.find("FLRW") != std::string_view::npos
-		|| metric_name.find("Morris") != std::string_view::npos
-		|| metric_name.find("Wormhole") != std::string_view::npos
-		|| metric_name.find("Alcubierre") != std::string_view::npos
-		|| metric_name.find("Warp") != std::string_view::npos
-		|| metric_name.find("BSSN") != std::string_view::npos;
+	const bool cpu_only_metric = metric_name.find("BSSN") != std::string_view::npos;
 	if (cpu_only_metric) {
 		return "This spacetime is traced by the CPU renderer. The dark matter field is applied there with identical halo parameters, but rendering is considerably slower than on the GPU path.";
 	}

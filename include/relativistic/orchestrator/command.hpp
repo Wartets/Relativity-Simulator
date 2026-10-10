@@ -185,7 +185,10 @@ enum class ParameterType : uint32_t {
 	BodyEmissionLightingReferenceDistance = 142,
 	CameraCollisionEnabled = 143,
 	CameraCollisionClearance = 144,
-	CameraMotionLiveRefresh = 145
+	CameraMotionLiveRefresh = 145,
+	WarpBubbleRadius = 146,
+	WarpWallSharpness = 147,
+	WormholeTidalPotential = 148
 };
 
 struct Command {
@@ -716,6 +719,9 @@ public:
 			else if (iequals_sv(token2, "camera_collision") || iequals_sv(token2, "collision")) ptype = ParameterType::CameraCollisionEnabled;
 			else if (iequals_sv(token2, "camera_collision_clearance") || iequals_sv(token2, "collision_clearance")) ptype = ParameterType::CameraCollisionClearance;
 			else if (iequals_sv(token2, "camera_motion_refresh") || iequals_sv(token2, "motion_refresh")) ptype = ParameterType::CameraMotionLiveRefresh;
+			else if (iequals_sv(token2, "warp_radius") || iequals_sv(token2, "bubble_radius")) ptype = ParameterType::WarpBubbleRadius;
+			else if (iequals_sv(token2, "warp_sharpness") || iequals_sv(token2, "wall_sharpness")) ptype = ParameterType::WarpWallSharpness;
+			else if (iequals_sv(token2, "tidal_potential") || iequals_sv(token2, "wormhole_tidal")) ptype = ParameterType::WormholeTidalPotential;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

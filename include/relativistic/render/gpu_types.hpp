@@ -264,6 +264,9 @@ struct alignas(16) GpuCameraPushConstants {
 	double wormhole_throat{1.0};
 	double warp_velocity{1.0};
 	double camera_exposure{0.0};
+	double warp_bubble_radius{15.0};
+	double warp_wall_sharpness{0.4};
+	double wormhole_tidal_potential{0.0};
 
 	double lod_distance_threshold{0.0};
 

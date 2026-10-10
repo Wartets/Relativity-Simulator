@@ -460,7 +460,7 @@ private:
 		const bool needs_mass = (metric_selection_ == 1 || metric_selection_ == 2 || metric_selection_ == 3 || metric_selection_ == 4 || metric_selection_ == 5);
 		const bool needs_spin = (metric_selection_ == 2 || metric_selection_ == 4);
 		const bool needs_charge = (metric_selection_ == 3 || metric_selection_ == 4);
-		const bool needs_lambda = (metric_selection_ == 5);
+		const bool needs_lambda = (metric_selection_ == 5 || metric_selection_ == 6);
 		const bool needs_throat = (metric_selection_ == 7);
 		const bool needs_warp_velocity = (metric_selection_ == 8);
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
@@ -535,7 +535,9 @@ private:
 				lambda_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::CosmologicalConstant, static_cast<double>(lambda_), horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
-			render_setting_tooltip("Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
+			render_setting_tooltip(metric_selection_ == 6
+				? "Dark-energy density driving the expansion: the Hubble constant is H0 = sqrt(Lambda / 2.1) for the flat LambdaCDM background, which sets the redshift and the particle horizon beyond which the sky turns black."
+				: "Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
 			render_horizon_strip("##LambdaHorizonZones", Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints, 1e-8, static_cast<double>(lambda_max), lambda_log_mode_);
 		}
 
@@ -544,6 +546,11 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
 			}
 			render_setting_tooltip("Non-singular throat radius b0 connecting two asymptotically flat Riemannian universe sheets.");
+			float wormhole_tidal = static_cast<float>(orchestrator_.parameters().wormhole_tidal_potential);
+			if (slider_float_with_input("Wormhole Redshift Potential (Phi0)", &wormhole_tidal, -5.0f, 5.0f, "%.3f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeTidalPotential, static_cast<double>(wormhole_tidal))));
+			}
+			render_setting_tooltip("Strength of the redshift function Phi(l) = -Phi0 / r. Zero gives the symmetric Ellis wormhole; non-zero values add gravitational time dilation and an attractive or repulsive pull around the throat.");
 		}
 
 		if (needs_warp_velocity) {
@@ -551,6 +558,16 @@ private:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
 			}
 			render_setting_tooltip("Apparent transluminal shift velocity vs of the Alcubierre spacetime perturbation bubble.");
+			float warp_radius = static_cast<float>(orchestrator_.parameters().warp_bubble_radius);
+			if (slider_float_with_input("Warp Bubble Radius (R)", &warp_radius, 0.5f, 200.0f, "%.2f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpBubbleRadius, static_cast<double>(warp_radius))));
+			}
+			render_setting_tooltip("Radius of the Alcubierre bubble, in simulation length units, centred on the coordinate origin.");
+			float warp_sharpness = static_cast<float>(orchestrator_.parameters().warp_wall_sharpness);
+			if (slider_float_with_input("Warp Wall Sharpness (sigma)", &warp_sharpness, 0.01f, 5.0f, "%.3f")) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpWallSharpness, static_cast<double>(warp_sharpness))));
+			}
+			render_setting_tooltip("Inverse thickness of the bubble wall in the tanh shaping function. Larger values give a thinner, sharper wall with stronger spatial gradients.");
 		}
 
 		if (!has_any_param) {

@@ -15,6 +15,7 @@
 #include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/ui/jet_magnetosphere_editor.hpp"
 #include "relativistic/ui/dark_matter_panel.hpp"
+#include "relativistic/ui/multi_row_tab_bar.hpp"
 #include "relativistic/ui/horizon_zone_strip.hpp"
 #include "relativistic/metrics/horizon_regime.hpp"
 #include "relativistic/units/unit_system.hpp"
@@ -119,11 +120,14 @@ private:
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 	DarkMatterPanel dark_matter_panel_{};
+	MultiRowTabBar tab_bar_{};
+	int active_tab_{0};
 
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open)
 		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), spatial_cfg_(spatial_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
 		sync_from_orchestrator();
+		initialize_tab_bar();
 	}
 
 	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
@@ -225,61 +229,8 @@ public:
 		ImGui::SetNextWindowSize(ImVec2(455.0f, 720.0f), ImGuiCond_FirstUseEver);
 
 		if (ImGui::Begin("Master Simulation Controls", &is_open_)) {
-			if (ImGui::BeginTabBar("ControlTabs")) {
-				if (ImGui::BeginTabItem("Spacetime & Metrics")) {
-					render_metrics_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Optics & Camera")) {
-					render_camera_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Camera Controls")) {
-					render_camera_controls_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Skybox & Environment")) {
-					render_skybox_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Dark Matter")) {
-					render_dark_matter_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Solvers & Integrators")) {
-					render_integrators_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Relativistic Rocket (6-DOF)")) {
-					render_rocket_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Time & Execution")) {
-					render_execution_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("HUD & Overlay")) {
-					render_hud_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Schematic View")) {
-					render_schematic_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Spatial Reference")) {
-					render_spatial_reference_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("3D Body Render")) {
-					render_body_3d_render_tab();
-					ImGui::EndTabItem();
-				}
-				if (ImGui::BeginTabItem("Units & Scales")) {
-					render_units_tab();
-					ImGui::EndTabItem();
-				}
-				ImGui::EndTabBar();
-			}
+			tab_bar_.render(active_tab_);
+			render_active_tab_content();
 		}
 		ImGui::End();
 	}
@@ -360,6 +311,127 @@ private:
 		ImGui::SameLine();
 		ImGui::TextColored(horizon_regime_color(regime), "%s", Metrics::HorizonRegimeAnalyzer::regime_name(regime));
 		render_horizon_zone_legend();
+	}
+
+	void initialize_tab_bar() noexcept {
+		tab_bar_.clear();
+		auto& cfg = tab_bar_.config();
+		cfg.layout_mode = MultiRowLayoutMode::AutoTwoRowsBalanced;
+		cfg.fit_mode = MultiRowLabelFitMode::SmartAdaptive;
+		cfg.justify_rows = true;
+		cfg.allow_reorder = true;
+		cfg.swap_active_row_to_bottom = false;
+		cfg.row_spacing = 3.0f;
+		cfg.active_elevation = 2.0f;
+
+		tab_bar_.add_tab(0, "Spacetime & Metrics", "Metric manifold, horizon radius, ergosurface limits, and accretion systems.")
+			.set_medium("Spacetime & Met.")
+			.set_short("Spacetime")
+			.set_compact("STM")
+			.set_row(0);
+
+		tab_bar_.add_tab(1, "Optics & Camera", "Projections, field of view, exposure compensation, and tonemapping curves.")
+			.set_medium("Optics & Cam.")
+			.set_short("Optics")
+			.set_compact("OPT")
+			.set_row(0);
+
+		tab_bar_.add_tab(2, "Camera Controls", "Observer flight kinematics, mouse sensitivity, speeds, and surface navigation.")
+			.set_medium("Cam Controls")
+			.set_short("Controls")
+			.set_compact("CAM")
+			.set_row(0);
+
+		tab_bar_.add_tab(3, "Skybox & Environment", "Deep field starfield, procedural nebulae, celestial grids, and sky panoramas.")
+			.set_medium("Skybox & Env.")
+			.set_short("Skybox")
+			.set_compact("SKY")
+			.set_row(0);
+
+		tab_bar_.add_tab(4, "Dark Matter", "Halo density distributions, lensing profiles, and gravitational field interactions.")
+			.set_medium("Dark Matter")
+			.set_short("Dark Matter")
+			.set_compact("DM")
+			.set_row(0);
+
+		tab_bar_.add_tab(5, "Solvers & Integrators", "Numerical ODE integrators, error tolerances, and ray integration bounds.")
+			.set_medium("Solvers & Integ.")
+			.set_short("Solvers")
+			.set_compact("ODE")
+			.set_row(0);
+
+		tab_bar_.add_tab(6, "Relativistic Rocket (6-DOF)", "Rocket 6-DOF proper thrust, throttle regulation, and comobile proper clock.")
+			.set_medium("Rocket (6-DOF)")
+			.set_short("Rocket")
+			.set_compact("RKT")
+			.set_row(0);
+
+		tab_bar_.add_tab(7, "Time & Execution", "Simulation clock scheduler, warp factors, tick rates, pause, and stepping.")
+			.set_medium("Time & Exec.")
+			.set_short("Time")
+			.set_compact("TIME")
+			.set_row(1);
+
+		tab_bar_.add_tab(8, "HUD & Overlay", "Heads-up display readouts, viewport toolbar widgets, and telemetry panels.")
+			.set_medium("HUD & Overlay")
+			.set_short("HUD")
+			.set_compact("HUD")
+			.set_row(1);
+
+		tab_bar_.add_tab(9, "Schematic View", "Non-lensed Euclidean projection, orbital state markers, and trajectory arcs.")
+			.set_medium("Schematic")
+			.set_short("Schematic")
+			.set_compact("SCH")
+			.set_row(1);
+
+		tab_bar_.add_tab(10, "Spatial Reference", "Cartesian coordinate grids, equatorial planes, and distance reference rings.")
+			.set_medium("Spatial Ref.")
+			.set_short("Spatial")
+			.set_compact("REF")
+			.set_row(1);
+
+		tab_bar_.add_tab(11, "3D Body Render", "Ray-traced celestial spheroid bodies, procedural shading, and atmospheres.")
+			.set_medium("3D Bodies")
+			.set_short("3D Bodies")
+			.set_compact("3DB")
+			.set_row(1);
+
+		tab_bar_.add_tab(12, "Units & Scales", "Physical dimension units, display preferences, and scaling engine constants.")
+			.set_medium("Units & Scales")
+			.set_short("Units")
+			.set_compact("UNIT")
+			.set_row(1);
+	}
+
+	[[nodiscard]] const std::vector<int>& tab_order() const noexcept {
+		return tab_bar_.tab_order();
+	}
+
+	void set_tab_order(const std::vector<int>& order) noexcept {
+		tab_bar_.set_tab_order(order);
+	}
+
+	void reset_tab_order() noexcept {
+		tab_bar_.reset_tab_order();
+	}
+
+	void render_active_tab_content() noexcept {
+		switch (active_tab_) {
+			case 0: render_metrics_tab(); break;
+			case 1: render_camera_tab(); break;
+			case 2: render_camera_controls_tab(); break;
+			case 3: render_skybox_tab(); break;
+			case 4: render_dark_matter_tab(); break;
+			case 5: render_integrators_tab(); break;
+			case 6: render_rocket_tab(); break;
+			case 7: render_execution_tab(); break;
+			case 8: render_hud_tab(); break;
+			case 9: render_schematic_tab(); break;
+			case 10: render_spatial_reference_tab(); break;
+			case 11: render_body_3d_render_tab(); break;
+			case 12: render_units_tab(); break;
+			default: break;
+		}
 	}
 
 	void render_metrics_tab() noexcept {

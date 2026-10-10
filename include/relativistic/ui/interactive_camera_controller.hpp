@@ -59,6 +59,8 @@ private:
 	double mouse_delta_x_{0.0};
 	double mouse_delta_y_{0.0};
 	double pending_scroll_steps_{0.0};
+	double rocket_throttle_{0.0};
+	std::array<double, 3> rocket_proper_thrust_{0.0, 0.0, 0.0};
 
 public:
 	explicit InteractiveCameraController(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept
@@ -249,6 +251,22 @@ public:
 
 	[[nodiscard]] const SurfaceWalkTelemetry& surface_walk_telemetry() const noexcept {
 		return walk_telemetry_;
+	}
+
+	void set_rocket_throttle(double throttle) noexcept {
+		rocket_throttle_ = std::clamp(throttle, 0.0, 1.0);
+	}
+
+	[[nodiscard]] double rocket_throttle() const noexcept {
+		return rocket_throttle_;
+	}
+
+	void set_rocket_thrust(double tx, double ty, double tz) noexcept {
+		rocket_proper_thrust_ = {tx, ty, tz};
+	}
+
+	[[nodiscard]] const std::array<double, 3>& rocket_thrust() const noexcept {
+		return rocket_proper_thrust_;
 	}
 
 	void update(GLFWwindow* window, double dt, bool is_hovered) noexcept {
@@ -691,6 +709,17 @@ private:
 			const double lat_sign = prof.invert_lateral ? -1.0 : 1.0;
 			const double vert_sign = prof.invert_vertical ? -1.0 : 1.0;
 			std::array<double, 3> thrust{0.0, 0.0, 0.0};
+
+			if (rocket_throttle_ > 0.0) {
+				for (size_t i = 0; i < 3; ++i) thrust[i] += forward[i] * prof.main_thrust_accel * rocket_throttle_;
+			}
+			if (rocket_proper_thrust_[0] != 0.0 || rocket_proper_thrust_[1] != 0.0 || rocket_proper_thrust_[2] != 0.0) {
+				for (size_t i = 0; i < 3; ++i) {
+					thrust[i] += forward[i] * rocket_proper_thrust_[0]
+						+ right[i] * rocket_proper_thrust_[1] * lat_sign
+						+ up[i] * rocket_proper_thrust_[2] * vert_sign;
+				}
+			}
 
 			if (config_.keybinds.is_pressed(InputAction::MoveForward, window)) {
 				for (size_t i = 0; i < 3; ++i) thrust[i] += forward[i] * prof.main_thrust_accel;

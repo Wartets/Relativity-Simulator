@@ -1,6 +1,7 @@
 #pragma once
 
 #include <imgui.h>
+#include "relativistic/ui/tooltip_utils.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -233,7 +234,8 @@ struct MultiRowTabBarConfig {
 	float active_elevation{2.0f};
 	float tab_height_override{0.0f};
 	float min_tab_width{32.0f};
-	ImGuiHoveredFlags tooltip_delay_flags{ImGuiHoveredFlags_DelayShort};
+	float tab_tooltip_delay_seconds{0.85f};
+	float tab_tooltip_movement_threshold_px{1.5f};
 };
 
 class MultiRowTabBar {
@@ -244,6 +246,7 @@ public:
 		tabs_.clear();
 		initial_order_.clear();
 		tab_order_.clear();
+		tooltip_tracker_.reset();
 	}
 
 	[[nodiscard]] int allocate_next_id() const noexcept {
@@ -567,23 +570,19 @@ public:
 					ImGui::EndPopup();
 				}
 
-				const bool tooltip_hovered = ImGui::IsItemHovered(config_.tooltip_delay_flags);
 				const ImGuiPayload* active_payload = ImGui::GetDragDropPayload();
-				if (tooltip_hovered && !ImGui::IsPopupOpen(btn_id) && active_payload == nullptr) {
-					ImGui::BeginTooltip();
-					ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", tab->full_label.c_str());
-					if (!tab->tooltip.empty()) {
-						ImGui::Spacing();
-						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
-						ImGui::TextColored(ImVec4(0.75f, 0.82f, 0.9f, 1.0f), "%s", tab->tooltip.c_str());
-						ImGui::PopTextWrapPos();
-					}
-					if (config_.allow_reorder) {
-						ImGui::Spacing();
-						ImGui::TextDisabled("Right-click or drag to reorder tabs");
-					}
-					ImGui::EndTooltip();
-				}
+				render_tab_tooltip(
+					tooltip_tracker_,
+					tab->id,
+					hovered,
+					tab->full_label.c_str(),
+					tab->tooltip.c_str(),
+					config_.allow_reorder,
+					ImGui::IsPopupOpen(btn_id),
+					active_payload != nullptr,
+					config_.tab_tooltip_delay_seconds,
+					config_.tab_tooltip_movement_threshold_px
+				);
 
 				std::string final_label = labels[i];
 				if (text_sizes[i].x > w - 4.0f) {
@@ -677,6 +676,7 @@ private:
 	std::vector<int> tab_order_{};
 	MultiRowTabBarConfig config_{};
 	size_t last_row_count_{2};
+	TabTooltipTracker tooltip_tracker_{};
 
 	[[nodiscard]] const MultiRowTabItem* find_tab(int id) const noexcept {
 		for (const auto& tab : tabs_) {

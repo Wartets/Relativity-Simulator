@@ -360,43 +360,37 @@ private:
 			.set_compact("ODE")
 			.set_row(0);
 
-		tab_bar_.add_tab(6, "Relativistic Rocket (6-DOF)", "Rocket 6-DOF proper thrust, throttle regulation, and comobile proper clock.")
-			.set_medium("Rocket (6-DOF)")
-			.set_short("Rocket")
-			.set_compact("RKT")
-			.set_row(0);
-
-		tab_bar_.add_tab(7, "Time & Execution", "Simulation clock scheduler, warp factors, tick rates, pause, and stepping.")
+		tab_bar_.add_tab(6, "Time & Execution", "Simulation clock scheduler, warp factors, tick rates, pause, and stepping.")
 			.set_medium("Time & Exec.")
 			.set_short("Time")
 			.set_compact("TIME")
 			.set_row(1);
 
-		tab_bar_.add_tab(8, "HUD & Overlay", "Heads-up display readouts, viewport toolbar widgets, and telemetry panels.")
+		tab_bar_.add_tab(7, "HUD & Overlay", "Heads-up display readouts, viewport toolbar widgets, and telemetry panels.")
 			.set_medium("HUD & Overlay")
 			.set_short("HUD")
 			.set_compact("HUD")
 			.set_row(1);
 
-		tab_bar_.add_tab(9, "Schematic View", "Non-lensed Euclidean projection, orbital state markers, and trajectory arcs.")
+		tab_bar_.add_tab(8, "Schematic View", "Non-lensed Euclidean projection, orbital state markers, and trajectory arcs.")
 			.set_medium("Schematic")
 			.set_short("Schematic")
 			.set_compact("SCH")
 			.set_row(1);
 
-		tab_bar_.add_tab(10, "Spatial Reference", "Cartesian coordinate grids, equatorial planes, and distance reference rings.")
+		tab_bar_.add_tab(9, "Spatial Reference", "Cartesian coordinate grids, equatorial planes, and distance reference rings.")
 			.set_medium("Spatial Ref.")
 			.set_short("Spatial")
 			.set_compact("REF")
 			.set_row(1);
 
-		tab_bar_.add_tab(11, "3D Body Render", "Ray-traced celestial spheroid bodies, procedural shading, and atmospheres.")
+		tab_bar_.add_tab(10, "3D Body Render", "Ray-traced celestial spheroid bodies, procedural shading, and atmospheres.")
 			.set_medium("3D Bodies")
 			.set_short("3D Bodies")
 			.set_compact("3DB")
 			.set_row(1);
 
-		tab_bar_.add_tab(12, "Units & Scales", "Physical dimension units, display preferences, and scaling engine constants.")
+		tab_bar_.add_tab(11, "Units & Scales", "Physical dimension units, display preferences, and scaling engine constants.")
 			.set_medium("Units & Scales")
 			.set_short("Units")
 			.set_compact("UNIT")
@@ -423,13 +417,12 @@ private:
 			case 3: render_skybox_tab(); break;
 			case 4: render_dark_matter_tab(); break;
 			case 5: render_integrators_tab(); break;
-			case 6: render_rocket_tab(); break;
-			case 7: render_execution_tab(); break;
-			case 8: render_hud_tab(); break;
-			case 9: render_schematic_tab(); break;
-			case 10: render_spatial_reference_tab(); break;
-			case 11: render_body_3d_render_tab(); break;
-			case 12: render_units_tab(); break;
+			case 6: render_execution_tab(); break;
+			case 7: render_hud_tab(); break;
+			case 8: render_schematic_tab(); break;
+			case 9: render_spatial_reference_tab(); break;
+			case 10: render_body_3d_render_tab(); break;
+			case 11: render_units_tab(); break;
 			default: break;
 		}
 	}
@@ -836,30 +829,7 @@ private:
 		render_setting_tooltip("Reverses orbital polar colatitude inclination key responses.");
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Rocket 6-DOF Thrust Mode:");
-		ImGui::TextDisabled("Thrust integrates only while simulation time is running (unpaused).");
-		float rk_main = static_cast<float>(cfg.rocket.main_thrust_accel);
-		if (ImGui::SliderFloat("Main Thrust Accel", &rk_main, 0.1f, 500.0f, "%.1f")) cfg.rocket.main_thrust_accel = static_cast<double>(rk_main);
-		render_setting_tooltip("Forward acceleration produced by the main engine under full throttle.");
-		float rk_lat = static_cast<float>(cfg.rocket.lateral_thrust_accel);
-		if (ImGui::SliderFloat("Lateral Thrust Accel", &rk_lat, 0.1f, 500.0f, "%.1f")) cfg.rocket.lateral_thrust_accel = static_cast<double>(rk_lat);
-		render_setting_tooltip("Horizontal translational acceleration produced by lateral thrusters.");
-		float rk_vert = static_cast<float>(cfg.rocket.vertical_thrust_accel);
-		if (ImGui::SliderFloat("Vertical Thrust Accel", &rk_vert, 0.1f, 500.0f, "%.1f")) cfg.rocket.vertical_thrust_accel = static_cast<double>(rk_vert);
-		render_setting_tooltip("Vertical translational acceleration produced by elevation thrusters.");
-		float rk_ang = static_cast<float>(cfg.rocket.angular_rate_deg_s);
-		if (ImGui::SliderFloat("Roll Rate", &rk_ang, 1.0f, 360.0f, "%.1f deg/s")) cfg.rocket.angular_rate_deg_s = static_cast<double>(rk_ang);
-		render_setting_tooltip("Rocket roll rotation rate around the longitudinal flight axis.");
-		bool rk_invert_vert = cfg.rocket.invert_vertical;
-		if (ImGui::Checkbox("Invert Rocket Up/Down", &rk_invert_vert)) cfg.rocket.invert_vertical = rk_invert_vert;
-		render_setting_tooltip("Inverts vertical thruster key response direction.");
-		ImGui::SameLine();
-		bool rk_invert_lat = cfg.rocket.invert_lateral;
-		if (ImGui::Checkbox("Invert Rocket Left/Right", &rk_invert_lat)) cfg.rocket.invert_lateral = rk_invert_lat;
-		render_setting_tooltip("Inverts lateral thruster key response direction.");
-		bool rk_requires_time = cfg.rocket.requires_time_running;
-		if (ImGui::Checkbox("Require Unpaused Time For Thrust", &rk_requires_time)) cfg.rocket.requires_time_running = rk_requires_time;
-		render_setting_tooltip("When enabled, thrust forces only alter velocity when the simulation clock is actively running.");
+		render_rocket_controls_section();
 
 		ImGui::Separator();
 		render_surface_walk_section();
@@ -1507,22 +1477,92 @@ private:
 		render_setting_tooltip("Step reduction near the coordinate axis. Only used by rotating and charged metrics, since the spherically symmetric tracer is integrated without a polar singularity.");
 	}
 
-	void render_rocket_tab() noexcept {
+	void render_rocket_controls_section() noexcept {
+		auto& cfg = camera_controller_.config();
+
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Relativistic Rocket (6-DOF Flight Dynamics):");
+		ImGui::TextDisabled("Observer comobile 6-DOF rocket propulsion, proper acceleration, throttle, and comobile clock flow.");
+
+		const bool is_rocket_mode = (orchestrator_.parameters().camera_mode == static_cast<uint32_t>(CameraNavigationMode::RocketThrust));
+		if (ImGui::Button(is_rocket_mode ? "Active: Disengage Rocket (Free Fly)" : "Engage Rocket 6-DOF Mode", ImVec2(250.0f, 26.0f))) {
+			const uint32_t target_mode = is_rocket_mode ? static_cast<uint32_t>(CameraNavigationMode::FreeFly6DOF) : static_cast<uint32_t>(CameraNavigationMode::RocketThrust);
+			orchestrator_.parameters().camera_mode = target_mode;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(target_mode)));
+			orchestrator_.notify_state_changed();
+		}
+		render_setting_tooltip("Toggles between Free Fly and Relativistic Rocket 6-DOF navigation mode.");
+
 		const char* flows[] = {"Proper Time Comobile (tau)", "Coordinate Time (t)"};
 		if (ImGui::Combo("Clock Flow", &timeflow_mode_, flows, IM_ARRAYSIZE(flows))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TimeFlowMode, static_cast<double>(timeflow_mode_))));
 		}
 		render_setting_tooltip("Select whether simulation time advances along observer comobile proper time (tau) or asymptotic coordinate time (t).");
 
-		ImGui::Separator();
-		ImGui::SliderFloat("Main Throttle", &rocket_throttle_, 0.0f, 1.0f, "%.2f");
-		render_setting_tooltip("Throttle percentage regulating main forward relativistic engine thrust.");
-		ImGui::SliderFloat("Thrust X (Longitudinal)", &rocket_thrust_x_, -100.0f, 100.0f, "%.1f m/s^2");
-		render_setting_tooltip("Proper thrust component directed along the vehicle forward longitudinal tetrad axis.");
-		ImGui::SliderFloat("Thrust Y (Lateral)", &rocket_thrust_y_, -50.0f, 50.0f, "%.1f m/s^2");
-		render_setting_tooltip("Proper thrust component directed along the vehicle horizontal lateral tetrad axis.");
-		ImGui::SliderFloat("Thrust Z (Normal)", &rocket_thrust_z_, -50.0f, 50.0f, "%.1f m/s^2");
-		render_setting_tooltip("Proper thrust component directed along the vehicle vertical normal tetrad axis.");
+		if (ImGui::CollapsingHeader("Thrust & Throttle Regulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (ImGui::SliderFloat("Main Throttle", &rocket_throttle_, 0.0f, 1.0f, "%.2f")) {
+				camera_controller_.set_rocket_throttle(static_cast<double>(rocket_throttle_));
+			}
+			render_setting_tooltip("Throttle percentage regulating sustained forward relativistic engine thrust.");
+
+			bool thrust_changed = false;
+			if (ImGui::SliderFloat("Thrust X (Longitudinal)", &rocket_thrust_x_, -100.0f, 100.0f, "%.1f m/s^2")) thrust_changed = true;
+			render_setting_tooltip("Proper thrust component directed along the vehicle forward longitudinal tetrad axis.");
+			if (ImGui::SliderFloat("Thrust Y (Lateral)", &rocket_thrust_y_, -50.0f, 50.0f, "%.1f m/s^2")) thrust_changed = true;
+			render_setting_tooltip("Proper thrust component directed along the vehicle horizontal lateral tetrad axis.");
+			if (ImGui::SliderFloat("Thrust Z (Normal)", &rocket_thrust_z_, -50.0f, 50.0f, "%.1f m/s^2")) thrust_changed = true;
+			render_setting_tooltip("Proper thrust component directed along the vehicle vertical normal tetrad axis.");
+
+			if (thrust_changed) {
+				camera_controller_.set_rocket_thrust(static_cast<double>(rocket_thrust_x_), static_cast<double>(rocket_thrust_y_), static_cast<double>(rocket_thrust_z_));
+			}
+
+			if (ImGui::Button("Cut Throttle & Zero Thrust", ImVec2(220.0f, 24.0f))) {
+				rocket_throttle_ = 0.0f;
+				rocket_thrust_x_ = 0.0f;
+				rocket_thrust_y_ = 0.0f;
+				rocket_thrust_z_ = 0.0f;
+				camera_controller_.set_rocket_throttle(0.0);
+				camera_controller_.set_rocket_thrust(0.0, 0.0, 0.0);
+			}
+			render_setting_tooltip("Immediately shuts off sustained throttle and zeros out all manual proper thrust bias components.");
+		}
+
+		if (ImGui::CollapsingHeader("Engine & Thruster Specifications")) {
+			float rk_main = static_cast<float>(cfg.rocket.main_thrust_accel);
+			if (ImGui::SliderFloat("Main Thrust Accel", &rk_main, 0.1f, 500.0f, "%.1f")) cfg.rocket.main_thrust_accel = static_cast<double>(rk_main);
+			render_setting_tooltip("Forward acceleration produced by the main engine under full throttle.");
+			float rk_lat = static_cast<float>(cfg.rocket.lateral_thrust_accel);
+			if (ImGui::SliderFloat("Lateral Thrust Accel", &rk_lat, 0.1f, 500.0f, "%.1f")) cfg.rocket.lateral_thrust_accel = static_cast<double>(rk_lat);
+			render_setting_tooltip("Horizontal translational acceleration produced by lateral thrusters.");
+			float rk_vert = static_cast<float>(cfg.rocket.vertical_thrust_accel);
+			if (ImGui::SliderFloat("Vertical Thrust Accel", &rk_vert, 0.1f, 500.0f, "%.1f")) cfg.rocket.vertical_thrust_accel = static_cast<double>(rk_vert);
+			render_setting_tooltip("Vertical translational acceleration produced by elevation thrusters.");
+			float rk_ang = static_cast<float>(cfg.rocket.angular_rate_deg_s);
+			if (ImGui::SliderFloat("Roll Rate", &rk_ang, 1.0f, 360.0f, "%.1f deg/s")) cfg.rocket.angular_rate_deg_s = static_cast<double>(rk_ang);
+			render_setting_tooltip("Rocket roll rotation rate around the longitudinal flight axis.");
+
+			bool rk_invert_vert = cfg.rocket.invert_vertical;
+			if (ImGui::Checkbox("Invert Rocket Up/Down", &rk_invert_vert)) cfg.rocket.invert_vertical = rk_invert_vert;
+			render_setting_tooltip("Inverts vertical thruster key response direction.");
+			ImGui::SameLine();
+			bool rk_invert_lat = cfg.rocket.invert_lateral;
+			if (ImGui::Checkbox("Invert Rocket Left/Right", &rk_invert_lat)) cfg.rocket.invert_lateral = rk_invert_lat;
+			render_setting_tooltip("Inverts lateral thruster key response direction.");
+			bool rk_requires_time = cfg.rocket.requires_time_running;
+			if (ImGui::Checkbox("Require Unpaused Time For Thrust", &rk_requires_time)) cfg.rocket.requires_time_running = rk_requires_time;
+			render_setting_tooltip("When enabled, thrust forces only alter velocity when the simulation clock is actively running.");
+		}
+
+		const auto& cam = orchestrator_.camera();
+		const double vx = cam.velocity[0];
+		const double vy = cam.velocity[1];
+		const double vz = cam.velocity[2];
+		const double v_sq = vx * vx + vy * vy + vz * vz;
+		const double v_mag = std::sqrt(v_sq);
+		const double c = 1.0;
+		const double beta = std::min(v_mag / c, 0.99999999);
+		const double gamma = 1.0 / std::sqrt(std::max(1.0 - beta * beta, 1e-12));
+		ImGui::TextDisabled("Velocity: %.4f c | Lorentz Factor (gamma): %.4f | Status: %s", v_mag, gamma, is_rocket_mode ? "Active" : "Standby");
 	}
 
 	void render_execution_tab() noexcept {

@@ -338,6 +338,7 @@ Relativity-Simulator/
 │       │   ├── keybind_settings_window.hpp
 │       │   ├── log_console_window.hpp
 │       │   ├── motion_script_editor.hpp
+│       │   ├── multi_row_tab_bar.hpp
 │       │   ├── numeric_slider_utils.hpp
 │       │   ├── performance_analysis_window.hpp
 │       │   ├── performance_settings_window.hpp

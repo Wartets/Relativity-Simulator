@@ -17,7 +17,13 @@ enum class MetricId : uint32_t {
 	SchwarzschildDeSitter = 6,
 	FLRW = 7,
 	MorrisThorne = 8,
-	Alcubierre = 9
+	Alcubierre = 9,
+	LemaitreTolmanBondi = 10,
+	QuintessenceCosmology = 11,
+	ChaplyginCosmology = 12,
+	EvaporatingBlackHole = 13,
+	EddingtonFinkelstein = 14,
+	PainleveGullstrand = 15
 };
 
 enum class PrecisionMode : uint32_t {
@@ -239,6 +245,28 @@ struct GpuDarkMatterField {
 
 static_assert(sizeof(GpuDarkMatterField) == 32 + kMaxDarkMatterHalos * 112);
 
+inline constexpr size_t kCosmologyTableSize = 192;
+
+struct GpuCosmologyProfile {
+	uint32_t table_size{0};
+	float table_log_a_min{-6.9077553f};
+	float table_log_a_max{1.3862944f};
+	float hubble0{0.0f};
+	float ltb_hubble0{0.005f};
+	float ltb_void_radius{60.0f};
+	float ltb_void_width{25.0f};
+	float ltb_omega_inner{0.2f};
+	float ltb_omega_outer{1.0f};
+	float ltb_present_time{0.0f};
+	float evaporation_rate{0.0f};
+	float reserved{0.0f};
+	std::array<float, kCosmologyTableSize> log_hubble{};
+
+	[[nodiscard]] bool operator==(const GpuCosmologyProfile&) const noexcept = default;
+};
+
+static_assert(sizeof(GpuCosmologyProfile) == 48 + kCosmologyTableSize * 4);
+
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};
 	std::array<double, 4> tetrad_e0{};
@@ -368,6 +396,7 @@ struct alignas(16) GpuCameraPushConstants {
 	GpuHydroDiskProfile hydro_disk{};
 	GpuJetProfile jet{};
 	GpuDarkMatterField dark_matter{};
+	GpuCosmologyProfile cosmology{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

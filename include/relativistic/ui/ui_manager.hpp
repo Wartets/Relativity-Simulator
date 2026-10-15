@@ -26,6 +26,7 @@
 #include "relativistic/ui/secondary_viewport_manager.hpp"
 #include "relativistic/ui/capture_studio_window.hpp"
 #include "relativistic/ui/window_chrome.hpp"
+#include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/orchestrator/session_state.hpp"
 #include "relativistic/core/system_console.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
@@ -793,12 +794,7 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleMetric, main_window_)) {
-			static constexpr const char* kMetricCycle[] = {
-				"Flat Minkowski", "Schwarzschild Black Hole", "Kerr Rotating Black Hole",
-				"Reissner-Nordstrom Charged", "Kerr-Newman Charged Rotating",
-				"Schwarzschild-de Sitter (Lambda)", "FLRW Cosmological Expansion",
-				"Morris-Thorne Traversable Wormhole", "Alcubierre Warp Drive Bubble", "BSSN 3+1 Numerical Grid"
-			};
+			const auto& kMetricCycle = kMetricCatalog;
 			constexpr int metric_count = static_cast<int>(sizeof(kMetricCycle) / sizeof(kMetricCycle[0]));
 			int current_idx = 0;
 			for (int i = 0; i < metric_count; ++i) {

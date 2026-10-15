@@ -14,6 +14,7 @@
 #include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
 #include "relativistic/render/jet/jet_settings.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
+#include "relativistic/cosmology/cosmology_settings.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
 #include "relativistic/dynamics/body_surface_layers.hpp"
@@ -146,6 +147,7 @@ struct PhysicalParameters {
 	Render::HydroDiskSettings hydro_disk{};
 	Render::JetSettings jet{};
 	DarkMatter::DarkMatterFieldSettings dark_matter{};
+	Cosmology::CosmologySettings cosmology{};
 	uint32_t light_source_mode{0};
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
@@ -259,6 +261,16 @@ private:
 	std::mutex command_producer_mutex_{};
 	Observer::CoordinatePreferences coordinate_preferences_{};
 	std::atomic<bool> post_command_pending_{false};
+
+	struct CosmologyCache {
+		std::mutex mutex;
+		Cosmology::DarkEnergyParameters key{};
+		uint32_t metric{0};
+		double hubble0{-1.0};
+		bool valid{false};
+		Cosmology::ExpansionHistoryBuilder::Result result{};
+	};
+	mutable CosmologyCache cosmology_cache_{};
 
 	std::atomic<bool> is_running_{true};
 	std::atomic<uint64_t> commands_processed_{0};
@@ -450,6 +462,20 @@ private:
 		}
 	}
 
+	void advance_evaporation(double dt) noexcept {
+		const auto& evaporation = params_.cosmology.evaporation;
+		if (!evaporation.enabled || !(params_.mass > 0.0)) return;
+		const double mass_scale = constants_engine_.mass_scale();
+		const double time_scale = constants_engine_.time_scale();
+		if (!(mass_scale > 0.0) || !(time_scale > 0.0)) return;
+		Semiclassical::BlackHoleState state;
+		state.mass_kg = params_.mass * mass_scale;
+		state.spin_star = std::clamp(params_.spin / params_.mass, -0.999, 0.999);
+		Semiclassical::EvaporatingBlackHole::advance(state, dt * time_scale * evaporation.time_acceleration, evaporation);
+		params_.mass = std::max(state.mass_kg / mass_scale, 1.0e-9);
+		params_.spin = state.spin_star * params_.mass;
+	}
+
 	void step_nbody_dynamics(double dt) noexcept {
 		if (dt <= 0.0 || nbody_system_.body_count() == 0) return;
 		std::lock_guard<std::recursive_mutex> step_lock(nbody_system_.bodies_mutex());
@@ -495,6 +521,7 @@ public:
 	void advance_simulation(double dt) noexcept {
 		if (dt <= 0.0) return;
 
+		advance_evaporation(dt);
 		sync_central_body_with_system();
 		nbody_system_.set_interaction_config(interaction_config_);
 		nbody_system_.set_external_field(resolve_dark_matter_field(nbody_system_.time()));
@@ -1775,6 +1802,12 @@ public:
 		if (name == "FLRW") return static_cast<uint32_t>(Relativistic::Render::MetricId::FLRW);
 		if (name == "MorrisThorne") return static_cast<uint32_t>(Relativistic::Render::MetricId::MorrisThorne);
 		if (name == "Alcubierre") return static_cast<uint32_t>(Relativistic::Render::MetricId::Alcubierre);
+		if (name == "LemaitreTolmanBondi") return static_cast<uint32_t>(Relativistic::Render::MetricId::LemaitreTolmanBondi);
+		if (name == "QuintessenceCosmology") return static_cast<uint32_t>(Relativistic::Render::MetricId::QuintessenceCosmology);
+		if (name == "ChaplyginCosmology") return static_cast<uint32_t>(Relativistic::Render::MetricId::ChaplyginCosmology);
+		if (name == "EvaporatingBlackHole") return static_cast<uint32_t>(Relativistic::Render::MetricId::EvaporatingBlackHole);
+		if (name == "EddingtonFinkelstein") return static_cast<uint32_t>(Relativistic::Render::MetricId::EddingtonFinkelstein);
+		if (name == "PainleveGullstrand") return static_cast<uint32_t>(Relativistic::Render::MetricId::PainleveGullstrand);
 		return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
 	}
 
@@ -1803,6 +1836,56 @@ public:
 
 	void apply_dark_matter_constants(Relativistic::Render::GpuCameraPushConstants& push) const {
 		push.dark_matter = resolve_dark_matter_field(push.time).gpu;
+	}
+
+	[[nodiscard]] Cosmology::ExpansionHistoryBuilder::Result cosmology_expansion(uint32_t metric_id) const {
+		const auto& energy = params_.cosmology.dark_energy;
+		const double hubble0 = std::max(std::sqrt(std::max(params_.cosmological_lambda, 0.0) / 2.1), 1.0e-3);
+		std::lock_guard<std::mutex> lock(cosmology_cache_.mutex);
+		if (!cosmology_cache_.valid || cosmology_cache_.metric != metric_id || cosmology_cache_.hubble0 != hubble0 || !(cosmology_cache_.key == energy)) {
+			if (metric_id == static_cast<uint32_t>(Relativistic::Render::MetricId::ChaplyginCosmology)) {
+				cosmology_cache_.result = Cosmology::ExpansionHistoryBuilder::build_chaplygin(energy, hubble0);
+			} else if (metric_id == static_cast<uint32_t>(Relativistic::Render::MetricId::QuintessenceCosmology)) {
+				cosmology_cache_.result = Cosmology::ExpansionHistoryBuilder::build_quintessence(energy, hubble0);
+			} else {
+				cosmology_cache_.result = Cosmology::ExpansionHistoryBuilder::build_lambda_cdm(energy, hubble0);
+			}
+			cosmology_cache_.key = energy;
+			cosmology_cache_.metric = metric_id;
+			cosmology_cache_.hubble0 = hubble0;
+			cosmology_cache_.valid = true;
+		}
+		return cosmology_cache_.result;
+	}
+
+	[[nodiscard]] double evaporation_loss_coefficient() const noexcept {
+		const auto& evaporation = params_.cosmology.evaporation;
+		if (!evaporation.enabled || !(params_.mass > 0.0)) return 0.0;
+		const double mass_scale = constants_engine_.mass_scale();
+		const double time_scale = constants_engine_.time_scale();
+		if (!(mass_scale > 0.0) || !(time_scale > 0.0)) return 0.0;
+		const double spin_star = std::clamp(params_.spin / params_.mass, -0.999, 0.999);
+		const double rate_kg_per_s = Semiclassical::HawkingRadiation::mass_loss_rate(params_.mass * mass_scale, spin_star, evaporation);
+		const double rate_simulation = rate_kg_per_s / mass_scale * time_scale * evaporation.time_acceleration;
+		return -rate_simulation * params_.mass * params_.mass;
+	}
+
+	void apply_cosmology_constants(Relativistic::Render::GpuCameraPushConstants& push) const {
+		const auto& settings = params_.cosmology;
+		const uint32_t metric = push.metric_type;
+		if (metric == static_cast<uint32_t>(Relativistic::Render::MetricId::QuintessenceCosmology) || metric == static_cast<uint32_t>(Relativistic::Render::MetricId::ChaplyginCosmology)) {
+			push.cosmology = cosmology_expansion(metric).profile;
+		} else {
+			push.cosmology = Relativistic::Render::GpuCosmologyProfile{};
+		}
+		const Cosmology::LtbProfile ltb_profile(settings.ltb);
+		push.cosmology.ltb_hubble0 = static_cast<float>(settings.ltb.hubble0);
+		push.cosmology.ltb_void_radius = static_cast<float>(settings.ltb.void_radius);
+		push.cosmology.ltb_void_width = static_cast<float>(settings.ltb.void_width);
+		push.cosmology.ltb_omega_inner = static_cast<float>(settings.ltb.omega_inner);
+		push.cosmology.ltb_omega_outer = static_cast<float>(settings.ltb.omega_outer);
+		push.cosmology.ltb_present_time = static_cast<float>(ltb_profile.present_time());
+		push.cosmology.evaporation_rate = static_cast<float>(evaporation_loss_coefficient());
 	}
 
 	void apply_lighting_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
@@ -1946,6 +2029,7 @@ public:
 		apply_lighting_constants(push);
 		apply_primary_disk_constants(push);
 		apply_dark_matter_constants(push);
+		apply_cosmology_constants(push);
 
 		return push;
 	}

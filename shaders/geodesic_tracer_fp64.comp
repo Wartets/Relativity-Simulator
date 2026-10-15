@@ -1,6 +1,7 @@
 #version 450
 #extension GL_ARB_gpu_shader_fp64 : enable
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_GOOGLE_include_directive : enable
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -146,6 +147,22 @@ struct DarkMatterField {
 	DarkMatterHalo halos[64];
 };
 
+struct CosmologyProfile {
+	uint table_size;
+	float table_log_a_min;
+	float table_log_a_max;
+	float hubble0;
+	float ltb_hubble0;
+	float ltb_void_radius;
+	float ltb_void_width;
+	float ltb_omega_inner;
+	float ltb_omega_outer;
+	float ltb_present_time;
+	float evaporation_rate;
+	float reserved;
+	float log_hubble[192];
+};
+
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
@@ -275,6 +292,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	HydroDiskProfile hydro_disk;
 	JetProfile jet;
 	DarkMatterField dark_matter;
+	CosmologyProfile cosmology;
 } pc;
 
 struct PixelOutput {
@@ -3046,7 +3064,22 @@ void warp_shape(double rs, out double f, out double df) {
 	df = sigma * ((1.0 - tp * tp) - (1.0 - tm * tm)) / (2.0 * tr);
 }
 
+double tabulated_hubble(double a) {
+	uint n = pc.cosmology.table_size;
+	if (n < 2u) return max(double(pc.cosmology.hubble0), 1.0e-6);
+	double log_min = double(pc.cosmology.table_log_a_min);
+	double span = max(double(pc.cosmology.table_log_a_max) - log_min, 1.0e-9);
+	double x = clamp((double(log(float(max(a, 1.0e-6)))) - log_min) / span, 0.0, 1.0) * double(n - 1u);
+	uint i0 = min(uint(x), n - 2u);
+	double f = x - double(i0);
+	double log_e = double(pc.cosmology.log_hubble[i0]) * (1.0 - f) + double(pc.cosmology.log_hubble[i0 + 1u]) * f;
+	return double(pc.cosmology.hubble0) * exp_d(log_e);
+}
+
 double flrw_hubble(double a) {
+	if (pc.metric_type == 11u || pc.metric_type == 12u) {
+		return tabulated_hubble(a);
+	}
 	double h0 = max(sqrt(max(pc.cosmological_lambda, 0.0) / 2.1), 1.0e-3);
 	double inv_a = 1.0 / max(a, 1.0e-6);
 	double inv_a3 = inv_a * inv_a * inv_a;
@@ -3134,7 +3167,7 @@ dvec3 ext_cartesian(uint kind, dvec4 x, double b0) {
 }
 
 void trace_extended_metric(dvec3 ray_dir, out dvec3 accum_out, out uint status_out, out uint iters_out, out double redshift_out) {
-	uint kind = pc.metric_type;
+	uint kind = (pc.metric_type == 11u || pc.metric_type == 12u) ? 7u : pc.metric_type;
 	double obs_r = max(pc.observer_position.y, 1.0e-6);
 	double obs_th = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
 	double obs_ph = pc.observer_position.w;
@@ -3299,6 +3332,8 @@ void trace_extended_metric(dvec3 ray_dir, out dvec3 accum_out, out uint status_o
 	redshift_out = redshift;
 }
 
+#include "spacetime_spherical_tracer.glsl"
+
 void main() {
 	uint spectral_index = gl_LocalInvocationIndex;
 	if (spectral_index < 33u) {
@@ -3371,7 +3406,22 @@ void main() {
 		}
 	}
 
-	if (!early_done && pc.metric_type >= 7u && pc.metric_type <= 9u) {
+	if (!early_done && pc.metric_type >= 10u && pc.metric_type <= 15u && pc.metric_type != 11u && pc.metric_type != 12u) {
+		dvec3 sph_accum;
+		uint sph_status;
+		uint sph_iters;
+		double sph_redshift;
+		trace_spherical_spacetime(ray_dir, sph_accum, sph_status, sph_iters, sph_redshift);
+		vec3 sph_mapped = apply_tonemapping(vec3(sph_accum), pc.tonemapping_mode, pc.camera_exposure);
+		pixels[pixel_index].rgba = vec4(sph_mapped, 1.0);
+		pixels[pixel_index].redshift = float(sph_redshift);
+		pixels[pixel_index].affine_parameter = float(sph_iters) * 0.05;
+		pixels[pixel_index].status_flags = sph_status;
+		pixels[pixel_index].iterations_used = sph_iters;
+		early_done = true;
+	}
+
+	if (!early_done && ((pc.metric_type >= 7u && pc.metric_type <= 9u) || pc.metric_type == 11u || pc.metric_type == 12u)) {
 		dvec3 ext_accum;
 		uint ext_status;
 		uint ext_iters;

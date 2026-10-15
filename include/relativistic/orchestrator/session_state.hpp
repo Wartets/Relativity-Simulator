@@ -39,6 +39,7 @@ public:
 		out["hydro_disk_sampling_density"] = format_real(static_cast<double>(hydro.sampling_density));
 		p.jet.store(out);
 		p.dark_matter.store(out);
+		p.cosmology.store(out);
 		const CameraState& camera = orchestrator.camera();
 		out["cam_x"] = format_real(camera.position[0]);
 		out["cam_y"] = format_real(camera.position[1]);
@@ -101,6 +102,7 @@ public:
 		hydro.sanitize();
 		p.jet.restore(in);
 		p.dark_matter.restore(in);
+		p.cosmology.restore(in);
 
 		CameraState& camera = orchestrator.camera();
 		const auto real = [&in](const char* key, double fallback) noexcept {

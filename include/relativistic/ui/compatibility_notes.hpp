@@ -87,6 +87,34 @@ namespace Relativistic::UI {
 	return {};
 }
 
+[[nodiscard]] inline std::string_view evaporation_metric_incompatibility(std::string_view metric_name, bool evaporation_enabled) noexcept {
+	if (!evaporation_enabled) {
+		return {};
+	}
+	if (metric_name.find("Vaidya") != std::string_view::npos) {
+		return {};
+	}
+	const bool has_horizon = metric_name.find("Schwarzschild") != std::string_view::npos
+		|| metric_name.find("Kerr") != std::string_view::npos
+		|| metric_name.find("Reissner") != std::string_view::npos
+		|| metric_name.find("Eddington") != std::string_view::npos
+		|| metric_name.find("Painleve") != std::string_view::npos;
+	if (!has_horizon) {
+		return "This spacetime has no central horizon, so evaporation only changes the central mass parameter and has no visible geometric effect.";
+	}
+	return "The central mass shrinks between frames, but the retarded mass loss along each traced ray is only resolved by the Evaporating Vaidya metric.";
+}
+
+[[nodiscard]] inline std::string_view cosmology_metric_note(std::string_view metric_name) noexcept {
+	if (metric_name.find("Lemaitre") != std::string_view::npos) {
+		return "The observer sits at the center of the void: the camera distance is converted to a comoving shell radius at the present epoch, and rays are traced back to the bang time of each shell.";
+	}
+	if (metric_name.find("Quintessence") != std::string_view::npos || metric_name.find("Chaplygin") != std::string_view::npos) {
+		return "The expansion history is tabulated from the scalar-field or Chaplygin background and normalized with H0 = sqrt(Lambda / 2.1) from the Spacetime tab.";
+	}
+	return {};
+}
+
 [[nodiscard]] inline std::string_view render_distance_lod_incompatibility(double render_distance_scale, bool lod_enabled, double lod_distance_scale) noexcept {
 	if (render_distance_scale > 0.0 && lod_enabled && lod_distance_scale > render_distance_scale) {
 		return "LOD threshold distance is farther than the render distance cutoff, so the reduced-detail tier is unreachable; geodesics escape to the sky before LOD ever activates.";

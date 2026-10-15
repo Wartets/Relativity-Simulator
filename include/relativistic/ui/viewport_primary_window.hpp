@@ -18,6 +18,7 @@
 #include "relativistic/observer/camera_projections.hpp"
 #include "relativistic/interferometry/visibility_synthesis.hpp"
 #include "relativistic/ui/hud/hud_linked_readouts.hpp"
+#include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/ui/coordinate_display.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/io/capture/screenshot_exporter.hpp"
@@ -137,6 +138,12 @@ private:
 		if (name.find("FLRW") != std::string_view::npos) return 7;
 		if (name.find("Morris") != std::string_view::npos || name.find("Wormhole") != std::string_view::npos) return 8;
 		if (name.find("Alcubierre") != std::string_view::npos || name.find("Warp") != std::string_view::npos) return 9;
+		if (name.find("Lemaitre") != std::string_view::npos) return 10;
+		if (name.find("Quintessence") != std::string_view::npos) return 11;
+		if (name.find("Chaplygin") != std::string_view::npos) return 12;
+		if (name.find("Vaidya") != std::string_view::npos) return 13;
+		if (name.find("Eddington") != std::string_view::npos) return 14;
+		if (name.find("Painleve") != std::string_view::npos) return 15;
 		return 1;
 	}
 
@@ -323,6 +330,7 @@ public:
 		constants.horizon_radius = 2.0 * params.mass;
 		constants.time = orchestrator_.scheduler().snapshot().logical_time;
 		orchestrator_.apply_dark_matter_constants(constants);
+		orchestrator_.apply_cosmology_constants(constants);
 		constants.disk_temperature_scale_k = params.disk_temperature_scale_k;
 		constants.disk_temperature_floor_k = params.disk_temperature_floor_k;
 		constants.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
@@ -826,6 +834,7 @@ public:
 			cam_consts.tetrad_e3 = {0.0, orientation.up[0], orientation.up[1], orientation.up[2]};
 			cam_consts.time = orchestrator_.scheduler().snapshot().logical_time;
 			orchestrator_.apply_dark_matter_constants(cam_consts);
+			orchestrator_.apply_cosmology_constants(cam_consts);
 			}
 
 			uint32_t total_enabled_bodies_this_frame = 0;
@@ -1452,12 +1461,7 @@ public:
 		if (tb.metric_cycle) {
 			ImGui::SameLine();
 			if (ImGui::Button("Metric", ImVec2(64.0f, 24.0f))) {
-				static constexpr const char* kToolbarMetricCycle[] = {
-					"Flat Minkowski", "Schwarzschild Black Hole", "Kerr Rotating Black Hole",
-					"Reissner-Nordstrom Charged", "Kerr-Newman Charged Rotating",
-					"Schwarzschild-de Sitter (Lambda)", "FLRW Cosmological Expansion",
-					"Morris-Thorne Traversable Wormhole", "Alcubierre Warp Drive Bubble", "BSSN 3+1 Numerical Grid"
-				};
+				const auto& kToolbarMetricCycle = kMetricCatalog;
 				constexpr int metric_count = static_cast<int>(sizeof(kToolbarMetricCycle) / sizeof(kToolbarMetricCycle[0]));
 				int current_idx = 0;
 				for (int i = 0; i < metric_count; ++i) {

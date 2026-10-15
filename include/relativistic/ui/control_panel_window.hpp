@@ -16,6 +16,8 @@
 #include "relativistic/ui/accretion_disk_editor.hpp"
 #include "relativistic/ui/jet_magnetosphere_editor.hpp"
 #include "relativistic/ui/dark_matter_panel.hpp"
+#include "relativistic/ui/cosmology_panel.hpp"
+#include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/ui/multi_row_tab_bar.hpp"
 #include "relativistic/ui/horizon_zone_strip.hpp"
 #include "relativistic/metrics/horizon_regime.hpp"
@@ -121,6 +123,7 @@ private:
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 	DarkMatterPanel dark_matter_panel_{};
+	CosmologyPanel cosmology_panel_{};
 	MultiRowTabBar tab_bar_{};
 	int active_tab_{0};
 
@@ -164,6 +167,12 @@ public:
 		else if (active_m.find("Morris") != std::string::npos || active_m.find("Wormhole") != std::string::npos) metric_selection_ = 7;
 		else if (active_m.find("Alcubierre") != std::string::npos || active_m.find("Warp") != std::string::npos) metric_selection_ = 8;
 		else if (active_m.find("BSSN") != std::string::npos) metric_selection_ = 9;
+		else if (active_m.find("Lemaitre") != std::string::npos) metric_selection_ = 10;
+		else if (active_m.find("Quintessence") != std::string::npos) metric_selection_ = 11;
+		else if (active_m.find("Chaplygin") != std::string::npos) metric_selection_ = 12;
+		else if (active_m.find("Vaidya") != std::string::npos) metric_selection_ = 13;
+		else if (active_m.find("Eddington") != std::string::npos) metric_selection_ = 14;
+		else if (active_m.find("Painleve") != std::string::npos) metric_selection_ = 15;
 
 		const std::string& active_i = orchestrator_.active_integrator_name();
 		if (active_i.find("Cash") != std::string::npos) integrator_selection_ = 1;
@@ -396,6 +405,12 @@ private:
 			.set_short("Units")
 			.set_compact("UNIT")
 			.set_row(1);
+
+		tab_bar_.add_tab(12, "Cosmology & Evaporation", "Void models, dark energy expansion histories, Hawking radiation and Unruh detector response.")
+			.set_medium("Cosmology & Evap.")
+			.set_short("Cosmology")
+			.set_compact("COS")
+			.set_row(1);
 	}
 
 	[[nodiscard]] const std::vector<int>& tab_order() const noexcept {
@@ -424,23 +439,13 @@ private:
 			case 9: render_spatial_reference_tab(); break;
 			case 10: render_body_3d_render_tab(); break;
 			case 11: render_units_tab(); break;
+			case 12: render_cosmology_tab(); break;
 			default: break;
 		}
 	}
 
 	void render_metrics_tab() noexcept {
-		const char* metric_names[] = {
-			"Flat Minkowski",
-			"Schwarzschild Black Hole",
-			"Kerr Rotating Black Hole",
-			"Reissner-Nordstrom Charged",
-			"Kerr-Newman Charged Rotating",
-			"Schwarzschild-de Sitter (Lambda)",
-			"FLRW Cosmological Expansion",
-			"Morris-Thorne Traversable Wormhole",
-			"Alcubierre Warp Drive Bubble",
-			"BSSN 3+1 Numerical Grid"
-		};
+		const auto& metric_names = kMetricCatalog;
 
 		if (ImGui::Combo("Spacetime Metric", &metric_selection_, metric_names, IM_ARRAYSIZE(metric_names))) {
 			orchestrator_.set_active_metric_name(metric_names[metric_selection_]);
@@ -457,10 +462,10 @@ private:
 
 		ImGui::Separator();
 
-		const bool needs_mass = (metric_selection_ == 1 || metric_selection_ == 2 || metric_selection_ == 3 || metric_selection_ == 4 || metric_selection_ == 5);
+		const bool needs_mass = (metric_selection_ == 1 || metric_selection_ == 2 || metric_selection_ == 3 || metric_selection_ == 4 || metric_selection_ == 5 || metric_selection_ >= 13);
 		const bool needs_spin = (metric_selection_ == 2 || metric_selection_ == 4);
 		const bool needs_charge = (metric_selection_ == 3 || metric_selection_ == 4);
-		const bool needs_lambda = (metric_selection_ == 5 || metric_selection_ == 6);
+		const bool needs_lambda = (metric_selection_ == 5 || metric_selection_ == 6 || metric_selection_ == 11 || metric_selection_ == 12);
 		const bool needs_throat = (metric_selection_ == 7);
 		const bool needs_warp_velocity = (metric_selection_ == 8);
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
@@ -535,7 +540,7 @@ private:
 				lambda_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::CosmologicalConstant, static_cast<double>(lambda_), horizon_constraints));
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
 			}
-			render_setting_tooltip(metric_selection_ == 6
+			render_setting_tooltip((metric_selection_ == 6 || metric_selection_ == 11 || metric_selection_ == 12)
 				? "Dark-energy density driving the expansion: the Hubble constant is H0 = sqrt(Lambda / 2.1) for the flat LambdaCDM background, which sets the redshift and the particle horizon beyond which the sky turns black."
 				: "Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
 			render_horizon_strip("##LambdaHorizonZones", Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints, 1e-8, static_cast<double>(lambda_max), lambda_log_mode_);
@@ -570,7 +575,9 @@ private:
 			render_setting_tooltip("Inverse thickness of the bubble wall in the tanh shaping function. Larger values give a thinner, sharper wall with stronger spatial gradients.");
 		}
 
-		if (!has_any_param) {
+		if (metric_selection_ >= 10 && metric_selection_ <= 12) {
+			ImGui::TextDisabled("Cosmological parameters of this spacetime are edited in the Cosmology & Evaporation tab.");
+		} else if (!has_any_param) {
 			ImGui::TextDisabled("This spacetime model exposes no adjustable parameters here.");
 		}
 
@@ -1325,6 +1332,10 @@ private:
 
 	void render_dark_matter_tab() noexcept {
 		dark_matter_panel_.render(orchestrator_, render_pipeline_);
+	}
+
+	void render_cosmology_tab() noexcept {
+		cosmology_panel_.render(orchestrator_);
 	}
 
 	void render_sky_panorama_controls() noexcept {

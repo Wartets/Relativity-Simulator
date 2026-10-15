@@ -30,6 +30,11 @@
 #include "relativistic/core/kerr_schild_null_integrator.hpp"
 #include "relativistic/core/spherical_planar_null_integrator.hpp"
 #include "relativistic/metrics/schwarzschild_de_sitter.hpp"
+#include "relativistic/metrics/lemaitre_tolman_bondi.hpp"
+#include "relativistic/metrics/vaidya_evaporating.hpp"
+#include "relativistic/metrics/eddington_finkelstein.hpp"
+#include "relativistic/metrics/painleve_gullstrand.hpp"
+#include "relativistic/cosmology/dark_energy_models.hpp"
 #include "relativistic/observer/direction_projection.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
 #include <vector>
@@ -1909,6 +1914,9 @@ private:
 	}
 
 	[[nodiscard]] static double extended_hubble(const GpuCameraPushConstants& params, double a) noexcept {
+		if (params.metric_type == 11U || params.metric_type == 12U) {
+			return Cosmology::TabulatedExpansionHistory::hubble(params.cosmology, a);
+		}
 		const double h0 = std::max(std::sqrt(std::max(params.cosmological_lambda, 0.0) / 2.1), 1.0e-3);
 		const double inv_a = 1.0 / std::max(a, 1.0e-6);
 		const double inv_a3 = inv_a * inv_a * inv_a;
@@ -1970,7 +1978,7 @@ private:
 		const std::array<double, 3>& ray_dir,
 		std::span<const GpuBodyData> bodies
 	) noexcept {
-		const uint32_t kind = params.metric_type;
+		const uint32_t kind = (params.metric_type == 11U || params.metric_type == 12U) ? 7U : params.metric_type;
 		const double pi = std::numbers::pi_v<double>;
 		const double obs_r = std::max(params.observer_position[1], 1.0e-6);
 		const double obs_th = std::clamp(params.observer_position[2], 0.001, pi - 0.001);
@@ -2186,6 +2194,396 @@ private:
 			.status_flags = status,
 			.iterations_used = iters
 		};
+	}
+
+	template <typename MetricType>
+		requires Metrics::SpacetimeMetric<MetricType, double>
+	[[nodiscard]] static GpuPixelOutput trace_spherical_photon(
+		const MetricType& metric,
+		double time_origin,
+		double radius_origin,
+		const std::array<double, 3>& ray_dir,
+		const GpuDiskProfile& disk_profile,
+		const GpuCameraPushConstants& params,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		using Vec3 = std::array<double, 3>;
+		const double pi = std::numbers::pi_v<double>;
+		const double half_pi = 0.5 * pi;
+		const auto dot3 = [](const Vec3& a, const Vec3& b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+		const auto cross3 = [](const Vec3& a, const Vec3& b) noexcept -> Vec3 {
+			return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+		};
+		const auto normalized = [&](const Vec3& v) noexcept -> Vec3 {
+			const double length = std::sqrt(dot3(v, v));
+			const double inverse = (length > 1e-300) ? (1.0 / length) : 0.0;
+			return {v[0] * inverse, v[1] * inverse, v[2] * inverse};
+		};
+
+		const double obs_theta = std::clamp(params.observer_position[2], 0.001, pi - 0.001);
+		const Vec3 obs_cart = spherical_to_cartesian(std::max(params.observer_position[1], 1.0e-6), obs_theta, params.observer_position[3]);
+		const Vec3 e_radial = normalized(obs_cart);
+		const Vec3 direction = normalized(ray_dir);
+		const double n_radial = dot3(direction, e_radial);
+		const Vec3 lateral{direction[0] - n_radial * e_radial[0], direction[1] - n_radial * e_radial[1], direction[2] - n_radial * e_radial[2]};
+		double n_tangent = std::sqrt(dot3(lateral, lateral));
+		Vec3 e_tangent{0.0, 0.0, 0.0};
+		if (n_tangent > 1e-12) {
+			e_tangent = normalized(lateral);
+		} else {
+			n_tangent = 0.0;
+			const Vec3 helper = (std::abs(e_radial[2]) < 0.9) ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+			e_tangent = normalized(cross3(helper, e_radial));
+		}
+		const Vec3 plane_normal = cross3(e_radial, e_tangent);
+
+		const auto plane_dirs = [&](double psi, Vec3& radial_hat, Vec3& tangent_hat) noexcept {
+			const double c = std::cos(psi);
+			const double s = std::sin(psi);
+			for (size_t i = 0; i < 3; ++i) {
+				radial_hat[i] = c * e_radial[i] + s * e_tangent[i];
+				tangent_hat[i] = -s * e_radial[i] + c * e_tangent[i];
+			}
+		};
+
+		const auto make_frame = [](const Core::MetricTensor<double>& g, Core::FourVector<double>& u, Core::FourVector<double>& e) noexcept {
+			const double g00 = std::min(g(0, 0), -1e-12);
+			const double u_t = 1.0 / std::sqrt(-g00);
+			const double e_r = 1.0 / std::sqrt(std::max(g(1, 1) - g(0, 1) * g(0, 1) / g00, 1e-12));
+			u.zero();
+			e.zero();
+			u(0) = u_t;
+			e(0) = -g(0, 1) * e_r / g00;
+			e(1) = e_r;
+		};
+
+		const auto g_dot = [](const Core::MetricTensor<double>& g, const Core::FourVector<double>& a, const Core::FourVector<double>& b) noexcept {
+			return g(0, 0) * a(0) * b(0) + g(0, 1) * (a(0) * b(1) + a(1) * b(0)) + g(1, 1) * a(1) * b(1) + g(3, 3) * a(3) * b(3);
+		};
+
+		const auto horizon_at = [&](double coordinate_time) noexcept -> double {
+			if constexpr (requires { metric.mass_at(coordinate_time); }) {
+				return 2.0 * metric.mass_at(coordinate_time);
+			} else if constexpr (requires { metric.schwarzschild_radius(); }) {
+				return metric.schwarzschild_radius();
+			} else {
+				return 0.0;
+			}
+		};
+
+		const auto compute_acc = [&](const Core::FourVector<double>& xs, const Core::FourVector<double>& us) noexcept -> Core::FourVector<double> {
+			const auto gamma = Core::compute_christoffel<Core::DerivativeOrder::EighthOrder, MetricType, double>(metric, xs);
+			Core::FourVector<double> acc;
+			acc.zero();
+			for (size_t mu = 0; mu < 4; ++mu) {
+				double sum = 0.0;
+				for (size_t alpha = 0; alpha < 4; ++alpha) {
+					const double u_a = us(alpha);
+					if (u_a == 0.0) continue;
+					sum -= gamma(mu, alpha, alpha) * u_a * u_a;
+					for (size_t beta = alpha + 1; beta < 4; ++beta) {
+						const double u_b = us(beta);
+						if (u_b != 0.0) {
+							sum -= 2.0 * gamma(mu, alpha, beta) * u_a * u_b;
+						}
+					}
+				}
+				acc(mu) = sum;
+			}
+			return acc;
+		};
+
+		Core::FourVector<double> x(time_origin, radius_origin, half_pi, 0.0);
+		const auto g_start = metric.metric_tensor(x);
+		Core::FourVector<double> frame_u;
+		Core::FourVector<double> frame_e;
+		make_frame(g_start, frame_u, frame_e);
+		Core::FourVector<double> k;
+		k.zero();
+		k(0) = -frame_u(0) + n_radial * frame_e(0);
+		k(1) = n_radial * frame_e(1);
+		k(3) = n_tangent / std::sqrt(std::max(g_start(3, 3), 1e-24));
+
+		const double mass = std::max(params.metric_mass, 1e-4);
+		const bool has_disk = horizon_at(time_origin) > 0.0 && disk_profile.enabled > 0.5f;
+		const double disk_inner = 6.0 * mass * static_cast<double>(std::max(disk_profile.inner_radius_scale, 1.0f));
+		const double disk_outer = std::max(static_cast<double>(disk_profile.outer_radius_mass_units) * mass, disk_inner * 1.05);
+		const bool bodies_traced = ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty();
+		const bool dark_active = DarkMatter::DarkMatterLensing::is_active(params.dark_matter);
+		const bool need_cart = bodies_traced || has_disk || dark_active;
+
+		double accum_r = 0.0;
+		double accum_g = 0.0;
+		double accum_b = 0.0;
+		double throughput = 1.0;
+		double redshift_rec = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+		bool exited = false;
+		Vec3 prev_cart = obs_cart;
+
+		for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+			const auto g = metric.metric_tensor(x);
+			const double areal = std::sqrt(std::max(g(3, 3), 1e-24));
+
+			if constexpr (requires { metric.is_regular(x); }) {
+				if (!metric.is_regular(x)) {
+					status = PixelFlags::HORIZON_ABSORBED;
+					throughput = 0.0;
+					break;
+				}
+			}
+			const double horizon = horizon_at(x(0));
+			if (horizon > 0.0 && x(1) <= horizon * 1.0001) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+			if (areal >= params.escape_radius) {
+				exited = true;
+				break;
+			}
+
+			double dt_mag = 0.0;
+			if (horizon > 0.0) {
+				const double r_scale = std::max(x(1) - horizon, 0.02 * mass);
+				const double far_factor = 1.0 + (params.far_field_step_scale - 1.0) * std::clamp((x(1) - 20.0 * horizon) / std::max(80.0 * horizon, 1e-9), 0.0, 1.0);
+				dt_mag = std::clamp(params.step_size_factor * std::sqrt(x(1) * r_scale) * far_factor, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			} else {
+				double hubble = 0.0;
+				if constexpr (requires { metric.profile(); }) {
+					const auto shell = metric.profile().shell(std::max(std::abs(x(1)), 1e-9), x(0));
+					hubble = shell.velocity / std::max(shell.radius, 1e-12);
+				}
+				const double scale = std::min(areal, 0.1 / std::max(hubble, 1e-6));
+				dt_mag = std::clamp(params.step_size_factor * scale, params.min_step_size, params.max_step_size * params.far_field_step_scale);
+			}
+			if (dark_active) {
+				dt_mag = std::min(dt_mag, DarkMatter::DarkMatterLensing::step_limit(params.dark_matter, prev_cart));
+			}
+			const double dt = dt_mag;
+			const Core::FourVector<double> k_before = k;
+
+			const auto k1_x = k;
+			const auto k1_u = compute_acc(x, k);
+			Core::FourVector<double> x2 = x;
+			Core::FourVector<double> u2 = k;
+			for (size_t i = 0; i < 4; ++i) {
+				x2(i) += 0.5 * dt * k1_x(i);
+				u2(i) += 0.5 * dt * k1_u(i);
+			}
+			const auto k2_x = u2;
+			const auto k2_u = compute_acc(x2, u2);
+			Core::FourVector<double> x3 = x;
+			Core::FourVector<double> u3 = k;
+			for (size_t i = 0; i < 4; ++i) {
+				x3(i) += 0.5 * dt * k2_x(i);
+				u3(i) += 0.5 * dt * k2_u(i);
+			}
+			const auto k3_x = u3;
+			const auto k3_u = compute_acc(x3, u3);
+			Core::FourVector<double> x4 = x;
+			Core::FourVector<double> u4 = k;
+			for (size_t i = 0; i < 4; ++i) {
+				x4(i) += dt * k3_x(i);
+				u4(i) += dt * k3_u(i);
+			}
+			const auto k4_x = u4;
+			const auto k4_u = compute_acc(x4, u4);
+			const double sixth_dt = dt / 6.0;
+			for (size_t i = 0; i < 4; ++i) {
+				x(i) += sixth_dt * (k1_x(i) + 2.0 * k2_x(i) + 2.0 * k3_x(i) + k4_x(i));
+				k(i) += sixth_dt * (k1_u(i) + 2.0 * k2_u(i) + 2.0 * k3_u(i) + k4_u(i));
+			}
+			x(2) = half_pi;
+			k(2) = 0.0;
+
+			if (!std::isfinite(x(0)) || !std::isfinite(x(1)) || !std::isfinite(x(3)) || !std::isfinite(k(0)) || !std::isfinite(k(1)) || !std::isfinite(k(3))) {
+				status = PixelFlags::HORIZON_ABSORBED;
+				throughput = 0.0;
+				break;
+			}
+			if (x(1) < 0.0) {
+				x(1) = -x(1);
+				k(1) = -k(1);
+				x(3) += pi;
+			}
+
+			if (!need_cart) {
+				continue;
+			}
+
+			const auto g_after = metric.metric_tensor(x);
+			const double areal_after = std::sqrt(std::max(g_after(3, 3), 1e-24));
+			Vec3 radial_hat{};
+			Vec3 tangent_hat{};
+			plane_dirs(x(3), radial_hat, tangent_hat);
+			const Vec3 cart{areal_after * radial_hat[0], areal_after * radial_hat[1], areal_after * radial_hat[2]};
+
+			if (dark_active) {
+				const Vec3 middle{0.5 * (prev_cart[0] + cart[0]), 0.5 * (prev_cart[1] + cart[1]), 0.5 * (prev_cart[2] + cart[2])};
+				accumulate_dark_matter_emission(params, prev_cart, cart, accum_r, accum_g, accum_b, throughput);
+				Core::FourVector<double> kick_u;
+				Core::FourVector<double> kick_e;
+				make_frame(g_after, kick_u, kick_e);
+				const double omega = g_dot(g_after, k, kick_u);
+				const double radial_part = g_dot(g_after, k, kick_e);
+				const double tangent_part = k(3) * areal_after;
+				const double norm = std::hypot(radial_part, tangent_part);
+				if (norm > 1e-12) {
+					const Vec3 look{
+						(radial_part * radial_hat[0] + tangent_part * tangent_hat[0]) / norm,
+						(radial_part * radial_hat[1] + tangent_part * tangent_hat[1]) / norm,
+						(radial_part * radial_hat[2] + tangent_part * tangent_hat[2]) / norm
+					};
+					const auto kicked = DarkMatter::DarkMatterLensing::kick(params.dark_matter, middle, look, dt);
+					const double plane_radial = dot3(kicked, radial_hat);
+					const double plane_tangent = dot3(kicked, tangent_hat);
+					const double plane_norm = std::hypot(plane_radial, plane_tangent);
+					if (plane_norm > 1e-12) {
+						const double new_radial = omega * plane_radial / plane_norm;
+						const double new_tangent = omega * plane_tangent / plane_norm;
+						k(0) = -omega * kick_u(0) + new_radial * kick_e(0);
+						k(1) = new_radial * kick_e(1);
+						k(3) = new_tangent / areal_after;
+					}
+				}
+			}
+
+			if (bodies_traced) {
+				const auto segment_hit = evaluate_3d_body_segment(prev_cart, cart, bodies, params, std::span<const uint32_t>{});
+				if (segment_hit.hit) {
+					accum_r += throughput * static_cast<double>(segment_hit.color.r);
+					accum_g += throughput * static_cast<double>(segment_hit.color.g);
+					accum_b += throughput * static_cast<double>(segment_hit.color.b);
+					status |= PixelFlags::BODY_SURFACE_HIT;
+					throughput = 0.0;
+					break;
+				}
+			}
+
+			if (has_disk) {
+				const double energy = std::max(std::abs(g(0, 0) * k_before(0) + g(0, 1) * k_before(1)), 1e-12);
+				const double l_over_e = -g(3, 3) * k_before(3) * plane_normal[2] / energy;
+				if (uses_fishbone_moncrief_disk(params)) {
+					accumulate_fishbone_moncrief_segment(params, disk_profile, mass, 0.0, disk_inner, disk_outer, prev_cart, cart, l_over_e, accum_r, accum_g, accum_b, throughput, redshift_rec, status);
+				} else if (prev_cart[2] * cart[2] <= 0.0) {
+					const double z_span = std::abs(prev_cart[2]) + std::abs(cart[2]);
+					const double s_cross = (z_span > 1e-15) ? (std::abs(prev_cart[2]) / z_span) : 0.5;
+					const double cross_x = prev_cart[0] + s_cross * (cart[0] - prev_cart[0]);
+					const double cross_y = prev_cart[1] + s_cross * (cart[1] - prev_cart[1]);
+					const double r_cross = std::hypot(cross_x, cross_y);
+					if (r_cross >= disk_inner && r_cross <= disk_outer && r_cross > horizon * 1.02) {
+						const double azimuth = std::atan2(cross_y, cross_x);
+						status |= PixelFlags::ACCRETION_DISK_HIT;
+						const double g_doppler = AccretionDiskModel::redshift_at(mass, 0.0, r_cross, l_over_e);
+						redshift_rec = g_doppler;
+						const DiskSurfacePoint point{
+							.mass = mass, .spin = 0.0, .inner_radius = disk_inner, .outer_radius = disk_outer,
+							.radius = r_cross, .azimuth = azimuth, .redshift = g_doppler,
+							.time = params.time, .detail_scale = 1.0
+						};
+						if (uses_novikov_thorne_disk(params)) {
+							accumulate_novikov_thorne_crossing(params, disk_profile, point, accum_r, accum_g, accum_b, throughput);
+						} else {
+							const auto shaded = AccretionDiskModel::shade(disk_profile, point);
+							accum_r += throughput * static_cast<double>(shaded.radiance[0]);
+							accum_g += throughput * static_cast<double>(shaded.radiance[1]);
+							accum_b += throughput * static_cast<double>(shaded.radiance[2]);
+							throughput *= (1.0 - shaded.opacity);
+						}
+					}
+				}
+			}
+			prev_cart = cart;
+		}
+
+		if (exited) {
+			const auto g_exit = metric.metric_tensor(x);
+			const double areal_exit = std::sqrt(std::max(g_exit(3, 3), 1e-24));
+			Core::FourVector<double> exit_u;
+			Core::FourVector<double> exit_e;
+			make_frame(g_exit, exit_u, exit_e);
+			const double omega = g_dot(g_exit, k, exit_u);
+			const double radial_part = g_dot(g_exit, k, exit_e);
+			const double tangent_part = k(3) * areal_exit;
+			const double norm = std::max(std::hypot(radial_part, tangent_part), 1e-12);
+			Vec3 radial_hat{};
+			Vec3 tangent_hat{};
+			plane_dirs(x(3), radial_hat, tangent_hat);
+			const Vec3 sky_direction{
+				(radial_part * radial_hat[0] + tangent_part * tangent_hat[0]) / norm,
+				(radial_part * radial_hat[1] + tangent_part * tangent_hat[1]) / norm,
+				(radial_part * radial_hat[2] + tangent_part * tangent_hat[2]) / norm
+			};
+			const auto sky_rgb = compute_sky_radiance(sky_direction[0], sky_direction[1], sky_direction[2], params);
+			accum_r += throughput * static_cast<double>(sky_rgb[0]);
+			accum_g += throughput * static_cast<double>(sky_rgb[1]);
+			accum_b += throughput * static_cast<double>(sky_rgb[2]);
+			status |= PixelFlags::CELESTIAL_HIT;
+			if constexpr (requires { metric.profile(); }) {
+				redshift_rec = 1.0 / std::max(omega, 1e-6);
+			}
+		}
+
+		const auto mapped_srgb = apply_tonemapping({accum_r, accum_g, accum_b}, params.tonemapping_mode, params.camera_exposure);
+		return GpuPixelOutput{
+			.r = mapped_srgb[0],
+			.g = mapped_srgb[1],
+			.b = mapped_srgb[2],
+			.a = 1.0f,
+			.redshift = static_cast<float>(redshift_rec),
+			.affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status,
+			.iterations_used = iters
+		};
+	}
+
+	[[nodiscard]] static GpuPixelOutput trace_spherical_spacetime_dispatch(
+		const GpuCameraPushConstants& params,
+		const std::array<double, 3>& ray_dir,
+		const GpuDiskProfile& disk_profile,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		const double mass = std::max(params.metric_mass, 1e-4);
+		const double radius = std::max(params.observer_position[1], 1e-6);
+		switch (params.metric_type) {
+			case 10U: {
+				Cosmology::LtbParameters ltb;
+				ltb.hubble0 = static_cast<double>(params.cosmology.ltb_hubble0);
+				ltb.void_radius = static_cast<double>(params.cosmology.ltb_void_radius);
+				ltb.void_width = static_cast<double>(params.cosmology.ltb_void_width);
+				ltb.omega_inner = static_cast<double>(params.cosmology.ltb_omega_inner);
+				ltb.omega_outer = static_cast<double>(params.cosmology.ltb_omega_outer);
+				ltb.sanitize();
+				const Metrics::LemaitreTolmanBondiMetric<double> metric(ltb);
+				const double present = metric.present_time();
+				double comoving = radius;
+				for (int iteration = 0; iteration < 8; ++iteration) {
+					const auto state = metric.profile().derivatives(comoving, present);
+					if (!state.regular || std::abs(state.radius_r) < 1e-9) break;
+					const double update = (state.radius - radius) / state.radius_r;
+					comoving = std::max(comoving - update, 1e-6);
+					if (std::abs(update) < 1e-10 * std::max(comoving, 1.0)) break;
+				}
+				return trace_spherical_photon(metric, present, comoving, ray_dir, disk_profile, params, bodies);
+			}
+			case 13U: {
+				const Metrics::VaidyaEvaporatingMetric<double> metric(mass, static_cast<double>(params.cosmology.evaporation_rate));
+				return trace_spherical_photon(metric, 0.0, radius, ray_dir, disk_profile, params, bodies);
+			}
+			case 14U: {
+				const Metrics::EddingtonFinkelsteinMetric<double> metric(mass);
+				return trace_spherical_photon(metric, 0.0, radius, ray_dir, disk_profile, params, bodies);
+			}
+			case 15U: {
+				const Metrics::PainleveGullstrandMetric<double> metric(mass);
+				return trace_spherical_photon(metric, 0.0, radius, ray_dir, disk_profile, params, bodies);
+			}
+			default:
+				return GpuPixelOutput{};
+		}
 	}
 
 	[[nodiscard]] static GpuPixelOutput trace_exact_photon_dispatch(
@@ -2964,7 +3362,12 @@ public:
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
-					if (params.metric_type >= 7U && params.metric_type <= 9U && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
+					if (params.metric_type >= 10U && params.metric_type <= 15U && params.metric_type != 11U && params.metric_type != 12U && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
+						output_framebuffer[pixel_idx] = trace_spherical_spacetime_dispatch(params, {ray_dir_x, ray_dir_y, ray_dir_z}, primary_disk, bodies);
+						continue;
+					}
+
+					if (((params.metric_type >= 7U && params.metric_type <= 9U) || params.metric_type == 11U || params.metric_type == 12U) && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
 						output_framebuffer[pixel_idx] = trace_extended_photon(params, {ray_dir_x, ray_dir_y, ray_dir_z}, bodies);
 						continue;
 					}

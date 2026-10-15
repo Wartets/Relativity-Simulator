@@ -173,6 +173,7 @@ private:
 		{"cosmological_lambda", &PhysicalParameters::cosmological_lambda, 0.0, 1.0},
 		{"wormhole_throat", &PhysicalParameters::wormhole_throat, 0.01, 1.0e6},
 		{"warp_velocity", &PhysicalParameters::warp_velocity, 0.0, 100.0},
+		{"teves_critical_acceleration", &PhysicalParameters::teves_critical_acceleration, 1.0e-9, 1.0},
 		{"camera_exposure", &PhysicalParameters::camera_exposure, -6.0, 6.0},
 		{"camera_collision_clearance", &PhysicalParameters::camera_collision_clearance, 0.0, 1.0e3},
 		{"post_contrast", &PhysicalParameters::post_contrast, 0.1, 3.0},

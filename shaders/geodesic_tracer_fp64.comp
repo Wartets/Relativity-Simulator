@@ -191,6 +191,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	double warp_bubble_radius;
 	double warp_wall_sharpness;
 	double wormhole_tidal_potential;
+	double teves_critical_acceleration;
 
 	double lod_distance_threshold;
 
@@ -3332,6 +3333,7 @@ void trace_extended_metric(dvec3 ray_dir, out dvec3 accum_out, out uint status_o
 	redshift_out = redshift;
 }
 
+#include "spacetime_teves_metric.glsl"
 #include "spacetime_spherical_tracer.glsl"
 
 void main() {

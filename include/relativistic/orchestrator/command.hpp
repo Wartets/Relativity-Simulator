@@ -188,7 +188,8 @@ enum class ParameterType : uint32_t {
 	CameraMotionLiveRefresh = 145,
 	WarpBubbleRadius = 146,
 	WarpWallSharpness = 147,
-	WormholeTidalPotential = 148
+	WormholeTidalPotential = 148,
+	TevesCriticalAcceleration = 149
 };
 
 struct Command {
@@ -722,6 +723,7 @@ public:
 			else if (iequals_sv(token2, "warp_radius") || iequals_sv(token2, "bubble_radius")) ptype = ParameterType::WarpBubbleRadius;
 			else if (iequals_sv(token2, "warp_sharpness") || iequals_sv(token2, "wall_sharpness")) ptype = ParameterType::WarpWallSharpness;
 			else if (iequals_sv(token2, "tidal_potential") || iequals_sv(token2, "wormhole_tidal")) ptype = ParameterType::WormholeTidalPotential;
+			else if (iequals_sv(token2, "teves_a0") || iequals_sv(token2, "critical_acceleration")) ptype = ParameterType::TevesCriticalAcceleration;
 			else if (iequals_sv(token2, "tickrate")) {
 				if (val < 10.0 || val > 1000.0) {
 					set_msg(result_out, false, "Invalid tickrate (must be between 10.0 and 1000.0 Hz)");

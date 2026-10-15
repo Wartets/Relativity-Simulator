@@ -94,7 +94,7 @@ private:
 				}
 				[[fallthrough]];
 			case 0U: case 1U: case 2U: case 4U: case 5U: case 7U: case 8U: case 9U:
-			case 10U: case 11U: case 12U: case 13U: case 14U: case 15U:
+			case 10U: case 11U: case 12U: case 13U: case 14U: case 15U: case 16U:
 				return true;
 			default:
 				return false;

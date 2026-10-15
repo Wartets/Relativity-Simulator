@@ -43,6 +43,9 @@ public:
 	[[nodiscard]] constexpr Scalar scalar_coupling() const noexcept { return k_scalar_; }
 	[[nodiscard]] constexpr Scalar speed_of_light() const noexcept { return c_; }
 	[[nodiscard]] constexpr Scalar gravitational_constant() const noexcept { return g_const_; }
+	[[nodiscard]] constexpr Scalar schwarzschild_radius() const noexcept {
+		return static_cast<Scalar>(2.0) * g_const_ * mass_ / (c_ * c_);
+	}
 
 	[[nodiscard]] static constexpr bool is_cartesian() noexcept { return false; }
 	[[nodiscard]] static constexpr bool is_spherical() noexcept { return true; }

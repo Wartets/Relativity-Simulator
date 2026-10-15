@@ -20,7 +20,8 @@ inline constexpr const char* kMetricCatalog[] = {
 	"Chaplygin Gas Cosmology",
 	"Evaporating Vaidya Black Hole",
 	"Eddington-Finkelstein Black Hole",
-	"Painleve-Gullstrand Black Hole"
+	"Painleve-Gullstrand Black Hole",
+	"TeVeS Tensor-Vector-Scalar Gravity"
 };
 
 inline constexpr size_t kMetricCatalogSize = sizeof(kMetricCatalog) / sizeof(kMetricCatalog[0]);

@@ -57,7 +57,11 @@ namespace Relativistic::UI {
 		|| metric_name.find("Kerr") != std::string_view::npos
 		|| metric_name.find("Reissner") != std::string_view::npos
 		|| metric_name.find("de Sitter") != std::string_view::npos
-		|| metric_name.find("DeSitter") != std::string_view::npos;
+		|| metric_name.find("DeSitter") != std::string_view::npos
+		|| metric_name.find("Eddington") != std::string_view::npos
+		|| metric_name.find("Painleve") != std::string_view::npos
+		|| metric_name.find("Vaidya") != std::string_view::npos
+		|| metric_name.find("TeVeS") != std::string_view::npos;
 }
 
 [[nodiscard]] inline std::string_view dark_matter_metric_regime_note(std::string_view metric_name) noexcept {
@@ -72,6 +76,9 @@ namespace Relativistic::UI {
 	}
 	if (metric_name.find("de Sitter") != std::string_view::npos || metric_name.find("DeSitter") != std::string_view::npos) {
 		return "The cosmological horizon bounds the traced region; halos placed beyond it do not influence the image.";
+	}
+	if (metric_name.find("TeVeS") != std::string_view::npos) {
+		return "Rays follow geodesics of the conformally rescaled TeVeS metric; halo kicks stack on top of the scalar-field deflection, which already mimics an extended halo around the central mass.";
 	}
 	if (metric_name.find("Schwarzschild") != std::string_view::npos) {
 		return "Halo deflection is superposed on exact Schwarzschild null geodesics; the central mass is included in all rotation curves.";
@@ -98,7 +105,8 @@ namespace Relativistic::UI {
 		|| metric_name.find("Kerr") != std::string_view::npos
 		|| metric_name.find("Reissner") != std::string_view::npos
 		|| metric_name.find("Eddington") != std::string_view::npos
-		|| metric_name.find("Painleve") != std::string_view::npos;
+		|| metric_name.find("Painleve") != std::string_view::npos
+		|| metric_name.find("TeVeS") != std::string_view::npos;
 	if (!has_horizon) {
 		return "This spacetime has no central horizon, so evaporation only changes the central mass parameter and has no visible geometric effect.";
 	}

@@ -13,6 +13,7 @@
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
+#include "relativistic/observer/observer_lapse.hpp"
 #include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/optics/geodesic_ray_probe.hpp"
 #include "relativistic/observer/camera_projections.hpp"
@@ -129,22 +130,7 @@ private:
 	};
 
 	[[nodiscard]] static uint32_t get_metric_id_from_name(std::string_view name) noexcept {
-		if (name.find("Minkowski") != std::string_view::npos) return 0;
-		if (name.find("Schwarzschild") != std::string_view::npos && name.find("de Sitter") != std::string_view::npos) return 6;
-		if (name.find("Schwarzschild") != std::string_view::npos) return 1;
-		if (name.find("Kerr-Newman") != std::string_view::npos) return 5;
-		if (name.find("Kerr") != std::string_view::npos) return 2;
-		if (name.find("Reissner") != std::string_view::npos) return 4;
-		if (name.find("FLRW") != std::string_view::npos) return 7;
-		if (name.find("Morris") != std::string_view::npos || name.find("Wormhole") != std::string_view::npos) return 8;
-		if (name.find("Alcubierre") != std::string_view::npos || name.find("Warp") != std::string_view::npos) return 9;
-		if (name.find("Lemaitre") != std::string_view::npos) return 10;
-		if (name.find("Quintessence") != std::string_view::npos) return 11;
-		if (name.find("Chaplygin") != std::string_view::npos) return 12;
-		if (name.find("Vaidya") != std::string_view::npos) return 13;
-		if (name.find("Eddington") != std::string_view::npos) return 14;
-		if (name.find("Painleve") != std::string_view::npos) return 15;
-		return 1;
+		return Orchestrator::SimulationOrchestrator<1024>::metric_name_to_id(name);
 	}
 
 	void init_gl_texture() noexcept {
@@ -747,6 +733,7 @@ public:
 			cam_consts.warp_bubble_radius = params.warp_bubble_radius;
 			cam_consts.warp_wall_sharpness = params.warp_wall_sharpness;
 			cam_consts.wormhole_tidal_potential = params.wormhole_tidal_potential;
+			cam_consts.teves_critical_acceleration = params.teves_critical_acceleration;
 			cam_consts.camera_exposure = params.camera_exposure;
 			cam_consts.tonemapping_mode = params.tonemapping_mode;
 			cam_consts.horizon_radius = 2.0 * params.mass;
@@ -1819,13 +1806,24 @@ private:
 			const double r_safe_link = std::max(cam.radius, 2.05 * params.mass);
 			Metrics::KerrMetric<double> tel_metric(params.mass, params.spin, 1.0, 1.0);
 			Core::FourVector<double> tel_pos(0.0, r_safe_link, cam.theta, cam.phi);
-			const auto tel_g = tel_metric.metric_tensor(tel_pos);
-			const double lapse = std::sqrt(std::max(-tel_g(0, 0), 1e-30));
+			const uint32_t tel_metric_id = get_metric_id_from_name(orchestrator_.active_metric_name());
+			const double lapse = Observer::StaticObserverFrame::lapse(Observer::StaticObserverInputs{
+				.metric_id = tel_metric_id,
+				.mass = params.mass,
+				.spin = params.spin,
+				.charge = params.charge,
+				.cosmological_lambda = params.cosmological_lambda,
+				.wormhole_tidal_potential = params.wormhole_tidal_potential,
+				.teves_critical_acceleration = params.teves_critical_acceleration,
+				.radius = r_safe_link,
+				.theta = cam.theta,
+				.phi = cam.phi
+			});
 			char buf[160];
 			if (style.display_mode == HudDisplayMode::Compact) {
 				std::snprintf(buf, sizeof(buf), "alpha=%.3f", lapse);
 			} else if (style.display_mode == HudDisplayMode::Extended) {
-				const double omega_zamo = (std::abs(params.spin) > 1e-9) ? Metrics::compute_zamo_angular_velocity(tel_metric, tel_pos) : 0.0;
+				const double omega_zamo = (std::abs(params.spin) > 1e-9 && Observer::StaticObserverFrame::has_frame_dragging(tel_metric_id)) ? Metrics::compute_zamo_angular_velocity(tel_metric, tel_pos) : 0.0;
 				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx | ZAMO Omega: %.4f rad/M", lapse, 1.0 / std::max(lapse, 1e-12), omega_zamo);
 			} else {
 				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx", lapse, 1.0 / std::max(lapse, 1e-12));

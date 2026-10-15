@@ -34,6 +34,7 @@
 #include "relativistic/metrics/vaidya_evaporating.hpp"
 #include "relativistic/metrics/eddington_finkelstein.hpp"
 #include "relativistic/metrics/painleve_gullstrand.hpp"
+#include "relativistic/modified_gravity/teves.hpp"
 #include "relativistic/cosmology/dark_energy_models.hpp"
 #include "relativistic/observer/direction_projection.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
@@ -2581,6 +2582,22 @@ private:
 				const Metrics::PainleveGullstrandMetric<double> metric(mass);
 				return trace_spherical_photon(metric, 0.0, radius, ray_dir, disk_profile, params, bodies);
 			}
+			case 16U: {
+				const double critical_acceleration = std::max(params.teves_critical_acceleration, 1.0e-12);
+				const ModifiedGravity::TeVeSSpacetimeMetric<double> metric(mass, critical_acceleration, 0.01, 1.0, 1.0);
+				const double lower_bound = metric.schwarzschild_radius() * 1.0002;
+				double coordinate = std::max(radius, lower_bound);
+				for (int iteration = 0; iteration < 12; ++iteration) {
+					const double phi = metric.scalar_field_phi(coordinate);
+					const double shrink = std::exp(-phi);
+					const double slope = shrink * (1.0 - coordinate * metric.d_phi_dr(coordinate));
+					if (!(slope > 1.0e-9)) break;
+					const double update = (coordinate * shrink - radius) / slope;
+					coordinate = std::max(coordinate - update, lower_bound);
+					if (std::abs(update) < 1.0e-12 * std::max(coordinate, 1.0)) break;
+				}
+				return trace_spherical_photon(metric, 0.0, coordinate, ray_dir, disk_profile, params, bodies);
+			}
 			default:
 				return GpuPixelOutput{};
 		}
@@ -3362,7 +3379,7 @@ public:
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
 					const double ray_dir_z = n_local[0] * fwd_z + n_local[2] * rgt_z + n_local[1] * up_z;
 
-					if (params.metric_type >= 10U && params.metric_type <= 15U && params.metric_type != 11U && params.metric_type != 12U && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
+					if (params.metric_type >= 10U && params.metric_type <= 16U && params.metric_type != 11U && params.metric_type != 12U && (params.render_flags & RenderFlags::BODIES_ONLY_MODE) == 0U) {
 						output_framebuffer[pixel_idx] = trace_spherical_spacetime_dispatch(params, {ray_dir_x, ray_dir_y, ray_dir_z}, primary_disk, bodies);
 						continue;
 					}

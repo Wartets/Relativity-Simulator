@@ -174,7 +174,7 @@ double spherical_mass_at(double v) {
 
 double spherical_horizon_radius(uint kind, double t) {
 	if (kind == 13u) return 2.0 * spherical_mass_at(t);
-	if (kind == 14u || kind == 15u) return 2.0 * max(pc.metric_mass, 1.0e-4);
+	if (kind == 14u || kind == 15u || kind == 16u) return 2.0 * max(pc.metric_mass, 1.0e-4);
 	return 0.0;
 }
 
@@ -197,6 +197,11 @@ SphericalMetric spherical_metric_at(uint kind, double t, double r) {
 		m.s = state.radius;
 		m.ds_t = state.velocity;
 		m.ds_r = state.radius_r;
+		return m;
+	}
+	if (kind == 16u) {
+		double coordinate_radius = m.s;
+		teves_spherical_terms(coordinate_radius, m.g, m.dg_r, m.s, m.ds_r);
 		return m;
 	}
 	double rr = m.s;
@@ -336,6 +341,8 @@ void trace_spherical_spacetime(dvec3 ray_dir, out dvec3 accum_out, out uint stat
 		g_ltb_present = max(ltb_age(double(pc.cosmology.ltb_omega_inner)), ltb_age(double(pc.cosmology.ltb_omega_outer)));
 		t = g_ltb_present;
 		r = ltb_comoving_radius(obs_r, t);
+	} else if (kind == 16u) {
+		r = teves_coordinate_radius(obs_r);
 	}
 
 	SphericalMetric start = spherical_metric_at(kind, t, r);

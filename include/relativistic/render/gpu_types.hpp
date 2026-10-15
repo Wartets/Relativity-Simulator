@@ -23,7 +23,8 @@ enum class MetricId : uint32_t {
 	ChaplyginCosmology = 12,
 	EvaporatingBlackHole = 13,
 	EddingtonFinkelstein = 14,
-	PainleveGullstrand = 15
+	PainleveGullstrand = 15,
+	TeVeS = 16
 };
 
 enum class PrecisionMode : uint32_t {
@@ -295,6 +296,7 @@ struct alignas(16) GpuCameraPushConstants {
 	double warp_bubble_radius{15.0};
 	double warp_wall_sharpness{0.4};
 	double wormhole_tidal_potential{0.0};
+	double teves_critical_acceleration{1.0e-3};
 
 	double lod_distance_threshold{0.0};
 

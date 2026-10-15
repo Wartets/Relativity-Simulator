@@ -53,6 +53,7 @@ struct PhysicalParameters {
 	double warp_bubble_radius{15.0};
 	double warp_wall_sharpness{0.4};
 	double wormhole_tidal_potential{0.0};
+	double teves_critical_acceleration{1.0e-3};
 	uint32_t projection_mode{3};
 	uint32_t time_flow_mode{0};
 	double camera_speed{10.0};
@@ -1184,6 +1185,9 @@ public:
 			case ParameterType::WormholeTidalPotential:
 				params_.wormhole_tidal_potential = std::clamp(val, -20.0, 20.0);
 				break;
+			case ParameterType::TevesCriticalAcceleration:
+				params_.teves_critical_acceleration = std::clamp(val, 1.0e-9, 1.0);
+				break;
 			case ParameterType::ProjectionMode:
 				params_.projection_mode = static_cast<uint32_t>(val);
 				break;
@@ -1808,7 +1812,29 @@ public:
 		if (name == "EvaporatingBlackHole") return static_cast<uint32_t>(Relativistic::Render::MetricId::EvaporatingBlackHole);
 		if (name == "EddingtonFinkelstein") return static_cast<uint32_t>(Relativistic::Render::MetricId::EddingtonFinkelstein);
 		if (name == "PainleveGullstrand") return static_cast<uint32_t>(Relativistic::Render::MetricId::PainleveGullstrand);
-		return static_cast<uint32_t>(Relativistic::Render::MetricId::Schwarzschild);
+		if (name == "TeVeS") return static_cast<uint32_t>(Relativistic::Render::MetricId::TeVeS);
+		const auto contains = [name](std::string_view token) constexpr noexcept -> bool {
+			return name.find(token) != std::string_view::npos;
+		};
+		using Id = Relativistic::Render::MetricId;
+		if (contains("Minkowski")) return static_cast<uint32_t>(Id::FlatMinkowski);
+		if (contains("de Sitter") || contains("DeSitter")) return static_cast<uint32_t>(Id::SchwarzschildDeSitter);
+		if (contains("KerrSchild")) return static_cast<uint32_t>(Id::KerrSchild);
+		if (contains("Newman")) return static_cast<uint32_t>(Id::KerrNewman);
+		if (contains("Kerr")) return static_cast<uint32_t>(Id::Kerr);
+		if (contains("Reissner")) return static_cast<uint32_t>(Id::ReissnerNordstrom);
+		if (contains("Schwarzschild")) return static_cast<uint32_t>(Id::Schwarzschild);
+		if (contains("FLRW")) return static_cast<uint32_t>(Id::FLRW);
+		if (contains("Morris") || contains("Wormhole")) return static_cast<uint32_t>(Id::MorrisThorne);
+		if (contains("Alcubierre") || contains("Warp")) return static_cast<uint32_t>(Id::Alcubierre);
+		if (contains("Lemaitre")) return static_cast<uint32_t>(Id::LemaitreTolmanBondi);
+		if (contains("Quintessence")) return static_cast<uint32_t>(Id::QuintessenceCosmology);
+		if (contains("Chaplygin")) return static_cast<uint32_t>(Id::ChaplyginCosmology);
+		if (contains("Vaidya") || contains("Evaporating")) return static_cast<uint32_t>(Id::EvaporatingBlackHole);
+		if (contains("Eddington")) return static_cast<uint32_t>(Id::EddingtonFinkelstein);
+		if (contains("Painleve")) return static_cast<uint32_t>(Id::PainleveGullstrand);
+		if (contains("TeVeS") || contains("Tensor-Vector")) return static_cast<uint32_t>(Id::TeVeS);
+		return static_cast<uint32_t>(Id::Schwarzschild);
 	}
 
 	void apply_primary_disk_constants(Relativistic::Render::GpuCameraPushConstants& push) const noexcept {
@@ -1864,6 +1890,7 @@ public:
 		const double mass_scale = constants_engine_.mass_scale();
 		const double time_scale = constants_engine_.time_scale();
 		if (!(mass_scale > 0.0) || !(time_scale > 0.0)) return 0.0;
+		if (params_.mass * mass_scale <= evaporation.minimum_mass_kg * (1.0 + 1.0e-9)) return 0.0;
 		const double spin_star = std::clamp(params_.spin / params_.mass, -0.999, 0.999);
 		const double rate_kg_per_s = Semiclassical::HawkingRadiation::mass_loss_rate(params_.mass * mass_scale, spin_star, evaporation);
 		const double rate_simulation = rate_kg_per_s / mass_scale * time_scale * evaporation.time_acceleration;
@@ -1951,6 +1978,7 @@ public:
 		push.warp_bubble_radius = params_.warp_bubble_radius;
 		push.warp_wall_sharpness = params_.warp_wall_sharpness;
 		push.wormhole_tidal_potential = params_.wormhole_tidal_potential;
+		push.teves_critical_acceleration = params_.teves_critical_acceleration;
 		push.camera_exposure = params_.camera_exposure;
 
 		push.lod_distance_threshold = params_.lod_distance_scale;

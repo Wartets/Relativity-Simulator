@@ -54,6 +54,7 @@ private:
 	float warp_vel_{1.0f};
 	bool mass_log_mode_{false};
 	bool lambda_log_mode_{true};
+	bool teves_log_mode_{true};
 	bool warp_log_mode_{false};
 	bool guarantee_horizon_{true};
 	double mass_quantity_kg_{0.0};
@@ -173,6 +174,7 @@ public:
 		else if (active_m.find("Vaidya") != std::string::npos) metric_selection_ = 13;
 		else if (active_m.find("Eddington") != std::string::npos) metric_selection_ = 14;
 		else if (active_m.find("Painleve") != std::string::npos) metric_selection_ = 15;
+		else if (active_m.find("TeVeS") != std::string::npos) metric_selection_ = 16;
 
 		const std::string& active_i = orchestrator_.active_integrator_name();
 		if (active_i.find("Cash") != std::string::npos) integrator_selection_ = 1;
@@ -468,7 +470,8 @@ private:
 		const bool needs_lambda = (metric_selection_ == 5 || metric_selection_ == 6 || metric_selection_ == 11 || metric_selection_ == 12);
 		const bool needs_throat = (metric_selection_ == 7);
 		const bool needs_warp_velocity = (metric_selection_ == 8);
-		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity;
+		const bool needs_teves = (metric_selection_ == 16);
+		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity || needs_teves;
 		const Metrics::HorizonConstraintSet horizon_constraints = Metrics::HorizonConstraintSet::from_metric_name(orchestrator_.active_metric_name());
 		if (horizon_constraints.any()) {
 			render_horizon_guarantee_controls(horizon_constraints);
@@ -575,6 +578,15 @@ private:
 			render_setting_tooltip("Inverse thickness of the bubble wall in the tanh shaping function. Larger values give a thinner, sharper wall with stronger spatial gradients.");
 		}
 
+		if (needs_teves) {
+			float teves_a0 = static_cast<float>(orchestrator_.parameters().teves_critical_acceleration);
+			if (slider_float_with_input("TeVeS Critical Acceleration (a0)", &teves_a0, 1e-6f, 1e-1f, "%.3e", &teves_log_mode_)) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TevesCriticalAcceleration, static_cast<double>(teves_a0))));
+			}
+			render_setting_tooltip("Acceleration scale of the TeVeS scalar field. Below it the scalar potential strengthens the pull like a dark halo; it sets the transition radius r0 = sqrt(M / a0) at which the metric departs from Schwarzschild.");
+			const double teves_transition = std::sqrt(static_cast<double>(mass_) / std::max(static_cast<double>(teves_a0), 1e-12));
+			ImGui::TextDisabled("Scalar transition radius r0 = %.2f (simulation length units)", teves_transition);
+		}
 		if (metric_selection_ >= 10 && metric_selection_ <= 12) {
 			ImGui::TextDisabled("Cosmological parameters of this spacetime are edited in the Cosmology & Evaporation tab.");
 		} else if (!has_any_param) {

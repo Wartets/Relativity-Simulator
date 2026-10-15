@@ -97,7 +97,7 @@ public:
 		if (!(residual(low) < 0.0) || residual(high) < 0.0) {
 			return false;
 		}
-		for (int iteration = 0; iteration < 90; ++iteration) {
+		for (int iteration = 0; iteration < 90 && (high - low) > 1.0e-13; ++iteration) {
 			const double middle = 0.5 * (low + high);
 			if (residual(middle) < 0.0) {
 				low = middle;

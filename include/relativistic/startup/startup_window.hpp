@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <future>
 #include <string>
@@ -29,26 +30,33 @@ namespace StartupPalette {
 	return static_cast<COLORREF>(red | (green << 8U) | (blue << 16U));
 }
 
-inline constexpr COLORREF kBackgroundTop = color(21, 26, 40);
-inline constexpr COLORREF kBackgroundBottom = color(10, 12, 19);
-inline constexpr COLORREF kTitleBar = color(14, 17, 26);
-inline constexpr COLORREF kSeparator = color(36, 42, 58);
-inline constexpr COLORREF kBorder = color(46, 53, 72);
-inline constexpr COLORREF kTextPrimary = color(232, 236, 244);
-inline constexpr COLORREF kTextSecondary = color(141, 150, 170);
-inline constexpr COLORREF kTextDisabled = color(88, 96, 114);
-inline constexpr COLORREF kTextWarning = color(240, 178, 90);
-inline constexpr COLORREF kTextError = color(255, 107, 107);
-inline constexpr COLORREF kControlHover = color(42, 48, 66);
-inline constexpr COLORREF kControlPressed = color(58, 66, 90);
-inline constexpr COLORREF kCloseHover = color(232, 17, 35);
-inline constexpr COLORREF kClosePressed = color(164, 12, 24);
-inline constexpr COLORREF kBarTrack = color(35, 40, 56);
-inline constexpr COLORREF kAccentStart = color(76, 155, 255);
-inline constexpr COLORREF kAccentEnd = color(142, 107, 255);
-inline constexpr COLORREF kButtonFill = color(22, 27, 40);
-inline constexpr COLORREF kButtonHover = color(30, 37, 56);
-inline constexpr COLORREF kButtonPressed = color(38, 46, 70);
+inline constexpr COLORREF kWindowBorder = color(255, 255, 255);
+inline constexpr COLORREF kBackground = color(14, 16, 20);
+inline constexpr COLORREF kTitleBar = color(19, 21, 27);
+inline constexpr COLORREF kPanelBackground = color(22, 25, 32);
+inline constexpr COLORREF kPanelHeader = color(28, 32, 42);
+inline constexpr COLORREF kPanelInset = color(11, 13, 17);
+inline constexpr COLORREF kPanelBorder = color(48, 54, 70);
+inline constexpr COLORREF kSeparator = color(38, 43, 56);
+
+inline constexpr COLORREF kTextPrimary = color(245, 247, 250);
+inline constexpr COLORREF kTextSecondary = color(146, 154, 172);
+inline constexpr COLORREF kTextMuted = color(95, 103, 120);
+inline constexpr COLORREF kTextHighlight = color(255, 255, 255);
+inline constexpr COLORREF kAccentSymbol = color(88, 166, 255);
+inline constexpr COLORREF kAccentBar = color(74, 148, 255);
+inline constexpr COLORREF kTextWarning = color(245, 180, 80);
+inline constexpr COLORREF kTextError = color(255, 95, 95);
+
+inline constexpr COLORREF kControlHover = color(38, 44, 58);
+inline constexpr COLORREF kControlPressed = color(54, 62, 82);
+inline constexpr COLORREF kCloseHover = color(215, 35, 45);
+inline constexpr COLORREF kClosePressed = color(165, 20, 30);
+
+inline constexpr COLORREF kButtonFill = color(26, 30, 40);
+inline constexpr COLORREF kButtonHover = color(36, 42, 56);
+inline constexpr COLORREF kButtonPressed = color(48, 56, 76);
+inline constexpr COLORREF kButtonBorder = color(56, 64, 84);
 
 }
 
@@ -58,7 +66,9 @@ private:
 		None = 0,
 		Minimize = 1,
 		Close = 2,
-		Repository = 3
+		Repository = 3,
+		Documentation = 4,
+		License = 5
 	};
 
 	struct Surface {
@@ -93,18 +103,18 @@ private:
 	};
 
 	struct Fonts {
-		HFONT brand{nullptr};
 		HFONT title{nullptr};
-		HFONT subtitle{nullptr};
+		HFONT header{nullptr};
+		HFONT section{nullptr};
 		HFONT stage{nullptr};
-		HFONT detail{nullptr};
-		HFONT caption{nullptr};
-		HFONT caption_bold{nullptr};
-		HFONT button{nullptr};
+		HFONT body{nullptr};
+		HFONT body_bold{nullptr};
+		HFONT small{nullptr};
+		HFONT mono{nullptr};
 	};
 
-	static constexpr int kLogicalWidth = 620;
-	static constexpr int kLogicalHeight = 372;
+	static constexpr int kLogicalWidth = 600;
+	static constexpr int kLogicalHeight = 270;
 	static constexpr UINT kMessageUpdate = WM_APP + 1U;
 	static constexpr UINT kMessageClose = WM_APP + 2U;
 	static constexpr UINT_PTR kEaseTimerId = 1;
@@ -117,27 +127,34 @@ private:
 	std::atomic<HWND> hwnd_{nullptr};
 	std::atomic<bool> update_pending_{false};
 	HINSTANCE instance_{nullptr};
+	std::chrono::steady_clock::time_point start_time_{};
 
 	UINT dpi_{96};
 	int client_width_{kLogicalWidth};
 	int client_height_{kLogicalHeight};
-	int title_height_{44};
-	int icon_size_{32};
-	int footer_line_y_{316};
-	RECT icon_rect_{};
-	RECT brand_rect_{};
+	int title_height_{28};
+	int icon_size_{56};
+
+	RECT title_text_rect_{};
 	RECT minimize_rect_{};
 	RECT close_rect_{};
+
+	RECT icon_rect_{};
 	RECT hero_title_rect_{};
 	RECT hero_subtitle_rect_{};
-	RECT hero_version_rect_{};
-	RECT stage_rect_{};
+	RECT hero_tags_rect_{};
+
 	RECT percent_rect_{};
+	RECT stage_rect_{};
 	RECT detail_rect_{};
 	RECT bar_rect_{};
-	RECT developer_rect_{};
-	RECT repository_rect_{};
 	RECT ease_area_{};
+
+	RECT footer_line_rect_{};
+	RECT developer_rect_{};
+	RECT license_rect_{};
+	RECT docs_rect_{};
+	RECT repository_rect_{};
 
 	Fonts fonts_{};
 	HICON icon_{nullptr};
@@ -164,39 +181,20 @@ private:
 		return RECT{left, top, left + width, top + height};
 	}
 
-	[[nodiscard]] static COLOR16 channel16(COLORREF value, unsigned shift) noexcept {
-		return static_cast<COLOR16>(((value >> shift) & 0xFFU) << 8U);
-	}
-
-	[[nodiscard]] static COLORREF blend(COLORREF from, COLORREF to, float t) noexcept {
-		const float clamped = std::clamp(t, 0.0f, 1.0f);
-		const auto channel = [&](unsigned shift) noexcept {
-			const float a = static_cast<float>((from >> shift) & 0xFFU);
-			const float b = static_cast<float>((to >> shift) & 0xFFU);
-			return static_cast<unsigned>(a + (b - a) * clamped + 0.5f);
-		};
-		return StartupPalette::color(channel(0), channel(8), channel(16));
-	}
-
 	static void fill_solid(HDC device, const RECT& area, COLORREF value) noexcept {
 		SetBkColor(device, value);
 		ExtTextOutW(device, 0, 0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
 	}
 
-	static void fill_gradient(HDC device, const RECT& area, COLORREF from, COLORREF to, bool horizontal) noexcept {
-		TRIVERTEX vertices[2]{};
-		vertices[0].x = area.left;
-		vertices[0].y = area.top;
-		vertices[0].Red = channel16(from, 0);
-		vertices[0].Green = channel16(from, 8);
-		vertices[0].Blue = channel16(from, 16);
-		vertices[1].x = area.right;
-		vertices[1].y = area.bottom;
-		vertices[1].Red = channel16(to, 0);
-		vertices[1].Green = channel16(to, 8);
-		vertices[1].Blue = channel16(to, 16);
-		GRADIENT_RECT mesh{0, 1};
-		GradientFill(device, vertices, 2, &mesh, 1, horizontal ? GRADIENT_FILL_RECT_H : GRADIENT_FILL_RECT_V);
+	static void draw_border(HDC device, const RECT& area, COLORREF border_color) noexcept {
+		const HBRUSH brush = CreateSolidBrush(border_color);
+		FrameRect(device, &area, brush);
+		DeleteObject(brush);
+	}
+
+	static void draw_panel(HDC device, const RECT& area, COLORREF background, COLORREF border) noexcept {
+		fill_solid(device, area, background);
+		draw_border(device, area, border);
 	}
 
 	static void draw_text(HDC device, const std::wstring& text, HFONT font, COLORREF value, const RECT& area, UINT flags) noexcept {
@@ -209,18 +207,6 @@ private:
 		RECT target = area;
 		DrawTextW(device, text.c_str(), static_cast<int>(text.size()), &target, flags);
 		SelectObject(device, previous);
-	}
-
-	void fill_round_rect(HDC device, const RECT& area, int radius, COLORREF fill, COLORREF border) const noexcept {
-		const HBRUSH brush = CreateSolidBrush(fill);
-		const HPEN pen = CreatePen(PS_SOLID, 1, border);
-		const HGDIOBJ previous_brush = SelectObject(device, brush);
-		const HGDIOBJ previous_pen = SelectObject(device, pen);
-		RoundRect(device, area.left, area.top, area.right, area.bottom, radius, radius);
-		SelectObject(device, previous_pen);
-		SelectObject(device, previous_brush);
-		DeleteObject(pen);
-		DeleteObject(brush);
 	}
 
 	[[nodiscard]] UINT query_window_dpi(HWND hwnd) const noexcept {
@@ -251,12 +237,12 @@ private:
 		return loaded;
 	}
 
-	[[nodiscard]] HFONT create_font(int logical_height, int weight) const noexcept {
-		return CreateFontW(-px(logical_height), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+	[[nodiscard]] HFONT create_font(int logical_height, int weight, const wchar_t* face_name = L"Segoe UI") const noexcept {
+		return CreateFontW(-px(logical_height), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face_name);
 	}
 
 	void destroy_fonts() noexcept {
-		for (HFONT* font : {&fonts_.brand, &fonts_.title, &fonts_.subtitle, &fonts_.stage, &fonts_.detail, &fonts_.caption, &fonts_.caption_bold, &fonts_.button}) {
+		for (HFONT* font : {&fonts_.title, &fonts_.header, &fonts_.section, &fonts_.stage, &fonts_.body, &fonts_.body_bold, &fonts_.small, &fonts_.mono}) {
 			if (*font != nullptr) {
 				DeleteObject(*font);
 				*font = nullptr;
@@ -265,14 +251,14 @@ private:
 	}
 
 	void create_fonts() noexcept {
-		fonts_.brand = create_font(14, FW_SEMIBOLD);
-		fonts_.title = create_font(34, FW_SEMIBOLD);
-		fonts_.subtitle = create_font(15, FW_NORMAL);
-		fonts_.stage = create_font(15, FW_SEMIBOLD);
-		fonts_.detail = create_font(13, FW_NORMAL);
-		fonts_.caption = create_font(12, FW_NORMAL);
-		fonts_.caption_bold = create_font(12, FW_BOLD);
-		fonts_.button = create_font(13, FW_NORMAL);
+		fonts_.title = create_font(18, FW_BOLD);
+		fonts_.header = create_font(12, FW_SEMIBOLD);
+		fonts_.section = create_font(11, FW_BOLD, L"Segoe UI Semibold");
+		fonts_.stage = create_font(13, FW_SEMIBOLD);
+		fonts_.body = create_font(11, FW_NORMAL);
+		fonts_.body_bold = create_font(11, FW_BOLD);
+		fonts_.small = create_font(10, FW_NORMAL);
+		fonts_.mono = create_font(10, FW_NORMAL, L"Consolas");
 	}
 
 	void release_icon() noexcept {
@@ -291,33 +277,45 @@ private:
 	void rebuild_layout() noexcept {
 		client_width_ = px(kLogicalWidth);
 		client_height_ = px(kLogicalHeight);
-		title_height_ = px(44);
-		icon_size_ = px(32);
-		const int margin = px(40);
-		const int content_width = client_width_ - 2 * margin;
-		const int control_width = px(46);
-		const int percent_width = px(64);
+		title_height_ = px(28);
+		icon_size_ = px(56);
 
-		icon_rect_ = rect_from(px(14), (title_height_ - icon_size_) / 2, icon_size_, icon_size_);
-		brand_rect_ = rect_from(icon_rect_.right + px(12), 0, px(320), title_height_);
+		const int pad_x = px(24);
+		const int content_width = client_width_ - 2 * pad_x;
+		const int control_width = px(36);
+
+		title_text_rect_ = rect_from(pad_x, 0, client_width_ - 2 * control_width - pad_x, title_height_);
 		close_rect_ = rect_from(client_width_ - control_width, 0, control_width, title_height_);
 		minimize_rect_ = rect_from(client_width_ - 2 * control_width, 0, control_width, title_height_);
 
-		hero_title_rect_ = rect_from(margin, px(72), content_width, px(44));
-		hero_subtitle_rect_ = rect_from(margin, px(120), content_width, px(24));
-		hero_version_rect_ = rect_from(margin, px(148), content_width, px(20));
+		const int hero_top = title_height_ + px(18);
+		icon_rect_ = rect_from(pad_x, hero_top, icon_size_, icon_size_);
 
-		stage_rect_ = rect_from(margin, px(220), content_width - percent_width, px(24));
-		percent_rect_ = rect_from(client_width_ - margin - percent_width, px(220), percent_width, px(24));
-		detail_rect_ = rect_from(margin, px(246), content_width, px(22));
-		bar_rect_ = rect_from(margin, px(280), content_width, px(6));
-		ease_area_ = rect_from(margin, percent_rect_.top, content_width, bar_rect_.bottom + px(2) - percent_rect_.top);
+		const int text_x = icon_rect_.right + px(18);
+		const int text_width = client_width_ - pad_x - text_x;
+		hero_title_rect_ = rect_from(text_x, hero_top, text_width, px(24));
+		hero_subtitle_rect_ = rect_from(text_x, hero_top + px(25), text_width, px(18));
+		hero_tags_rect_ = rect_from(text_x, hero_top + px(44), text_width, px(16));
 
-		footer_line_y_ = px(316);
-		developer_rect_ = rect_from(margin, footer_line_y_ + px(1), px(280), client_height_ - footer_line_y_ - px(1));
-		const int button_width = px(176);
-		const int button_height = px(30);
-		repository_rect_ = rect_from(client_width_ - margin - button_width, footer_line_y_ + (client_height_ - footer_line_y_ - button_height) / 2, button_width, button_height);
+		const int progress_top = hero_top + icon_size_ + px(44);
+		stage_rect_ = rect_from(pad_x, progress_top, content_width - px(120), px(18));
+		percent_rect_ = rect_from(client_width_ - pad_x - px(120), progress_top, px(120), px(18));
+		detail_rect_ = rect_from(pad_x, progress_top + px(20), content_width, px(16));
+		bar_rect_ = rect_from(pad_x, progress_top + px(42), content_width, px(4));
+		ease_area_ = rect_from(pad_x, progress_top, content_width, px(50));
+
+		const int footer_line_y = client_height_ - px(38);
+		footer_line_rect_ = rect_from(pad_x, footer_line_y, content_width, 1);
+
+		const int footer_y = footer_line_y + px(7);
+		developer_rect_ = rect_from(pad_x, footer_y, px(240), px(24));
+
+		const int button_width = px(76);
+		const int button_height = px(22);
+		const int button_gap = px(6);
+		repository_rect_ = rect_from(client_width_ - pad_x - button_width, footer_y, button_width, button_height);
+		docs_rect_ = rect_from(repository_rect_.left - button_gap - button_width, footer_y, button_width, button_height);
+		license_rect_ = rect_from(docs_rect_.left - button_gap - button_width, footer_y, button_width, button_height);
 	}
 
 	void apply_dpi_resources() noexcept {
@@ -373,39 +371,31 @@ private:
 	void render_backdrop() noexcept {
 		const HDC device = backdrop_.device;
 		const RECT client{0, 0, client_width_, client_height_};
-		fill_gradient(device, client, StartupPalette::kBackgroundTop, StartupPalette::kBackgroundBottom, false);
+		fill_solid(device, client, StartupPalette::kBackground);
 
 		const RECT title_bar{0, 0, client_width_, title_height_};
 		fill_solid(device, title_bar, StartupPalette::kTitleBar);
 		const RECT title_line{0, title_height_, client_width_, title_height_ + 1};
 		fill_solid(device, title_line, StartupPalette::kSeparator);
 
+		const UINT single_line = DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+		draw_text(device, widen_utf8(ApplicationInfo::kProductName), fonts_.mono, StartupPalette::kTextMuted, title_text_rect_, single_line);
+
 		if (icon_ != nullptr) {
 			DrawIconEx(device, icon_rect_.left, icon_rect_.top, icon_, icon_size_, icon_size_, 0, nullptr, DI_NORMAL);
 		}
-		const UINT single_line = DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
-		draw_text(device, widen_utf8(ApplicationInfo::kProductName) + L" - Starting", fonts_.brand, StartupPalette::kTextSecondary, brand_rect_, single_line);
 
-		draw_text(device, widen_utf8(ApplicationInfo::kProductName), fonts_.title, StartupPalette::kTextPrimary, hero_title_rect_, single_line);
-		draw_text(device, widen_utf8(ApplicationInfo::kDescription), fonts_.subtitle, StartupPalette::kTextSecondary, hero_subtitle_rect_, single_line);
-		draw_text(device, L"Version " + widen_utf8(ApplicationInfo::kVersion), fonts_.caption, StartupPalette::kTextDisabled, hero_version_rect_, single_line);
+		draw_text(device, widen_utf8(ApplicationInfo::kProductName), fonts_.title, StartupPalette::kTextHighlight, hero_title_rect_, single_line);
+		draw_text(device, widen_utf8(ApplicationInfo::kDescription), fonts_.body, StartupPalette::kTextSecondary, hero_subtitle_rect_, single_line);
 
-		const RECT footer_line{0, footer_line_y_, client_width_, footer_line_y_ + 1};
-		fill_solid(device, footer_line, StartupPalette::kSeparator);
+		const std::wstring tags = L"v" + widen_utf8(ApplicationInfo::kVersion) + L"  *  FP64 Vulkan Compute  *  AVX-512 / NEON";
+		draw_text(device, tags, fonts_.mono, StartupPalette::kAccentSymbol, hero_tags_rect_, single_line);
 
-		const std::wstring prefix = L"Developed by ";
-		SIZE prefix_size{};
-		const HGDIOBJ previous = SelectObject(device, fonts_.caption);
-		GetTextExtentPoint32W(device, prefix.c_str(), static_cast<int>(prefix.size()), &prefix_size);
-		SelectObject(device, previous);
-		draw_text(device, prefix, fonts_.caption, StartupPalette::kTextSecondary, developer_rect_, single_line);
-		RECT name_rect = developer_rect_;
-		name_rect.left += prefix_size.cx;
-		draw_text(device, widen_utf8(ApplicationInfo::kDeveloper), fonts_.caption_bold, StartupPalette::kTextPrimary, name_rect, single_line);
+		fill_solid(device, footer_line_rect_, StartupPalette::kSeparator);
+		const std::wstring footer_text = widen_utf8(ApplicationInfo::kDeveloper) + L" (" + widen_utf8(ApplicationInfo::kOrganization) + L")";
+		draw_text(device, footer_text, fonts_.small, StartupPalette::kTextMuted, developer_rect_, single_line);
 
-		const HBRUSH border_brush = CreateSolidBrush(StartupPalette::kBorder);
-		FrameRect(device, &client, border_brush);
-		DeleteObject(border_brush);
+		draw_border(device, client, StartupPalette::kWindowBorder);
 	}
 
 	[[nodiscard]] bool is_hot(Control control) const noexcept {
@@ -417,7 +407,7 @@ private:
 	}
 
 	void draw_window_controls(HDC device) const noexcept {
-		const int half = px(5);
+		const int half = px(4);
 		const int pen_width = std::max(1, px(1));
 
 		if (is_hot(Control::Minimize)) {
@@ -436,7 +426,7 @@ private:
 		if (close_active) {
 			fill_solid(device, close_rect_, is_down(Control::Close) ? StartupPalette::kClosePressed : StartupPalette::kCloseHover);
 		}
-		const COLORREF close_color = cancelling_ ? StartupPalette::kTextDisabled : (close_active ? StartupPalette::color(255, 255, 255) : StartupPalette::kTextPrimary);
+		const COLORREF close_color = cancelling_ ? StartupPalette::kTextMuted : (close_active ? StartupPalette::kTextHighlight : StartupPalette::kTextPrimary);
 		const HPEN close_pen = CreatePen(PS_SOLID, pen_width, close_color);
 		previous = SelectObject(device, close_pen);
 		const int close_x = (close_rect_.left + close_rect_.right) / 2;
@@ -451,43 +441,57 @@ private:
 
 	void draw_status(HDC device) const noexcept {
 		const UINT single_line = DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
-		const std::wstring stage = stage_text_.empty() ? std::wstring(L"Starting") : stage_text_;
-		draw_text(device, stage, fonts_.stage, StartupPalette::kTextPrimary, stage_rect_, single_line | DT_LEFT);
-
 		const int percent = static_cast<int>(std::clamp(displayed_fraction_, 0.0f, 1.0f) * 100.0f + 0.5f);
-		draw_text(device, std::to_wstring(percent) + L"%", fonts_.stage, StartupPalette::kTextSecondary, percent_rect_, single_line | DT_RIGHT);
 
-		COLORREF detail_color = StartupPalette::kTextSecondary;
+		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time_).count();
+		const double seconds = static_cast<double>(elapsed_ms) / 1000.0;
+		wchar_t time_buffer[32];
+		swprintf_s(time_buffer, L"%.1fs", seconds);
+
+		const std::wstring metrics = std::to_wstring(percent) + L"%  " + time_buffer;
+		draw_text(device, metrics, fonts_.mono, StartupPalette::kAccentSymbol, percent_rect_, single_line | DT_RIGHT);
+
+		const std::wstring stage = L"> " + (stage_text_.empty() ? std::wstring(L"Initializing") : stage_text_);
+		draw_text(device, stage, fonts_.body_bold, StartupPalette::kTextHighlight, stage_rect_, single_line | DT_LEFT);
+
+		COLORREF detail_color = StartupPalette::kTextMuted;
 		if (phase_ == StartupPhase::Failed) {
 			detail_color = StartupPalette::kTextError;
 		} else if (cancelling_) {
 			detail_color = StartupPalette::kTextWarning;
 		}
-		draw_text(device, detail_text_, fonts_.detail, detail_color, detail_rect_, single_line | DT_LEFT);
+		draw_text(device, detail_text_, fonts_.mono, detail_color, detail_rect_, single_line | DT_LEFT);
 	}
 
 	void draw_progress_bar(HDC device) const noexcept {
-		const int height = bar_rect_.bottom - bar_rect_.top;
-		const HRGN region = CreateRoundRectRgn(bar_rect_.left, bar_rect_.top, bar_rect_.right + 1, bar_rect_.bottom + 1, height, height);
-		SelectClipRgn(device, region);
-		fill_solid(device, bar_rect_, StartupPalette::kBarTrack);
+		fill_solid(device, bar_rect_, StartupPalette::kPanelInset);
+
 		const float fraction = std::clamp(displayed_fraction_, 0.0f, 1.0f);
-		const int filled = static_cast<int>(static_cast<float>(bar_rect_.right - bar_rect_.left) * fraction + 0.5f);
+		const int total_width = bar_rect_.right - bar_rect_.left;
+		const int filled = static_cast<int>(static_cast<float>(total_width) * fraction + 0.5f);
 		if (filled > 0) {
 			RECT fill = bar_rect_;
 			fill.right = fill.left + filled;
-			const COLORREF end_color = blend(StartupPalette::kAccentStart, StartupPalette::kAccentEnd, fraction);
-			fill_gradient(device, fill, StartupPalette::kAccentStart, end_color, true);
+			fill_solid(device, fill, StartupPalette::kAccentBar);
 		}
-		SelectClipRgn(device, nullptr);
-		DeleteObject(region);
 	}
 
-	void draw_repository_button(HDC device) const noexcept {
-		const bool hot = is_hot(Control::Repository);
-		const COLORREF fill = is_down(Control::Repository) ? StartupPalette::kButtonPressed : (hot ? StartupPalette::kButtonHover : StartupPalette::kButtonFill);
-		fill_round_rect(device, repository_rect_, px(8), fill, hot ? StartupPalette::kAccentStart : StartupPalette::kBorder);
-		draw_text(device, L"Open source project", fonts_.button, hot ? StartupPalette::kTextPrimary : StartupPalette::kTextSecondary, repository_rect_, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	void draw_action_button(HDC device, Control control, const RECT& rect, const wchar_t* label) const noexcept {
+		const bool hot = is_hot(control);
+		const bool down = is_down(control);
+		const COLORREF fill = down ? StartupPalette::kButtonPressed : (hot ? StartupPalette::kButtonHover : StartupPalette::kButtonFill);
+		const COLORREF border = hot ? StartupPalette::kTextHighlight : StartupPalette::kButtonBorder;
+		const COLORREF text_color = hot ? StartupPalette::kTextHighlight : StartupPalette::kTextPrimary;
+
+		fill_solid(device, rect, fill);
+		draw_border(device, rect, border);
+		draw_text(device, label, fonts_.mono, text_color, rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	}
+
+	void draw_footer_actions(HDC device) const noexcept {
+		draw_action_button(device, Control::License, license_rect_, L"[ License ]");
+		draw_action_button(device, Control::Documentation, docs_rect_, L"[ Docs ]");
+		draw_action_button(device, Control::Repository, repository_rect_, L"[ GitHub ]");
 	}
 
 	void paint(HWND hwnd) noexcept {
@@ -500,7 +504,7 @@ private:
 				draw_window_controls(frame_.device);
 				draw_status(frame_.device);
 				draw_progress_bar(frame_.device);
-				draw_repository_button(frame_.device);
+				draw_footer_actions(frame_.device);
 				BitBlt(device, 0, 0, client_width_, client_height_, frame_.device, 0, 0, SRCCOPY);
 			}
 		}
@@ -516,6 +520,12 @@ private:
 		}
 		if (PtInRect(&repository_rect_, point) != FALSE) {
 			return Control::Repository;
+		}
+		if (PtInRect(&docs_rect_, point) != FALSE) {
+			return Control::Documentation;
+		}
+		if (PtInRect(&license_rect_, point) != FALSE) {
+			return Control::License;
 		}
 		return Control::None;
 	}
@@ -552,6 +562,12 @@ private:
 				break;
 			case Control::Repository:
 				ShellExecuteW(hwnd, L"open", widen_utf8(ApplicationInfo::kRepositoryUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				break;
+			case Control::Documentation:
+				ShellExecuteW(hwnd, L"open", widen_utf8(ApplicationInfo::kDocumentationUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				break;
+			case Control::License:
+				ShellExecuteW(hwnd, L"open", widen_utf8(ApplicationInfo::kLicenseUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 				break;
 			case Control::None:
 			default:
@@ -739,6 +755,7 @@ private:
 	}
 
 	void run() {
+		start_time_ = std::chrono::steady_clock::now();
 		instance_ = GetModuleHandleW(nullptr);
 
 		WNDCLASSEXW window_class{};
@@ -768,7 +785,7 @@ private:
 		apply_dpi_resources();
 		place_window(hwnd);
 
-		const DWORD corner_preference = 2;
+		const DWORD corner_preference = 1;
 		DwmSetWindowAttribute(hwnd, 33, &corner_preference, sizeof(corner_preference));
 
 		ShowWindow(hwnd, SW_SHOWNORMAL);

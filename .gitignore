@@ -39,10 +39,11 @@
 *.app
 
 # Build directories
-build/
-build-release/
-Build/
-build-*/
+build
+build-release
+Build
+build-*
+releases
 
 # CMake generated files
 CMakeFiles/
@@ -61,18 +62,23 @@ compile_commands.json
 # vcpkg
 vcpkg_installed/
 
-# debug information files
+# Debug information files
 *.dwo
 
-# test output & cache
+# Test output & cache
 Testing/
 .cache/
+
+# Config files
+imgui.ini
+config
 
 # Other files and directories
 todo.md
 docs/other
 .vscode
-releases
 output
 *spv
 scripts
+captures
+screenshots

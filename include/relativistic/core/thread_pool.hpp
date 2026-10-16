@@ -12,6 +12,7 @@
 #include <concepts>
 #include <cstdio>
 #include <exception>
+#include "relativistic/startup/startup_progress.hpp"
 
 namespace Relativistic::Core {
 
@@ -203,6 +204,8 @@ public:
 };
 
 [[nodiscard]] inline ThreadPool& global_render_thread_pool() {
+	static const bool announced = (Startup::note("Spawning the render worker thread pool..."), true);
+	static_cast<void>(announced);
 	static ThreadPool instance;
 	return instance;
 }

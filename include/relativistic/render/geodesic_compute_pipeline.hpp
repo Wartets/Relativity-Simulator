@@ -372,6 +372,7 @@ public:
 		  thread_pool_(&Core::global_render_thread_pool(), [](Core::ThreadPool*) noexcept {}) {
 		precision_mode_.store(config_.precision, std::memory_order_relaxed);
 		try {
+			Startup::note("Allocating framebuffers (" + std::to_string(config_.width) + "x" + std::to_string(config_.height) + ")...");
 			front_buffer_.resize(static_cast<size_t>(config_.width) * config_.height);
 			back_buffer_.resize(static_cast<size_t>(config_.width) * config_.height);
 		} catch (const std::exception& ex) {
@@ -383,9 +384,11 @@ public:
 		}
 
 		try {
+			Startup::note("Initializing the Vulkan compute context...");
 			static_cast<void>(context_.initialize(config_.headless, config_.precision == PrecisionMode::NativeFloat64));
 
 			if (context_.has_compute_device()) {
+				Startup::note("Initializing the GPU compute executor...");
 				auto candidate_executor = std::make_unique<VulkanComputeExecutor>();
 				if (candidate_executor->initialize(context_)) {
 					gpu_executor_ = std::move(candidate_executor);
@@ -405,6 +408,7 @@ public:
 		}
 
 		if (!config_.headless) {
+			Startup::note("Starting the asynchronous render worker...");
 			worker_thread_ = std::jthread([this](std::stop_token st) {
 				worker_loop(st);
 			});

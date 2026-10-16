@@ -400,8 +400,8 @@ public:
 		const float avail_w = std::max(ImGui::GetContentRegionAvail().x, 60.0f);
 		const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-		const ImU32 col_bg_active = ImGui::GetColorU32(window_focused ? ImGuiCol_TabActive : ImGuiCol_TabUnfocusedActive);
-		const ImU32 col_bg_idle = ImGui::GetColorU32(window_focused ? ImGuiCol_Tab : ImGuiCol_TabUnfocused);
+		const ImU32 col_bg_active = ImGui::GetColorU32(window_focused ? ImGuiCol_TabSelected : ImGuiCol_TabDimmedSelected);
+		const ImU32 col_bg_idle = ImGui::GetColorU32(window_focused ? ImGuiCol_Tab : ImGuiCol_TabDimmed);
 		const ImU32 col_bg_hovered = ImGui::GetColorU32(ImGuiCol_TabHovered);
 		const ImU32 col_border = ImGui::GetColorU32(ImGuiCol_Border);
 		const ImU32 col_text_active = ImGui::GetColorU32(ImGuiCol_Text);

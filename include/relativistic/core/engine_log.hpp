@@ -46,8 +46,8 @@ public:
 				entries_.pop_front();
 			}
 		}
-		const char* prefix = (level == LogLevel::Error) ? "[ERROR] " : (level == LogLevel::Warning) ? "[WARN] " : "[INFO] ";
-		FILE* stream = (level == LogLevel::Error) ? stderr : stdout;
+		const char* prefix = prefix_for(level);
+		FILE* stream = stream_for(level);
 		std::fprintf(stream, "%s%s\n", prefix, std::string(message).c_str());
 		std::fflush(stream);
 	}
@@ -55,6 +55,23 @@ public:
 	[[nodiscard]] std::deque<LogEntry> snapshot() const {
 		std::lock_guard<std::mutex> lock(mutex_);
 		return entries_;
+	}
+
+	[[nodiscard]] static const char* prefix_for(LogLevel level) noexcept {
+		return (level == LogLevel::Error) ? "[ERROR] " : (level == LogLevel::Warning) ? "[WARN] " : "[INFO] ";
+	}
+
+	[[nodiscard]] static FILE* stream_for(LogLevel level) noexcept {
+		return (level == LogLevel::Error) ? stderr : stdout;
+	}
+
+	void replay_to_console() const {
+		const std::deque<LogEntry> entries = snapshot();
+		for (const auto& entry : entries) {
+			std::fprintf(stream_for(entry.level), "%s%s\n", prefix_for(entry.level), entry.message.c_str());
+		}
+		std::fflush(stdout);
+		std::fflush(stderr);
 	}
 
 	void clear() noexcept {

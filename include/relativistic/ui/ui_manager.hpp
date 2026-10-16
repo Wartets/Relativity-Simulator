@@ -29,6 +29,7 @@
 #include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/orchestrator/session_state.hpp"
 #include "relativistic/core/system_console.hpp"
+#include "relativistic/startup/startup_progress.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
 
 #include <imgui.h>
@@ -47,6 +48,9 @@
 #include <algorithm>
 #include <optional>
 #include <cstring>
+#include <atomic>
+#include <thread>
+#include <string_view>
 
 namespace Relativistic::UI {
 
@@ -83,6 +87,9 @@ private:
 	std::unique_ptr<SecondaryViewportManager> secondary_viewport_manager_;
 	bool secondary_viewport_manager_panel_open_{false};
 
+	bool glfw_initialized_{false};
+	bool imgui_context_created_{false};
+	bool platform_backends_ready_{false};
 	bool show_viewport_{true};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
@@ -115,23 +122,31 @@ public:
 	}
 
 	void initialize() {
+		report_startup(Startup::StartupStage::WindowSystem, 0.0f, "Creating window system", "Initializing GLFW...");
 		if (!glfwInit()) {
 			throw std::runtime_error("Failed to initialize GLFW");
 		}
+		glfw_initialized_ = true;
+		report_startup(Startup::StartupStage::WindowSystem, 0.4f, "Creating window system", std::string("GLFW ready: ") + glfwGetVersionString());
 
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 		glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+		report_startup(Startup::StartupStage::WindowSystem, 0.7f, "Creating window system", "Creating the main window (hidden until startup completes)...");
 
 		main_window_ = glfwCreateWindow(1920, 1080, "Relativistic Engine - Primary Simulation Host", nullptr, nullptr);
 		if (!main_window_) {
-			glfwTerminate();
-			throw std::runtime_error("Failed to create GLFW window");
+			const char* description = nullptr;
+			glfwGetError(&description);
+			throw std::runtime_error(std::string("Failed to create the main window: ") + ((description != nullptr) ? description : "unknown error"));
 		}
 
 		glfwMakeContextCurrent(main_window_);
 		glfwSwapInterval(1);
+		const char* renderer_name = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+		report_startup(Startup::StartupStage::GraphicsContext, 0.0f, "Initializing graphics", std::string("OpenGL context ready: ") + ((renderer_name != nullptr) ? renderer_name : "unknown renderer"));
 
 		glfwSetWindowUserPointer(main_window_, this);
 		glfwSetScrollCallback(main_window_, [](GLFWwindow* win, double, double yoffset) noexcept {
@@ -151,9 +166,11 @@ public:
 			}
 		});
 
+		report_startup(Startup::StartupStage::GraphicsContext, 0.3f, "Initializing graphics", "Creating the Dear ImGui and ImPlot contexts...");
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImPlot::CreateContext();
+		imgui_context_created_ = true;
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -173,13 +190,23 @@ public:
 		style.Colors[ImGuiCol_WindowBg].w = 0.96f;
 		style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.04f, 0.04f, 0.07f, 1.0f);
 
+		report_startup(Startup::StartupStage::GraphicsContext, 0.7f, "Initializing graphics", "Initializing the GLFW and OpenGL 3.3 platform backends...");
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
+		platform_backends_ready_ = true;
+		report_startup(Startup::StartupStage::GraphicsContext, 1.0f, "Initializing graphics", "Graphics context ready");
 
+		report_startup(Startup::StartupStage::RenderBackend, 0.0f, "Starting render backend", "Creating the ray-tracing viewport and GPU compute pipeline...");
 		viewport_window_ = std::make_unique<ViewportPrimaryWindow>(orchestrator_, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, user_settings_.spatial_reference);
+		report_startup(
+			Startup::StartupStage::RenderBackend, 1.0f, "Starting render backend",
+			viewport_window_->pipeline_ref().gpu_compute_available() ? std::string("Vulkan compute offload ready") : std::string("Vulkan compute unavailable, CPU SIMD renderer active")
+		);
+		report_startup(Startup::StartupStage::Interface, 0.05f, "Building interface", "Creating the capture studio...");
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		viewport_window_->set_open_screenshot_settings_callback([this]() { open_capture_studio(); });
+		report_startup(Startup::StartupStage::Interface, 0.25f, "Building interface", "Creating the scenario manager...");
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, user_settings_, &camera_controller_);
 		scenario_window_->set_settings_persist_callback([this]() {
 			export_runtime_settings();
@@ -195,6 +222,7 @@ public:
 		});
 		last_frame_time_ = std::chrono::steady_clock::now();
 
+		report_startup(Startup::StartupStage::Interface, 0.45f, "Building interface", "Restoring window layout and panel visibility...");
 		telemetry_window_.open_state() = user_settings_.window_telemetry_open;
 		spectrograph_window_.open_state() = user_settings_.window_spectrograph_open;
 		diagnostics_window_.open_state() = user_settings_.window_diagnostics_open;
@@ -210,9 +238,14 @@ public:
 		log_console_window_.open_state() = user_settings_.window_log_console_open;
 		log_console_window_.attach_system_console_flag(user_settings_.show_system_console);
 
+		report_startup(Startup::StartupStage::Interface, 0.6f, "Building interface", "Applying unit system and coordinate preferences...");
 		orchestrator_.unit_preferences() = user_settings_.unit_preferences;
 		orchestrator_.coordinate_preferences() = user_settings_.coordinate_preferences;
 
+		report_startup(
+			Startup::StartupStage::Interface, 0.7f, "Configuring physics",
+			std::string("Configuring the physical constants engine (") + (user_settings_.constants_preset == 0U ? "SI" : (user_settings_.constants_preset == 1U ? "Planck" : "Custom")) + " preset)..."
+		);
 		orchestrator_.constants_engine().apply_preset_by_index(user_settings_.constants_preset);
 		if (user_settings_.constants_preset == 2) {
 			orchestrator_.constants_engine().set_speed_of_light(user_settings_.constants_c);
@@ -224,8 +257,10 @@ public:
 			orchestrator_.constants_engine().set_luminous_efficacy(user_settings_.constants_kcd);
 		}
 
+		report_startup(Startup::StartupStage::Interface, 0.8f, "Configuring physics", "Applying camera, keybind and HUD configuration...");
 		camera_controller_.config() = user_settings_.camera_controls;
 		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
+		report_startup(Startup::StartupStage::Interface, 0.9f, "Configuring physics", "Configuring electromagnetic, collision, thermodynamic and fragmentation models...");
 
 		{
 			auto& ic = orchestrator_.interaction_config();
@@ -260,12 +295,15 @@ public:
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 
+		report_startup(Startup::StartupStage::Content, 0.0f, "Loading content", "Resolving the startup scenario...");
 		queue_startup_scenario();
+		report_startup(Startup::StartupStage::Content, 0.3f, "Loading content", "Queueing session state restoration...");
 		queue_session_restore();
 
 		if (secondary_viewport_manager_) {
 			for (const auto& saved : user_settings_.secondary_views) {
 				if (!saved.active) continue;
+				report_startup(Startup::StartupStage::Content, 0.4f, "Loading content", "Restoring secondary observer viewport '" + saved.name + "'...");
 				auto& view = secondary_viewport_manager_->add_view_with_state(saved.name, saved.open);
 				view.apply_saved_state(saved.radius, saved.theta, saved.phi, saved.fov_deg, saved.exposure, saved.tonemapping_mode, saved.projection_mode, saved.max_steps, saved.resolution_scale, saved.follow_primary, saved.follow_offset_theta, saved.follow_offset_phi);
 			}
@@ -275,6 +313,9 @@ public:
 		if (user_settings_.window_chrome.geometries.empty()) {
 			pending_layout_reset_ = true;
 		}
+		report_startup(Startup::StartupStage::Content, 0.6f, "Loading content", "Applying the startup scenario and restoring the session state...");
+		await_startup_content();
+		report_startup(Startup::StartupStage::Content, 1.0f, "Loading content", "Simulation state synchronized");
 	}
 
 	void add_secondary_view(const std::string& name) {
@@ -565,27 +606,46 @@ public:
 		glfwSwapBuffers(main_window_);
 	}
 
+	void reveal_window() noexcept {
+		if (main_window_ == nullptr) {
+			return;
+		}
+		glfwShowWindow(main_window_);
+		glfwFocusWindow(main_window_);
+		last_frame_time_ = std::chrono::steady_clock::now();
+		autosave_elapsed_seconds_ = 0.0;
+	}
+
 	[[nodiscard]] bool should_close() const noexcept {
 		return glfwWindowShouldClose(main_window_);
 	}
 
 	void shutdown() noexcept {
-		if (main_window_) {
-			capture_studio_window_.reset();
-			viewport_window_.reset();
-			scenario_window_.reset();
+		capture_studio_window_.reset();
+		viewport_window_.reset();
+		scenario_window_.reset();
 
-			ImGuiIO& io = ImGui::GetIO();
-			if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-				ImGui::DestroyPlatformWindows();
+		if (imgui_context_created_) {
+			if (platform_backends_ready_) {
+				ImGuiIO& io = ImGui::GetIO();
+				if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+					ImGui::DestroyPlatformWindows();
+				}
+				ImGui_ImplOpenGL3_Shutdown();
+				ImGui_ImplGlfw_Shutdown();
+				platform_backends_ready_ = false;
 			}
-			ImGui_ImplOpenGL3_Shutdown();
-			ImGui_ImplGlfw_Shutdown();
 			ImPlot::DestroyContext();
 			ImGui::DestroyContext();
+			imgui_context_created_ = false;
+		}
+		if (main_window_) {
 			glfwDestroyWindow(main_window_);
-			glfwTerminate();
 			main_window_ = nullptr;
+		}
+		if (glfw_initialized_) {
+			glfwTerminate();
+			glfw_initialized_ = false;
 		}
 	}
 
@@ -603,6 +663,34 @@ private:
 			spectrograph_window_.ray_probe_frozen()
 		);
 		viewport_window_->set_linked_readouts(spectrograph_window_.linked_readouts());
+	}
+
+	void report_startup(Startup::StartupRange range, float local_fraction, std::string_view stage, std::string_view detail) const {
+		Startup::StartupProgress* progress = Startup::active_progress();
+		if (progress == nullptr) {
+			return;
+		}
+		progress->report(range, local_fraction, stage, detail);
+		progress->throw_if_cancelled();
+	}
+
+	void await_startup_content() {
+		Startup::StartupProgress* progress = Startup::active_progress();
+		const auto settled = std::make_shared<std::atomic<bool>>(false);
+		orchestrator_.queue_post_command_action([settled](Orchestrator::SimulationOrchestrator<1024>&) {
+			settled->store(true, std::memory_order_release);
+		});
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+		while (!settled->load(std::memory_order_acquire)) {
+			if (progress != nullptr) {
+				progress->throw_if_cancelled();
+			}
+			if (std::chrono::steady_clock::now() >= deadline) {
+				Core::log_warning("The simulation thread did not confirm the startup content within the expected time.");
+				return;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
 	}
 
 	void queue_session_restore() {
@@ -631,6 +719,7 @@ private:
 			user_settings_.default_scenario_path = std::string(IO::ScenarioLocator::kBuiltInStartupScenario);
 		}
 
+		report_startup(Startup::StartupStage::Content, 0.2f, "Loading content", "Loading scenario " + startup->path + "...");
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(startup->path)));
 	}
 

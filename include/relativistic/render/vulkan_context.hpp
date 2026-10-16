@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/startup/startup_progress.hpp"
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <cstddef>
@@ -40,6 +41,7 @@ private:
 	uint32_t compute_queue_family_index_{0};
 
 	[[nodiscard]] bool bring_up_vulkan_device(bool prefer_fp64) noexcept {
+		Startup::note("Creating the Vulkan instance (API 1.2)...");
 		VkApplicationInfo app_info{};
 		app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		app_info.pApplicationName = "RelativisticEngine";
@@ -56,6 +58,7 @@ private:
 			return false;
 		}
 
+		Startup::note("Enumerating Vulkan physical devices...");
 		uint32_t device_count = 0;
 		vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
 		if (device_count == 0) {
@@ -126,6 +129,9 @@ private:
 			return false;
 		}
 
+		VkPhysicalDeviceProperties selected_properties{};
+		vkGetPhysicalDeviceProperties(physical_device_, &selected_properties);
+		Startup::note(std::string("Selected compute device: ") + selected_properties.deviceName);
 		VkPhysicalDeviceFeatures supported_device_features{};
 		vkGetPhysicalDeviceFeatures(physical_device_, &supported_device_features);
 
@@ -157,6 +163,7 @@ private:
 
 		vkGetDeviceQueue(device_, compute_queue_family_index_, 0, &compute_queue_);
 
+		Startup::note("Creating the logical device, compute queue and command pool...");
 		VkCommandPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

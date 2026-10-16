@@ -1,0 +1,36 @@
+#include <windows.h>
+#include "@CMAKE_CURRENT_SOURCE_DIR@/include/relativistic/startup/application_resources.h"
+
+IDI_APPLICATION_ICON ICON "@ENGINE_ICON_RESOURCE_PATH@"
+GLFW_ICON ICON "@ENGINE_ICON_RESOURCE_PATH@"
+1 24 "@CMAKE_CURRENT_SOURCE_DIR@/resources/app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @ENGINE_VERSION_COMMA@
+PRODUCTVERSION @ENGINE_VERSION_COMMA@
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904B0"
+		BEGIN
+			VALUE "CompanyName", "Wartets"
+			VALUE "FileDescription", "Relativistic Engine - Relativistic Physics and Raytracing Engine"
+			VALUE "FileVersion", "@ENGINE_VERSION_STRING@"
+			VALUE "InternalName", "RelativisticEngine"
+			VALUE "LegalCopyright", "Copyright (C) Wartets"
+			VALUE "OriginalFilename", "RelativisticEngine.exe"
+			VALUE "ProductName", "Relativistic Engine"
+			VALUE "ProductVersion", "@ENGINE_VERSION_STRING@"
+			VALUE "Comments", "https://github.com/Wartets/Relativity-Simulator"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END

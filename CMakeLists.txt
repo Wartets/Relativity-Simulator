@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if (WIN32)
+	enable_language(RC)
+endif()
+
 option(ENGINE_PORTABLE_EXE "Build engine_cli as a self-contained Windows executable" OFF)
 
 if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
@@ -465,8 +469,51 @@ elseif (ENABLE_PGO_USE)
 	endif()
 endif()
 
-add_executable(engine_cli apps/engine_cli/main.cpp)
+set(ENGINE_CLI_SOURCES apps/engine_cli/main.cpp)
+set(ENGINE_HAS_RESOURCES OFF)
+
+if (WIN32)
+	set(ENGINE_ICON_FILE "")
+	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.ico")
+		set(ENGINE_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.ico")
+	elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include/relativistic/resources/icon.ico")
+		set(ENGINE_ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/include/relativistic/resources/icon.ico")
+		file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+		file(COPY "${ENGINE_ICON_FILE}" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+	endif()
+
+	if (ENGINE_ICON_FILE AND EXISTS "${ENGINE_ICON_FILE}")
+		set(ENGINE_ICON_RESOURCE_PATH "${ENGINE_ICON_FILE}")
+		set(ENGINE_VERSION_STRING "0.4.1.017")
+		set(ENGINE_VERSION_COMMA "0,4,1,17")
+		configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
+		list(APPEND ENGINE_CLI_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
+		set_source_files_properties(
+			${CMAKE_CURRENT_BINARY_DIR}/app.rc
+			PROPERTIES OBJECT_DEPENDS "${ENGINE_ICON_FILE};${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
+		)
+		set(ENGINE_HAS_RESOURCES ON)
+	else()
+		message(WARNING "resources/icon.ico was not found; the executable is built without embedded icon, manifest and version resources.")
+	endif()
+endif()
+
+add_executable(engine_cli ${ENGINE_CLI_SOURCES})
 target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)
+target_compile_definitions(engine_cli PRIVATE "RELATIVISTIC_VERSION_STRING=\"0.4.1.017\"")
+set_target_properties(engine_cli PROPERTIES OUTPUT_NAME "RelativisticEngine")
+
+if (WIN32)
+	set_target_properties(engine_cli PROPERTIES WIN32_EXECUTABLE ON)
+	target_compile_definitions(engine_cli PRIVATE UNICODE _UNICODE)
+	target_link_libraries(engine_cli PRIVATE dwmapi msimg32 shell32 gdi32 user32)
+	if (MSVC)
+		target_link_options(engine_cli PRIVATE /ENTRY:mainCRTStartup)
+		if (ENGINE_HAS_RESOURCES)
+			target_link_options(engine_cli PRIVATE /MANIFEST:NO)
+		endif()
+	endif()
+endif()
 
 if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
 	target_link_options(engine_cli PRIVATE -static -static-libgcc -static-libstdc++)

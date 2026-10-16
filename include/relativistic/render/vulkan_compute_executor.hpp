@@ -773,6 +773,7 @@ public:
 		command_pool_ = context.command_pool();
 		vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory_properties_);
 
+		Startup::note("Locating the compute shader bytecode (geodesic_tracer_fp64.comp.spv)...");
 		const auto spirv_path = find_spirv_path();
 		if (!spirv_path.has_value()) {
 			return false;
@@ -782,6 +783,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Validating and loading the SPIR-V module (" + std::to_string(bytecode->size() * sizeof(uint32_t) / 1024U) + " KiB)...");
 		VkShaderModuleCreateInfo shader_info{};
 		shader_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 		shader_info.codeSize = bytecode->size() * sizeof(uint32_t);
@@ -790,6 +792,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Creating descriptor set layout and pipeline layout...");
 		std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -850,6 +853,7 @@ public:
 		stage_info.module = shader_module_;
 		stage_info.pName = "main";
 
+		Startup::note("Building the geodesic compute pipeline...");
 		VkComputePipelineCreateInfo pipeline_info{};
 		pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
 		pipeline_info.stage = stage_info;
@@ -859,6 +863,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Allocating the descriptor pool and uniform buffers...");
 		std::array<VkDescriptorPoolSize, 3> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
 		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
@@ -942,14 +947,17 @@ public:
 
 		vkUpdateDescriptorSets(device_, 1, &persistent_counter_write, 0, nullptr);
 
+		Startup::note("Allocating output and staging buffers...");
 		if (!ensure_output_capacity(64 * 64)) {
 			return false;
 		}
 
+		Startup::note("Allocating the celestial body storage buffer...");
 		if (!ensure_body_capacity(1)) {
 			return false;
 		}
 
+		Startup::note("Recording command buffer and synchronization objects...");
 		VkCommandBufferAllocateInfo cmd_alloc_info{};
 		cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		cmd_alloc_info.commandPool = command_pool_;
@@ -966,6 +974,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Creating samplers and the placeholder sky panorama...");
 		VkSamplerCreateInfo panorama_sampler_info{};
 		panorama_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 		panorama_sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -982,6 +991,7 @@ public:
 			(void)ensure_panorama_placeholder();
 		}
 
+		Startup::note("Uploading the Earth texture placeholders to the GPU...");
 		VkSamplerCreateInfo earth_sampler_info{};
 		earth_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 		earth_sampler_info.magFilter = VK_FILTER_LINEAR;

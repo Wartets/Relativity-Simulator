@@ -111,6 +111,11 @@ Relativity-Simulator/
 │       │   ├── system_console.hpp
 │       │   └── thread_pool.hpp
 │       │
+│       ├── cosmology/
+│       │   ├── cosmology_settings.hpp
+│       │   ├── dark_energy_models.hpp
+│       │   └── lemaitre_tolman_bondi_profile.hpp
+│       │
 │       ├── dark_matter/
 │       │   ├── barnes_hut.hpp
 │       │   ├── dark_matter_field.hpp
@@ -221,6 +226,7 @@ Relativity-Simulator/
 │       │   ├── kerr_invariants.hpp
 │       │   ├── kerr_newman.hpp
 │       │   ├── kerr_schild.hpp
+│       │   ├── lemaitre_tolman_bondi.hpp
 │       │   ├── morris_thorne.hpp
 │       │   ├── painleve_gullstrand.hpp
 │       │   ├── reissner_nordstrom.hpp
@@ -228,7 +234,8 @@ Relativity-Simulator/
 │       │   ├── schwarzschild_de_sitter.hpp
 │       │   ├── schwarzschild_isotropic.hpp
 │       │   ├── spacetime_concept.hpp
-│       │   └── subsidiary_source_field.hpp
+│       │   ├── subsidiary_source_field.hpp
+│       │   └── vaidya_evaporating.hpp
 │       │
 │       ├── modified_gravity/
 │       │   ├── f_r_gravity.hpp
@@ -238,7 +245,9 @@ Relativity-Simulator/
 │       ├── observer/
 │       │   ├── camera_collision.hpp
 │       │   ├── camera_projections.hpp
+│       │   ├── coordinate_systems.hpp
 │       │   ├── direction_projection.hpp
+│       │   ├── observer_lapse.hpp
 │       │   ├── observer_tetrad.hpp
 │       │   ├── planet_orbit.hpp
 │       │   ├── rocket_dynamics.hpp
@@ -257,6 +266,7 @@ Relativity-Simulator/
 │       │   ├── carter_ray_classifier.hpp
 │       │   ├── cie_observer.hpp
 │       │   ├── disk_thermal_profile.hpp
+│       │   ├── generic_metric_tracer.hpp
 │       │   ├── geodesic_ray_probe.hpp
 │       │   ├── inverse_compton.hpp
 │       │   ├── maxwell_juttner.hpp
@@ -302,6 +312,20 @@ Relativity-Simulator/
 │       │   ├── vulkan_compute_executor.hpp
 │       │   └── vulkan_context.hpp
 │       │
+│       ├── resources/
+│       │   ├── icon.ico
+│       │   └── icon.png
+│       │
+│       ├── semiclassical/
+│       │   └── hawking_unruh.hpp
+│       │
+│       ├── startup/
+│       │   ├── application_info.hpp
+│       │   ├── application_resources.h
+│       │   ├── platform_bootstrap.hpp
+│       │   ├── startup_progress.hpp
+│       │   └── startup_window.hpp
+│       │
 │       ├── ui/
 │       │   ├── hud/
 │       │   │   ├── hud_layout_config.hpp
@@ -328,6 +352,9 @@ Relativity-Simulator/
 │       │   ├── compatibility_notes.hpp
 │       │   ├── constants_window.hpp
 │       │   ├── control_panel_window.hpp
+│       │   ├── coordinate_aware_widgets.hpp
+│       │   ├── coordinate_display.hpp
+│       │   ├── cosmology_panel.hpp
 │       │   ├── dark_matter_panel.hpp
 │       │   ├── horizon_zone_strip.hpp
 │       │   ├── input_actions.hpp
@@ -337,6 +364,7 @@ Relativity-Simulator/
 │       │   ├── jet_magnetosphere_editor.hpp
 │       │   ├── keybind_settings_window.hpp
 │       │   ├── log_console_window.hpp
+│       │   ├── metric_catalog.hpp
 │       │   ├── motion_script_editor.hpp
 │       │   ├── multi_row_tab_bar.hpp
 │       │   ├── numeric_slider_utils.hpp
@@ -375,6 +403,12 @@ Relativity-Simulator/
 │       
 │   
 │
+├── resources/
+│   ├── app.manifest
+│   ├── app.rc.in
+│   ├── icon.ico
+│   └── icon.png
+│
 ├── scenarios/
 │   ├── alcubierre_warp_bubble.yaml
 │   ├── annihilation_matter_antimatter.yaml
@@ -402,7 +436,9 @@ Relativity-Simulator/
 ├── shaders/
 │   ├── geodesic_tracer_ds.comp
 │   ├── geodesic_tracer_fp64.comp
-│   └── monte_carlo_shadow.comp
+│   ├── monte_carlo_shadow.comp
+│   ├── spacetime_spherical_tracer.glsl
+│   └── spacetime_teves_metric.glsl
 │
 ├── tests/
 │   ├── benchmark_simd_bundle.cpp

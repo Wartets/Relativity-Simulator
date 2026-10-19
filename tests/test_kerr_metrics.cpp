@@ -1,113 +1,47 @@
+#include "support/test_harness.hpp"
+#include "support/metric_checks.hpp"
 #include "relativistic/metrics/kerr.hpp"
 #include "relativistic/metrics/kerr_schild.hpp"
 #include "relativistic/metrics/kerr_invariants.hpp"
-#include "relativistic/core/math/christoffel.hpp"
-#include <cassert>
 #include <cmath>
-#include <iostream>
 #include <numbers>
 
 using namespace Relativistic::Core;
 using namespace Relativistic::Metrics;
-
-void test_kerr_boyer_lindquist_properties() {
-	const double m = 1.0;
-	const double a = 0.8;
-	const double c = 1.0;
-	const double g = 1.0;
-
-	const KerrMetric<double> kerr(m, a, c, g);
-
-	assert(kerr.is_subextremal());
-	assert(!kerr.is_extremal());
-	assert(!kerr.is_hyperextremal());
-
-	const double r_plus_expected = 1.0 + std::sqrt(1.0 - 0.8 * 0.8);
-	const double r_minus_expected = 1.0 - std::sqrt(1.0 - 0.8 * 0.8);
-	assert(std::abs(kerr.outer_horizon_radius() - r_plus_expected) < 1e-14);
-	assert(std::abs(kerr.inner_horizon_radius() - r_minus_expected) < 1e-14);
-
-	const double r_e_pole = kerr.outer_ergosphere_radius(0.0);
-	assert(std::abs(r_e_pole - r_plus_expected) < 1e-14);
-
-	const double r_e_eq = kerr.outer_ergosphere_radius(std::numbers::pi / 2.0);
-	assert(std::abs(r_e_eq - 2.0) < 1e-14);
-
-	const FourVector<double> x(0.0, 5.0, std::numbers::pi / 3.0, 0.2);
-	const auto g_cov = kerr.metric_tensor(x);
-	const auto g_con = kerr.inverse_metric(x);
-
-	assert(g_cov(0, 3) != 0.0);
-	assert(g_cov(3, 0) == g_cov(0, 3));
-
-	for (size_t i = 0; i < 4; ++i) {
-		for (size_t j = 0; j < 4; ++j) {
-			double delta_ij = 0.0;
-			for (size_t k = 0; k < 4; ++k) {
-				delta_ij += g_cov(i, k) * g_con(k, j);
-			}
-			const double target = (i == j) ? 1.0 : 0.0;
-			assert(std::abs(delta_ij - target) < 1e-13);
-		}
-	}
-
-	const auto gamma_analytic = kerr.christoffel_symbols(x);
-	const auto gamma_numeric = compute_christoffel_numerical<DerivativeOrder::EighthOrder>(kerr, x);
-
-	for (size_t s = 0; s < 4; ++s) {
-		for (size_t u = 0; u < 4; ++u) {
-			for (size_t v = 0; v < 4; ++v) {
-				const double diff = std::abs(gamma_analytic(s, u, v) - gamma_numeric(s, u, v));
-				assert(diff < 1e-10);
-			}
-		}
-	}
-
-	const double omega_zamo = compute_zamo_angular_velocity(kerr, x);
-	assert(omega_zamo > 0.0);
-}
-
-void test_kerr_schild_cartesian_properties() {
-	const double m = 1.0;
-	const double a = 0.85;
-	const double c = 1.0;
-	const double g = 1.0;
-
-	const KerrSchildMetric<double> ks(m, a, c, g);
-
-	const FourVector<double> x(0.0, 3.0, 2.0, 1.5);
-	const auto g_cov = ks.metric_tensor(x);
-	const auto g_con = ks.inverse_metric(x);
-
-	for (size_t i = 0; i < 4; ++i) {
-		for (size_t j = 0; j < 4; ++j) {
-			double delta_ij = 0.0;
-			for (size_t k = 0; k < 4; ++k) {
-				delta_ij += g_cov(i, k) * g_con(k, j);
-			}
-			const double target = (i == j) ? 1.0 : 0.0;
-			assert(std::abs(delta_ij - target) < 1e-13);
-		}
-	}
-
-	const double det = determinant_4x4(g_cov);
-	assert(std::abs(det - (-1.0)) < 1e-12);
-
-	const auto gamma_analytic = ks.christoffel_symbols(x);
-	const auto gamma_numeric = compute_christoffel_numerical<DerivativeOrder::EighthOrder>(ks, x);
-
-	for (size_t s = 0; s < 4; ++s) {
-		for (size_t u = 0; u < 4; ++u) {
-			for (size_t v = 0; v < 4; ++v) {
-				const double diff = std::abs(gamma_analytic(s, u, v) - gamma_numeric(s, u, v));
-				assert(diff < 1e-10);
-			}
-		}
-	}
-}
+using Relativistic::Testing::MetricGeometryTolerances;
+using Relativistic::Testing::TestSuite;
+using Relativistic::Testing::verify_metric_geometry;
 
 int main() {
-	test_kerr_boyer_lindquist_properties();
-	test_kerr_schild_cartesian_properties();
-	return 0;
+	TestSuite suite(
+		"kerr_metrics",
+		"Verifies the Kerr metric in Boyer-Lindquist and Kerr-Schild forms: horizon and ergosphere radii, regime flags, frame dragging, metric inversion, symmetry, signature, the unit determinant of the Kerr-Schild form and the agreement of the analytic connection with eighth-order finite differences."
+	);
+
+	suite.section("Boyer-Lindquist horizons and ergosphere");
+	const double spin = 0.8;
+	const KerrMetric<double> kerr(1.0, spin, 1.0, 1.0);
+	const double root = std::sqrt(1.0 - spin * spin);
+	suite.check(kerr.is_subextremal() && !kerr.is_extremal() && !kerr.is_hyperextremal(), "a / M = 0.8 is classified as sub-extremal");
+	suite.check_near(kerr.outer_horizon_radius(), 1.0 + root, 1e-14, "the outer horizon equals M + sqrt(M^2 - a^2)");
+	suite.check_near(kerr.inner_horizon_radius(), 1.0 - root, 1e-14, "the inner horizon equals M - sqrt(M^2 - a^2)");
+	suite.check_near(kerr.outer_ergosphere_radius(0.0), 1.0 + root, 1e-14, "the ergosphere touches the outer horizon at the pole");
+	suite.check_near(kerr.outer_ergosphere_radius(std::numbers::pi / 2.0), 2.0, 1e-14, "the equatorial ergosphere radius equals 2 M");
+
+	suite.section("Boyer-Lindquist geometry");
+	const FourVector<double> position(0.0, 5.0, std::numbers::pi / 3.0, 0.2);
+	MetricGeometryTolerances tolerances;
+	tolerances.inversion = 1e-13;
+	tolerances.connection = 1e-8;
+	verify_metric_geometry(suite, "Kerr", kerr, position, tolerances);
+	const auto covariant = kerr.metric_tensor(position);
+	suite.check(covariant(0, 3) != 0.0 && covariant(3, 0) == covariant(0, 3), "the off-diagonal time-azimuth component that encodes frame dragging is present and symmetric");
+	suite.check(compute_zamo_angular_velocity(kerr, position) > 0.0, "the zero-angular-momentum observers co-rotate with the hole");
+
+	suite.section("Kerr-Schild geometry");
+	const KerrSchildMetric<double> kerr_schild(1.0, 0.85, 1.0, 1.0);
+	const FourVector<double> cartesian(0.0, 3.0, 2.0, 1.5);
+	verify_metric_geometry(suite, "Kerr-Schild", kerr_schild, cartesian, tolerances);
+	suite.check_near(determinant_4x4(kerr_schild.metric_tensor(cartesian)), -1.0, 1e-12, "the Kerr-Schild metric determinant equals -1");
+	return suite.finish();
 }

@@ -10,6 +10,7 @@ This guide is mandatory for every test and benchmark. No external test framework
 | Benchmark | `tests/benchmark_<topic>.cpp` |
 | Shared harness | `tests/support/test_harness.hpp` |
 | Scenario generation | `tests/support/engine_scenario.hpp` |
+| Metric invariant checks | `tests/support/metric_checks.hpp` |
 | Suite specification | `docs/testing/suites/<suite_name>.md` |
 | Generated reports | `docs/testing/results/<suite_name>.md` and `.json` |
 | Status ledger | `docs/testing/test_catalog.md` |
@@ -29,6 +30,7 @@ This guide is mandatory for every test and benchmark. No external test framework
 - Tests never read clocks, process identifiers or unseeded random state for their inputs. Use `Testing::DeterministicRandom` from `engine_scenario.hpp` with an explicit hexadecimal seed, or fixed data.
 - Tolerances are scale aware: relative, or relative to the largest value of the same row with an explicit floor. Never use `max(1, |value|)` for quantities that may be orders of magnitude below one.
 - Report the offending indices when a tensor comparison fails.
+- Metric tests call `verify_metric_geometry` from `tests/support/metric_checks.hpp` for the inversion, symmetry, signature and connection invariants instead of re-implementing them.
 - Geometric suites verify the invariants listed in the suite pages: metric symmetry, negative determinant, lower-index symmetry of the connection, analytic against eighth-order finite-difference derivatives, vanishing Ricci quantities in vacuum, the Kretschmann invariant and the null constraint along rays.
 
 ## Benchmarks

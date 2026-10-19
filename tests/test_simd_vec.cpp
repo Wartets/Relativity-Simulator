@@ -1,132 +1,118 @@
+#include "support/test_harness.hpp"
 #include "relativistic/core/simd.hpp"
 #include "relativistic/core/simd_math.hpp"
-#include <cassert>
-#include <cmath>
+#include <algorithm>
 #include <array>
-#include <numeric>
+#include <cmath>
+#include <string>
+#include <type_traits>
+
+using namespace Relativistic::Core;
+using Relativistic::Testing::TestSuite;
+
+namespace {
 
 template <typename T, size_t Width>
-void test_simd_arithmetic() {
-	using namespace Relativistic::Core;
+[[nodiscard]] std::string tag() {
+	return std::string(std::is_same_v<T, float> ? "float" : "double") + " x" + std::to_string(Width);
+}
 
-	std::array<T, Width> a_arr{};
-	std::array<T, Width> b_arr{};
-	for (size_t i = 0; i < Width; ++i) {
-		a_arr[i] = static_cast<T>(i + 1);
-		b_arr[i] = static_cast<T>((i + 1) * 2);
-	}
-
-	const SimdVec<T, Width> va(a_arr);
-	const SimdVec<T, Width> vb(b_arr);
-
-	const auto v_sum = va + vb;
-	const auto v_sub = vb - va;
-	const auto v_mul = va * vb;
-	const auto v_div = vb / va;
-
-	for (size_t i = 0; i < Width; ++i) {
-		assert(std::abs(v_sum[i] - (a_arr[i] + b_arr[i])) < static_cast<T>(1e-6));
-		assert(std::abs(v_sub[i] - (b_arr[i] - a_arr[i])) < static_cast<T>(1e-6));
-		assert(std::abs(v_mul[i] - (a_arr[i] * b_arr[i])) < static_cast<T>(1e-6));
-		assert(std::abs(v_div[i] - static_cast<T>(2)) < static_cast<T>(1e-6));
-	}
-
-	const auto v_fma = fma(va, vb, va);
-	for (size_t i = 0; i < Width; ++i) {
-		const T expected = a_arr[i] * b_arr[i] + a_arr[i];
-		assert(std::abs(v_fma[i] - expected) < static_cast<T>(1e-6));
-	}
-
-	const T sum = va.reduce_add();
-	T expected_sum = static_cast<T>(0);
-	for (size_t i = 0; i < Width; ++i) expected_sum += a_arr[i];
-	assert(std::abs(sum - expected_sum) < static_cast<T>(1e-6));
-
-	assert(va.reduce_min() == a_arr[0]);
-	assert(va.reduce_max() == a_arr[Width - 1]);
+[[nodiscard]] double deviation(double a, double b) noexcept {
+	return std::abs(a - b);
 }
 
 template <typename T, size_t Width>
-void test_simd_masking_and_select() {
-	using namespace Relativistic::Core;
+void check_arithmetic(TestSuite& suite) {
+	std::array<T, Width> a{};
+	std::array<T, Width> b{};
+	for (size_t i = 0; i < Width; ++i) {
+		a[i] = static_cast<T>(i + 1);
+		b[i] = static_cast<T>((i + 1) * 2);
+	}
+	const SimdVec<T, Width> va(a);
+	const SimdVec<T, Width> vb(b);
+	const auto sum = va + vb;
+	const auto difference = vb - va;
+	const auto product = va * vb;
+	const auto quotient = vb / va;
+	const auto fused = fma(va, vb, va);
+	double worst = 0.0;
+	double sum_expected = 0.0;
+	for (size_t i = 0; i < Width; ++i) {
+		const double x = static_cast<double>(a[i]);
+		const double y = static_cast<double>(b[i]);
+		worst = std::max({worst, deviation(sum[i], x + y), deviation(difference[i], y - x), deviation(product[i], x * y), deviation(quotient[i], 2.0), deviation(fused[i], x * y + x)});
+		sum_expected += x;
+	}
+	suite.check_at_most(worst, 1e-6, tag<T, Width>() + ": addition, subtraction, multiplication, division and fused multiply-add match scalar arithmetic");
+	suite.check(deviation(va.reduce_add(), sum_expected) < 1e-6 && va.reduce_min() == a[0] && va.reduce_max() == a[Width - 1], tag<T, Width>() + ": the horizontal sum, minimum and maximum are exact");
+}
 
+template <typename T, size_t Width>
+void check_masks(TestSuite& suite) {
 	SimdVec<T, Width> va;
 	SimdVec<T, Width> vb;
 	for (size_t i = 0; i < Width; ++i) {
 		va[i] = static_cast<T>(i);
 		vb[i] = static_cast<T>(Width - i);
 	}
-
-	const auto mask_lt = (va < vb);
+	const auto less = (va < vb);
+	const auto selected = select(less, va, vb);
+	bool consistent = true;
 	for (size_t i = 0; i < Width; ++i) {
-		assert(mask_lt[i] == (va[i] < vb[i]));
+		consistent = consistent && (less[i] == (va[i] < vb[i])) && (selected[i] == ((va[i] < vb[i]) ? va[i] : vb[i]));
 	}
-
-	const auto selected = select(mask_lt, va, vb);
-	for (size_t i = 0; i < Width; ++i) {
-		const T expected = (va[i] < vb[i]) ? va[i] : vb[i];
-		assert(selected[i] == expected);
-	}
-
-	const auto mask_all_true = SimdMask<T, Width>(true);
-	const auto mask_all_false = SimdMask<T, Width>(false);
-
-	assert(mask_all_true.all());
-	assert(!mask_all_true.none());
-	assert(mask_all_true.count() == Width);
-
-	assert(!mask_all_false.any());
-	assert(mask_all_false.none());
-	assert(mask_all_false.count() == 0);
-
-	const auto mask_not = !mask_all_true;
-	assert(mask_not == mask_all_false);
+	suite.check(consistent, tag<T, Width>() + ": comparison masks and blended selection follow the scalar semantics");
+	const SimdMask<T, Width> all_true(true);
+	const SimdMask<T, Width> all_false(false);
+	suite.check(all_true.all() && !all_true.none() && all_true.count() == Width && !all_false.any() && all_false.none() && all_false.count() == 0 && (!all_true) == all_false, tag<T, Width>() + ": uniform masks report their population and negate correctly");
 }
 
 template <typename T, size_t Width>
-void test_simd_math() {
-	using namespace Relativistic::Core;
-
+void check_math(TestSuite& suite) {
 	SimdVec<T, Width> v;
 	for (size_t i = 0; i < Width; ++i) {
 		v[i] = static_cast<T>(i) * static_cast<T>(0.25);
 	}
-
-	const auto v_sin = simd_sin(v);
-	const auto v_cos = simd_cos(v);
-	const auto sincos_res = simd_sincos(v);
-
+	const auto sine = simd_sin(v);
+	const auto cosine = simd_cos(v);
+	const auto pair = simd_sincos(v);
+	const auto identity = fma(sine, sine, cosine * cosine);
+	double worst = 0.0;
 	for (size_t i = 0; i < Width; ++i) {
-		assert(std::abs(v_sin[i] - std::sin(v[i])) < static_cast<T>(1e-6));
-		assert(std::abs(v_cos[i] - std::cos(v[i])) < static_cast<T>(1e-6));
-		assert(std::abs(sincos_res.sin_val[i] - std::sin(v[i])) < static_cast<T>(1e-6));
-		assert(std::abs(sincos_res.cos_val[i] - std::cos(v[i])) < static_cast<T>(1e-6));
+		const double x = static_cast<double>(v[i]);
+		worst = std::max({worst, deviation(sine[i], std::sin(x)), deviation(cosine[i], std::cos(x)), deviation(pair.sin_val[i], std::sin(x)), deviation(pair.cos_val[i], std::cos(x)), deviation(identity[i], 1.0)});
 	}
+	suite.check_at_most(worst, 1e-6, tag<T, Width>() + ": sine, cosine and the Pythagorean identity match the scalar library");
+}
 
-	const auto identity = fma(v_sin, v_sin, v_cos * v_cos);
-	for (size_t i = 0; i < Width; ++i) {
-		assert(std::abs(identity[i] - static_cast<T>(1)) < static_cast<T>(1e-6));
-	}
 }
 
 int main() {
-	test_simd_arithmetic<float, 4>();
-	test_simd_arithmetic<float, 8>();
-	test_simd_arithmetic<float, 16>();
-	test_simd_arithmetic<double, 2>();
-	test_simd_arithmetic<double, 4>();
-	test_simd_arithmetic<double, 8>();
+	TestSuite suite(
+		"simd_vec",
+		"Verifies the portable SIMD vector and mask types across element types and widths: elementwise arithmetic, fused multiply-add, horizontal reductions, comparison masks, blended selection, mask population counts and the trigonometric helpers."
+	);
 
-	test_simd_masking_and_select<float, 4>();
-	test_simd_masking_and_select<float, 8>();
-	test_simd_masking_and_select<float, 16>();
-	test_simd_masking_and_select<double, 4>();
-	test_simd_masking_and_select<double, 8>();
+	suite.section("Arithmetic and reductions");
+	check_arithmetic<float, 4>(suite);
+	check_arithmetic<float, 8>(suite);
+	check_arithmetic<float, 16>(suite);
+	check_arithmetic<double, 2>(suite);
+	check_arithmetic<double, 4>(suite);
+	check_arithmetic<double, 8>(suite);
 
-	test_simd_math<float, 4>();
-	test_simd_math<float, 8>();
-	test_simd_math<double, 4>();
-	test_simd_math<double, 8>();
+	suite.section("Masks and selection");
+	check_masks<float, 4>(suite);
+	check_masks<float, 8>(suite);
+	check_masks<float, 16>(suite);
+	check_masks<double, 4>(suite);
+	check_masks<double, 8>(suite);
 
-	return 0;
+	suite.section("Trigonometric helpers");
+	check_math<float, 4>(suite);
+	check_math<float, 8>(suite);
+	check_math<double, 4>(suite);
+	check_math<double, 8>(suite);
+	return suite.finish();
 }

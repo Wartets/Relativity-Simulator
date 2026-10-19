@@ -69,30 +69,88 @@ Relativity-Simulator/
 │   │   │   │
 │   │   │   ├── camera_navigation_modes.json
 │   │   │   ├── camera_navigation_modes.md
+│   │   │   ├── double_single.json
+│   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.json
 │   │   │   ├── engine_performance.md
+│   │   │   ├── horizon_regime.json
+│   │   │   ├── horizon_regime.md
+│   │   │   ├── interval_arithmetic.json
+│   │   │   ├── interval_arithmetic.md
+│   │   │   ├── memory_arena.json
+│   │   │   ├── memory_arena.md
+│   │   │   ├── pcg64.json
+│   │   │   ├── pcg64.md
 │   │   │   ├── projection_modes.json
 │   │   │   ├── projection_modes.md
 │   │   │   ├── README.md
+│   │   │   ├── repl_parser.json
+│   │   │   ├── repl_parser.md
+│   │   │   ├── scenario_serializer.json
+│   │   │   ├── scenario_serializer.md
+│   │   │   ├── scheduler.json
+│   │   │   ├── scheduler.md
+│   │   │   ├── spsc_queue.json
+│   │   │   ├── spsc_queue.md
 │   │   │   ├── static_metrics.json
-│   │   │   └── static_metrics.md
+│   │   │   ├── static_metrics.md
+│   │   │   ├── thread_pool.json
+│   │   │   └── thread_pool.md
 │   │   │
 │   │   ├── suites/
 │   │   │   ├── camera_navigation_modes.md
+│   │   │   ├── camera_projections.md
+│   │   │   ├── cie_spectral_pipeline.md
+│   │   │   ├── dark_matter_profiles.md
 │   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.md
+│   │   │   ├── ephemeris_kepler.md
+│   │   │   ├── exotic_metrics.md
+│   │   │   ├── f_r_chameleon.md
+│   │   │   ├── fishbone_moncrief_torus.md
+│   │   │   ├── fits_exporter.md
+│   │   │   ├── frame_transforms.md
+│   │   │   ├── gravitational_waves.md
+│   │   │   ├── hdf5_serializer.md
+│   │   │   ├── hermite4_aarseth.md
+│   │   │   ├── high_order_integrators.md
 │   │   │   ├── horizon_regime.md
+│   │   │   ├── horizons_parser.md
+│   │   │   ├── hulse_taylor_orbital_decay.md
+│   │   │   ├── hyperbolic_motion.md
 │   │   │   ├── interval_arithmetic.md
+│   │   │   ├── kerr_metrics.md
+│   │   │   ├── kerr_shadow_eht.md
 │   │   │   ├── memory_arena.md
+│   │   │   ├── mond_rotation_curves.md
+│   │   │   ├── novikov_thorne_disk.md
 │   │   │   ├── pcg64.md
+│   │   │   ├── pn_conservative.md
+│   │   │   ├── pn_radiation_reaction.md
+│   │   │   ├── pn_spin_precession.md
+│   │   │   ├── polynomial_chaos.md
 │   │   │   ├── projection_modes.md
 │   │   │   ├── repl_parser.md
+│   │   │   ├── rocket_dynamics.md
 │   │   │   ├── scenario_serializer.md
 │   │   │   ├── scheduler.md
 │   │   │   ├── simd_bundle.md
+│   │   │   ├── simd_vec.md
+│   │   │   ├── spectral_shift_beaming.md
+│   │   │   ├── spherical_harmonics.md
+│   │   │   ├── spk_reader.md
 │   │   │   ├── spsc_queue.md
 │   │   │   ├── static_metrics.md
-│   │   │   └── thread_pool.md
+│   │   │   ├── symplectic_gauss_legendre.md
+│   │   │   ├── terrell_penrose.md
+│   │   │   ├── teves_metric.md
+│   │   │   ├── thread_pool.md
+│   │   │   ├── tidal_rotational_gravity.md
+│   │   │   ├── uncertain_quantity.md
+│   │   │   ├── uncertainty_metrology.md
+│   │   │   ├── vacuum_cosmo_metrics.md
+│   │   │   ├── vtk_exporter.md
+│   │   │   └── zonotope_propagation.md
 │   │   │
 │   │   ├── CONTRIBUTING_TESTS.md
 │   │   ├── README.md
@@ -477,6 +535,7 @@ Relativity-Simulator/
 ├── tests/
 │   ├── support/
 │   │   ├── engine_scenario.hpp
+│   │   ├── metric_checks.hpp
 │   │   └── test_harness.hpp
 │   │
 │   ├── benchmark_engine_performance.cpp

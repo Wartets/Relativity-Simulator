@@ -1,35 +1,36 @@
+#include "support/test_harness.hpp"
+#include "support/metric_checks.hpp"
 #include "relativistic/metrics/morris_thorne.hpp"
 #include "relativistic/metrics/alcubierre.hpp"
-#include "relativistic/core/math/christoffel.hpp"
 #include "relativistic/integrators/rk45_adaptive.hpp"
-#include <cassert>
 #include <cmath>
-#include <iostream>
+#include <numbers>
 
 using namespace Relativistic;
 using namespace Relativistic::Core;
 using namespace Relativistic::Metrics;
 using namespace Relativistic::Integrators;
+using Testing::MetricGeometryTolerances;
+using Testing::TestSuite;
+using Testing::inversion_residual;
+using Testing::verify_metric_geometry;
 
-void test_morris_thorne_throat_crossing() {
-	const double b0 = 2.0;
-	MorrisThorneWormholeMetric<double> wh(b0, 0.0);
+int main() {
+	TestSuite suite(
+		"exotic_metrics",
+		"Verifies the traversable wormhole and the warp bubble: the Morris-Thorne metric at the throat, a radial photon crossing the throat with the adaptive integrator, the shaping function limits of the Alcubierre bubble and the geometric invariants of both metrics."
+	);
 
-	FourVector<double> x_throat(0.0, 0.0, std::numbers::pi / 2.0, 0.0);
-	const auto g_throat = wh.metric_tensor(x_throat);
-	assert(std::abs(g_throat(0, 0) - (-1.0)) < 1e-12);
-	assert(std::abs(g_throat(1, 1) - 1.0) < 1e-12);
-	assert(std::abs(g_throat(2, 2) - 4.0) < 1e-12);
-	assert(std::abs(g_throat(3, 3) - 4.0) < 1e-12);
+	suite.section("Morris-Thorne throat");
+	const double throat = 2.0;
+	const MorrisThorneWormholeMetric<double> wormhole(throat, 0.0);
+	const auto at_throat = wormhole.metric_tensor(FourVector<double>(0.0, 0.0, std::numbers::pi / 2.0, 0.0));
+	suite.check_near(at_throat(0, 0), -1.0, 1e-12, "the time component equals -1 for a vanishing redshift potential");
+	suite.check_near(at_throat(1, 1), 1.0, 1e-12, "the proper radial component equals 1");
+	suite.check_near(at_throat(2, 2), throat * throat, 1e-12, "the polar component equals the squared throat radius");
+	suite.check_near(at_throat(3, 3), throat * throat, 1e-12, "the azimuthal component equals the squared throat radius at the equator");
 
-	FourVector<double> x_init(0.0, -10.0, std::numbers::pi / 2.0, 0.0);
-	FourVector<double> u_init(1.0, 1.0, 0.0, 0.0);
-
-	GeodesicState<double> state{
-		.x = x_init,
-		.u = u_init
-	};
-
+	suite.section("Throat transit");
 	RK45Config<double> config{
 		.initial_step = 0.05,
 		.min_step = 1e-6,
@@ -38,96 +39,39 @@ void test_morris_thorne_throat_crossing() {
 		.atol = 1e-13,
 		.invariant_tolerance = 1e-10
 	};
-
-	RK45AdaptiveIntegrator<MorrisThorneWormholeMetric<double>, double> integrator(wh, GeodesicType::Null, config);
-
-	double dt = 0.05;
-	bool crossed_throat = false;
-	double min_abs_l = 100.0;
-
-	for (size_t step_idx = 0; step_idx < 500; ++step_idx) {
-		const auto res = integrator.step(state, dt);
-		assert(res.has_value());
-
-		const double l_cur = state.x(1);
-		if (std::abs(l_cur) < min_abs_l) {
-			min_abs_l = std::abs(l_cur);
+	RK45AdaptiveIntegrator<MorrisThorneWormholeMetric<double>, double> integrator(wormhole, GeodesicType::Null, config);
+	GeodesicState<double> state{.x = FourVector<double>(0.0, -10.0, std::numbers::pi / 2.0, 0.0), .u = FourVector<double>(1.0, 1.0, 0.0, 0.0)};
+	double step_size = 0.05;
+	bool all_steps_succeeded = true;
+	bool crossed = false;
+	double closest = 100.0;
+	for (size_t index = 0; index < 500; ++index) {
+		if (!integrator.step(state, step_size).has_value()) {
+			all_steps_succeeded = false;
+			break;
 		}
-		if (l_cur > 0.0) {
-			crossed_throat = true;
-		}
-		if (l_cur > 10.0) {
+		closest = std::min(closest, std::abs(state.x(1)));
+		crossed = crossed || state.x(1) > 0.0;
+		if (state.x(1) > 10.0) {
 			break;
 		}
 	}
+	suite.check(all_steps_succeeded, "every adaptive step of the throat transit succeeds");
+	suite.check(crossed, "the photon passes from the negative to the positive side of the wormhole");
+	suite.check_at_most(closest, 0.2, "the photon passes within 0.2 of the throat");
+	suite.check(state.x(1) >= 10.0, "the photon emerges on the far side up to l = 10");
 
-	assert(crossed_throat);
-	assert(min_abs_l < 0.2);
-	assert(state.x(1) >= 10.0);
-}
+	suite.section("Morris-Thorne geometry");
+	MetricGeometryTolerances tolerances;
+	verify_metric_geometry(suite, "Morris-Thorne", MorrisThorneWormholeMetric<double>(2.5, 0.5), FourVector<double>(0.0, 1.5, 1.2, 0.8), tolerances);
 
-void test_morris_thorne_christoffel() {
-	MorrisThorneWormholeMetric<double> wh(2.5, 0.5);
-	FourVector<double> x(0.0, 1.5, 1.2, 0.8);
-
-	const auto gamma_ana = wh.christoffel_symbols(x);
-	const auto gamma_num = compute_christoffel_numerical<DerivativeOrder::EighthOrder>(wh, x);
-
-	for (size_t sigma = 0; sigma < 4; ++sigma) {
-		for (size_t mu = 0; mu < 4; ++mu) {
-			for (size_t nu = 0; nu < 4; ++nu) {
-				const double diff = std::abs(gamma_ana(sigma, mu, nu) - gamma_num(sigma, mu, nu));
-				assert(diff < 1e-8);
-			}
-		}
-	}
-}
-
-void test_alcubierre_metric_properties() {
-	const double vs = 2.0;
-	const double R = 50.0;
-	const double sigma = 0.2;
-	AlcubierreWarpMetric<double> warp(vs, R, sigma);
-
-	FourVector<double> x_center(0.0, 0.0, 0.0, 0.0);
-	const double f_center = warp.shaping_function(warp.radial_distance_from_center(x_center));
-	assert(std::abs(f_center - 1.0) < 1e-6);
-
-	FourVector<double> x_distant(0.0, 500.0, 0.0, 0.0);
-	const double f_distant = warp.shaping_function(warp.radial_distance_from_center(x_distant));
-	assert(f_distant < 1e-6);
-
-	const auto g_center = warp.metric_tensor(x_center);
-	const auto inv_g_center = warp.inverse_metric(x_center);
-
-	for (size_t i = 0; i < 4; ++i) {
-		for (size_t j = 0; j < 4; ++j) {
-			double delta_ij = 0.0;
-			for (size_t k = 0; k < 4; ++k) {
-				delta_ij += g_center(i, k) * inv_g_center(k, j);
-			}
-			const double target = (i == j) ? 1.0 : 0.0;
-			assert(std::abs(delta_ij - target) < 1e-12);
-		}
-	}
-
-	FourVector<double> x_wall(0.0, 50.0, 0.0, 0.0);
-	const auto gamma_ana = warp.christoffel_symbols(x_wall);
-	const auto gamma_num = compute_christoffel_numerical<DerivativeOrder::EighthOrder>(warp, x_wall);
-
-	for (size_t s = 0; s < 4; ++s) {
-		for (size_t mu = 0; mu < 4; ++mu) {
-			for (size_t nu = 0; nu < 4; ++nu) {
-				const double diff = std::abs(gamma_ana(s, mu, nu) - gamma_num(s, mu, nu));
-				assert(diff < 1e-7);
-			}
-		}
-	}
-}
-
-int main() {
-	test_morris_thorne_throat_crossing();
-	test_morris_thorne_christoffel();
-	test_alcubierre_metric_properties();
-	return 0;
+	suite.section("Alcubierre bubble");
+	const AlcubierreWarpMetric<double> warp(2.0, 50.0, 0.2);
+	const FourVector<double> center(0.0, 0.0, 0.0, 0.0);
+	suite.check_near(warp.shaping_function(warp.radial_distance_from_center(center)), 1.0, 1e-6, "the shaping function equals 1 at the bubble centre");
+	suite.check_at_most(warp.shaping_function(warp.radial_distance_from_center(FourVector<double>(0.0, 500.0, 0.0, 0.0))), 1e-6, "the shaping function vanishes far from the bubble");
+	suite.check_at_most(inversion_residual(warp.metric_tensor(center), warp.inverse_metric(center)), 1e-12, "the inverse metric reproduces the identity at the centre");
+	tolerances.connection = 1e-6;
+	verify_metric_geometry(suite, "Alcubierre", warp, FourVector<double>(0.0, 50.0, 0.0, 0.0), tolerances);
+	return suite.finish();
 }

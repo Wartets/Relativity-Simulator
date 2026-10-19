@@ -1,58 +1,41 @@
+#include "support/test_harness.hpp"
 #include "relativistic/optics/terrell_penrose.hpp"
-#include <cassert>
+#include <algorithm>
+#include <array>
 #include <cmath>
-#include <numbers>
-#include <iostream>
 
-void test_aberration_identity_and_inversion() {
-	using namespace Relativistic::Optics;
+using namespace Relativistic::Optics;
+using Relativistic::Testing::TestSuite;
 
-	const std::array<double, 3> beta = {0.5, 0.0, 0.0};
-	const std::array<double, 3> n_original = {0.0, 1.0, 0.0};
+namespace {
 
-	const auto n_obs = TerrellPenroseOptics<double>::aberrate_forward(n_original, beta);
-	const auto n_reconstructed = TerrellPenroseOptics<double>::aberrate_backward(n_obs, beta);
-
-	assert(std::abs(n_reconstructed[0] - n_original[0]) < 1e-12);
-	assert(std::abs(n_reconstructed[1] - n_original[1]) < 1e-12);
-	assert(std::abs(n_reconstructed[2] - n_original[2]) < 1e-12);
-
-	const std::array<double, 3> beta_diag = {0.2, 0.3, 0.4};
-	const double inv_sqrt3 = 1.0 / std::sqrt(3.0);
-	const std::array<double, 3> n_diag = {inv_sqrt3, inv_sqrt3, inv_sqrt3};
-
-	const auto n_obs_diag = TerrellPenroseOptics<double>::aberrate_forward(n_diag, beta_diag);
-	const auto n_reconstructed_diag = TerrellPenroseOptics<double>::aberrate_backward(n_obs_diag, beta_diag);
-
-	assert(std::abs(n_reconstructed_diag[0] - n_diag[0]) < 1e-12);
-	assert(std::abs(n_reconstructed_diag[1] - n_diag[1]) < 1e-12);
-	assert(std::abs(n_reconstructed_diag[2] - n_diag[2]) < 1e-12);
+[[nodiscard]] double largest_difference(const std::array<double, 3>& a, const std::array<double, 3>& b) noexcept {
+	return std::max({std::abs(a[0] - b[0]), std::abs(a[1] - b[1]), std::abs(a[2] - b[2])});
 }
 
-void test_terrell_rotation_sphere_geometry() {
-	using namespace Relativistic::Optics;
-
-	const std::array<double, 3> obs_pos = {0.0, 0.0, 0.0};
-	const std::array<double, 3> sphere_c0 = {0.0, 10.0, 0.0};
-	const std::array<double, 3> sphere_vel = {0.8, 0.0, 0.0};
-	const double radius = 1.0;
-	const double t_obs = 10.0;
-
-	const std::array<double, 3> ray_center = {0.0, 1.0, 0.0};
-	const auto hit_opt = TerrellPenroseOptics<double>::intersect_moving_sphere(
-		obs_pos, ray_center, t_obs, sphere_c0, sphere_vel, radius
-	);
-
-	assert(hit_opt.has_value());
-	assert(hit_opt->doppler_shift > 0.0);
-
-	const double angle_rad = TerrellPenroseOptics<double>::rotation_angle(0.8);
-	assert(std::abs(std::sin(angle_rad) - 0.8) < 1e-12);
 }
 
 int main() {
-	test_aberration_identity_and_inversion();
-	test_terrell_rotation_sphere_geometry();
-	std::cout << "Terrell-Penrose optics tests passed.\n";
-	return 0;
+	TestSuite suite(
+		"terrell_penrose",
+		"Verifies the Terrell-Penrose optics: the backward aberration inverts the forward aberration for axis-aligned and oblique velocities, a ray intersects a moving sphere with a positive Doppler factor, and the apparent rotation angle satisfies sin(angle) = beta."
+	);
+
+	suite.section("Aberration inversion");
+	const std::array<double, 3> beta_axis = {0.5, 0.0, 0.0};
+	const std::array<double, 3> normal_axis = {0.0, 1.0, 0.0};
+	const auto restored_axis = TerrellPenroseOptics<double>::aberrate_backward(TerrellPenroseOptics<double>::aberrate_forward(normal_axis, beta_axis), beta_axis);
+	suite.check_at_most(largest_difference(restored_axis, normal_axis), 1e-12, "the backward aberration restores a transverse direction for a boost along x");
+	const std::array<double, 3> beta_oblique = {0.2, 0.3, 0.4};
+	const double inverse_root = 1.0 / std::sqrt(3.0);
+	const std::array<double, 3> normal_oblique = {inverse_root, inverse_root, inverse_root};
+	const auto restored_oblique = TerrellPenroseOptics<double>::aberrate_backward(TerrellPenroseOptics<double>::aberrate_forward(normal_oblique, beta_oblique), beta_oblique);
+	suite.check_at_most(largest_difference(restored_oblique, normal_oblique), 1e-12, "the backward aberration restores a diagonal direction for an oblique boost");
+
+	suite.section("Moving sphere");
+	const auto hit = TerrellPenroseOptics<double>::intersect_moving_sphere({0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, 10.0, {0.0, 10.0, 0.0}, {0.8, 0.0, 0.0}, 1.0);
+	suite.check(hit.has_value(), "a ray aimed at the retarded position of the sphere intersects it");
+	suite.check(hit.has_value() && hit->doppler_shift > 0.0, "the Doppler shift at the hit is positive");
+	suite.check_near(std::sin(TerrellPenroseOptics<double>::rotation_angle(0.8)), 0.8, 1e-12, "the apparent rotation angle satisfies sin(angle) = beta");
+	return suite.finish();
 }

@@ -9,6 +9,7 @@ This directory is the reference for every automated test of the engine: what eac
 | `tests/` | Test sources, one executable per suite |
 | `tests/support/test_harness.hpp` | Shared harness: checks, measurements, console output, report generation |
 | `tests/support/engine_scenario.hpp` | Deterministic scenario builder used by the engine benchmarks |
+| `tests/support/metric_checks.hpp` | Shared metric invariant checks: inversion, symmetry, signature, connection symmetry and scale-aware analytic against finite-difference connection |
 | `docs/testing/suites/` | In-depth description of each maintained suite |
 | `docs/testing/results/` | Reports written by the suites at the end of every run |
 | `docs/testing/test_catalog.md` | Catalogue of every registered test with its migration status |
@@ -83,3 +84,21 @@ Commit refreshed results together with the change that motivated the run.
 | f(R) chameleon | `test_f_r_chameleon` | [suites/f_r_chameleon.md](suites/f_r_chameleon.md) |
 | Spectral shift and beaming | `test_spectral_shift_beaming` | [suites/spectral_shift_beaming.md](suites/spectral_shift_beaming.md) |
 | Camera projections | `test_camera_projections` | [suites/camera_projections.md](suites/camera_projections.md) |
+| SIMD vectors | `test_simd_vec` | [suites/simd_vec.md](suites/simd_vec.md) |
+| Kerr metrics | `test_kerr_metrics` | [suites/kerr_metrics.md](suites/kerr_metrics.md) |
+| Vacuum and cosmological metrics | `test_vacuum_cosmo_metrics` | [suites/vacuum_cosmo_metrics.md](suites/vacuum_cosmo_metrics.md) |
+| Exotic metrics | `test_exotic_metrics` | [suites/exotic_metrics.md](suites/exotic_metrics.md) |
+| TeVeS metric | `test_teves_metric` | [suites/teves_metric.md](suites/teves_metric.md) |
+| Symplectic Gauss-Legendre | `test_symplectic_gauss_legendre` | [suites/symplectic_gauss_legendre.md](suites/symplectic_gauss_legendre.md) |
+| High-order integrators | `test_high_order_integrators` | [suites/high_order_integrators.md](suites/high_order_integrators.md) |
+| Hermite 4th-order | `test_hermite4_aarseth` | [suites/hermite4_aarseth.md](suites/hermite4_aarseth.md) |
+| Kerr shadow | `test_kerr_shadow_eht` | [suites/kerr_shadow_eht.md](suites/kerr_shadow_eht.md) |
+| Spherical harmonics | `test_spherical_harmonics` | [suites/spherical_harmonics.md](suites/spherical_harmonics.md) |
+| Tidal and rotational gravity | `test_tidal_rotational_gravity` | [suites/tidal_rotational_gravity.md](suites/tidal_rotational_gravity.md) |
+| Container serializer | `test_hdf5_serializer` | [suites/hdf5_serializer.md](suites/hdf5_serializer.md) |
+| Terrell-Penrose optics | `test_terrell_penrose` | [suites/terrell_penrose.md](suites/terrell_penrose.md) |
+| CIE spectral pipeline | `test_cie_spectral_pipeline` | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
+| Rocket dynamics | `test_rocket_dynamics` | [suites/rocket_dynamics.md](suites/rocket_dynamics.md) |
+| Novikov-Thorne disk | `test_novikov_thorne_disk` | [suites/novikov_thorne_disk.md](suites/novikov_thorne_disk.md) |
+| Fishbone-Moncrief torus | `test_fishbone_moncrief_torus` | [suites/fishbone_moncrief_torus.md](suites/fishbone_moncrief_torus.md) |
+| Uncertainty metrology | `test_uncertainty_metrology` | [suites/uncertainty_metrology.md](suites/uncertainty_metrology.md) |

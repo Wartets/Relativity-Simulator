@@ -41,6 +41,24 @@ Status values: `Maintained` (uses the shared harness, documented in `suites/`, r
 | `test_polynomial_chaos` | Uncertainty quantification | [suites/polynomial_chaos.md](suites/polynomial_chaos.md) |
 | `test_uncertain_quantity` | Uncertainty quantification | [suites/uncertain_quantity.md](suites/uncertain_quantity.md) |
 | `test_zonotope_propagation` | Uncertainty quantification | [suites/zonotope_propagation.md](suites/zonotope_propagation.md) |
+| `test_uncertainty_metrology` | Uncertainty quantification | [suites/uncertainty_metrology.md](suites/uncertainty_metrology.md) |
+| `test_simd_vec` | Tensor and SIMD math | [suites/simd_vec.md](suites/simd_vec.md) |
+| `test_kerr_metrics` | Metrics and geodesics | [suites/kerr_metrics.md](suites/kerr_metrics.md) |
+| `test_vacuum_cosmo_metrics` | Metrics and geodesics | [suites/vacuum_cosmo_metrics.md](suites/vacuum_cosmo_metrics.md) |
+| `test_exotic_metrics` | Metrics and geodesics | [suites/exotic_metrics.md](suites/exotic_metrics.md) |
+| `test_teves_metric` | Metrics and geodesics | [suites/teves_metric.md](suites/teves_metric.md) |
+| `test_symplectic_gauss_legendre` | Integrators | [suites/symplectic_gauss_legendre.md](suites/symplectic_gauss_legendre.md) |
+| `test_high_order_integrators` | Integrators | [suites/high_order_integrators.md](suites/high_order_integrators.md) |
+| `test_hermite4_aarseth` | Integrators | [suites/hermite4_aarseth.md](suites/hermite4_aarseth.md) |
+| `test_kerr_shadow_eht` | Gravity physics validation | [suites/kerr_shadow_eht.md](suites/kerr_shadow_eht.md) |
+| `test_spherical_harmonics` | Post-Newtonian dynamics | [suites/spherical_harmonics.md](suites/spherical_harmonics.md) |
+| `test_tidal_rotational_gravity` | Post-Newtonian dynamics | [suites/tidal_rotational_gravity.md](suites/tidal_rotational_gravity.md) |
+| `test_hdf5_serializer` | Input and output | [suites/hdf5_serializer.md](suites/hdf5_serializer.md) |
+| `test_terrell_penrose` | Rendering and optics | [suites/terrell_penrose.md](suites/terrell_penrose.md) |
+| `test_cie_spectral_pipeline` | Rendering and optics | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
+| `test_rocket_dynamics` | Rendering and optics | [suites/rocket_dynamics.md](suites/rocket_dynamics.md) |
+| `test_novikov_thorne_disk` | Hydrodynamics and radiation | [suites/novikov_thorne_disk.md](suites/novikov_thorne_disk.md) |
+| `test_fishbone_moncrief_torus` | Hydrodynamics and radiation | [suites/fishbone_moncrief_torus.md](suites/fishbone_moncrief_torus.md) |
 
 ## Legacy
 
@@ -49,16 +67,14 @@ Descriptions are derived from the registered test names and must be confirmed du
 | Category | Tests |
 | --- | --- |
 | Core infrastructure | `test_concurrent_command_injection`, `test_replay_loop` |
-| Tensor and SIMD math | `test_tensor_algebra`, `test_simd_vec`, `test_geodesic_bundle`, `test_christoffel_solver` |
-| Metrics and geodesics | `test_vacuum_cosmo_metrics`, `test_exotic_metrics`, `test_kerr_metrics`, `test_carter_constant`, `test_kerr_schild_geodesics`, `test_invariant_preservation`, `test_horizon_crossing`, `test_teves_metric` |
-| Integrators | `test_symplectic_gauss_legendre`, `test_high_order_integrators`, `test_hermite4_aarseth` |
-| Gravity physics validation | `test_solar_deflection`, `test_mercury_precession`, `test_shapiro_delay`, `test_nodal_precession_leo`, `test_kerr_shadow_eht` |
-| Post-Newtonian dynamics | `test_spherical_harmonics`, `test_tidal_rotational_gravity` |
+| Tensor and SIMD math | `test_tensor_algebra`, `test_geodesic_bundle`, `test_christoffel_solver` |
+| Metrics and geodesics | `test_carter_constant`, `test_kerr_schild_geodesics`, `test_invariant_preservation`, `test_horizon_crossing` |
+| Gravity physics validation | `test_solar_deflection`, `test_mercury_precession`, `test_shapiro_delay`, `test_nodal_precession_leo` |
 | Dark matter and N-body | `test_dark_matter_field`, `test_barnes_hut_octree`, `test_galaxy_collision_nbody` |
-| Input and output | `test_hdf5_serializer`, `test_default_startup_scenario` |
-| Rendering and optics | `test_vulkan_compute_pipeline`, `test_schwarzschild_shadow_render`, `test_terrell_penrose`, `test_cie_spectral_pipeline`, `test_observer_tetrad`, `test_rocket_dynamics` |
-| Hydrodynamics and radiation | `test_relativistic_hydro`, `test_eos_tov`, `test_novikov_thorne_disk`, `test_fishbone_moncrief_torus`, `test_polarized_radiative_transfer` |
-| Uncertainty quantification | `test_covariance_propagation`, `test_uncertainty_metrology`, `test_uncertainty_pce` |
+| Input and output | `test_default_startup_scenario` |
+| Rendering and optics | `test_vulkan_compute_pipeline`, `test_schwarzschild_shadow_render`, `test_observer_tetrad` |
+| Hydrodynamics and radiation | `test_relativistic_hydro`, `test_eos_tov`, `test_polarized_radiative_transfer` |
+| Uncertainty quantification | `test_covariance_propagation`, `test_uncertainty_pce` |
 | Numerical relativity | `test_bssn_gauge_wave` |
 | Interface | `test_ui_multi_window` |
 

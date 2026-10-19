@@ -108,24 +108,29 @@ add_library(relativistic_core INTERFACE)
 target_include_directories(relativistic_core INTERFACE
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests>
 	$<INSTALL_INTERFACE:include>
 )
 target_compile_features(relativistic_core INTERFACE cxx_std_23)
 target_compile_options(relativistic_core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
+target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_EMBEDDED_SHADERS=1)
 target_link_libraries(relativistic_core INTERFACE Vulkan::Vulkan)
 
 if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 	set(RELATIVISTIC_COMPUTE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp)
 	set(RELATIVISTIC_COMPUTE_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp.spv)
+	set(RELATIVISTIC_COMPUTE_SHADER_HPP ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders/geodesic_tracer_fp64.spv.hpp)
 	add_custom_command(
-		OUTPUT ${RELATIVISTIC_COMPUTE_SHADER_SPV}
+		OUTPUT ${RELATIVISTIC_COMPUTE_SHADER_SPV} ${RELATIVISTIC_COMPUTE_SHADER_HPP}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders
 		COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 ${RELATIVISTIC_COMPUTE_SHADER_SRC} -o ${RELATIVISTIC_COMPUTE_SHADER_SPV}
+		COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 --vn geodesic_tracer_fp64_spv ${RELATIVISTIC_COMPUTE_SHADER_SRC} -o ${RELATIVISTIC_COMPUTE_SHADER_HPP}
 		DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_spherical_tracer.glsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_teves_metric.glsl
-		COMMENT "Compiling geodesic_tracer_fp64.comp to SPIR-V"
+		COMMENT "Compiling geodesic_tracer_fp64.comp to SPIR-V and embedded C++ header"
 		VERBATIM
 	)
-	add_custom_target(relativistic_compute_shaders ALL DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SPV})
+	add_custom_target(relativistic_compute_shaders ALL DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SPV} ${RELATIVISTIC_COMPUTE_SHADER_HPP})
 endif()
 
 include(CTest)
@@ -533,38 +538,39 @@ if (WIN32)
 	endif()
 endif()
 
-add_executable(engine_cli ${ENGINE_CLI_SOURCES})
-target_link_libraries(engine_cli PRIVATE relativistic_core imgui_lib)
-target_compile_definitions(engine_cli PRIVATE "RELATIVISTIC_VERSION_STRING=\"0.4.1.017\"")
-set_target_properties(engine_cli PROPERTIES OUTPUT_NAME "RelativisticEngine")
+add_executable(RelativisticEngine ${ENGINE_CLI_SOURCES})
+add_custom_target(engine_cli DEPENDS RelativisticEngine)
+target_link_libraries(RelativisticEngine PRIVATE relativistic_core imgui_lib)
+target_compile_definitions(RelativisticEngine PRIVATE "RELATIVISTIC_VERSION_STRING=\"0.4.1.017\"")
+set_target_properties(RelativisticEngine PROPERTIES OUTPUT_NAME "RelativisticEngine")
 
 if (WIN32)
-	set_target_properties(engine_cli PROPERTIES WIN32_EXECUTABLE ON)
-	target_compile_definitions(engine_cli PRIVATE UNICODE _UNICODE)
-	target_link_libraries(engine_cli PRIVATE dwmapi msimg32 shell32 gdi32 user32)
+	set_target_properties(RelativisticEngine PROPERTIES WIN32_EXECUTABLE ON)
+	target_compile_definitions(RelativisticEngine PRIVATE UNICODE _UNICODE)
+	target_link_libraries(RelativisticEngine PRIVATE dwmapi msimg32 shell32 gdi32 user32)
 	if (MSVC)
-		target_link_options(engine_cli PRIVATE /ENTRY:mainCRTStartup)
+		target_link_options(RelativisticEngine PRIVATE /ENTRY:mainCRTStartup)
 		if (ENGINE_HAS_RESOURCES)
-			target_link_options(engine_cli PRIVATE /MANIFEST:NO)
+			target_link_options(RelativisticEngine PRIVATE /MANIFEST:NO)
 		endif()
 	endif()
 endif()
 
 if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
-	target_link_options(engine_cli PRIVATE -static -static-libgcc -static-libstdc++)
+	target_link_options(RelativisticEngine PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 add_executable(headless_exporter apps/headless_exporter/main.cpp)
 target_link_libraries(headless_exporter PRIVATE relativistic_core)
 
 if (TARGET relativistic_compute_shaders)
-	add_dependencies(engine_cli relativistic_compute_shaders)
+	add_dependencies(RelativisticEngine relativistic_compute_shaders)
 	add_dependencies(headless_exporter relativistic_compute_shaders)
 endif()
 
 include(GNUInstallDirs)
 
-install(TARGETS engine_cli headless_exporter
+install(TARGETS RelativisticEngine headless_exporter
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 	COMPONENT Application
 )

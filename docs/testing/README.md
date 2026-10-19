@@ -45,60 +45,87 @@ The performance benchmark additionally writes `performance/engine_performance_re
 
 Commit refreshed results together with the change that motivated the run.
 
-## Maintained suites
+## Test catalog
 
-| Suite | Executable | Description |
-| --- | --- | --- |
-| Static metrics | `test_static_metrics` | [suites/static_metrics.md](suites/static_metrics.md) |
-| SIMD geodesic bundle | `benchmark_simd_bundle` | [suites/simd_bundle.md](suites/simd_bundle.md) |
-| Projection modes | `test_projection_modes` | [suites/projection_modes.md](suites/projection_modes.md) |
-| Camera navigation modes | `test_camera_navigation_modes` | [suites/camera_navigation_modes.md](suites/camera_navigation_modes.md) |
-| Engine performance | `benchmark_engine_performance` | [suites/engine_performance.md](suites/engine_performance.md) |
-| Scheduler | `test_scheduler` | [suites/scheduler.md](suites/scheduler.md) |
-| REPL parser | `test_repl_parser` | [suites/repl_parser.md](suites/repl_parser.md) |
-| SPSC queue | `test_spsc_queue` | [suites/spsc_queue.md](suites/spsc_queue.md) |
-| Thread pool | `test_thread_pool` | [suites/thread_pool.md](suites/thread_pool.md) |
-| PCG64 generator | `test_pcg64` | [suites/pcg64.md](suites/pcg64.md) |
-| Memory arena | `test_memory_arena` | [suites/memory_arena.md](suites/memory_arena.md) |
-| Scenario serializer | `test_scenario_serializer` | [suites/scenario_serializer.md](suites/scenario_serializer.md) |
-| Interval arithmetic | `test_interval_arithmetic` | [suites/interval_arithmetic.md](suites/interval_arithmetic.md) |
-| Horizon regime | `test_horizon_regime` | [suites/horizon_regime.md](suites/horizon_regime.md) |
-| Double-single arithmetic | `test_double_single` | [suites/double_single.md](suites/double_single.md) |
-| Post-Newtonian conservation | `test_pn_conservative` | [suites/pn_conservative.md](suites/pn_conservative.md) |
-| Post-Newtonian radiation reaction | `test_pn_radiation_reaction` | [suites/pn_radiation_reaction.md](suites/pn_radiation_reaction.md) |
-| Post-Newtonian spin precession | `test_pn_spin_precession` | [suites/pn_spin_precession.md](suites/pn_spin_precession.md) |
-| Gravitational waves | `test_gravitational_waves` | [suites/gravitational_waves.md](suites/gravitational_waves.md) |
-| Hulse-Taylor orbital decay | `test_hulse_taylor_orbital_decay` | [suites/hulse_taylor_orbital_decay.md](suites/hulse_taylor_orbital_decay.md) |
-| Hyperbolic motion | `test_hyperbolic_motion` | [suites/hyperbolic_motion.md](suites/hyperbolic_motion.md) |
-| Polynomial chaos | `test_polynomial_chaos` | [suites/polynomial_chaos.md](suites/polynomial_chaos.md) |
-| Uncertain quantity | `test_uncertain_quantity` | [suites/uncertain_quantity.md](suites/uncertain_quantity.md) |
-| Zonotope propagation | `test_zonotope_propagation` | [suites/zonotope_propagation.md](suites/zonotope_propagation.md) |
-| SPK reader | `test_spk_reader` | [suites/spk_reader.md](suites/spk_reader.md) |
-| HORIZONS parser | `test_horizons_parser` | [suites/horizons_parser.md](suites/horizons_parser.md) |
-| Frame transforms | `test_frame_transforms` | [suites/frame_transforms.md](suites/frame_transforms.md) |
-| Ephemeris and Keplerian elements | `test_ephemeris_kepler` | [suites/ephemeris_kepler.md](suites/ephemeris_kepler.md) |
-| FITS exporter | `test_fits_exporter` | [suites/fits_exporter.md](suites/fits_exporter.md) |
-| VTK exporter | `test_vtk_exporter` | [suites/vtk_exporter.md](suites/vtk_exporter.md) |
-| Dark matter profiles | `test_dark_matter_profiles` | [suites/dark_matter_profiles.md](suites/dark_matter_profiles.md) |
-| MOND rotation curves | `test_mond_rotation_curves` | [suites/mond_rotation_curves.md](suites/mond_rotation_curves.md) |
-| f(R) chameleon | `test_f_r_chameleon` | [suites/f_r_chameleon.md](suites/f_r_chameleon.md) |
-| Spectral shift and beaming | `test_spectral_shift_beaming` | [suites/spectral_shift_beaming.md](suites/spectral_shift_beaming.md) |
-| Camera projections | `test_camera_projections` | [suites/camera_projections.md](suites/camera_projections.md) |
-| SIMD vectors | `test_simd_vec` | [suites/simd_vec.md](suites/simd_vec.md) |
-| Kerr metrics | `test_kerr_metrics` | [suites/kerr_metrics.md](suites/kerr_metrics.md) |
-| Vacuum and cosmological metrics | `test_vacuum_cosmo_metrics` | [suites/vacuum_cosmo_metrics.md](suites/vacuum_cosmo_metrics.md) |
-| Exotic metrics | `test_exotic_metrics` | [suites/exotic_metrics.md](suites/exotic_metrics.md) |
-| TeVeS metric | `test_teves_metric` | [suites/teves_metric.md](suites/teves_metric.md) |
-| Symplectic Gauss-Legendre | `test_symplectic_gauss_legendre` | [suites/symplectic_gauss_legendre.md](suites/symplectic_gauss_legendre.md) |
-| High-order integrators | `test_high_order_integrators` | [suites/high_order_integrators.md](suites/high_order_integrators.md) |
-| Hermite 4th-order | `test_hermite4_aarseth` | [suites/hermite4_aarseth.md](suites/hermite4_aarseth.md) |
-| Kerr shadow | `test_kerr_shadow_eht` | [suites/kerr_shadow_eht.md](suites/kerr_shadow_eht.md) |
-| Spherical harmonics | `test_spherical_harmonics` | [suites/spherical_harmonics.md](suites/spherical_harmonics.md) |
-| Tidal and rotational gravity | `test_tidal_rotational_gravity` | [suites/tidal_rotational_gravity.md](suites/tidal_rotational_gravity.md) |
-| Container serializer | `test_hdf5_serializer` | [suites/hdf5_serializer.md](suites/hdf5_serializer.md) |
-| Terrell-Penrose optics | `test_terrell_penrose` | [suites/terrell_penrose.md](suites/terrell_penrose.md) |
-| CIE spectral pipeline | `test_cie_spectral_pipeline` | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
-| Rocket dynamics | `test_rocket_dynamics` | [suites/rocket_dynamics.md](suites/rocket_dynamics.md) |
-| Novikov-Thorne disk | `test_novikov_thorne_disk` | [suites/novikov_thorne_disk.md](suites/novikov_thorne_disk.md) |
-| Fishbone-Moncrief torus | `test_fishbone_moncrief_torus` | [suites/fishbone_moncrief_torus.md](suites/fishbone_moncrief_torus.md) |
-| Uncertainty metrology | `test_uncertainty_metrology` | [suites/uncertainty_metrology.md](suites/uncertainty_metrology.md) |
+| Test / Executable | Suite | Category | Documentation |
+| --- | --- | --- | --- |
+| `benchmark_engine_performance_quick` / `benchmark_engine_performance` | Engine performance | Engine performance | [suites/engine_performance.md](suites/engine_performance.md) |
+| `benchmark_simd_bundle` | SIMD geodesic bundle | Numerical performance | [suites/simd_bundle.md](suites/simd_bundle.md) |
+| `test_barnes_hut_octree` | Barnes-Hut octree | Dark matter and N-body | [suites/barnes_hut_octree.md](suites/barnes_hut_octree.md) |
+| `test_bssn_gauge_wave` | BSSN gauge wave | Numerical relativity | [suites/bssn_gauge_wave.md](suites/bssn_gauge_wave.md) |
+| `test_camera_navigation_modes` | Camera navigation modes | Observer | [suites/camera_navigation_modes.md](suites/camera_navigation_modes.md) |
+| `test_camera_projections` | Camera projections | Observer | [suites/camera_projections.md](suites/camera_projections.md) |
+| `test_carter_constant` | Carter constant | Metrics and geodesics | [suites/carter_constant.md](suites/carter_constant.md) |
+| `test_christoffel_solver` | Christoffel solver | Tensor and SIMD math | [suites/christoffel_solver.md](suites/christoffel_solver.md) |
+| `test_cie_spectral_pipeline` | CIE spectral pipeline | Rendering and optics | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
+| `test_concurrent_command_injection` | Concurrent command injection | Core infrastructure | [suites/concurrent_command_injection.md](suites/concurrent_command_injection.md) |
+| `test_covariance_propagation` | Covariance propagation | Uncertainty quantification | [suites/covariance_propagation.md](suites/covariance_propagation.md) |
+| `test_dark_matter_field` | Dark matter field | Dark matter and N-body | [suites/dark_matter_field.md](suites/dark_matter_field.md) |
+| `test_dark_matter_profiles` | Dark matter profiles | Dark matter and N-body | [suites/dark_matter_profiles.md](suites/dark_matter_profiles.md) |
+| `test_default_startup_scenario` | Default startup scenario | Input and output | [suites/default_startup_scenario.md](suites/default_startup_scenario.md) |
+| `test_double_single` | Double-single arithmetic | Tensor and SIMD math | [suites/double_single.md](suites/double_single.md) |
+| `test_eos_tov` | Equation of state and TOV | Hydrodynamics and radiation | [suites/eos_tov.md](suites/eos_tov.md) |
+| `test_ephemeris_kepler` | Ephemeris and Keplerian elements | Ephemerides and frames | [suites/ephemeris_kepler.md](suites/ephemeris_kepler.md) |
+| `test_exotic_metrics` | Exotic metrics | Metrics and geodesics | [suites/exotic_metrics.md](suites/exotic_metrics.md) |
+| `test_f_r_chameleon` | f(R) chameleon | Modified gravity | [suites/f_r_chameleon.md](suites/f_r_chameleon.md) |
+| `test_fishbone_moncrief_torus` | Fishbone-Moncrief torus | Hydrodynamics and radiation | [suites/fishbone_moncrief_torus.md](suites/fishbone_moncrief_torus.md) |
+| `test_fits_exporter` | FITS exporter | Input and output | [suites/fits_exporter.md](suites/fits_exporter.md) |
+| `test_frame_transforms` | Frame transforms | Ephemerides and frames | [suites/frame_transforms.md](suites/frame_transforms.md) |
+| `test_galaxy_collision_nbody` | Galaxy collision | Dark matter and N-body | [suites/galaxy_collision_nbody.md](suites/galaxy_collision_nbody.md) |
+| `test_geodesic_bundle` | Geodesic bundle | Tensor and SIMD math | [suites/geodesic_bundle.md](suites/geodesic_bundle.md) |
+| `test_gravitational_waves` | Gravitational waves | Post-Newtonian dynamics | [suites/gravitational_waves.md](suites/gravitational_waves.md) |
+| `test_hdf5_serializer` | Container serializer | Input and output | [suites/hdf5_serializer.md](suites/hdf5_serializer.md) |
+| `test_hermite4_aarseth` | Hermite 4th-order | Integrators | [suites/hermite4_aarseth.md](suites/hermite4_aarseth.md) |
+| `test_high_order_integrators` | High-order integrators | Integrators | [suites/high_order_integrators.md](suites/high_order_integrators.md) |
+| `test_horizon_crossing` | Horizon crossing | Metrics and geodesics | [suites/horizon_crossing.md](suites/horizon_crossing.md) |
+| `test_horizon_regime` | Horizon regime | Metrics | [suites/horizon_regime.md](suites/horizon_regime.md) |
+| `test_horizons_parser` | HORIZONS parser | Ephemerides and frames | [suites/horizons_parser.md](suites/horizons_parser.md) |
+| `test_hulse_taylor_orbital_decay` | Hulse-Taylor orbital decay | Gravity physics validation | [suites/hulse_taylor_orbital_decay.md](suites/hulse_taylor_orbital_decay.md) |
+| `test_hyperbolic_motion` | Hyperbolic motion | Gravity physics validation | [suites/hyperbolic_motion.md](suites/hyperbolic_motion.md) |
+| `test_interval_arithmetic` | Interval arithmetic | Uncertainty quantification | [suites/interval_arithmetic.md](suites/interval_arithmetic.md) |
+| `test_invariant_preservation` | Invariant preservation | Metrics and geodesics | [suites/invariant_preservation.md](suites/invariant_preservation.md) |
+| `test_kerr_metrics` | Kerr metrics | Metrics and geodesics | [suites/kerr_metrics.md](suites/kerr_metrics.md) |
+| `test_kerr_schild_geodesics` | Kerr-Schild geodesics | Metrics and geodesics | [suites/kerr_schild_geodesics.md](suites/kerr_schild_geodesics.md) |
+| `test_kerr_shadow_eht` | Kerr shadow | Gravity physics validation | [suites/kerr_shadow_eht.md](suites/kerr_shadow_eht.md) |
+| `test_memory_arena` | Memory arena | Core infrastructure | [suites/memory_arena.md](suites/memory_arena.md) |
+| `test_mercury_precession` | Mercury precession | Gravity physics validation | [suites/mercury_precession.md](suites/mercury_precession.md) |
+| `test_mond_rotation_curves` | MOND rotation curves | Dark matter and N-body | [suites/mond_rotation_curves.md](suites/mond_rotation_curves.md) |
+| `test_nodal_precession_leo` | Nodal precession | Gravity physics validation | [suites/nodal_precession_leo.md](suites/nodal_precession_leo.md) |
+| `test_novikov_thorne_disk` | Novikov-Thorne disk | Hydrodynamics and radiation | [suites/novikov_thorne_disk.md](suites/novikov_thorne_disk.md) |
+| `test_observer_tetrad` | Observer tetrad | Rendering and optics | [suites/observer_tetrad.md](suites/observer_tetrad.md) |
+| `test_pcg64` | PCG64 generator | Core infrastructure | [suites/pcg64.md](suites/pcg64.md) |
+| `test_pn_conservative` | Post-Newtonian conservation | Post-Newtonian dynamics | [suites/pn_conservative.md](suites/pn_conservative.md) |
+| `test_pn_radiation_reaction` | Post-Newtonian radiation reaction | Post-Newtonian dynamics | [suites/pn_radiation_reaction.md](suites/pn_radiation_reaction.md) |
+| `test_pn_spin_precession` | Post-Newtonian spin precession | Post-Newtonian dynamics | [suites/pn_spin_precession.md](suites/pn_spin_precession.md) |
+| `test_polarized_radiative_transfer` | Polarized radiative transfer | Hydrodynamics and radiation | [suites/polarized_radiative_transfer.md](suites/polarized_radiative_transfer.md) |
+| `test_polynomial_chaos` | Polynomial chaos | Uncertainty quantification | [suites/polynomial_chaos.md](suites/polynomial_chaos.md) |
+| `test_projection_modes` | Projection modes | Observer | [suites/projection_modes.md](suites/projection_modes.md) |
+| `test_relativistic_hydro` | Relativistic hydrodynamics | Hydrodynamics and radiation | [suites/relativistic_hydro.md](suites/relativistic_hydro.md) |
+| `test_repl_parser` | REPL parser | Core infrastructure | [suites/repl_parser.md](suites/repl_parser.md) |
+| `test_replay_loop` | Record and replay | Core infrastructure | [suites/replay_loop.md](suites/replay_loop.md) |
+| `test_rocket_dynamics` | Rocket dynamics | Rendering and optics | [suites/rocket_dynamics.md](suites/rocket_dynamics.md) |
+| `test_scenario_serializer` | Scenario serializer | Input and output | [suites/scenario_serializer.md](suites/scenario_serializer.md) |
+| `test_scheduler` | Scheduler | Core infrastructure | [suites/scheduler.md](suites/scheduler.md) |
+| `test_schwarzschild_shadow_render` | Schwarzschild shadow render | Rendering and optics | [suites/schwarzschild_shadow_render.md](suites/schwarzschild_shadow_render.md) |
+| `test_shapiro_delay` | Shapiro delay | Gravity physics validation | [suites/shapiro_delay.md](suites/shapiro_delay.md) |
+| `test_simd_vec` | SIMD vectors | Tensor and SIMD math | [suites/simd_vec.md](suites/simd_vec.md) |
+| `test_solar_deflection` | Solar light deflection | Gravity physics validation | [suites/solar_deflection.md](suites/solar_deflection.md) |
+| `test_spectral_shift_beaming` | Spectral shift and beaming | Rendering and optics | [suites/spectral_shift_beaming.md](suites/spectral_shift_beaming.md) |
+| `test_spherical_harmonics` | Spherical harmonics | Post-Newtonian dynamics | [suites/spherical_harmonics.md](suites/spherical_harmonics.md) |
+| `test_spk_reader` | SPK reader | Ephemerides and frames | [suites/spk_reader.md](suites/spk_reader.md) |
+| `test_spsc_queue` | SPSC queue | Core infrastructure | [suites/spsc_queue.md](suites/spsc_queue.md) |
+| `test_static_metrics` | Static metrics | Metrics | [suites/static_metrics.md](suites/static_metrics.md) |
+| `test_symplectic_gauss_legendre` | Symplectic Gauss-Legendre | Integrators | [suites/symplectic_gauss_legendre.md](suites/symplectic_gauss_legendre.md) |
+| `test_tensor_algebra` | Tensor algebra | Tensor and SIMD math | [suites/tensor_algebra.md](suites/tensor_algebra.md) |
+| `test_terrell_penrose` | Terrell-Penrose optics | Rendering and optics | [suites/terrell_penrose.md](suites/terrell_penrose.md) |
+| `test_teves_metric` | TeVeS metric | Metrics and geodesics | [suites/teves_metric.md](suites/teves_metric.md) |
+| `test_thread_pool` | Thread pool | Core infrastructure | [suites/thread_pool.md](suites/thread_pool.md) |
+| `test_tidal_rotational_gravity` | Tidal and rotational gravity | Post-Newtonian dynamics | [suites/tidal_rotational_gravity.md](suites/tidal_rotational_gravity.md) |
+| `test_ui_multi_window` | Interface control | Interface | [suites/ui_multi_window.md](suites/ui_multi_window.md) |
+| `test_uncertain_quantity` | Uncertain quantity | Uncertainty quantification | [suites/uncertain_quantity.md](suites/uncertain_quantity.md) |
+| `test_uncertainty_metrology` | Uncertainty metrology | Uncertainty quantification | [suites/uncertainty_metrology.md](suites/uncertainty_metrology.md) |
+| `test_uncertainty_pce` | Polynomial chaos propagation | Uncertainty quantification | [suites/uncertainty_pce.md](suites/uncertainty_pce.md) |
+| `test_vacuum_cosmo_metrics` | Vacuum and cosmological metrics | Metrics and geodesics | [suites/vacuum_cosmo_metrics.md](suites/vacuum_cosmo_metrics.md) |
+| `test_vtk_exporter` | VTK exporter | Input and output | [suites/vtk_exporter.md](suites/vtk_exporter.md) |
+| `test_vulkan_compute_pipeline` | Compute pipeline | Rendering and optics | [suites/vulkan_compute_pipeline.md](suites/vulkan_compute_pipeline.md) |
+| `test_zonotope_propagation` | Zonotope propagation | Uncertainty quantification | [suites/zonotope_propagation.md](suites/zonotope_propagation.md) |

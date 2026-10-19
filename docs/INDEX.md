@@ -26,7 +26,7 @@ This directory contains the formal technical documentation for the Relativity-Si
   Repository layout.
 
 - [testing/README.md](testing/README.md)  
-  [Testing guide](testing/README.md), [test catalogue](testing/test_catalog.md), [rules for writing tests](testing/CONTRIBUTING_TESTS.md), per-suite specifications in [testing/suites](testing/suites/) and [recorded results](testing/results/README.md).
+  [Testing guide](testing/README.md), [rules for writing tests](testing/CONTRIBUTING_TESTS.md).
 
 ## Asset Licensing References
 

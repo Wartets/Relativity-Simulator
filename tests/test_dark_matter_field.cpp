@@ -1,159 +1,138 @@
+#include "support/test_harness.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
 #include "relativistic/render/gpu_types.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <string>
 #include <unordered_map>
 
-static void test_assert(bool condition) {
-	if (!condition) {
-		std::abort();
+using Relativistic::Testing::TestSuite;
+namespace DM = Relativistic::DarkMatter;
+namespace RN = Relativistic::Render;
+
+namespace {
+
+constexpr std::array<float, 9> identity_basis{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+
+void check_profiles(TestSuite& suite) {
+	suite.section("Profile mathematics");
+	bool zero_at_origin = true;
+	bool monotonic = true;
+	bool non_negative_derivative = true;
+	for (uint32_t i = 0; i < DM::kDarkMatterProfileCount; ++i) {
+		const auto type = static_cast<DM::DarkMatterProfileType>(i);
+		const double shape = DM::DarkMatterProfileMath::default_shape(type);
+		zero_at_origin = zero_at_origin && DM::DarkMatterProfileMath::enclosed_fraction(type, 0.0, shape) == 0.0;
+		const double f1 = DM::DarkMatterProfileMath::enclosed_fraction(type, 0.25, shape);
+		const double f2 = DM::DarkMatterProfileMath::enclosed_fraction(type, 1.0, shape);
+		const double f3 = DM::DarkMatterProfileMath::enclosed_fraction(type, 4.0, shape);
+		monotonic = monotonic && f1 >= 0.0 && f2 >= f1 && f3 >= f2;
+		non_negative_derivative = non_negative_derivative && DM::DarkMatterProfileMath::fraction_derivative(type, 1.0, shape) >= 0.0;
 	}
+	suite.check(zero_at_origin, "the enclosed mass fraction vanishes at the centre for every profile");
+	suite.check(monotonic, "the enclosed mass fraction is non-negative and non-decreasing for every profile");
+	suite.check(non_negative_derivative, "the derivative of the enclosed fraction is non-negative for every profile");
 }
 
-static void test_profiles_enclosed_mass_and_derivatives() {
-	for (uint32_t i = 0; i < Relativistic::DarkMatter::kDarkMatterProfileCount; ++i) {
-		const auto type = static_cast<Relativistic::DarkMatter::DarkMatterProfileType>(i);
-		const double shape = Relativistic::DarkMatter::DarkMatterProfileMath::default_shape(type);
-		test_assert(Relativistic::DarkMatter::DarkMatterProfileMath::enclosed_fraction(type, 0.0, shape) == 0.0);
-
-		const double f1 = Relativistic::DarkMatter::DarkMatterProfileMath::enclosed_fraction(type, 0.25, shape);
-		const double f2 = Relativistic::DarkMatter::DarkMatterProfileMath::enclosed_fraction(type, 1.0, shape);
-		const double f3 = Relativistic::DarkMatter::DarkMatterProfileMath::enclosed_fraction(type, 4.0, shape);
-
-		test_assert(f1 >= 0.0);
-		test_assert(f2 >= f1);
-		test_assert(f3 >= f2);
-
-		const double d1 = Relativistic::DarkMatter::DarkMatterProfileMath::fraction_derivative(type, 1.0, shape);
-		test_assert(d1 >= 0.0);
-	}
-}
-
-static void test_triaxial_ellipsoidal_geometry() {
-	Relativistic::Render::GpuDarkMatterHalo halo{};
+void check_triaxial_geometry(TestSuite& suite) {
+	suite.section("Triaxial ellipsoidal geometry");
+	RN::GpuDarkMatterHalo halo{};
 	halo.position_x = 10.0f;
 	halo.position_y = 20.0f;
 	halo.position_z = 30.0f;
 	halo.axis_ratio_y = 0.5f;
 	halo.axis_ratio_z = 0.25f;
-	halo.basis = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-
+	halo.basis = identity_basis;
 	std::array<double, 3> local{};
-	const std::array<double, 3> pos{13.0, 24.0, 32.0};
-	const double m = Relativistic::DarkMatter::DarkMatterLensing::ellipsoidal_radius(halo, pos, local);
-
-	test_assert(std::abs(local[0] - 3.0) < 1e-12);
-	test_assert(std::abs(local[1] - 4.0) < 1e-12);
-	test_assert(std::abs(local[2] - 2.0) < 1e-12);
-
-	const double expected_m = std::sqrt(3.0 * 3.0 + (4.0 / 0.5) * (4.0 / 0.5) + (2.0 / 0.25) * (2.0 / 0.25));
-	test_assert(std::abs(m - expected_m) < 1e-12);
+	const double m = DM::DarkMatterLensing::ellipsoidal_radius(halo, {13.0, 24.0, 32.0}, local);
+	suite.check_near(local[0], 3.0, 1e-12, "the local x coordinate equals the offset from the halo centre");
+	suite.check_near(local[1], 4.0, 1e-12, "the local y coordinate equals the offset from the halo centre");
+	suite.check_near(local[2], 2.0, 1e-12, "the local z coordinate equals the offset from the halo centre");
+	suite.check_near(m, std::sqrt(9.0 + 64.0 + 64.0), 1e-12, "the ellipsoidal radius divides each axis by its axis ratio");
 }
 
-static void test_gravitational_acceleration_and_scaling() {
-	Relativistic::Render::GpuDarkMatterHalo halo{};
-	halo.profile = static_cast<uint32_t>(Relativistic::DarkMatter::DarkMatterProfileType::PointMass);
-	halo.position_x = 0.0f;
-	halo.position_y = 0.0f;
-	halo.position_z = 0.0f;
+void check_acceleration(TestSuite& suite) {
+	suite.section("Gravitational acceleration");
+	RN::GpuDarkMatterHalo halo{};
+	halo.profile = static_cast<uint32_t>(DM::DarkMatterProfileType::PointMass);
 	halo.mass_norm = 10.0f;
 	halo.scale_radius = 1.0f;
-	halo.softening = 0.0f;
-	halo.truncation_radius = 0.0f;
 	halo.axis_ratio_y = 1.0f;
 	halo.axis_ratio_z = 1.0f;
-	halo.basis = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+	halo.basis = identity_basis;
 	halo.lens_scale = 2.5f;
-
-	const auto acc = Relativistic::DarkMatter::DarkMatterLensing::halo_acceleration(halo, {5.0, 0.0, 0.0}, false);
-	test_assert(acc[0] < 0.0);
-	test_assert(std::abs(acc[1]) < 1e-14);
-	test_assert(std::abs(acc[2]) < 1e-14);
-	test_assert(std::abs(std::abs(acc[0]) - (10.0 / 25.0)) < 1e-12);
-
-	const auto acc_scaled = Relativistic::DarkMatter::DarkMatterLensing::halo_acceleration(halo, {5.0, 0.0, 0.0}, true);
-	test_assert(std::abs(std::abs(acc_scaled[0]) - (10.0 / 25.0 * 2.5)) < 1e-12);
+	const auto plain = DM::DarkMatterLensing::halo_acceleration(halo, {5.0, 0.0, 0.0}, false);
+	suite.check(plain[0] < 0.0, "the acceleration points toward the point mass");
+	suite.check_at_most(std::abs(plain[1]) + std::abs(plain[2]), 1e-14, "the acceleration has no transverse component on the axis");
+	suite.check_near(std::abs(plain[0]), 10.0 / 25.0, 1e-12, "the magnitude equals M / r^2");
+	const auto scaled = DM::DarkMatterLensing::halo_acceleration(halo, {5.0, 0.0, 0.0}, true);
+	suite.check_near(std::abs(scaled[0]), 10.0 / 25.0 * 2.5, 1e-12, "the lensing scale multiplies the acceleration when requested");
 }
 
-static void test_photon_deflection_kick_and_step_limit() {
-	Relativistic::Render::GpuDarkMatterHalo pm_halo{};
-	pm_halo.profile = static_cast<uint32_t>(Relativistic::DarkMatter::DarkMatterProfileType::PointMass);
-	pm_halo.position_x = 0.0f;
-	pm_halo.position_y = 0.0f;
-	pm_halo.position_z = 0.0f;
-	pm_halo.mass_norm = 4.0f;
-	pm_halo.scale_radius = 1.0f;
-	pm_halo.softening = 0.0f;
-	pm_halo.truncation_radius = 0.0f;
-	pm_halo.axis_ratio_y = 1.0f;
-	pm_halo.axis_ratio_z = 1.0f;
-	pm_halo.basis = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-	pm_halo.lens_scale = 1.0f;
-	pm_halo.flags = Relativistic::Render::DarkMatterHaloFlags::ENABLED | Relativistic::Render::DarkMatterHaloFlags::LENSING;
-
-	Relativistic::Render::GpuDarkMatterField field{};
+void check_photon_kick(TestSuite& suite) {
+	suite.section("Photon deflection");
+	RN::GpuDarkMatterHalo halo{};
+	halo.profile = static_cast<uint32_t>(DM::DarkMatterProfileType::PointMass);
+	halo.mass_norm = 4.0f;
+	halo.scale_radius = 1.0f;
+	halo.axis_ratio_y = 1.0f;
+	halo.axis_ratio_z = 1.0f;
+	halo.basis = identity_basis;
+	halo.lens_scale = 1.0f;
+	halo.flags = RN::DarkMatterHaloFlags::ENABLED | RN::DarkMatterHaloFlags::LENSING;
+	RN::GpuDarkMatterField field{};
 	field.halo_count = 1U;
-	field.flags = Relativistic::Render::DarkMatterFieldFlags::LENSING;
+	field.flags = RN::DarkMatterFieldFlags::LENSING;
 	field.lensing_strength = 1.0f;
 	field.step_fraction = 0.35f;
-	field.halos[0] = pm_halo;
+	field.halos[0] = halo;
 
 	const std::array<double, 3> velocity{0.0, 1.0, 0.0};
 	const std::array<double, 3> position{10.0, 0.0, 0.0};
-	const auto kicked = Relativistic::DarkMatter::DarkMatterLensing::kick(field, position, velocity, 0.1);
-
-	const double speed_original = std::sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]);
-	const double speed_kicked = std::sqrt(kicked[0] * kicked[0] + kicked[1] * kicked[1] + kicked[2] * kicked[2]);
-	test_assert(std::abs(speed_kicked - speed_original) < 1e-14);
-	test_assert(kicked[0] < 0.0);
-
-	const double limit = Relativistic::DarkMatter::DarkMatterLensing::step_limit(field, position);
-	test_assert(limit > 0.0);
-	test_assert(limit <= 0.35 * 10.0 + 1e-12);
+	const auto kicked = DM::DarkMatterLensing::kick(field, position, velocity, 0.1);
+	const double kicked_speed = std::sqrt(kicked[0] * kicked[0] + kicked[1] * kicked[1] + kicked[2] * kicked[2]);
+	suite.check_near(kicked_speed, 1.0, 1e-14, "the kick rotates the photon direction without changing its speed");
+	suite.check(kicked[0] < 0.0, "the kick bends the photon toward the halo");
+	const double limit = DM::DarkMatterLensing::step_limit(field, position);
+	suite.check(limit > 0.0, "the step limit is positive");
+	suite.check_at_most(limit, 0.35 * 10.0 + 1e-12, "the step limit does not exceed the step fraction times the distance");
 }
 
-static void test_volumetric_emission() {
-	Relativistic::Render::GpuDarkMatterHalo halo{};
-	halo.profile = static_cast<uint32_t>(Relativistic::DarkMatter::DarkMatterProfileType::Hernquist);
-	halo.flags = Relativistic::Render::DarkMatterHaloFlags::ENABLED | Relativistic::Render::DarkMatterHaloFlags::VISUAL;
-	halo.position_x = 0.0f;
-	halo.position_y = 0.0f;
-	halo.position_z = 0.0f;
+void check_emission(TestSuite& suite) {
+	suite.section("Volumetric emission");
+	RN::GpuDarkMatterHalo halo{};
+	halo.profile = static_cast<uint32_t>(DM::DarkMatterProfileType::Hernquist);
+	halo.flags = RN::DarkMatterHaloFlags::ENABLED | RN::DarkMatterHaloFlags::VISUAL;
 	halo.mass_norm = 5.0f;
 	halo.scale_radius = 2.0f;
 	halo.truncation_radius = 10.0f;
 	halo.axis_ratio_y = 1.0f;
 	halo.axis_ratio_z = 1.0f;
-	halo.basis = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+	halo.basis = identity_basis;
 	halo.visual_gain = 2.0f;
 	halo.tint_r = 0.2f;
 	halo.tint_g = 0.4f;
 	halo.tint_b = 0.8f;
-
-	Relativistic::Render::GpuDarkMatterField field{};
+	RN::GpuDarkMatterField field{};
 	field.halo_count = 1U;
 	field.visual_intensity = 1.5f;
 	field.halos[0] = halo;
 
 	field.flags = 0U;
-	const auto emission_off = Relativistic::DarkMatter::DarkMatterLensing::emission(field, {1.0, 0.0, 0.0}, 0.5);
-	test_assert(emission_off[0] == 0.0 && emission_off[1] == 0.0 && emission_off[2] == 0.0);
-
-	field.flags = Relativistic::Render::DarkMatterFieldFlags::VISUALIZATION;
-	const auto emission_on = Relativistic::DarkMatter::DarkMatterLensing::emission(field, {1.0, 0.0, 0.0}, 0.5);
-	test_assert(emission_on[0] > 0.0);
-	test_assert(emission_on[1] > 0.0);
-	test_assert(emission_on[2] > 0.0);
-
-	const auto emission_truncated = Relativistic::DarkMatter::DarkMatterLensing::emission(field, {15.0, 0.0, 0.0}, 0.5);
-	test_assert(emission_truncated[0] == 0.0 && emission_truncated[1] == 0.0 && emission_truncated[2] == 0.0);
+	const auto off = DM::DarkMatterLensing::emission(field, {1.0, 0.0, 0.0}, 0.5);
+	suite.check(off[0] == 0.0 && off[1] == 0.0 && off[2] == 0.0, "the emission vanishes while visualization is disabled");
+	field.flags = RN::DarkMatterFieldFlags::VISUALIZATION;
+	const auto on = DM::DarkMatterLensing::emission(field, {1.0, 0.0, 0.0}, 0.5);
+	suite.check(on[0] > 0.0 && on[1] > 0.0 && on[2] > 0.0, "the emission is positive in every channel inside the halo");
+	const auto truncated = DM::DarkMatterLensing::emission(field, {15.0, 0.0, 0.0}, 0.5);
+	suite.check(truncated[0] == 0.0 && truncated[1] == 0.0 && truncated[2] == 0.0, "the emission vanishes beyond the truncation radius");
 }
 
-static void test_settings_diagnostics_and_serialization() {
-	Relativistic::DarkMatter::DarkMatterFieldSettings field_settings{};
+void check_settings(TestSuite& suite) {
+	suite.section("Settings, diagnostics and serialization");
+	DM::DarkMatterFieldSettings field_settings{};
 	field_settings.enabled = true;
 	field_settings.lensing_enabled = true;
 	field_settings.visualization_enabled = true;
@@ -162,81 +141,65 @@ static void test_settings_diagnostics_and_serialization() {
 	field_settings.visual_intensity = 0.65;
 	field_settings.step_fraction = 0.25;
 
-	Relativistic::DarkMatter::DarkMatterHaloSettings halo_settings{};
-	halo_settings.set_name("ValidationHalo");
-	halo_settings.profile = Relativistic::DarkMatter::DarkMatterProfileType::Burkert;
-	halo_settings.mass = 4.0;
-	halo_settings.scale_radius = 8.0;
-	halo_settings.concentration = 5.0;
-	halo_settings.softening = 0.1;
-	halo_settings.truncation_radius = 50.0;
-	halo_settings.position = {12.0, -4.0, 6.0};
-	halo_settings.velocity = {0.01, -0.02, 0.005};
-	halo_settings.anchor_body_id = 42U;
-	halo_settings.axis_ratio_y = 0.85;
-	halo_settings.axis_ratio_z = 0.70;
-	halo_settings.yaw_deg = 15.0;
-	halo_settings.pitch_deg = -10.0;
-	halo_settings.roll_deg = 5.0;
-	halo_settings.lens_scale = 1.3;
-	halo_settings.visual_gain = 3.2;
-	halo_settings.tint = {0.7f, 0.3f, 0.9f};
+	DM::DarkMatterHaloSettings halo{};
+	halo.set_name("ValidationHalo");
+	halo.profile = DM::DarkMatterProfileType::Burkert;
+	halo.mass = 4.0;
+	halo.scale_radius = 8.0;
+	halo.concentration = 5.0;
+	halo.softening = 0.1;
+	halo.truncation_radius = 50.0;
+	halo.position = {12.0, -4.0, 6.0};
+	halo.velocity = {0.01, -0.02, 0.005};
+	halo.anchor_body_id = 42U;
+	halo.axis_ratio_y = 0.85;
+	halo.axis_ratio_z = 0.70;
+	halo.yaw_deg = 15.0;
+	halo.pitch_deg = -10.0;
+	halo.roll_deg = 5.0;
+	halo.lens_scale = 1.3;
+	halo.visual_gain = 3.2;
+	halo.tint = {0.7f, 0.3f, 0.9f};
 
-	const int added_index = field_settings.add_halo(halo_settings);
-	test_assert(added_index == 0);
-	test_assert(field_settings.count == 1U);
-	test_assert(field_settings.total_halo_mass() == 4.0);
-
-	const double norm = halo_settings.normalization();
-	test_assert(norm > 0.0);
-	const double enclosed_r = halo_settings.enclosed_mass(8.0);
-	test_assert(enclosed_r > 0.0 && enclosed_r < halo_settings.mass);
-	test_assert(halo_settings.circular_velocity(8.0) > 0.0);
-	test_assert(halo_settings.density(8.0) > 0.0);
+	suite.check(field_settings.add_halo(halo) == 0 && field_settings.count == 1U, "the first halo is stored at index zero");
+	suite.check_near(field_settings.total_halo_mass(), 4.0, 1e-15, "the total halo mass equals the stored mass");
+	suite.check(halo.normalization() > 0.0, "the profile normalization is positive");
+	const double enclosed = halo.enclosed_mass(8.0);
+	suite.check(enclosed > 0.0 && enclosed < halo.mass, "the mass enclosed at the scale radius lies strictly between zero and the total mass");
+	suite.check(halo.circular_velocity(8.0) > 0.0 && halo.density(8.0) > 0.0, "the circular velocity and the density at the scale radius are positive");
 
 	std::unordered_map<std::string, std::string> serialized{};
 	field_settings.store(serialized);
-
-	Relativistic::DarkMatter::DarkMatterFieldSettings restored{};
+	DM::DarkMatterFieldSettings restored{};
 	restored.restore(serialized);
+	suite.check(restored.enabled == field_settings.enabled && restored.count == 1U, "the enable flag and the halo count survive serialization");
+	suite.check(std::abs(restored.lensing_strength - 1.75) < 1e-12 && std::abs(restored.visual_intensity - 0.65) < 1e-12 && std::abs(restored.step_fraction - 0.25) < 1e-12, "the field scalars survive serialization");
 
-	test_assert(restored.enabled == field_settings.enabled);
-	test_assert(restored.count == 1U);
-	test_assert(std::abs(restored.lensing_strength - field_settings.lensing_strength) < 1e-12);
-	test_assert(std::abs(restored.visual_intensity - field_settings.visual_intensity) < 1e-12);
-	test_assert(std::abs(restored.step_fraction - field_settings.step_fraction) < 1e-12);
-
-	const auto& halo_restored = restored.halos[0];
-	test_assert(halo_restored.name_view() == halo_settings.name_view());
-	test_assert(halo_restored.profile == halo_settings.profile);
-	test_assert(std::abs(halo_restored.mass - halo_settings.mass) < 1e-12);
-	test_assert(std::abs(halo_restored.scale_radius - halo_settings.scale_radius) < 1e-12);
-	test_assert(std::abs(halo_restored.concentration - halo_settings.concentration) < 1e-12);
-	test_assert(std::abs(halo_restored.softening - halo_settings.softening) < 1e-12);
-	test_assert(std::abs(halo_restored.truncation_radius - halo_settings.truncation_radius) < 1e-12);
-	test_assert(halo_restored.anchor_body_id == halo_settings.anchor_body_id);
-	test_assert(std::abs(halo_restored.axis_ratio_y - halo_settings.axis_ratio_y) < 1e-12);
-	test_assert(std::abs(halo_restored.axis_ratio_z - halo_settings.axis_ratio_z) < 1e-12);
-	test_assert(std::abs(halo_restored.yaw_deg - halo_settings.yaw_deg) < 1e-12);
-	test_assert(std::abs(halo_restored.pitch_deg - halo_settings.pitch_deg) < 1e-12);
-	test_assert(std::abs(halo_restored.roll_deg - halo_settings.roll_deg) < 1e-12);
-	test_assert(std::abs(halo_restored.lens_scale - halo_settings.lens_scale) < 1e-12);
-	test_assert(std::abs(halo_restored.visual_gain - halo_settings.visual_gain) < 1e-12);
-	test_assert(std::abs(static_cast<double>(halo_restored.tint[0]) - static_cast<double>(halo_settings.tint[0])) < 1e-6);
+	const auto& back = restored.halos[0];
+	suite.check(back.name_view() == halo.name_view() && back.profile == halo.profile && back.anchor_body_id == halo.anchor_body_id, "the name, profile and anchor of the halo survive serialization");
+	const double scalar_deviation = std::max({
+		std::abs(back.mass - halo.mass), std::abs(back.scale_radius - halo.scale_radius), std::abs(back.concentration - halo.concentration),
+		std::abs(back.softening - halo.softening), std::abs(back.truncation_radius - halo.truncation_radius),
+		std::abs(back.axis_ratio_y - halo.axis_ratio_y), std::abs(back.axis_ratio_z - halo.axis_ratio_z),
+		std::abs(back.yaw_deg - halo.yaw_deg), std::abs(back.pitch_deg - halo.pitch_deg), std::abs(back.roll_deg - halo.roll_deg),
+		std::abs(back.lens_scale - halo.lens_scale), std::abs(back.visual_gain - halo.visual_gain)
+	});
+	suite.check_at_most(scalar_deviation, 1e-12, "every scalar halo parameter survives serialization");
+	suite.check_at_most(std::abs(static_cast<double>(back.tint[0]) - static_cast<double>(halo.tint[0])), 1e-6, "the tint survives serialization at single precision");
 }
 
-static void test_anchor_resolution_and_nbody_coupling() {
-	Relativistic::DarkMatter::DarkMatterFieldSettings field_settings{};
+void check_anchor_coupling(TestSuite& suite) {
+	suite.section("Anchor resolution and N-body coupling");
+	DM::DarkMatterFieldSettings field_settings{};
 	field_settings.enabled = true;
 	field_settings.affects_bodies = true;
-
-	Relativistic::DarkMatter::DarkMatterHaloSettings halo_settings{};
-	halo_settings.mass = 5.0;
-	halo_settings.scale_radius = 10.0;
-	halo_settings.anchor_body_id = 7U;
-	halo_settings.position = {1.0, 2.0, 3.0};
-	halo_settings.velocity = {0.1, -0.2, 0.3};
-	test_assert(field_settings.add_halo(halo_settings) >= 0);
+	DM::DarkMatterHaloSettings halo{};
+	halo.mass = 5.0;
+	halo.scale_radius = 10.0;
+	halo.anchor_body_id = 7U;
+	halo.position = {1.0, 2.0, 3.0};
+	halo.velocity = {0.1, -0.2, 0.3};
+	suite.check(field_settings.add_halo(halo) >= 0, "the anchored halo is accepted");
 
 	const auto resolver = [](uint32_t id, std::array<double, 3>& out) noexcept -> bool {
 		if (id == 7U) {
@@ -245,71 +208,68 @@ static void test_anchor_resolution_and_nbody_coupling() {
 		}
 		return false;
 	};
-
 	const auto resolved = field_settings.resolve(5.0, resolver);
-	test_assert(resolved.gpu.halo_count == 1U);
-	test_assert(resolved.anchor_ids[0] == 7U);
-	test_assert(resolved.affects_bodies[0] == 1U);
-
+	suite.check(resolved.gpu.halo_count == 1U && resolved.anchor_ids[0] == 7U && resolved.affects_bodies[0] == 1U, "the resolved field keeps the anchor and the body coupling flag");
 	const double expected_x = 100.0 + 1.0 + 0.1 * 5.0;
 	const double expected_y = 200.0 + 2.0 - 0.2 * 5.0;
 	const double expected_z = 300.0 + 3.0 + 0.3 * 5.0;
-
-	test_assert(std::abs(static_cast<double>(resolved.gpu.halos[0].position_x) - expected_x) < 1e-4);
-	test_assert(std::abs(static_cast<double>(resolved.gpu.halos[0].position_y) - expected_y) < 1e-4);
-	test_assert(std::abs(static_cast<double>(resolved.gpu.halos[0].position_z) - expected_z) < 1e-4);
-
-	const auto self_acceleration = resolved.body_acceleration({expected_x + 5.0, expected_y, expected_z}, 7U, 1.0);
-	test_assert(self_acceleration[0] == 0.0 && self_acceleration[1] == 0.0 && self_acceleration[2] == 0.0);
-
-	const auto external_acceleration = resolved.body_acceleration({expected_x + 5.0, expected_y, expected_z}, 9U, 1.0);
-	test_assert(external_acceleration[0] != 0.0);
+	suite.check_at_most(std::max({std::abs(static_cast<double>(resolved.gpu.halos[0].position_x) - expected_x), std::abs(static_cast<double>(resolved.gpu.halos[0].position_y) - expected_y), std::abs(static_cast<double>(resolved.gpu.halos[0].position_z) - expected_z)}), 1e-4, "the halo follows its anchor body plus the offset advanced by its velocity");
+	const auto self = resolved.body_acceleration({expected_x + 5.0, expected_y, expected_z}, 7U, 1.0);
+	suite.check(self[0] == 0.0 && self[1] == 0.0 && self[2] == 0.0, "the anchor body feels no force from its own halo");
+	const auto external = resolved.body_acceleration({expected_x + 5.0, expected_y, expected_z}, 9U, 1.0);
+	suite.check(external[0] != 0.0, "a different body feels the halo");
 }
 
-static void test_subhalo_population_generator() {
-	Relativistic::DarkMatter::DarkMatterFieldSettings field_settings{};
-	Relativistic::DarkMatter::DarkMatterPopulationSettings population_settings{};
-	population_settings.count = 6U;
-	population_settings.profile = Relativistic::DarkMatter::DarkMatterProfileType::Hernquist;
-	population_settings.minimum_mass = 0.05;
-	population_settings.maximum_mass = 0.8;
-	population_settings.inner_radius = 12.0;
-	population_settings.outer_radius = 90.0;
-	population_settings.seed = 20241029ULL;
-
-	const uint32_t added = field_settings.spawn_population(population_settings, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0U);
-	test_assert(added == 6U);
-	test_assert(field_settings.count == 6U);
-
+void check_population(TestSuite& suite) {
+	suite.section("Subhalo population");
+	DM::DarkMatterFieldSettings field_settings{};
+	DM::DarkMatterPopulationSettings population{};
+	population.count = 6U;
+	population.profile = DM::DarkMatterProfileType::Hernquist;
+	population.minimum_mass = 0.05;
+	population.maximum_mass = 0.8;
+	population.inner_radius = 12.0;
+	population.outer_radius = 90.0;
+	population.seed = 20241029ULL;
+	const uint32_t added = field_settings.spawn_population(population, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0U);
+	suite.check(added == 6U && field_settings.count == 6U, "the generator spawns the requested number of subhalos");
+	bool masses_in_range = true;
+	bool radii_in_range = true;
 	for (uint32_t i = 0; i < field_settings.count; ++i) {
-		const auto& subhalo = field_settings.halos[i];
-		test_assert(subhalo.mass >= population_settings.minimum_mass);
-		test_assert(subhalo.mass <= population_settings.maximum_mass);
-		const double r = std::sqrt(subhalo.position[0] * subhalo.position[0] + subhalo.position[1] * subhalo.position[1] + subhalo.position[2] * subhalo.position[2]);
-		test_assert(r >= population_settings.inner_radius * 0.999);
-		test_assert(r <= population_settings.outer_radius * 1.001);
+		const auto& sub = field_settings.halos[i];
+		masses_in_range = masses_in_range && sub.mass >= population.minimum_mass && sub.mass <= population.maximum_mass;
+		const double r = std::sqrt(sub.position[0] * sub.position[0] + sub.position[1] * sub.position[1] + sub.position[2] * sub.position[2]);
+		radii_in_range = radii_in_range && r >= population.inner_radius * 0.999 && r <= population.outer_radius * 1.001;
 	}
+	suite.check(masses_in_range, "every subhalo mass lies in the configured range");
+	suite.check(radii_in_range, "every subhalo lies in the configured shell");
 }
 
-static void test_preset_definitions() {
-	for (uint32_t i = 0; i < Relativistic::DarkMatter::kDarkMatterPresetCount; ++i) {
-		const auto preset = static_cast<Relativistic::DarkMatter::DarkMatterHaloPreset>(i);
-		const auto halo = Relativistic::DarkMatter::DarkMatterHaloSettings::from_preset(preset, 1.0);
-		test_assert(halo.mass > 0.0);
-		test_assert(halo.scale_radius > 0.0);
-		test_assert(halo.normalization() > 0.0);
+void check_presets(TestSuite& suite) {
+	suite.section("Presets");
+	bool valid = true;
+	for (uint32_t i = 0; i < DM::kDarkMatterPresetCount; ++i) {
+		const auto halo = DM::DarkMatterHaloSettings::from_preset(static_cast<DM::DarkMatterHaloPreset>(i), 1.0);
+		valid = valid && halo.mass > 0.0 && halo.scale_radius > 0.0 && halo.normalization() > 0.0;
 	}
+	suite.check(valid, "every preset has a positive mass, scale radius and normalization");
+}
+
 }
 
 int main() {
-	test_profiles_enclosed_mass_and_derivatives();
-	test_triaxial_ellipsoidal_geometry();
-	test_gravitational_acceleration_and_scaling();
-	test_photon_deflection_kick_and_step_limit();
-	test_volumetric_emission();
-	test_settings_diagnostics_and_serialization();
-	test_anchor_resolution_and_nbody_coupling();
-	test_subhalo_population_generator();
-	test_preset_definitions();
-	return 0;
+	TestSuite suite(
+		"dark_matter_field",
+		"Verifies the dark matter field of the renderer and the N-body coupling: enclosed mass fractions of every profile, triaxial ellipsoidal geometry, gravitational acceleration and lensing scale, photon deflection and step limit, volumetric emission, settings serialization, anchor resolution, subhalo population generation and presets."
+	);
+	check_profiles(suite);
+	check_triaxial_geometry(suite);
+	check_acceleration(suite);
+	check_photon_kick(suite);
+	check_emission(suite);
+	check_settings(suite);
+	check_anchor_coupling(suite);
+	check_population(suite);
+	check_presets(suite);
+	return suite.finish();
 }

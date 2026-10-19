@@ -14,6 +14,7 @@ Primary references:
 - [Mathematical Formulation](docs/MATHEMATICAL_FORMULATION.md): equations, metrics, transport formalisms, PN terms.
 - [File Formats & I/O](docs/FILE_FORMATS.md): YAML schema, FITS/HDF5/VTK formats, SPICE/HORIZONS ingestion.
 - [CLI & REPL Reference](docs/CLI_REFERENCE.md): interactive commands and headless exporter options.
+- [Testing Guide](docs/testing/README.md): test suite structure, writing rules, and validation targets.
 - [Documentation Index](docs/INDEX.md): index of the documentation set.
 - [Source Tree](docs/TREE.md): repository layout.
 

@@ -60,6 +60,34 @@ Relativity-Simulator/
 │   
 │
 ├── docs/
+│   ├── testing/
+│   │   ├── results/
+│   │   │   ├── performance/
+│   │   │   │   ├── engine_performance_report.csv
+│   │   │   │   ├── engine_performance_report.json
+│   │   │   │   └── engine_performance_report.md
+│   │   │   │
+│   │   │   ├── camera_navigation_modes.json
+│   │   │   ├── camera_navigation_modes.md
+│   │   │   ├── engine_performance.json
+│   │   │   ├── engine_performance.md
+│   │   │   ├── projection_modes.json
+│   │   │   ├── projection_modes.md
+│   │   │   ├── README.md
+│   │   │   ├── static_metrics.json
+│   │   │   └── static_metrics.md
+│   │   │
+│   │   ├── suites/
+│   │   │   ├── camera_navigation_modes.md
+│   │   │   ├── engine_performance.md
+│   │   │   ├── projection_modes.md
+│   │   │   ├── simd_bundle.md
+│   │   │   └── static_metrics.md
+│   │   │
+│   │   ├── CONTRIBUTING_TESTS.md
+│   │   ├── README.md
+│   │   └── test_catalog.md
+│   │
 │   ├── ARCHITECTURE.md
 │   ├── CLI_REFERENCE.md
 │   ├── DESCRIPTION.md
@@ -312,10 +340,6 @@ Relativity-Simulator/
 │       │   ├── vulkan_compute_executor.hpp
 │       │   └── vulkan_context.hpp
 │       │
-│       ├── resources/
-│       │   ├── icon.ico
-│       │   └── icon.png
-│       │
 │       ├── semiclassical/
 │       │   └── hawking_unruh.hpp
 │       │
@@ -441,9 +465,15 @@ Relativity-Simulator/
 │   └── spacetime_teves_metric.glsl
 │
 ├── tests/
+│   ├── support/
+│   │   ├── engine_scenario.hpp
+│   │   └── test_harness.hpp
+│   │
+│   ├── benchmark_engine_performance.cpp
 │   ├── benchmark_simd_bundle.cpp
 │   ├── test_barnes_hut_octree.cpp
 │   ├── test_bssn_gauge_wave.cpp
+│   ├── test_camera_navigation_modes.cpp
 │   ├── test_camera_projections.cpp
 │   ├── test_carter_constant.cpp
 │   ├── test_christoffel_solver.cpp
@@ -489,6 +519,7 @@ Relativity-Simulator/
 │   ├── test_pn_spin_precession.cpp
 │   ├── test_polarized_radiative_transfer.cpp
 │   ├── test_polynomial_chaos.cpp
+│   ├── test_projection_modes.cpp
 │   ├── test_relativistic_hydro.cpp
 │   ├── test_repl_parser.cpp
 │   ├── test_replay_loop.cpp

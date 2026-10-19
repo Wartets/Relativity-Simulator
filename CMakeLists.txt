@@ -97,14 +97,18 @@ if (WIN32)
 endif()
 
 include_directories(
+	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${CMAKE_CURRENT_SOURCE_DIR}/tests
 )
 
 find_package(Vulkan REQUIRED)
 
 add_library(relativistic_core INTERFACE)
 target_include_directories(relativistic_core INTERFACE
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests>
 	$<INSTALL_INTERFACE:include>
 )
 target_compile_features(relativistic_core INTERFACE cxx_std_23)
@@ -310,6 +314,34 @@ add_test(NAME test_rocket_dynamics COMMAND test_rocket_dynamics)
 add_executable(test_camera_projections tests/test_camera_projections.cpp)
 target_link_libraries(test_camera_projections PRIVATE relativistic_core)
 add_test(NAME test_camera_projections COMMAND test_camera_projections)
+
+add_executable(test_projection_modes tests/test_projection_modes.cpp)
+target_link_libraries(test_projection_modes PRIVATE relativistic_core)
+add_test(NAME test_projection_modes COMMAND test_projection_modes)
+
+add_executable(test_camera_navigation_modes tests/test_camera_navigation_modes.cpp)
+target_link_libraries(test_camera_navigation_modes PRIVATE relativistic_core imgui_lib)
+add_test(NAME test_camera_navigation_modes COMMAND test_camera_navigation_modes)
+
+add_executable(benchmark_engine_performance tests/benchmark_engine_performance.cpp)
+target_link_libraries(benchmark_engine_performance PRIVATE relativistic_core)
+add_test(NAME benchmark_engine_performance_quick COMMAND benchmark_engine_performance --profile quick WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(RELATIVISTIC_TEST_RESULTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/docs/testing/results)
+add_custom_target(run_engine_performance_benchmark
+	COMMAND ${CMAKE_COMMAND} -E env RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR} $<TARGET_FILE:benchmark_engine_performance> --profile full
+	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+	DEPENDS benchmark_engine_performance
+	USES_TERMINAL
+)
+set_tests_properties(
+	benchmark_simd_bundle
+	test_static_metrics
+	test_projection_modes
+	test_camera_navigation_modes
+	benchmark_engine_performance_quick
+	PROPERTIES ENVIRONMENT "RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR}"
+)
 
 add_executable(test_hyperbolic_motion tests/test_hyperbolic_motion.cpp)
 target_link_libraries(test_hyperbolic_motion PRIVATE relativistic_core)

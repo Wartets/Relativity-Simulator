@@ -58,6 +58,7 @@ compile_commands.json
 *.log
 *.bak
 *.swp
+state
 
 # vcpkg
 vcpkg_installed/
@@ -66,7 +67,6 @@ vcpkg_installed/
 *.dwo
 
 # Test output & cache
-Testing/
 .cache/
 
 # Config files

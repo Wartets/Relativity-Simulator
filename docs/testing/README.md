@@ -53,3 +53,13 @@ Commit refreshed results together with the change that motivated the run.
 | Projection modes | `test_projection_modes` | [suites/projection_modes.md](suites/projection_modes.md) |
 | Camera navigation modes | `test_camera_navigation_modes` | [suites/camera_navigation_modes.md](suites/camera_navigation_modes.md) |
 | Engine performance | `benchmark_engine_performance` | [suites/engine_performance.md](suites/engine_performance.md) |
+| Scheduler | `test_scheduler` | [suites/scheduler.md](suites/scheduler.md) |
+| REPL parser | `test_repl_parser` | [suites/repl_parser.md](suites/repl_parser.md) |
+| SPSC queue | `test_spsc_queue` | [suites/spsc_queue.md](suites/spsc_queue.md) |
+| Thread pool | `test_thread_pool` | [suites/thread_pool.md](suites/thread_pool.md) |
+| PCG64 generator | `test_pcg64` | [suites/pcg64.md](suites/pcg64.md) |
+| Memory arena | `test_memory_arena` | [suites/memory_arena.md](suites/memory_arena.md) |
+| Scenario serializer | `test_scenario_serializer` | [suites/scenario_serializer.md](suites/scenario_serializer.md) |
+| Interval arithmetic | `test_interval_arithmetic` | [suites/interval_arithmetic.md](suites/interval_arithmetic.md) |
+| Horizon regime | `test_horizon_regime` | [suites/horizon_regime.md](suites/horizon_regime.md) |
+| Double-single arithmetic | `test_double_single` | [suites/double_single.md](suites/double_single.md) |

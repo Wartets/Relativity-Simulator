@@ -467,6 +467,9 @@ add_executable(test_ui_multi_window tests/test_ui_multi_window.cpp)
 target_link_libraries(test_ui_multi_window PRIVATE relativistic_core imgui_lib)
 add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)
 
+get_directory_property(RELATIVISTIC_REGISTERED_TESTS TESTS)
+set_tests_properties(${RELATIVISTIC_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR}")
+
 option(ENABLE_LTO "Enable Link-Time Optimization (LTO / IPO)" ON)
 option(ENABLE_PGO_GENERATE "Enable Profile-Guided Optimization instrument generation" OFF)
 option(ENABLE_PGO_USE "Enable Profile-Guided Optimization profile utilization" OFF)

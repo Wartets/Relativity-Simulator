@@ -1,7 +1,11 @@
+#include "support/test_harness.hpp"
 #include "relativistic/core/memory_arena.hpp"
-#include <cassert>
 #include <cstdint>
-#include <cmath>
+
+using namespace Relativistic::Core;
+using Relativistic::Testing::TestSuite;
+
+namespace {
 
 struct alignas(64) Aligned64Struct {
 	double values[8];
@@ -18,97 +22,69 @@ struct ParticleState {
 	uint32_t flags;
 };
 
-int main() {
-	using namespace Relativistic::Core;
+void check_allocation(TestSuite& suite) {
+	suite.section("Allocation and alignment");
+	CacheAlignedArena64<1024 * 1024> arena;
+	suite.check(arena.capacity() == 1024 * 1024 && arena.allocated_bytes() == 0 && arena.remaining_bytes() == 1024 * 1024, "a new arena is empty with its full capacity");
+	suite.check(arena.allocation_count() == 0 && arena.validate_sentinels(), "a new arena has no allocations and intact sentinels");
 
-	{
-		CacheAlignedArena64<1024 * 1024> arena;
+	double* scalar = arena.allocate<double>(1);
+	suite.check(scalar != nullptr && reinterpret_cast<uintptr_t>(scalar) % alignof(double) == 0, "a scalar allocation is naturally aligned");
+	Aligned64Struct* aligned = arena.allocate<Aligned64Struct, 64>(1);
+	suite.check(aligned != nullptr && reinterpret_cast<uintptr_t>(aligned) % 64 == 0, "a 64-byte aligned allocation honours its alignment");
+	ParticleState* particle = arena.create<ParticleState>(ParticleState{{0.0, 10.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.1}, 1.989e30, 0x1});
+	suite.check(particle != nullptr && particle->mass == 1.989e30 && particle->position[1] == 10.0, "create constructs the object with its initial state");
+	suite.check(arena.allocation_count() == 3 && arena.allocated_bytes() > 0 && arena.validate_sentinels(), "the allocation count and sentinels remain consistent");
+	arena.reset();
+	suite.check(arena.allocated_bytes() == 0 && arena.allocation_count() == 0 && arena.validate_sentinels(), "reset releases every allocation");
 
-		assert(arena.capacity() == 1024 * 1024);
-		assert(arena.allocated_bytes() == 0);
-		assert(arena.remaining_bytes() == 1024 * 1024);
-		assert(arena.allocation_count() == 0);
-		assert(arena.validate_sentinels());
-
-		double* scalar = arena.allocate<double>(1);
-		assert(scalar != nullptr);
-		assert(reinterpret_cast<uintptr_t>(scalar) % alignof(double) == 0);
-		*scalar = 42.0;
-
-		Aligned64Struct* aligned_obj = arena.allocate<Aligned64Struct, 64>(1);
-		assert(aligned_obj != nullptr);
-		assert(reinterpret_cast<uintptr_t>(aligned_obj) % 64 == 0);
-		aligned_obj->values[0] = 3.14159;
-
-		ParticleState* particle = arena.create<ParticleState>(
-			ParticleState{
-				.position = {0.0, 10.0, 0.0, 0.0},
-				.velocity = {1.0, 0.0, 0.0, 0.1},
-				.mass = 1.989e30,
-				.flags = 0x1
-			}
-		);
-		assert(particle != nullptr);
-		assert(particle->mass == 1.989e30);
-		assert(particle->position[1] == 10.0);
-
-		assert(arena.validate_sentinels());
-		assert(arena.allocated_bytes() > 0);
-		assert(arena.allocation_count() == 3);
-
-		arena.reset();
-		assert(arena.allocated_bytes() == 0);
-		assert(arena.allocation_count() == 0);
-		assert(arena.validate_sentinels());
-	}
-
-	{
-		CacheAlignedArena128<512 * 1024> arena128;
-		assert(arena128.validate_sentinels());
-
-		Aligned128Struct* obj128 = arena128.allocate<Aligned128Struct, 128>(4);
-		assert(obj128 != nullptr);
-		assert(reinterpret_cast<uintptr_t>(obj128) % 128 == 0);
-
+	CacheAlignedArena128<512 * 1024> wide;
+	Aligned128Struct* aligned_128 = wide.allocate<Aligned128Struct, 128>(4);
+	suite.check(aligned_128 != nullptr && reinterpret_cast<uintptr_t>(aligned_128) % 128 == 0, "a 128-byte aligned array honours its alignment");
+	if (aligned_128 != nullptr) {
 		for (size_t i = 0; i < 4; ++i) {
 			for (size_t j = 0; j < 16; ++j) {
-				obj128[i].values[j] = static_cast<double>(i * 16 + j);
+				aligned_128[i].values[j] = static_cast<double>(i * 16 + j);
 			}
 		}
-		assert(arena128.validate_sentinels());
 	}
+	suite.check(wide.validate_sentinels(), "writing the whole allocation does not corrupt the sentinels");
+}
 
+void check_markers(TestSuite& suite) {
+	suite.section("Markers and scopes");
+	CacheAlignedArena64<4096> arena;
+	const auto start = arena.get_marker();
+	double* first = arena.allocate<double>(10);
+	const auto middle = arena.get_marker();
+	suite.check(first != nullptr && middle > start, "an allocation advances the marker");
 	{
-		CacheAlignedArena64<4096> arena;
-		const auto marker_start = arena.get_marker();
-
-		double* arr1 = arena.allocate<double>(10);
-		assert(arr1 != nullptr);
-		const auto marker_mid = arena.get_marker();
-		assert(marker_mid > marker_start);
-
-		{
-			ScopedArenaMarker scope(arena);
-			double* arr2 = arena.allocate<double>(100);
-			assert(arr2 != nullptr);
-			assert(arena.get_marker() > marker_mid);
-		}
-
-		assert(arena.get_marker() == marker_mid);
-		arena.rewind_to_marker(marker_start);
-		assert(arena.get_marker() == marker_start);
-		assert(arena.validate_sentinels());
+		ScopedArenaMarker scope(arena);
+		double* nested = arena.allocate<double>(100);
+		suite.check(nested != nullptr && arena.get_marker() > middle, "a scoped allocation advances the marker");
 	}
+	suite.check(arena.get_marker() == middle, "leaving the scope restores the marker");
+	arena.rewind_to_marker(start);
+	suite.check(arena.get_marker() == start && arena.validate_sentinels(), "rewinding returns to the initial marker");
+}
 
-	{
-		LinearMemoryArena<128, 64> small_arena;
-		double* p1 = small_arena.allocate<double>(8);
-		assert(p1 != nullptr);
+void check_exhaustion(TestSuite& suite) {
+	suite.section("Exhaustion");
+	LinearMemoryArena<128, 64> small;
+	suite.check(small.allocate<double>(8) != nullptr, "an allocation within capacity succeeds");
+	suite.check(small.allocate<double>(100) == nullptr, "an allocation beyond capacity returns null");
+	suite.check(small.validate_sentinels(), "a failed allocation leaves the sentinels intact");
+}
 
-		double* p2 = small_arena.allocate<double>(100);
-		assert(p2 == nullptr);
-		assert(small_arena.validate_sentinels());
-	}
+}
 
-	return 0;
+int main() {
+	TestSuite suite(
+		"memory_arena",
+		"Verifies the linear memory arenas used by the zero-allocation hot path: capacity accounting, natural and cache-line alignment, object creation, reset, markers, scoped rewinding, sentinel integrity and exhaustion handling."
+	);
+	check_allocation(suite);
+	check_markers(suite);
+	check_exhaustion(suite);
+	return suite.finish();
 }

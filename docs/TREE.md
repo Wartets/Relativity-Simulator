@@ -79,10 +79,20 @@ Relativity-Simulator/
 │   │   │
 │   │   ├── suites/
 │   │   │   ├── camera_navigation_modes.md
+│   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.md
+│   │   │   ├── horizon_regime.md
+│   │   │   ├── interval_arithmetic.md
+│   │   │   ├── memory_arena.md
+│   │   │   ├── pcg64.md
 │   │   │   ├── projection_modes.md
+│   │   │   ├── repl_parser.md
+│   │   │   ├── scenario_serializer.md
+│   │   │   ├── scheduler.md
 │   │   │   ├── simd_bundle.md
-│   │   │   └── static_metrics.md
+│   │   │   ├── spsc_queue.md
+│   │   │   ├── static_metrics.md
+│   │   │   └── thread_pool.md
 │   │   │
 │   │   ├── CONTRIBUTING_TESTS.md
 │   │   ├── README.md

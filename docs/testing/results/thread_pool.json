@@ -1,0 +1,15 @@
+{
+  "suite": "thread_pool",
+  "description": "Verifies the persistent worker pool: worker count, execution of every enqueued task before wait_idle returns, and exact coverage of the index range by chunked parallel loops.",
+  "generated": "2026-10-19 13:46:59 UTC",
+  "duration_seconds": 0.0029224,
+  "passed": true,
+  "checks": [
+    {"section": "Task execution", "label": "the pool creates the requested number of workers", "detail": "", "passed": true},
+    {"section": "Task execution", "label": "wait_idle returns only after all hundred tasks completed", "detail": "", "passed": true},
+    {"section": "Chunked parallel loop", "label": "every index is processed exactly once", "detail": "wrong_elements=0", "passed": true},
+    {"section": "Chunked parallel loop", "label": "a single-element range is processed exactly once", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

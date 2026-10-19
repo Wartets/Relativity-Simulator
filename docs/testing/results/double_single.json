@@ -1,0 +1,23 @@
+{
+  "suite": "double_single",
+  "description": "Verifies the compensated double-single arithmetic that emulates extended precision with two single-precision floats: conversion round trip, the four arithmetic operations, square root and sine, each against native double precision.",
+  "generated": "2026-10-19 13:42:25 UTC",
+  "duration_seconds": 0.0016755,
+  "passed": true,
+  "checks": [
+    {"section": "Conversion", "label": "a double survives the split and recombination", "detail": "actual=1.23456789012 expected=1.23456789012 abs_error=2.22e-16 tolerance=1e-13", "passed": true},
+    {"section": "Conversion", "label": "a second double survives the split and recombination", "detail": "actual=9.87654321099 expected=9.87654321099 abs_error=1.776e-15 tolerance=1e-13", "passed": true},
+    {"section": "Arithmetic", "label": "addition matches native double precision", "detail": "actual=11.1111111011 expected=11.1111111011 rel_error=2.078e-15 tolerance=1e-13", "passed": true},
+    {"section": "Arithmetic", "label": "subtraction matches native double precision", "detail": "actual=8.64197532086 expected=8.64197532086 rel_error=2.055e-16 tolerance=1e-13", "passed": true},
+    {"section": "Arithmetic", "label": "multiplication matches native double precision", "detail": "actual=12.1932631137 expected=12.1932631137 rel_error=4.371e-16 tolerance=1e-13", "passed": true},
+    {"section": "Arithmetic", "label": "division matches native double precision", "detail": "actual=8.0000000729 expected=8.0000000729 rel_error=2.22e-16 tolerance=1e-13", "passed": true},
+    {"section": "Functions", "label": "square root matches native double precision", "detail": "actual=11.7062376144 expected=11.7062376144 rel_error=7.587e-16 tolerance=1e-13", "passed": true},
+    {"section": "Functions", "label": "sine matches native double precision", "detail": "actual=0.944005725045 expected=0.944005725045 rel_error=1.176e-16 tolerance=1e-13", "passed": true},
+    {"section": "Functions", "label": "cosine matches native double precision", "detail": "actual=0.329929069774 expected=0.329929069774 rel_error=1.683e-15 tolerance=1e-13", "passed": true},
+    {"section": "Ordering", "label": "comparison operators order values consistently", "detail": "", "passed": true},
+    {"section": "Ordering", "label": "the absolute value removes the sign", "detail": "", "passed": true},
+    {"section": "Ordering", "label": "minimum and maximum select the expected operands", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "suite": "spsc_queue",
+  "description": "Verifies the lock-free single-producer single-consumer ring buffer: capacity, ordering, wrap-around and an integrity check over half a million elements transferred between two threads.",
+  "generated": "2026-10-19 13:46:57 UTC",
+  "duration_seconds": 0.1584415,
+  "passed": true,
+  "checks": [
+    {"section": "Sequential behaviour", "label": "a new queue is empty", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "the capacity equals the template parameter", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "fifteen elements fit in a queue of capacity sixteen", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "the size reflects the pushed elements", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "elements are popped in first-in first-out order", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "the queue is empty after popping every element", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "popping an empty queue fails", "detail": "", "passed": true},
+    {"section": "Sequential behaviour", "label": "repeated fill and drain cycles preserve order across index wrap-around", "detail": "", "passed": true},
+    {"section": "Concurrent producer and consumer", "label": "no element is lost, duplicated or reordered across threads", "detail": "", "passed": true},
+    {"section": "Concurrent producer and consumer", "label": "the consumer receives every element", "detail": "", "passed": true},
+    {"section": "Concurrent producer and consumer", "label": "the sum of consumed elements matches the arithmetic series", "detail": "", "passed": true},
+    {"section": "Concurrent producer and consumer", "label": "the queue is empty after the transfer", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Concurrent producer and consumer", "name": "transferred_elements", "value": 500000, "unit": "elements"}
+  ]
+}

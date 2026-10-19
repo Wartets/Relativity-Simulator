@@ -1,0 +1,22 @@
+{
+  "suite": "pcg64",
+  "description": "Verifies the explicit-state PCG64 generator that underpins deterministic replay: reproducibility, stream independence, output ranges, Gaussian moments, jump-ahead and registry derived sub-engines.",
+  "generated": "2026-10-19 13:43:56 UTC",
+  "duration_seconds": 0.0164266,
+  "passed": false,
+  "checks": [
+    {"section": "Reproducibility", "label": "identical seed and stream produce identical sequences", "detail": "mismatches=0", "passed": true},
+    {"section": "Reproducibility", "label": "different streams do not produce coinciding values", "detail": "matches=0", "passed": true},
+    {"section": "Output ranges", "label": "uniform doubles stay in [0, 1)", "detail": "", "passed": true},
+    {"section": "Output ranges", "label": "ranged uniform doubles stay in [-5, 15)", "detail": "", "passed": true},
+    {"section": "Gaussian statistics", "label": "the sample mean of the standard normal distribution is close to zero", "detail": "actual=0.00163582979463 expected=0 abs_error=0.001636 tolerance=0.05", "passed": true},
+    {"section": "Gaussian statistics", "label": "the sample variance of the standard normal distribution is close to one", "detail": "actual=1.00372339735 expected=1 abs_error=0.003723 tolerance=0.05", "passed": true},
+    {"section": "Jump-ahead and sub-engines", "label": "step_forward equals the same number of sequential draws", "detail": "", "passed": true},
+    {"section": "Jump-ahead and sub-engines", "label": "distinct sub-engine identifiers give distinct streams", "detail": "", "passed": true},
+    {"section": "Jump-ahead and sub-engines", "label": "the same registry seed and identifier reproduce the same sub-engine", "detail": "", "passed": false}
+  ],
+  "measurements": [
+    {"section": "Gaussian statistics", "name": "sample_mean", "value": 0.00163582979463, "unit": "dimensionless"},
+    {"section": "Gaussian statistics", "name": "sample_variance", "value": 1.00372339735, "unit": "dimensionless"}
+  ]
+}

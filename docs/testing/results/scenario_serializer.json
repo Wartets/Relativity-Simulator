@@ -1,0 +1,31 @@
+{
+  "suite": "scenario_serializer",
+  "description": "Verifies the declarative scenario reader and writer: field fidelity across a serialization round trip and the validation rules for names, metrics, mass and spin.",
+  "generated": "2026-10-19 13:44:07 UTC",
+  "duration_seconds": 0.0019507,
+  "passed": true,
+  "checks": [
+    {"section": "YAML round trip", "label": "serialization produces a document", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the scenario name is written as a quoted string", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the spin is written with its value", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the serialized document parses back", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the scenario name survives the round trip", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the metric type survives the round trip", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the central mass survives the round trip", "detail": "actual=10 expected=10 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "YAML round trip", "label": "the central spin survives the round trip", "detail": "actual=0.95 expected=0.95 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "YAML round trip", "label": "the integrator scheme survives the round trip", "detail": "", "passed": true},
+    {"section": "YAML round trip", "label": "the initial step survives the round trip", "detail": "actual=0.005 expected=0.005 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "YAML round trip", "label": "the relative tolerance survives the round trip", "detail": "actual=1e-12 expected=1e-12 rel_error=0 tolerance=1e-09", "passed": true},
+    {"section": "YAML round trip", "label": "the export switches survive the round trip", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "a sub-extremal Kerr scenario is valid", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "a Schwarzschild scenario with positive mass is valid", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "an empty scenario name is rejected", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "an empty metric type is rejected", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "an unknown metric is rejected with a message", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "a Schwarzschild scenario with zero mass is rejected", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "a Kerr scenario exceeding the extremal spin is rejected", "detail": "", "passed": true},
+    {"section": "Validation rules", "label": "the extremal spin is accepted within the documented tolerance", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

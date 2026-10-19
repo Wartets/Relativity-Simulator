@@ -1,0 +1,27 @@
+{
+  "suite": "memory_arena",
+  "description": "Verifies the linear memory arenas used by the zero-allocation hot path: capacity accounting, natural and cache-line alignment, object creation, reset, markers, scoped rewinding, sentinel integrity and exhaustion handling.",
+  "generated": "2026-10-19 13:43:33 UTC",
+  "duration_seconds": 0.0042826,
+  "passed": true,
+  "checks": [
+    {"section": "Allocation and alignment", "label": "a new arena is empty with its full capacity", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "a new arena has no allocations and intact sentinels", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "a scalar allocation is naturally aligned", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "a 64-byte aligned allocation honours its alignment", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "create constructs the object with its initial state", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "the allocation count and sentinels remain consistent", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "reset releases every allocation", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "a 128-byte aligned array honours its alignment", "detail": "", "passed": true},
+    {"section": "Allocation and alignment", "label": "writing the whole allocation does not corrupt the sentinels", "detail": "", "passed": true},
+    {"section": "Markers and scopes", "label": "an allocation advances the marker", "detail": "", "passed": true},
+    {"section": "Markers and scopes", "label": "a scoped allocation advances the marker", "detail": "", "passed": true},
+    {"section": "Markers and scopes", "label": "leaving the scope restores the marker", "detail": "", "passed": true},
+    {"section": "Markers and scopes", "label": "rewinding returns to the initial marker", "detail": "", "passed": true},
+    {"section": "Exhaustion", "label": "an allocation within capacity succeeds", "detail": "", "passed": true},
+    {"section": "Exhaustion", "label": "an allocation beyond capacity returns null", "detail": "", "passed": true},
+    {"section": "Exhaustion", "label": "a failed allocation leaves the sentinels intact", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

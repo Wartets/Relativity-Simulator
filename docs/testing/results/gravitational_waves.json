@@ -1,0 +1,17 @@
+{
+  "suite": "gravitational_waves",
+  "description": "Verifies the quadrupole gravitational wave strain of a binary neutron star system at face-on inclination: the plus polarization dominates at orbital phase zero, the cross polarization dominates at a quarter-turn phase, and each suppressed polarization vanishes relative to the dominant one.",
+  "generated": "2026-10-19 22:19:26 UTC",
+  "duration_seconds": 0.0008358,
+  "passed": true,
+  "checks": [
+    {"section": "Orbital phase zero", "label": "the plus polarization is non-zero at phase zero", "detail": "", "passed": true},
+    {"section": "Orbital phase zero", "label": "the cross polarization vanishes relative to the plus polarization at phase zero", "detail": "value=0 limit=1.70955e-30", "passed": true},
+    {"section": "Orbital phase of a quarter of a half turn", "label": "the cross polarization is non-zero at phase pi/4", "detail": "", "passed": true},
+    {"section": "Orbital phase of a quarter of a half turn", "label": "the plus polarization vanishes relative to the cross polarization at phase pi/4", "detail": "value=1.0468e-37 limit=1.70955e-30", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Orbital phase zero", "name": "h_plus_phase_zero", "value": 1.70955384711e-21, "unit": "dimensionless strain"},
+    {"section": "Orbital phase of a quarter of a half turn", "name": "h_cross_phase_quarter", "value": 1.70955384711e-21, "unit": "dimensionless strain"}
+  ]
+}

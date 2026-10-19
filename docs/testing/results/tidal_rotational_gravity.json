@@ -1,0 +1,18 @@
+{
+  "suite": "tidal_rotational_gravity",
+  "description": "Verifies the tidal and rotational perturbation models: the lunar tide changes the Earth C20 coefficient by a small non-zero amount, the direct tidal acceleration of a satellite on the Earth-Moon axis is purely radial, and the rotational flattening reproduces the Earth J2.",
+  "generated": "2026-10-19 22:21:21 UTC",
+  "duration_seconds": 0.0009168,
+  "passed": true,
+  "checks": [
+    {"section": "Third-body tide", "label": "the lunar tide modifies the normalized C20 coefficient", "detail": "", "passed": true},
+    {"section": "Third-body tide", "label": "the C20 change stays below 1e-7", "detail": "value=3.78172e-09 limit=1e-07", "passed": true},
+    {"section": "Direct tidal acceleration", "label": "the tidal acceleration has a non-zero component along the Earth-Moon axis", "detail": "", "passed": true},
+    {"section": "Direct tidal acceleration", "label": "the transverse y component vanishes on the axis", "detail": "value=0 limit=1e-20", "passed": true},
+    {"section": "Direct tidal acceleration", "label": "the transverse z component vanishes on the axis", "detail": "value=0 limit=1e-20", "passed": true},
+    {"section": "Rotational flattening", "label": "the rotational contribution to J2 is within 1e-4 of 1.08e-3", "detail": "actual=0.00108226186694 expected=0.00108 abs_error=2.262e-06 tolerance=0.0001", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Rotational flattening", "name": "rotational_j2", "value": 0.00108226186694, "unit": "dimensionless"}
+  ]
+}

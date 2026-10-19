@@ -1,0 +1,12 @@
+{
+  "suite": "schwarzschild_shadow_render",
+  "description": "Verifies the rendered shadow of a Schwarzschild black hole seen from r = 50 M: the angular radius of the shadow edge found along the central row of a 128 by 128 frame agrees with the analytic critical angle asin(3 sqrt(3) M sqrt(1 - 2M/r) / r) within 5 percent.",
+  "generated": "2026-10-19 22:21:11 UTC",
+  "duration_seconds": 0.9092958,
+  "passed": false,
+  "checks": [
+    {"section": "Shadow edge", "label": "a celestial pixel exists to the right of the shadow centre", "detail": "", "passed": false}
+  ],
+  "measurements": [
+  ]
+}

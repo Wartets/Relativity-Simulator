@@ -1,0 +1,24 @@
+{
+  "suite": "vulkan_compute_pipeline",
+  "description": "Verifies the headless compute pipeline on a 64 by 64 Schwarzschild frame at r = 15: device initialization with native double precision, complete pixel processing with horizon and celestial pixels, agreement of the pixel classification between the FP64 pipeline and the single-precision software path above 98 percent, and the agreement of an emulated double-single trajectory with native double precision.",
+  "generated": "2026-10-19 22:22:22 UTC",
+  "duration_seconds": 1.0337632,
+  "passed": false,
+  "checks": [
+    {"section": "Pipeline initialization", "label": "the graphics context is initialized", "detail": "", "passed": true},
+    {"section": "Pipeline initialization", "label": "the device supports native double precision", "detail": "", "passed": true},
+    {"section": "Frame dispatch", "label": "every pixel of the frame is processed", "detail": "processed=4096", "passed": true},
+    {"section": "Frame dispatch", "label": "the black hole absorbs some rays", "detail": "", "passed": true},
+    {"section": "Frame dispatch", "label": "some rays escape to the sky", "detail": "", "passed": true},
+    {"section": "Agreement with the software path", "label": "more than 98 percent of the pixel classifications agree between the two paths", "detail": "", "passed": false},
+    {"section": "Double-single trajectory", "label": "the double-single radius matches native double precision within a relative 1e-8", "detail": "value=1.42034e-15 limit=1e-08", "passed": true},
+    {"section": "Double-single trajectory", "label": "the double-single azimuth matches native double precision within 1e-8 rad", "detail": "value=9.99201e-16 limit=1e-08", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Frame dispatch", "name": "horizon_pixels", "value": 1384, "unit": "pixels"},
+    {"section": "Frame dispatch", "name": "celestial_pixels", "value": 2616, "unit": "pixels"},
+    {"section": "Agreement with the software path", "name": "status_match_ratio", "value": 0, "unit": "fraction"},
+    {"section": "Double-single trajectory", "name": "radial_relative_error", "value": 1.42034176753e-15, "unit": "dimensionless"},
+    {"section": "Double-single trajectory", "name": "azimuth_error", "value": 9.99200722163e-16, "unit": "rad"}
+  ]
+}

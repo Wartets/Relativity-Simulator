@@ -1,0 +1,16 @@
+{
+  "suite": "barnes_hut_octree",
+  "description": "Verifies the Barnes-Hut octree on a deterministic Gaussian cloud of 300 softened particles: the tree contains more nodes than particles, the quadrupole-corrected accelerations of twenty particles agree with direct summation within 5 percent of the acceleration magnitude, and ten leapfrog steps keep every particle finite.",
+  "generated": "2026-10-19 22:15:08 UTC",
+  "duration_seconds": 0.1902594,
+  "passed": true,
+  "checks": [
+    {"section": "Tree construction", "label": "the octree holds more nodes than particles", "detail": "nodes=447", "passed": true},
+    {"section": "Accuracy against direct summation", "label": "every sampled particle has a non-negligible direct acceleration", "detail": "compared=20", "passed": true},
+    {"section": "Accuracy against direct summation", "label": "the tree acceleration agrees with direct summation within 5 percent of the magnitude", "detail": "value=0.0454623 limit=0.05", "passed": true},
+    {"section": "Leapfrog integration", "label": "every position and velocity stays finite after ten leapfrog steps", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Accuracy against direct summation", "name": "worst_relative_acceleration_error", "value": 0.0454622749444, "unit": "dimensionless"}
+  ]
+}

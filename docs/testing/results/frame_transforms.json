@@ -1,0 +1,21 @@
+{
+  "suite": "frame_transforms",
+  "description": "Verifies the reference frame transformations: the ICRF to ecliptic round trip reproduces the original state, the identity Lorentz boost is the identity matrix, and the boost along x has the Lorentz factor on the diagonal and its negative product with the velocity off the diagonal.",
+  "generated": "2026-10-19 22:19:24 UTC",
+  "duration_seconds": 0.0011192,
+  "passed": true,
+  "checks": [
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores position component 1", "detail": "actual=100000000000 expected=100000000000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores velocity component 1", "detail": "actual=1000 expected=1000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores position component 2", "detail": "actual=200000000000 expected=200000000000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores velocity component 2", "detail": "actual=2000 expected=2000 rel_error=1.137e-16 tolerance=1e-12", "passed": true},
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores position component 3", "detail": "actual=300000000000 expected=300000000000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "ICRF and ecliptic round trip", "label": "the round trip restores velocity component 3", "detail": "actual=3000 expected=3000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Lorentz boost matrices", "label": "the zero boost has a unit time-time component", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-15", "passed": true},
+    {"section": "Lorentz boost matrices", "label": "the zero boost has a unit x-x component", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-15", "passed": true},
+    {"section": "Lorentz boost matrices", "label": "the time-time component equals the Lorentz factor", "detail": "actual=1.25 expected=1.25 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Lorentz boost matrices", "label": "the time-x component equals minus gamma times beta", "detail": "actual=-0.75 expected=-0.75 abs_error=0 tolerance=1e-12", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

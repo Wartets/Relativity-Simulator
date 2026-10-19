@@ -1,8 +1,8 @@
 {
   "suite": "thread_pool",
   "description": "Verifies the persistent worker pool: worker count, execution of every enqueued task before wait_idle returns, and exact coverage of the index range by chunked parallel loops.",
-  "generated": "2026-10-19 13:46:59 UTC",
-  "duration_seconds": 0.0029224,
+  "generated": "2026-10-19 22:21:20 UTC",
+  "duration_seconds": 0.0029359,
   "passed": true,
   "checks": [
     {"section": "Task execution", "label": "the pool creates the requested number of workers", "detail": "", "passed": true},

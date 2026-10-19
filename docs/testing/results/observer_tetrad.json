@@ -1,0 +1,27 @@
+{
+  "suite": "observer_tetrad",
+  "description": "Verifies observer tetrads and their transport: orthonormality of stationary and ZAMO tetrads, the Thomas precession of a circularly moving gyroscope, the Gravity Probe B geodetic precession, the Lense-Thirring precession of a static observer in the Kerr field, and the reduction of Fermi-Walker to parallel transport for geodesic observers.",
+  "generated": "2026-10-19 22:20:58 UTC",
+  "duration_seconds": 5.3091772,
+  "passed": true,
+  "checks": [
+    {"section": "Tetrad orthonormality", "label": "the stationary Schwarzschild tetrad is orthonormal within 1e-12", "detail": "", "passed": true},
+    {"section": "Tetrad orthonormality", "label": "the ZAMO Schwarzschild tetrad is orthonormal within 1e-12", "detail": "", "passed": true},
+    {"section": "Tetrad orthonormality", "label": "the ZAMO Kerr tetrad is orthonormal within 1e-10", "detail": "", "passed": true},
+    {"section": "Thomas precession", "label": "the gyroscope rotation after one orbit equals -2 pi (gamma - 1) within a relative 1e-4", "detail": "actual=-1.57079632679 expected=-1.57079632679 rel_error=1.483e-13 tolerance=0.0001", "passed": true},
+    {"section": "Thomas precession", "label": "the transported tetrad stays orthonormal within 1e-10", "detail": "value=6.66134e-16 limit=1e-10", "passed": true},
+    {"section": "Gravity Probe B geodetic precession", "label": "the theoretical geodetic rate lies between 6.55 and 6.65 arcsec per year", "detail": "", "passed": true},
+    {"section": "Gravity Probe B geodetic precession", "label": "the transported gyroscope reproduces the geodetic rate within 1e-4 arcsec per year", "detail": "actual=6.62101648404 expected=6.62100619022 abs_error=1.029e-05 tolerance=0.0001", "passed": true},
+    {"section": "Gravity Probe B geodetic precession", "label": "the transported tetrad residual stays below 1e-10", "detail": "value=2.79776e-14 limit=1e-10", "passed": true},
+    {"section": "Lense-Thirring frame dragging", "label": "the gyroscope rate of a static observer matches the frame-dragging prediction within a relative 1e-4", "detail": "actual=0.000302359613483 expected=0.000302359613483 rel_error=3.819e-14 tolerance=0.0001", "passed": true},
+    {"section": "Lense-Thirring frame dragging", "label": "the transported tetrad residual stays below 1e-9", "detail": "value=1.9984e-15 limit=1e-09", "passed": true},
+    {"section": "Fermi-Walker against parallel transport", "label": "a vanishing acceleration reduces Fermi-Walker transport to parallel transport", "detail": "value=0 limit=1e-15", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Thomas precession", "name": "thomas_angle", "value": -1.57079632679, "unit": "rad"},
+    {"section": "Gravity Probe B geodetic precession", "name": "theoretical_annual_precession", "value": 6.62100619022, "unit": "arcsec/year"},
+    {"section": "Gravity Probe B geodetic precession", "name": "measured_annual_precession", "value": 6.62101648404, "unit": "arcsec/year"},
+    {"section": "Lense-Thirring frame dragging", "name": "expected_gyroscope_rate", "value": 0.000302359613483, "unit": "rad per unit time"},
+    {"section": "Lense-Thirring frame dragging", "name": "measured_gyroscope_rate", "value": 0.000302359613483, "unit": "rad per unit time"}
+  ]
+}

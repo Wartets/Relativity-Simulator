@@ -1,0 +1,27 @@
+{
+  "suite": "bssn_gauge_wave",
+  "description": "Verifies the BSSN evolution on the one-dimensional gauge wave of amplitude 0.1 on a 64 by 4 by 4 grid evolved for one thousand Runge-Kutta steps of 0.25 dx: the Hamiltonian constraint stays finite at every checkpoint, the lapse stays positive, and the constraint norm grows by less than a factor of 100.",
+  "generated": "2026-10-19 22:16:30 UTC",
+  "duration_seconds": 81.4985275,
+  "passed": true,
+  "checks": [
+    {"section": "Initial data", "label": "the initial Hamiltonian constraint is finite", "detail": "", "passed": true},
+    {"section": "Evolution", "label": "the Hamiltonian constraint stays finite at every checkpoint", "detail": "", "passed": true},
+    {"section": "Evolution", "label": "the lapse stays finite and positive everywhere", "detail": "minimum=1.17623", "passed": true},
+    {"section": "Evolution", "label": "the constraint norm never exceeds one hundred times its initial value", "detail": "value=43.5579 limit=313.711", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Initial data", "name": "initial_hamiltonian_linf", "value": 3.13710897998, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_100", "value": 1.10623782452, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_200", "value": 3.51666857522, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_300", "value": 2.8433008323, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_400", "value": 4.32816488487, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_500", "value": 3.83564627533, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_600", "value": 5.70099251683, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_700", "value": 6.89702707897, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_800", "value": 10.1697606131, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_900", "value": 19.9658934672, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "hamiltonian_linf_step_1000", "value": 43.5579400939, "unit": "dimensionless"},
+    {"section": "Evolution", "name": "peak_hamiltonian_linf", "value": 43.5579400939, "unit": "dimensionless"}
+  ]
+}

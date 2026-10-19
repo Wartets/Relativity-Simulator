@@ -1,0 +1,18 @@
+{
+  "suite": "invariant_preservation",
+  "description": "Verifies that the adaptive integrator preserves the four-velocity normalization: a circular Schwarzschild orbit over fifty thousand steps keeps the invariant residual below 1e-11, and a radial free fall through the horizon in Painleve-Gullstrand coordinates stays below 1e-10.",
+  "generated": "2026-10-19 22:20:29 UTC",
+  "duration_seconds": 3.3225055,
+  "passed": true,
+  "checks": [
+    {"section": "Circular timelike orbit", "label": "every adaptive step of the circular orbit succeeds", "detail": "", "passed": true},
+    {"section": "Circular timelike orbit", "label": "the normalization residual of the circular orbit stays below 1e-11", "detail": "value=5.10703e-15 limit=1e-11", "passed": true},
+    {"section": "Horizon infall in Painleve-Gullstrand coordinates", "label": "every adaptive step of the infall succeeds", "detail": "", "passed": true},
+    {"section": "Horizon infall in Painleve-Gullstrand coordinates", "label": "the infalling particle crosses the horizon", "detail": "", "passed": true},
+    {"section": "Horizon infall in Painleve-Gullstrand coordinates", "label": "the normalization residual of the infall stays below 1e-10", "detail": "value=9.32587e-14 limit=1e-10", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Circular timelike orbit", "name": "orbit_invariant_residual", "value": 5.10702591328e-15, "unit": "dimensionless"},
+    {"section": "Horizon infall in Painleve-Gullstrand coordinates", "name": "infall_invariant_residual", "value": 9.32587340685e-14, "unit": "dimensionless"}
+  ]
+}

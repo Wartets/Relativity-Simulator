@@ -1,0 +1,21 @@
+{
+  "suite": "carter_constant",
+  "description": "Verifies the conservation of the Kerr constants of motion along a timelike geodesic: the energy, the axial angular momentum and the Carter constant of an inclined orbit around a hole of spin 0.85 drift by less than a relative 1e-12 over twenty thousand adaptive steps.",
+  "generated": "2026-10-19 22:16:36 UTC",
+  "duration_seconds": 4.2583177,
+  "passed": true,
+  "checks": [
+    {"section": "Initial conditions", "label": "the timelike normalization admits a real temporal velocity", "detail": "", "passed": true},
+    {"section": "Initial conditions", "label": "the Carter constant of the inclined orbit is positive", "detail": "", "passed": true},
+    {"section": "Initial conditions", "label": "the conserved energy is positive", "detail": "", "passed": true},
+    {"section": "Conservation over twenty thousand steps", "label": "every adaptive step succeeds", "detail": "", "passed": true},
+    {"section": "Conservation over twenty thousand steps", "label": "the Carter constant drifts by less than a relative 1e-12", "detail": "value=1.84014e-13 limit=1e-12", "passed": true},
+    {"section": "Conservation over twenty thousand steps", "label": "the energy drifts by less than a relative 1e-12", "detail": "value=8.96344e-14 limit=1e-12", "passed": true},
+    {"section": "Conservation over twenty thousand steps", "label": "the axial angular momentum drifts by less than a relative 1e-12", "detail": "value=2.1844e-13 limit=1e-12", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Conservation over twenty thousand steps", "name": "carter_constant_drift", "value": 1.84014467784e-13, "unit": "relative"},
+    {"section": "Conservation over twenty thousand steps", "name": "energy_drift", "value": 8.96344398329e-14, "unit": "relative"},
+    {"section": "Conservation over twenty thousand steps", "name": "angular_momentum_drift", "value": 2.18440439395e-13, "unit": "relative"}
+  ]
+}

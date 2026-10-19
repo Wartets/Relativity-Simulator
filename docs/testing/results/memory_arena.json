@@ -1,8 +1,8 @@
 {
   "suite": "memory_arena",
   "description": "Verifies the linear memory arenas used by the zero-allocation hot path: capacity accounting, natural and cache-line alignment, object creation, reset, markers, scoped rewinding, sentinel integrity and exhaustion handling.",
-  "generated": "2026-10-19 13:43:33 UTC",
-  "duration_seconds": 0.0042826,
+  "generated": "2026-10-19 22:20:32 UTC",
+  "duration_seconds": 0.0043876,
   "passed": true,
   "checks": [
     {"section": "Allocation and alignment", "label": "a new arena is empty with its full capacity", "detail": "", "passed": true},

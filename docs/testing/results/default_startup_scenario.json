@@ -1,0 +1,37 @@
+{
+  "suite": "default_startup_scenario",
+  "description": "Verifies the startup path: the initial camera pose, the resolution of the built-in startup scenario and the fallback rules for empty, missing and valid configurations, the load through the command queue, and the preservation of the scenario and of its camera pose across a view reset, a full reset and a failed load.",
+  "generated": "2026-10-19 22:19:18 UTC",
+  "duration_seconds": 0.0128148,
+  "passed": false,
+  "checks": [
+    {"section": "Initial state", "label": "initial camera: the camera is at (-5, 37, -7)", "detail": "", "passed": true},
+    {"section": "Initial state", "label": "initial camera: the camera attitude is pitch 0, yaw 130, roll 0", "detail": "", "passed": true},
+    {"section": "Initial state", "label": "the initial spherical radius is synchronized with the position", "detail": "actual=37.9868398264 expected=37.9868398264 abs_error=0 tolerance=1e-09", "passed": true},
+    {"section": "Initial state", "label": "no scenario path exists before the startup load", "detail": "", "passed": true},
+    {"section": "Scenario resolution", "label": "the built-in startup scenario is reachable", "detail": "", "passed": true},
+    {"section": "Scenario resolution", "label": "the portable path of the built-in scenario is the canonical one", "detail": "", "passed": true},
+    {"section": "Scenario resolution", "label": "an empty configuration falls back to the built-in scenario", "detail": "", "passed": true},
+    {"section": "Scenario resolution", "label": "a missing configuration falls back to the built-in scenario", "detail": "", "passed": true},
+    {"section": "Scenario resolution", "label": "a valid configuration is kept as configured", "detail": "", "passed": true},
+    {"section": "Startup load", "label": "the load command is accepted by the queue", "detail": "", "passed": true},
+    {"section": "Startup load", "label": "the startup scenario loads successfully", "detail": "", "passed": true},
+    {"section": "Startup load", "label": "the active scenario name matches the startup scenario", "detail": "", "passed": true},
+    {"section": "Startup load", "label": "the active scenario path matches the startup scenario", "detail": "", "passed": true},
+    {"section": "Startup load", "label": "camera after the startup load: the camera is at (-5, 37, -7)", "detail": "", "passed": false},
+    {"section": "Startup load", "label": "camera after the startup load: the camera attitude is pitch 0, yaw 130, roll 0", "detail": "", "passed": false},
+    {"section": "Resets", "label": "the camera reset command is accepted", "detail": "", "passed": true},
+    {"section": "Resets", "label": "camera after the view reset: the camera is at (-5, 37, -7)", "detail": "", "passed": false},
+    {"section": "Resets", "label": "camera after the view reset: the camera attitude is pitch 0, yaw 130, roll 0", "detail": "", "passed": false},
+    {"section": "Resets", "label": "the reset command is accepted", "detail": "", "passed": true},
+    {"section": "Resets", "label": "the reset restores the scenario parameters", "detail": "", "passed": false},
+    {"section": "Resets", "label": "the reset keeps the active scenario", "detail": "", "passed": true},
+    {"section": "Resets", "label": "the reset pauses the scheduler", "detail": "", "passed": true},
+    {"section": "Resets", "label": "camera after the full reset: the camera is at (-5, 37, -7)", "detail": "", "passed": false},
+    {"section": "Resets", "label": "camera after the full reset: the camera attitude is pitch 0, yaw 130, roll 0", "detail": "", "passed": false},
+    {"section": "Failed load", "label": "loading a missing scenario fails", "detail": "", "passed": true},
+    {"section": "Failed load", "label": "a failed load keeps the active scenario", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

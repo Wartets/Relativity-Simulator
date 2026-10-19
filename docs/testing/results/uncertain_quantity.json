@@ -1,0 +1,16 @@
+{
+  "suite": "uncertain_quantity",
+  "description": "Verifies the uncertain quantity wrapper: nominal value and uncertainty propagation of interval sums, enclosure of interval products, and access to the nominal vector of a zonotope-backed quantity.",
+  "generated": "2026-10-19 22:21:21 UTC",
+  "duration_seconds": 0.0008831,
+  "passed": true,
+  "checks": [
+    {"section": "Interval-backed quantities", "label": "the nominal value of the sum equals the sum of the nominal values", "detail": "actual=15 expected=15 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Interval-backed quantities", "label": "the uncertainty of the sum equals the sum of the uncertainties", "detail": "actual=0.7 expected=0.7 abs_error=6.661e-16 tolerance=1e-12", "passed": true},
+    {"section": "Interval-backed quantities", "label": "the nominal value of the product lies in the enclosure around 50", "detail": "nominal=50.1", "passed": true},
+    {"section": "Zonotope-backed quantities", "label": "the first component of the zonotope centre is preserved", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-15", "passed": true},
+    {"section": "Zonotope-backed quantities", "label": "the second component of the zonotope centre is preserved", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-15", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

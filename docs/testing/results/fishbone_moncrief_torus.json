@@ -1,0 +1,24 @@
+{
+  "suite": "fishbone_moncrief_torus",
+  "description": "Verifies the Fishbone-Moncrief torus: the enthalpy and density at the pressure maximum and at the cusp, the exclusion of the region inside the inner edge, the normalization of the fluid four-velocity, the polytropic and enthalpy relations and the Cartesian evaluation.",
+  "generated": "2026-10-19 22:19:23 UTC",
+  "duration_seconds": 0.0019533,
+  "passed": true,
+  "checks": [
+    {"section": "Equilibrium and cusp", "label": "the specific angular momentum is positive", "detail": "", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the potential at the inner edge exceeds that at the centre", "detail": "", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the maximum enthalpy exceeds 1", "detail": "", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the enthalpy at the pressure maximum equals the maximum enthalpy", "detail": "actual=1.05282124906 expected=1.05282124906 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the density at the pressure maximum equals the configured maximum", "detail": "actual=1000 expected=1000 rel_error=4.547e-16 tolerance=1e-10", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the enthalpy at the cusp equals 1", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the region inside the inner edge is empty", "detail": "", "passed": true},
+    {"section": "Equilibrium and cusp", "label": "the pressure maximum lies inside the torus with positive density and pressure", "detail": "", "passed": true},
+    {"section": "Four-velocity normalization", "label": "the fluid four-velocity satisfies u.u = -1 inside the torus", "detail": "value=4.44089e-16 limit=1e-10", "passed": true},
+    {"section": "Polytropic relations", "label": "the pressure follows P = K rho^Gamma", "detail": "value=0 limit=1e-10", "passed": true},
+    {"section": "Polytropic relations", "label": "the enthalpy follows h = 1 + Gamma / (Gamma - 1) P / rho", "detail": "value=0 limit=1e-10", "passed": true},
+    {"section": "Cartesian evaluation", "label": "the Cartesian evaluation at the pressure maximum returns the peak density and a positive pressure", "detail": "", "passed": true},
+    {"section": "Cartesian evaluation", "label": "the Cartesian evaluation inside the cusp returns a negligible density", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

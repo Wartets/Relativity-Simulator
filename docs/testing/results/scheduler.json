@@ -1,8 +1,8 @@
 {
   "suite": "scheduler",
   "description": "Verifies the deterministic simulation scheduler: initial paused state, tick rate limits, exact real-time to tick conversion, warp scaling, accumulator clamping, interpolation factor, pause and single-step semantics, and reset.",
-  "generated": "2026-10-19 13:44:07 UTC",
-  "duration_seconds": 0.0019633,
+  "generated": "2026-10-19 22:21:09 UTC",
+  "duration_seconds": 0.0026523,
   "passed": true,
   "checks": [
     {"section": "Initial state", "label": "a new scheduler starts at tick zero", "detail": "", "passed": true},

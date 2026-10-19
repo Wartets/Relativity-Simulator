@@ -1,0 +1,17 @@
+{
+  "suite": "mercury_precession",
+  "description": "Verifies the perihelion advance of a Mercury-like orbit (a = 1000 r_s, e = 0.20563) integrated for one hundred revolutions with the sixth-order Gauss-Legendre scheme: the accumulated precession matches the exact elliptic-integral result of the Schwarzschild geodesic within a relative 1e-8.",
+  "generated": "2026-10-19 22:20:50 UTC",
+  "duration_seconds": 17.4714617,
+  "passed": true,
+  "checks": [
+    {"section": "Exact precession", "label": "the exact precession per revolution is positive", "detail": "", "passed": true},
+    {"section": "Numerical integration", "label": "every implicit step converges", "detail": "", "passed": true},
+    {"section": "Numerical integration", "label": "one hundred perihelion passages are detected", "detail": "count=100", "passed": true},
+    {"section": "Comparison", "label": "the accumulated precession matches the exact elliptic-integral result within a relative 1e-8", "detail": "actual=0.986412196146 expected=0.986412187728 rel_error=8.534e-09 tolerance=1e-08", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Comparison", "name": "theoretical_precession", "value": 0.986412187728, "unit": "rad"},
+    {"section": "Comparison", "name": "numerical_precession", "value": 0.986412196146, "unit": "rad"}
+  ]
+}

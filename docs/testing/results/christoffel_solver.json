@@ -1,0 +1,24 @@
+{
+  "suite": "christoffel_solver",
+  "description": "Verifies the finite-difference connection solver at fourth, sixth and eighth order against the analytic connection of Minkowski and Schwarzschild spacetimes: exactness on flat space, lower-index symmetry, error ordering across stencil orders, dispatch to the analytic connection and the numerical wrapper, without dynamic allocation.",
+  "generated": "2026-10-19 22:16:36 UTC",
+  "duration_seconds": 0.0030122,
+  "passed": false,
+  "checks": [
+    {"section": "Flat spacetime", "label": "the fourth-order connection of Minkowski vanishes", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Flat spacetime", "label": "the sixth-order connection of Minkowski vanishes", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Flat spacetime", "label": "the eighth-order connection of Minkowski vanishes", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Flat spacetime", "label": "the dispatching solver returns the vanishing analytic connection of Minkowski", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the numerical connection is symmetric in its lower indices for every stencil order", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the fourth-order connection agrees with the analytic one within a relative 1e-6", "detail": "value=1.61436e-11 limit=1e-06", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the sixth-order connection agrees with the analytic one within a relative 1e-9", "detail": "value=1.46263e-12 limit=1e-09", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the eighth-order connection agrees with the analytic one within a relative 1e-12", "detail": "value=7.70376e-13 limit=1e-12", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the eighth-order connection agrees with the analytic one within an absolute 1e-12", "detail": "value=7.95808e-13 limit=1e-12", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the sixth-order relative error never exceeds the fourth-order relative error", "detail": "", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the dispatching solver returns exactly the analytic connection when the metric provides one", "detail": "value=0 limit=0", "passed": true},
+    {"section": "Schwarzschild spacetime", "label": "the numerical metric wrapper reproduces the analytic connection within a relative 1e-12", "detail": "value=7.70376e-13 limit=1e-12", "passed": true},
+    {"section": "Allocation discipline", "label": "no dynamic allocation occurs in the connection solver", "detail": "allocations=2", "passed": false}
+  ],
+  "measurements": [
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "suite": "tensor_algebra",
+  "description": "Verifies the static tensor algebra: closed-form 4x4 metric inversion for Minkowski, Schwarzschild, Kerr and a dense indefinite metric, the outer product, index contractions of rank-two and rank-three tensors, and symmetrization, all without a single dynamic allocation.",
+  "generated": "2026-10-19 22:21:19 UTC",
+  "duration_seconds": 0.0016061,
+  "passed": false,
+  "checks": [
+    {"section": "Metric inversion", "label": "the Minkowski inverse metric times the metric equals the identity", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Metric inversion", "label": "the Schwarzschild inverse metric times the metric equals the identity", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Metric inversion", "label": "the Kerr inverse metric times the metric equals the identity", "detail": "value=1.11022e-16 limit=1e-15", "passed": true},
+    {"section": "Metric inversion", "label": "the dense indefinite inverse metric times the metric equals the identity", "detail": "value=4.44089e-16 limit=1e-15", "passed": true},
+    {"section": "Products and contractions", "label": "the outer product of two vectors has rank 2", "detail": "", "passed": true},
+    {"section": "Products and contractions", "label": "every outer product component equals the product of the vector components", "detail": "value=0 limit=1e-16", "passed": true},
+    {"section": "Products and contractions", "label": "contracting both indices of a rank-two tensor yields a scalar", "detail": "", "passed": true},
+    {"section": "Products and contractions", "label": "the full contraction of an outer product equals the dot product", "detail": "value=0 limit=1e-16", "passed": true},
+    {"section": "Products and contractions", "label": "contracting two indices of a rank-three tensor yields a vector", "detail": "", "passed": true},
+    {"section": "Products and contractions", "label": "the partial trace of the connection-like tensor matches the hand computed vector", "detail": "value=0 limit=1e-16", "passed": true},
+    {"section": "Symmetrization", "label": "the symmetric part equals the mean of the matrix and its transpose", "detail": "value=0 limit=1e-16", "passed": true},
+    {"section": "Symmetrization", "label": "the antisymmetric part equals half the difference of the matrix and its transpose", "detail": "value=0 limit=1e-16", "passed": true},
+    {"section": "Allocation discipline", "label": "no dynamic allocation occurs during tensor algebra", "detail": "allocations=1", "passed": false}
+  ],
+  "measurements": [
+  ]
+}

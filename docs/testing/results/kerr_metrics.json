@@ -1,0 +1,29 @@
+{
+  "suite": "kerr_metrics",
+  "description": "Verifies the Kerr metric in Boyer-Lindquist and Kerr-Schild forms: horizon and ergosphere radii, regime flags, frame dragging, metric inversion, symmetry, signature, the unit determinant of the Kerr-Schild form and the agreement of the analytic connection with eighth-order finite differences.",
+  "generated": "2026-10-19 22:20:30 UTC",
+  "duration_seconds": 0.0018522,
+  "passed": true,
+  "checks": [
+    {"section": "Boyer-Lindquist horizons and ergosphere", "label": "a / M = 0.8 is classified as sub-extremal", "detail": "", "passed": true},
+    {"section": "Boyer-Lindquist horizons and ergosphere", "label": "the outer horizon equals M + sqrt(M^2 - a^2)", "detail": "actual=1.6 expected=1.6 abs_error=0 tolerance=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist horizons and ergosphere", "label": "the inner horizon equals M - sqrt(M^2 - a^2)", "detail": "actual=0.4 expected=0.4 abs_error=0 tolerance=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist horizons and ergosphere", "label": "the ergosphere touches the outer horizon at the pole", "detail": "actual=1.6 expected=1.6 abs_error=0 tolerance=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist horizons and ergosphere", "label": "the equatorial ergosphere radius equals 2 M", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "Kerr: the inverse metric times the metric reproduces the identity", "detail": "value=5.55112e-17 limit=1e-13", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "Kerr: the metric tensor is symmetric relative to its largest component", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "Kerr: the metric determinant is negative, which gives a Lorentzian signature", "detail": "", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "Kerr: the analytic connection is symmetric in its lower indices", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "Kerr: the analytic connection matches eighth-order finite differences relative to the largest symbol of its row", "detail": "worst_relative=2.616e-13 at (0,0,2) tolerance=1e-08", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "the off-diagonal time-azimuth component that encodes frame dragging is present and symmetric", "detail": "", "passed": true},
+    {"section": "Boyer-Lindquist geometry", "label": "the zero-angular-momentum observers co-rotate with the hole", "detail": "", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "Kerr-Schild: the inverse metric times the metric reproduces the identity", "detail": "value=2.22045e-16 limit=1e-13", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "Kerr-Schild: the metric tensor is symmetric relative to its largest component", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "Kerr-Schild: the metric determinant is negative, which gives a Lorentzian signature", "detail": "", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "Kerr-Schild: the analytic connection is symmetric in its lower indices", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "Kerr-Schild: the analytic connection matches eighth-order finite differences relative to the largest symbol of its row", "detail": "worst_relative=3.727e-13 at (3,1,1) tolerance=1e-08", "passed": true},
+    {"section": "Kerr-Schild geometry", "label": "the Kerr-Schild metric determinant equals -1", "detail": "actual=-1 expected=-1 abs_error=2.22e-16 tolerance=1e-12", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

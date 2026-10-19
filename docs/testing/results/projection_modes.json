@@ -1,8 +1,8 @@
 {
   "suite": "projection_modes",
   "description": "Verifies every camera projection mode of the observer: unit-length finite rays over several fields of view, renderer pixel grids, forward centre ray, mirror symmetry, monotonic angular mapping, pinhole edge geometry and the round trip between ray generation and screen projection.",
-  "generated": "2026-10-19 12:45:48 UTC",
-  "duration_seconds": 0.0382092,
+  "generated": "2026-10-19 22:21:00 UTC",
+  "duration_seconds": 0.0281369,
   "passed": false,
   "checks": [
     {"section": "Mode catalogue", "label": "Pinhole is mode 0", "detail": "", "passed": true},

@@ -7,8 +7,8 @@ Verifies the compensated double-single arithmetic that emulates extended precisi
 | Status | PASSED |
 | Checks | 12 |
 | Failed checks | 0 |
-| Duration | 0.001675 s |
-| Generated | 2026-10-19 13:42:25 UTC |
+| Duration | 0.001128 s |
+| Generated | 2026-10-19 22:19:18 UTC |
 
 ## Conversion
 

@@ -7,8 +7,8 @@ Verifies the linear memory arenas used by the zero-allocation hot path: capacity
 | Status | PASSED |
 | Checks | 16 |
 | Failed checks | 0 |
-| Duration | 0.004283 s |
-| Generated | 2026-10-19 13:43:33 UTC |
+| Duration | 0.004388 s |
+| Generated | 2026-10-19 22:20:32 UTC |
 
 ## Allocation and alignment
 

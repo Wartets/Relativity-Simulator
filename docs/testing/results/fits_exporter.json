@@ -1,0 +1,23 @@
+{
+  "suite": "fits_exporter",
+  "description": "Verifies the FITS exporter: logical records of 2880 bytes, mandatory keywords and WCS object name of a two-dimensional image, and the three-dimensional axis keywords of a spectral cube.",
+  "generated": "2026-10-19 22:19:24 UTC",
+  "duration_seconds": 0.0066309,
+  "passed": true,
+  "checks": [
+    {"section": "Two-dimensional image", "label": "the image export is not empty", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "the image export is a whole number of 2880-byte records", "detail": "size=20160", "passed": true},
+    {"section": "Two-dimensional image", "label": "the SIMPLE keyword is true", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "BITPIX declares 64-bit floating point", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "NAXIS equals 2", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "NAXIS1 equals the width", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "NAXIS2 equals the height", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "the OBJECT keyword carries the target name", "detail": "", "passed": true},
+    {"section": "Two-dimensional image", "label": "the header is terminated by END", "detail": "", "passed": true},
+    {"section": "Three-dimensional spectral cube", "label": "the cube export is a whole number of 2880-byte records", "detail": "size=69120", "passed": true},
+    {"section": "Three-dimensional spectral cube", "label": "NAXIS equals 3 for a cube", "detail": "", "passed": true},
+    {"section": "Three-dimensional spectral cube", "label": "NAXIS3 equals the number of wavelength channels", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

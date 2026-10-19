@@ -1,0 +1,19 @@
+{
+  "suite": "spk_reader",
+  "description": "Verifies the SPICE SPK Chebyshev segment evaluation: the zeroth coefficient is returned at the segment midpoint in SI units, several segments coexist in one kernel, and relative states are computed as the difference of target and centre states.",
+  "generated": "2026-10-19 22:21:17 UTC",
+  "duration_seconds": 0.0010189,
+  "passed": true,
+  "checks": [
+    {"section": "Absolute states at the segment midpoint", "label": "the Earth segment is found at J2000", "detail": "", "passed": true},
+    {"section": "Absolute states at the segment midpoint", "label": "the Earth x position equals the zeroth coefficient in metres", "detail": "actual=-26074813587.4 expected=-26074813587.4 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Absolute states at the segment midpoint", "label": "the Earth y position equals the zeroth coefficient in metres", "detail": "actual=132872418579 expected=132872418579 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Absolute states at the segment midpoint", "label": "the Earth z position equals the zeroth coefficient in metres", "detail": "actual=57597992911.3 expected=57597992911.3 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Absolute states at the segment midpoint", "label": "the Moon segment is found at J2000", "detail": "", "passed": true},
+    {"section": "Absolute states at the segment midpoint", "label": "the Moon x position equals the zeroth coefficient in metres", "detail": "actual=-291584444.583 expected=-291584444.583 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Relative states", "label": "the Jupiter state relative to the Earth is available", "detail": "", "passed": true},
+    {"section": "Relative states", "label": "the relative x position equals the difference of the absolute positions", "detail": "actual=625052973662 expected=625052973662 rel_error=1.953e-16 tolerance=1e-12", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

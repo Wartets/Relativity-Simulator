@@ -1,0 +1,20 @@
+{
+  "suite": "shapiro_delay",
+  "description": "Verifies the Shapiro time delay of a radio signal grazing a Schwarzschild mass between r = 50000 and r = 75000 with closest approach 1000: the coordinate flight time integrated with the sixth-order Gauss-Legendre scheme agrees with an independent Gauss-Legendre quadrature of the exact geodesic equation within a relative 1e-11.",
+  "generated": "2026-10-19 22:21:16 UTC",
+  "duration_seconds": 4.4368779,
+  "passed": true,
+  "checks": [
+    {"section": "Geodesic integration", "label": "every implicit step converges", "detail": "", "passed": true},
+    {"section": "Geodesic integration", "label": "the signal reaches the probe radius", "detail": "actual=75000 expected=75000 abs_error=7.713e-10 tolerance=1e-06", "passed": true},
+    {"section": "Reference quadrature", "label": "the integrated coordinate flight time agrees with the exact quadrature within a relative 1e-11", "detail": "actual=125004.549708 expected=125004.549708 rel_error=1.409e-14 tolerance=1e-11", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Reference quadrature", "name": "theoretical_one_way_delay", "value": 21.1982724762, "unit": "GM/c^3"},
+    {"section": "Reference quadrature", "name": "numerical_one_way_delay", "value": 21.2176707914, "unit": "GM/c^3"},
+    {"section": "Reference quadrature", "name": "theoretical_round_trip_delay", "value": 42.4632219203, "unit": "GM/c^3"},
+    {"section": "Reference quadrature", "name": "numerical_round_trip_delay", "value": 42.4353415828, "unit": "GM/c^3"},
+    {"section": "Reference quadrature", "name": "exact_flight_time", "value": 125004.549708, "unit": "GM/c^3"},
+    {"section": "Reference quadrature", "name": "integrated_flight_time", "value": 125004.549708, "unit": "GM/c^3"}
+  ]
+}

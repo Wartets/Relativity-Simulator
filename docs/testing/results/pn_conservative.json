@@ -1,0 +1,18 @@
+{
+  "suite": "pn_conservative",
+  "description": "Verifies the conservative post-Newtonian dynamics: energy and orbital angular momentum conservation of an equal-mass 1PN binary integrated with the fourth-order Runge-Kutta scheme, and energy conservation of a Newtonian binary integrated with the symplectic Forest-Ruth scheme.",
+  "generated": "2026-10-19 22:20:58 UTC",
+  "duration_seconds": 0.2094558,
+  "passed": true,
+  "checks": [
+    {"section": "1PN binary with the Runge-Kutta integrator", "label": "the initial total energy is finite", "detail": "value=-0.027398078125", "passed": true},
+    {"section": "1PN binary with the Runge-Kutta integrator", "label": "the relative energy drift over 2000 steps stays below 1e-4", "detail": "value=5.49564e-05 limit=0.0001", "passed": true},
+    {"section": "1PN binary with the Runge-Kutta integrator", "label": "the relative drift of the orbital angular momentum stays below 1e-4", "detail": "value=6.07919e-08 limit=0.0001", "passed": true},
+    {"section": "Newtonian binary with the symplectic integrator", "label": "the relative energy drift of the symplectic scheme stays below 1e-5", "detail": "value=3.78485e-16 limit=1e-05", "passed": true}
+  ],
+  "measurements": [
+    {"section": "1PN binary with the Runge-Kutta integrator", "name": "relative_energy_drift_1pn_rk4", "value": 5.49564290847e-05, "unit": "dimensionless"},
+    {"section": "1PN binary with the Runge-Kutta integrator", "name": "relative_angular_momentum_drift_1pn_rk4", "value": 6.07918880275e-08, "unit": "dimensionless"},
+    {"section": "Newtonian binary with the symplectic integrator", "name": "relative_energy_drift_newtonian_symplectic", "value": 3.78485122031e-16, "unit": "dimensionless"}
+  ]
+}

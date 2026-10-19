@@ -1,0 +1,20 @@
+{
+  "suite": "cie_spectral_pipeline",
+  "description": "Verifies the spectral colour pipeline: the CIE 1931 colour matching functions at characteristic wavelengths, the conversion of a solar blackbody spectrum to positive linear sRGB, and the bounds and monotonicity of the logarithmic and ACES tone mapping operators.",
+  "generated": "2026-10-19 22:16:36 UTC",
+  "duration_seconds": 0.0017272,
+  "passed": true,
+  "checks": [
+    {"section": "Colour matching functions", "label": "the luminosity function peaks near 1 at 555 nm", "detail": "y_bar=0.998039", "passed": true},
+    {"section": "Colour matching functions", "label": "the blue matching function exceeds 1 at 450 nm", "detail": "", "passed": true},
+    {"section": "Colour matching functions", "label": "the red matching function exceeds 1 at 600 nm", "detail": "", "passed": true},
+    {"section": "Blackbody conversion", "label": "the solar blackbody has positive tristimulus values", "detail": "", "passed": true},
+    {"section": "Blackbody conversion", "label": "the solar blackbody converts to positive linear sRGB", "detail": "", "passed": true},
+    {"section": "Tone mapping", "label": "a faint source maps into [0, 1]", "detail": "", "passed": true},
+    {"section": "Tone mapping", "label": "a quasar-bright source maps into [0, 1]", "detail": "", "passed": true},
+    {"section": "Tone mapping", "label": "the logarithmic mapping preserves brightness ordering", "detail": "", "passed": true},
+    {"section": "Tone mapping", "label": "the ACES curve clamps an overexposed colour to at most 1", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

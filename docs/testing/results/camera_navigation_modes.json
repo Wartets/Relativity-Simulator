@@ -1,8 +1,8 @@
 {
   "suite": "camera_navigation_modes",
   "description": "Verifies every camera navigation mode of the engine: mode catalogue and command-queue selection, free-fly translation and rotation limits, orientation basis, rocket-mode integration under pause, clamp and non-finite conditions, pose preservation across mode switches, and the interactive controller snap, look-at and surface-walk helpers.",
-  "generated": "2026-10-19 12:45:53 UTC",
-  "duration_seconds": 0.0078238,
+  "generated": "2026-10-19 22:16:31 UTC",
+  "duration_seconds": 0.0057439,
   "passed": true,
   "checks": [
     {"section": "Navigation mode catalogue", "label": "the engine exposes exactly six navigation modes", "detail": "", "passed": true},

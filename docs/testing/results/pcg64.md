@@ -7,8 +7,8 @@ Verifies the explicit-state PCG64 generator that underpins deterministic replay:
 | Status | FAILED |
 | Checks | 9 |
 | Failed checks | 1 |
-| Duration | 0.01643 s |
-| Generated | 2026-10-19 13:43:56 UTC |
+| Duration | 0.008747 s |
+| Generated | 2026-10-19 22:20:58 UTC |
 
 ## Reproducibility
 

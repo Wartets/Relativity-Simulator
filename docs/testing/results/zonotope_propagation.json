@@ -1,0 +1,21 @@
+{
+  "suite": "zonotope_propagation",
+  "description": "Verifies the zonotope enclosure: bounding box and exact hypervolume of a unit square zonotope, and the volume reduction of zonotope propagation against interval propagation over one hundred orbital revolutions.",
+  "generated": "2026-10-19 22:22:22 UTC",
+  "duration_seconds": 0.0113358,
+  "passed": true,
+  "checks": [
+    {"section": "Geometry of a square zonotope", "label": "the lower bound of the first axis equals -1", "detail": "actual=-1 expected=-1 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Geometry of a square zonotope", "label": "the upper bound of the first axis equals 1", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Geometry of a square zonotope", "label": "the lower bound of the second axis equals -1", "detail": "actual=-1 expected=-1 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Geometry of a square zonotope", "label": "the upper bound of the second axis equals 1", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Geometry of a square zonotope", "label": "the bounding box hypervolume equals 4", "detail": "actual=4 expected=4 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Geometry of a square zonotope", "label": "the exact hypervolume of the square zonotope equals 4", "detail": "actual=4 expected=4 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Wrapping effect over one hundred revolutions", "label": "zonotope propagation reduces the enclosed volume by more than a factor of 1000 against intervals", "detail": "factor=inf", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Wrapping effect over one hundred revolutions", "name": "interval_final_hypervolume", "value": inf, "unit": "area"},
+    {"section": "Wrapping effect over one hundred revolutions", "name": "zonotope_final_hypervolume", "value": 0.0004, "unit": "area"},
+    {"section": "Wrapping effect over one hundred revolutions", "name": "volume_reduction_factor", "value": inf, "unit": "ratio"}
+  ]
+}

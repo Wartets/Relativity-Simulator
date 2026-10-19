@@ -1,0 +1,23 @@
+{
+  "suite": "dark_matter_profiles",
+  "description": "Verifies the analytic dark matter halo profiles: the NFW density and enclosed mass at the scale radius, the location of the peak circular velocity, the sign and direction of the acceleration, the Einasto and Burkert densities at the scale radius, and the Hernquist enclosed mass and potential.",
+  "generated": "2026-10-19 22:19:17 UTC",
+  "duration_seconds": 0.0012208,
+  "passed": true,
+  "checks": [
+    {"section": "Navarro-Frenk-White", "label": "the density at the scale radius equals a quarter of the characteristic density", "detail": "actual=2500000 expected=2500000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Navarro-Frenk-White", "label": "the enclosed mass at the scale radius equals 4 pi rho0 rs^3 (ln 2 - 1/2)", "detail": "actual=194172724323 expected=194172724323 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Navarro-Frenk-White", "label": "the circular velocity at the reported radius is a local maximum", "detail": "", "passed": true},
+    {"section": "Navarro-Frenk-White", "label": "the acceleration points toward the halo centre", "detail": "", "passed": true},
+    {"section": "Navarro-Frenk-White", "label": "the acceleration has no transverse component on the x axis", "detail": "value=0 limit=0.000485432", "passed": true},
+    {"section": "Einasto", "label": "the density at the scale radius equals the characteristic density", "detail": "actual=10000000 expected=10000000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Einasto", "label": "the enclosed mass is positive", "detail": "", "passed": true},
+    {"section": "Einasto", "label": "the circular velocity is positive", "detail": "", "passed": true},
+    {"section": "Burkert", "label": "the density at the scale radius equals a quarter of the characteristic density", "detail": "actual=2500000 expected=2500000 rel_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Burkert", "label": "the enclosed mass is positive", "detail": "", "passed": true},
+    {"section": "Hernquist", "label": "a quarter of the mass is enclosed within the scale radius", "detail": "actual=25000000000 expected=25000000000 rel_error=0 tolerance=1e-14", "passed": true},
+    {"section": "Hernquist", "label": "the potential at the scale radius equals -G M / (2 a)", "detail": "actual=-2500000000 expected=-2500000000 rel_error=0 tolerance=1e-14", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

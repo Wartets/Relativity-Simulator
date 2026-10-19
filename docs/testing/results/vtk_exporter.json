@@ -1,0 +1,19 @@
+{
+  "suite": "vtk_exporter",
+  "description": "Verifies the VTK PolyData exporter: the polyline document of a geodesic carries its point and line counts and the redshift array, and the horizon sphere document carries the expected number of quadrilaterals.",
+  "generated": "2026-10-19 22:22:20 UTC",
+  "duration_seconds": 0.0035026,
+  "passed": true,
+  "checks": [
+    {"section": "Geodesic polylines", "label": "the geodesic export is not empty", "detail": "", "passed": true},
+    {"section": "Geodesic polylines", "label": "the document is a VTK PolyData file", "detail": "", "passed": true},
+    {"section": "Geodesic polylines", "label": "the piece declares 20 points", "detail": "", "passed": true},
+    {"section": "Geodesic polylines", "label": "the piece declares one line", "detail": "", "passed": true},
+    {"section": "Geodesic polylines", "label": "the redshift point data array is present", "detail": "", "passed": true},
+    {"section": "Horizon sphere", "label": "the horizon export is not empty", "detail": "", "passed": true},
+    {"section": "Horizon sphere", "label": "the horizon document is a VTK PolyData file", "detail": "", "passed": true},
+    {"section": "Horizon sphere", "label": "the 16 by 8 sphere declares 128 quadrilaterals", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "suite": "static_metrics",
   "description": "Verifies the static and exotic spacetime metrics: metric inversion, symmetry, Lorentzian signature, analytic Christoffel symbols against eighth-order finite differences in geometric and SI units, vacuum curvature invariants, and horizon structure.",
-  "generated": "2026-10-19 12:46:35 UTC",
-  "duration_seconds": 0.012824,
+  "generated": "2026-10-19 22:21:18 UTC",
+  "duration_seconds": 0.0124149,
   "passed": false,
   "checks": [
     {"section": "Static spherical metrics in geometric units", "label": "Flat Minkowski [geometric] inverse metric times metric equals identity", "detail": "value=0 limit=1e-12", "passed": true},

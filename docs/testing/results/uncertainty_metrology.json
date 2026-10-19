@@ -1,0 +1,16 @@
+{
+  "suite": "uncertainty_metrology",
+  "description": "Verifies the metrology visualizer: a covariance ellipsoid mesh with the requested tessellation is generated for a diagonal covariance, and a two-dimensional Gaussian heatmap has the requested raster and a populated density grid.",
+  "generated": "2026-10-19 22:21:22 UTC",
+  "duration_seconds": 0.0008976,
+  "passed": true,
+  "checks": [
+    {"section": "Covariance ellipsoid", "label": "the mesh contains vertices", "detail": "vertices=153", "passed": true},
+    {"section": "Covariance ellipsoid", "label": "the mesh contains triangles", "detail": "indices=768", "passed": true},
+    {"section": "Covariance ellipsoid", "label": "the triangle index count is a multiple of three", "detail": "", "passed": true},
+    {"section": "Gaussian heatmap", "label": "the heatmap has the requested raster of 50 by 50 cells", "detail": "", "passed": true},
+    {"section": "Gaussian heatmap", "label": "the density grid holds one value per cell", "detail": "", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

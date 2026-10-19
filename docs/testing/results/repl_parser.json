@@ -1,8 +1,8 @@
 {
   "suite": "repl_parser",
   "description": "Verifies the terminal command parser: flow commands, argument validation, every documented parameter key, custom parameters, camera commands, text commands, case-insensitivity and error messages.",
-  "generated": "2026-10-19 13:44:02 UTC",
-  "duration_seconds": 0.0026194,
+  "generated": "2026-10-19 22:21:04 UTC",
+  "duration_seconds": 0.0027909,
   "passed": true,
   "checks": [
     {"section": "Simulation flow commands", "label": "pause is recognized", "detail": "", "passed": true},

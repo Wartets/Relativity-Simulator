@@ -7,8 +7,8 @@ Verifies the deterministic simulation scheduler: initial paused state, tick rate
 | Status | PASSED |
 | Checks | 38 |
 | Failed checks | 0 |
-| Duration | 0.001963 s |
-| Generated | 2026-10-19 13:44:07 UTC |
+| Duration | 0.002652 s |
+| Generated | 2026-10-19 22:21:09 UTC |
 
 ## Initial state
 

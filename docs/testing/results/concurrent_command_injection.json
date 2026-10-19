@@ -1,0 +1,18 @@
+{
+  "suite": "concurrent_command_injection",
+  "description": "Verifies the lock-free command path under load: one hundred thousand commands of eight different kinds are injected by a producer thread while a simulation thread drains the queue and advances the scheduler, and every command is processed with the scheduler making progress and the injected parameters staying in their injected ranges.",
+  "generated": "2026-10-19 22:16:37 UTC",
+  "duration_seconds": 0.0768677,
+  "passed": true,
+  "checks": [
+    {"section": "Concurrent producer and simulation worker", "label": "the simulation worker drains the queue within ten seconds of the end of production", "detail": "", "passed": true},
+    {"section": "Concurrent producer and simulation worker", "label": "every injected command is processed exactly once", "detail": "processed=100000", "passed": true},
+    {"section": "Concurrent producer and simulation worker", "label": "the scheduler advances while commands are being injected", "detail": "", "passed": true},
+    {"section": "Concurrent producer and simulation worker", "label": "the injected mass stays finite", "detail": "value=1.93", "passed": true},
+    {"section": "Concurrent producer and simulation worker", "label": "the final mass equals one of the injected values in [1, 2)", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Concurrent producer and simulation worker", "name": "ticks_executed", "value": 12500, "unit": "ticks"},
+    {"section": "Concurrent producer and simulation worker", "name": "commands_processed", "value": 100000, "unit": "commands"}
+  ]
+}

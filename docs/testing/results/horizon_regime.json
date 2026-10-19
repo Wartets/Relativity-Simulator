@@ -1,8 +1,8 @@
 {
   "suite": "horizon_regime",
   "description": "Verifies the horizon regime analysis: constraint detection per metric, Kerr, Kerr-Newman and Nariai extremality classification, projection onto the sub-extremal domain, guaranteed parameter limits and zone layout geometry.",
-  "generated": "2026-10-19 13:42:36 UTC",
-  "duration_seconds": 0.0018458,
+  "generated": "2026-10-19 22:19:28 UTC",
+  "duration_seconds": 0.0016626,
   "passed": true,
   "checks": [
     {"section": "Constraint set parsing", "label": "Kerr constrains the spin only", "detail": "", "passed": true},

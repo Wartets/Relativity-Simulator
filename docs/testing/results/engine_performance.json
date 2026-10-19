@@ -1,8 +1,8 @@
 {
   "suite": "engine_performance",
   "description": "Large-scale performance and capability benchmark of the rendering engine. It sweeps spacetime metrics, celestial body counts, secondary black hole counts, performance presets and space skipping on the CPU and GPU compute paths, and reports frame times, throughput, ray statistics, scaling exponents and capability envelopes.",
-  "generated": "2026-10-19 12:52:40 UTC",
-  "duration_seconds": 335.748763,
+  "generated": "2026-10-19 22:14:46 UTC",
+  "duration_seconds": 16.4367267,
   "passed": true,
   "checks": [
     {"section": "Environment", "label": "at least one metric scenario is selected", "detail": "", "passed": true},
@@ -14,9 +14,9 @@
     {"section": "Environment", "name": "hardware_threads", "value": 12, "unit": "threads"},
     {"section": "Environment", "name": "gpu_available", "value": 1, "unit": "boolean"},
     {"section": "Environment", "name": "scenario_count", "value": 16, "unit": "cases"},
-    {"section": "Environment", "name": "benchmark_wall_time", "value": 14.9662014, "unit": "s"},
+    {"section": "Environment", "name": "benchmark_wall_time", "value": 15.3513994, "unit": "s"},
     {"section": "CPU and GPU image parity", "name": "mean_absolute_rgb_difference_cpu_vs_gpu", "value": 0.00105611965452, "unit": "linear sRGB units"},
-    {"section": "CPU and GPU image parity", "name": "parity_frame_cpu_time", "value": 85.7356, "unit": "ms"},
-    {"section": "CPU and GPU image parity", "name": "parity_frame_gpu_time", "value": 3.1584, "unit": "ms"}
+    {"section": "CPU and GPU image parity", "name": "parity_frame_cpu_time", "value": 70.8818, "unit": "ms"},
+    {"section": "CPU and GPU image parity", "name": "parity_frame_gpu_time", "value": 3.0477, "unit": "ms"}
   ]
 }

@@ -1,0 +1,17 @@
+{
+  "suite": "high_order_integrators",
+  "description": "Verifies the embedded Cash-Karp 5(4) and Vernier 9(8) integrators on a circular timelike Schwarzschild orbit: every adaptive step succeeds and the orbital radius remains constant to within the stated tolerance.",
+  "generated": "2026-10-19 22:19:27 UTC",
+  "duration_seconds": 0.0035478,
+  "passed": true,
+  "checks": [
+    {"section": "Cash-Karp 5(4)", "label": "every adaptive step over 50 units of proper time succeeds", "detail": "", "passed": true},
+    {"section": "Cash-Karp 5(4)", "label": "the integrator accepts at least one step", "detail": "", "passed": true},
+    {"section": "Cash-Karp 5(4)", "label": "the orbital radius stays at 12 within 1e-6", "detail": "actual=12 expected=12 abs_error=2.132e-14 tolerance=1e-06", "passed": true},
+    {"section": "Vernier 9(8)", "label": "every adaptive step over 100 units of proper time succeeds", "detail": "", "passed": true},
+    {"section": "Vernier 9(8)", "label": "the integrator accepts at least one step", "detail": "", "passed": true},
+    {"section": "Vernier 9(8)", "label": "the orbital radius stays at 15 within 1e-7", "detail": "actual=15 expected=15 abs_error=3.553e-15 tolerance=1e-07", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

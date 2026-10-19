@@ -7,8 +7,8 @@ Verifies the declarative scenario reader and writer: field fidelity across a ser
 | Status | PASSED |
 | Checks | 20 |
 | Failed checks | 0 |
-| Duration | 0.001951 s |
-| Generated | 2026-10-19 13:44:07 UTC |
+| Duration | 0.001868 s |
+| Generated | 2026-10-19 22:21:09 UTC |
 
 ## YAML round trip
 

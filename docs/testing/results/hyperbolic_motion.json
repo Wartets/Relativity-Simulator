@@ -1,0 +1,19 @@
+{
+  "suite": "hyperbolic_motion",
+  "description": "Verifies the relativistic rocket against the closed-form hyperbolic motion of constant proper acceleration in flat spacetime: proper time, velocity, position and Lorentz factor over a grid of accelerations and coordinate times.",
+  "generated": "2026-10-19 22:20:25 UTC",
+  "duration_seconds": 56.1787038,
+  "passed": true,
+  "checks": [
+    {"section": "Constant proper acceleration sweep", "label": "the proper time matches the hyperbolic solution within 1e-7 over the whole grid", "detail": "value=4.05928e-08 limit=1e-07", "passed": true},
+    {"section": "Constant proper acceleration sweep", "label": "the velocity matches the hyperbolic solution within 1e-7 over the whole grid", "detail": "value=1.4592e-11 limit=1e-07", "passed": true},
+    {"section": "Constant proper acceleration sweep", "label": "the position matches the hyperbolic solution within 1e-6 over the whole grid", "detail": "value=1.61728e-09 limit=1e-06", "passed": true},
+    {"section": "Constant proper acceleration sweep", "label": "the Lorentz factor matches the hyperbolic solution within 1e-7 over the whole grid", "detail": "value=9.89374e-08 limit=1e-07", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Constant proper acceleration sweep", "name": "worst_relative_proper_time_error", "value": 4.05928120126e-08, "unit": "dimensionless"},
+    {"section": "Constant proper acceleration sweep", "name": "worst_relative_velocity_error", "value": 1.45920251838e-11, "unit": "dimensionless"},
+    {"section": "Constant proper acceleration sweep", "name": "worst_relative_position_error", "value": 1.61727904667e-09, "unit": "dimensionless"},
+    {"section": "Constant proper acceleration sweep", "name": "worst_relative_gamma_error", "value": 9.89374343837e-08, "unit": "dimensionless"}
+  ]
+}

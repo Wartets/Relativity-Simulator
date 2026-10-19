@@ -1,0 +1,15 @@
+{
+  "suite": "pn_spin_precession",
+  "description": "Verifies the post-Newtonian spin precession of a binary: both precession angular velocities point along the orbital angular momentum and each spin derivative is orthogonal to its spin, so the spin magnitudes are conserved.",
+  "generated": "2026-10-19 22:20:59 UTC",
+  "duration_seconds": 0.0007347,
+  "passed": true,
+  "checks": [
+    {"section": "Precession direction", "label": "the precession angular velocity of the first body has a positive component along the orbital axis", "detail": "", "passed": true},
+    {"section": "Precession direction", "label": "the precession angular velocity of the second body has a positive component along the orbital axis", "detail": "", "passed": true},
+    {"section": "Spin magnitude conservation", "label": "the first spin derivative is orthogonal to the first spin relative to their norms", "detail": "value=0 limit=5e-17", "passed": true},
+    {"section": "Spin magnitude conservation", "label": "the second spin derivative is orthogonal to the second spin relative to their norms", "detail": "value=0 limit=1.89663e-16", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

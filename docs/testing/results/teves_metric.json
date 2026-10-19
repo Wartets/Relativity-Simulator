@@ -1,0 +1,20 @@
+{
+  "suite": "teves_metric",
+  "description": "Verifies the TeVeS spacetime metric: satisfaction of the spacetime concept, geometric invariants in geometrized units, positivity of the connection in SI units, and the circular velocity of the metric against the MOND prediction and the baryonic Tully-Fisher relation.",
+  "generated": "2026-10-19 22:21:20 UTC",
+  "duration_seconds": 0.0012055,
+  "passed": true,
+  "checks": [
+    {"section": "Geometrized units", "label": "TeVeS: the inverse metric times the metric reproduces the identity", "detail": "value=2.22045e-16 limit=1e-12", "passed": true},
+    {"section": "Geometrized units", "label": "TeVeS: the metric tensor is symmetric relative to its largest component", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Geometrized units", "label": "TeVeS: the metric determinant is negative, which gives a Lorentzian signature", "detail": "", "passed": true},
+    {"section": "Geometrized units", "label": "TeVeS: the analytic connection is symmetric in its lower indices", "detail": "value=0 limit=1e-14", "passed": true},
+    {"section": "Geometrized units", "label": "TeVeS: the analytic connection matches eighth-order finite differences relative to the largest symbol of its row", "detail": "worst_relative=3.423e-14 at (2,3,3) tolerance=0.0001", "passed": true},
+    {"section": "Galactic scale in SI units", "label": "the SI inverse metric reproduces the identity", "detail": "value=1.11022e-16 limit=1e-12", "passed": true},
+    {"section": "Galactic scale in SI units", "label": "the radial and temporal connection symbols are positive", "detail": "", "passed": true},
+    {"section": "Galactic scale in SI units", "label": "the metric circular velocity at 50 kpc matches the MOND prediction", "detail": "actual=210807.219996 expected=210806.815004 rel_error=1.921e-06 tolerance=0.0001", "passed": true},
+    {"section": "Galactic scale in SI units", "label": "the asymptotic velocity at 250 kpc follows the baryonic Tully-Fisher relation within 2 percent", "detail": "actual=201933.438361 expected=199768.267515 rel_error=0.01084 tolerance=0.02", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

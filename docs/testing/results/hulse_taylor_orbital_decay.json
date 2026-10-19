@@ -1,0 +1,20 @@
+{
+  "suite": "hulse_taylor_orbital_decay",
+  "description": "Verifies the Hulse-Taylor binary pulsar: the Peters-Mathews orbital period derivative agrees with the observed value, the post-Newtonian system of the pulsar is built with two bodies and a positive gravitational wave luminosity, and the adaptive integrator advances it.",
+  "generated": "2026-10-19 22:19:29 UTC",
+  "duration_seconds": 0.0602864,
+  "passed": false,
+  "checks": [
+    {"section": "Peters-Mathews period derivative", "label": "the analytical period derivative agrees with the observed value within 1 percent", "detail": "value=0.00838583 limit=0.01", "passed": true},
+    {"section": "Post-Newtonian orbital evolution", "label": "the pulsar system contains exactly two bodies", "detail": "", "passed": true},
+    {"section": "Post-Newtonian orbital evolution", "label": "the initial gravitational wave luminosity is positive", "detail": "", "passed": false},
+    {"section": "Post-Newtonian orbital evolution", "label": "the integrator recorded at least one step", "detail": "", "passed": true},
+    {"section": "Post-Newtonian orbital evolution", "label": "the system time advanced", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Peters-Mathews period derivative", "name": "peters_mathews_p_dot", "value": -2.4026811371e-12, "unit": "s/s"},
+    {"section": "Peters-Mathews period derivative", "name": "observed_p_dot", "value": -2.423e-12, "unit": "s/s"},
+    {"section": "Peters-Mathews period derivative", "name": "relative_difference", "value": 0.00838582868478, "unit": "dimensionless"},
+    {"section": "Post-Newtonian orbital evolution", "name": "evolved_time", "value": 59294.8093953, "unit": "simulation time"}
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "suite": "uncertainty_pce",
+  "description": "Verifies the polynomial chaos propagation of a geodesic with an uncertain angular momentum against a ten-million-sample Monte-Carlo ensemble: the mean and variance of the final azimuth agree, and the order-four expansion is at least 400 times faster than the ensemble.",
+  "generated": "2026-10-19 22:22:19 UTC",
+  "duration_seconds": 57.0882068,
+  "passed": false,
+  "checks": [
+    {"section": "Polynomial chaos propagation", "label": "the expansion mean of the final azimuth is finite", "detail": "value=0", "passed": true},
+    {"section": "Polynomial chaos propagation", "label": "the expansion variance of the final azimuth is finite", "detail": "value=0", "passed": true},
+    {"section": "Monte-Carlo ensemble", "label": "the ensemble mean of the final azimuth is finite", "detail": "value=0", "passed": true},
+    {"section": "Monte-Carlo ensemble", "label": "the ensemble variance of the final azimuth is positive", "detail": "", "passed": false},
+    {"section": "Statistical agreement", "label": "the means agree within one percent of the standard deviation", "detail": "value=nan limit=0.01", "passed": false},
+    {"section": "Statistical agreement", "label": "the variances agree within a relative 2 percent", "detail": "actual=0 expected=0 rel_error=0 tolerance=0.02", "passed": true},
+    {"section": "Cost", "label": "the order-four expansion is at least 400 times faster than the ten-million-sample ensemble", "detail": "ratio=12137.5", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Statistical agreement", "name": "pce_mean", "value": 0, "unit": "rad"},
+    {"section": "Statistical agreement", "name": "mc_mean", "value": 0, "unit": "rad"},
+    {"section": "Statistical agreement", "name": "pce_variance", "value": 0, "unit": "rad^2"},
+    {"section": "Statistical agreement", "name": "mc_variance", "value": 0, "unit": "rad^2"},
+    {"section": "Statistical agreement", "name": "pce_skewness", "value": 0, "unit": "dimensionless"},
+    {"section": "Statistical agreement", "name": "mc_skewness", "value": 0, "unit": "dimensionless"},
+    {"section": "Cost", "name": "pce_time", "value": 4.603, "unit": "ms"},
+    {"section": "Cost", "name": "monte_carlo_time", "value": 55868.7059, "unit": "ms"},
+    {"section": "Cost", "name": "speedup_ratio", "value": 12137.4551162, "unit": "dimensionless"}
+  ]
+}

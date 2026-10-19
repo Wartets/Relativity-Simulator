@@ -1,0 +1,17 @@
+{
+  "suite": "pn_radiation_reaction",
+  "description": "Verifies the 2.5PN radiation reaction of an equal-mass binary: the total energy decreases monotonically in aggregate and the quadrupole radiated power is positive.",
+  "generated": "2026-10-19 22:20:59 UTC",
+  "duration_seconds": 0.13132,
+  "passed": true,
+  "checks": [
+    {"section": "Radiative energy loss", "label": "the final total energy is finite", "detail": "value=-0.0270684903714", "passed": true},
+    {"section": "Radiative energy loss", "label": "the total energy after 2000 steps is lower than the initial energy", "detail": "initial=-0.0266666666667 final=-0.0270684903714", "passed": true},
+    {"section": "Radiative energy loss", "label": "the quadrupole radiated power is positive", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Radiative energy loss", "name": "initial_energy", "value": -0.0266666666667, "unit": "simulation energy"},
+    {"section": "Radiative energy loss", "name": "final_energy", "value": -0.0270684903714, "unit": "simulation energy"},
+    {"section": "Radiative energy loss", "name": "radiated_power", "value": 1.97396308517e-05, "unit": "simulation power"}
+  ]
+}

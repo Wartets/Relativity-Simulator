@@ -1,0 +1,22 @@
+{
+  "suite": "solar_deflection",
+  "description": "Verifies the gravitational deflection of a light ray grazing the solar limb, integrated with the adaptive Dormand-Prince scheme in SI units from -1000 to +1000 solar radii: the deflection agrees with the first-order result 4GM/(c^2 R) within a relative 1e-4 and with the second-order post-Newtonian result within a relative 1e-5, while the null constraint residual stays below 1e-11.",
+  "generated": "2026-10-19 22:21:16 UTC",
+  "duration_seconds": 0.0484508,
+  "passed": true,
+  "checks": [
+    {"section": "Integration across the solar field", "label": "every adaptive step stays above the minimum step size", "detail": "", "passed": true},
+    {"section": "Integration across the solar field", "label": "the ray reaches the far boundary of the integration domain", "detail": "", "passed": true},
+    {"section": "Deflection angle", "label": "the deflection matches 4GM/(c^2 R) within a relative 1e-4", "detail": "actual=1.75123921758 expected=1.75124328137 rel_error=2.321e-06 tolerance=0.0001", "passed": true},
+    {"section": "Deflection angle", "label": "the deflection matches the second-order post-Newtonian result within a relative 1e-5", "detail": "actual=1.75123921758 expected=1.75125051209 rel_error=6.449e-06 tolerance=1e-05", "passed": true},
+    {"section": "Null constraint", "label": "the null constraint residual stays below 1e-11 along the whole ray", "detail": "value=7.01497e-12 limit=1e-11", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Deflection angle", "name": "steps_completed", "value": 600, "unit": "steps"},
+    {"section": "Deflection angle", "name": "steps_rejected", "value": 8, "unit": "steps"},
+    {"section": "Deflection angle", "name": "computed_deflection", "value": 1.75123921758, "unit": "arcsec"},
+    {"section": "Deflection angle", "name": "first_order_deflection", "value": 1.75124328137, "unit": "arcsec"},
+    {"section": "Deflection angle", "name": "second_order_deflection", "value": 1.75125051209, "unit": "arcsec"},
+    {"section": "Null constraint", "name": "max_invariant_residual", "value": 7.01497193667e-12, "unit": "dimensionless"}
+  ]
+}

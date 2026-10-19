@@ -1,8 +1,8 @@
 {
   "suite": "pcg64",
   "description": "Verifies the explicit-state PCG64 generator that underpins deterministic replay: reproducibility, stream independence, output ranges, Gaussian moments, jump-ahead and registry derived sub-engines.",
-  "generated": "2026-10-19 13:43:56 UTC",
-  "duration_seconds": 0.0164266,
+  "generated": "2026-10-19 22:20:58 UTC",
+  "duration_seconds": 0.0087465,
   "passed": false,
   "checks": [
     {"section": "Reproducibility", "label": "identical seed and stream produce identical sequences", "detail": "mismatches=0", "passed": true},

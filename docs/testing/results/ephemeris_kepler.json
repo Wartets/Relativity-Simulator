@@ -1,0 +1,20 @@
+{
+  "suite": "ephemeris_kepler",
+  "description": "Verifies the ephemeris primitives: calendar to Julian date conversion at J2000 and one year later, and the conversion of the osculating elements of the Earth into a state vector with the expected heliocentric distance and orbital speed.",
+  "generated": "2026-10-19 22:19:22 UTC",
+  "duration_seconds": 0.0011813,
+  "passed": true,
+  "checks": [
+    {"section": "Epoch conversion", "label": "1 January 2000 at noon is the Julian date 2451545", "detail": "actual=2451545 expected=2451545 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Epoch conversion", "label": "J2000 corresponds to zero seconds past J2000", "detail": "actual=0 expected=0 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Epoch conversion", "label": "1 January 2001 at noon is the Julian date 2451911", "detail": "actual=2451911 expected=2451911 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Keplerian elements of the Earth", "label": "the eccentric anomaly stays within 0.04 rad of the mean anomaly for a small eccentricity", "detail": "value=0.000410122 limit=0.04", "passed": true},
+    {"section": "Keplerian elements of the Earth", "label": "the true anomaly stays within 0.04 rad of the mean anomaly for a small eccentricity", "detail": "value=0.000823727 limit=0.04", "passed": true},
+    {"section": "Keplerian elements of the Earth", "label": "the heliocentric distance stays within 2 percent of one astronomical unit", "detail": "", "passed": true},
+    {"section": "Keplerian elements of the Earth", "label": "the orbital speed lies between 29 and 31 kilometres per second", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Keplerian elements of the Earth", "name": "heliocentric_distance", "value": 147099052807, "unit": "m"},
+    {"section": "Keplerian elements of the Earth", "name": "orbital_speed", "value": 30286.4277841, "unit": "m/s"}
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "suite": "double_single",
   "description": "Verifies the compensated double-single arithmetic that emulates extended precision with two single-precision floats: conversion round trip, the four arithmetic operations, square root and sine, each against native double precision.",
-  "generated": "2026-10-19 13:42:25 UTC",
-  "duration_seconds": 0.0016755,
+  "generated": "2026-10-19 22:19:18 UTC",
+  "duration_seconds": 0.0011276,
   "passed": true,
   "checks": [
     {"section": "Conversion", "label": "a double survives the split and recombination", "detail": "actual=1.23456789012 expected=1.23456789012 abs_error=2.22e-16 tolerance=1e-13", "passed": true},

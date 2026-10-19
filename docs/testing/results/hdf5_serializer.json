@@ -1,0 +1,20 @@
+{
+  "suite": "hdf5_serializer",
+  "description": "Verifies the binary container: a metric tensor series and a worldline survive serialization and deserialization with identical dataset names, dimensions, sizes and values.",
+  "generated": "2026-10-19 22:19:27 UTC",
+  "duration_seconds": 0.0026621,
+  "passed": true,
+  "checks": [
+    {"section": "Serialization", "label": "the container serializes to a non-empty buffer", "detail": "size=19423", "passed": true},
+    {"section": "Serialization", "label": "the serialized buffer deserializes", "detail": "", "passed": true},
+    {"section": "Metric series", "label": "the metric dataset is present", "detail": "", "passed": true},
+    {"section": "Metric series", "label": "the metric dataset has dimensions 50 by 4 by 4", "detail": "", "passed": true},
+    {"section": "Metric series", "label": "the metric span holds fifty tensors", "detail": "", "passed": true},
+    {"section": "Metric series", "label": "every metric component survives bit-exactly", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Worldline", "label": "the worldline position dataset is present", "detail": "", "passed": true},
+    {"section": "Worldline", "label": "the position span holds one hundred events", "detail": "", "passed": true},
+    {"section": "Worldline", "label": "every position component survives bit-exactly", "detail": "value=0 limit=1e-15", "passed": true}
+  ],
+  "measurements": [
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "suite": "covariance_propagation",
+  "description": "Verifies the covariance machinery and the variational geodesic integrator: covariance algebra and eigensystem, block extraction and Gaussian sampling, the flat-space Jacobian, the exact analytic covariance of a free particle, million-particle Monte-Carlo validation in Minkowski, Schwarzschild and Kerr spacetimes within 0.1 percent, and process noise injection.",
+  "generated": "2026-10-19 22:19:17 UTC",
+  "duration_seconds": 159.701664,
+  "passed": true,
+  "checks": [
+    {"section": "Covariance algebra", "label": "the first standard deviation is the root of the first variance", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Covariance algebra", "label": "the second standard deviation is the root of the second variance", "detail": "actual=3 expected=3 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Covariance algebra", "label": "the eigenvalues of a covariance matrix are positive", "detail": "", "passed": true},
+    {"section": "Covariance algebra", "label": "the eigenvalues sum to the trace", "detail": "actual=13 expected=13 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Covariance algebra", "label": "the principal semi-axes are sorted in decreasing order", "detail": "", "passed": true},
+    {"section": "Covariance algebra", "label": "the squared semi-axes sum to the trace", "detail": "actual=13 expected=13 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Covariance algebra", "label": "the propagated variances stay positive", "detail": "", "passed": true},
+    {"section": "Covariance algebra", "label": "the confidence hypervolume is positive", "detail": "", "passed": true},
+    {"section": "Submatrix extraction and sampling", "label": "the position block carries the expected variances and correlation", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Submatrix extraction and sampling", "label": "the spatial block carries the expected variances", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Submatrix extraction and sampling", "label": "the momentum block carries the expected variances and correlation", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Submatrix extraction and sampling", "label": "a multivariate Gaussian sample has eight components", "detail": "", "passed": true},
+    {"section": "Phase-space Jacobian", "label": "the flat-space Jacobian has the identity in the position-momentum block and zeros elsewhere", "detail": "value=0 limit=1e-15", "passed": true},
+    {"section": "Exact flat-space covariance", "label": "the nominal worldline follows the straight-line solution", "detail": "value=1.20792e-13 limit=1e-12", "passed": true},
+    {"section": "Exact flat-space covariance", "label": "the propagated covariance equals the exact Sigma_xx = S0 + lambda^2 Sp, Sigma_xp = lambda Sp, Sigma_pp = Sp", "detail": "value=7.77156e-16 limit=1e-10", "passed": true},
+    {"section": "Exact flat-space covariance", "label": "the flat-space transition matrix has unit determinant", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-10", "passed": true},
+    {"section": "Minkowski Monte-Carlo validation", "label": "Minkowski: the semi-axes of the propagated covariance agree with the million-particle ensemble within the tolerance", "detail": "", "passed": true},
+    {"section": "Minkowski Monte-Carlo validation", "label": "Minkowski: the largest relative semi-axis error is below 0.1 percent", "detail": "value=7.1275e-14 limit=0.001", "passed": true},
+    {"section": "Schwarzschild Monte-Carlo validation", "label": "the transition matrix of a Hamiltonian flow has unit determinant", "detail": "actual=1 expected=1 abs_error=2.22e-16 tolerance=0.0001", "passed": true},
+    {"section": "Schwarzschild Monte-Carlo validation", "label": "Schwarzschild: the semi-axes of the propagated covariance agree with the million-particle ensemble within the tolerance", "detail": "", "passed": true},
+    {"section": "Schwarzschild Monte-Carlo validation", "label": "Schwarzschild: the largest relative semi-axis error is below 0.1 percent", "detail": "value=3.37384e-06 limit=0.001", "passed": true},
+    {"section": "Kerr Monte-Carlo validation", "label": "Kerr: the semi-axes of the propagated covariance agree with the million-particle ensemble within the tolerance", "detail": "", "passed": true},
+    {"section": "Kerr Monte-Carlo validation", "label": "Kerr: the largest relative semi-axis error is below 0.1 percent", "detail": "value=1.33821e-06 limit=0.001", "passed": true},
+    {"section": "Process noise", "label": "diffusion noise creates a positive variance in every phase-space direction", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Minkowski Monte-Carlo validation", "name": "Minkowski max_semi_axis_error", "value": 7.12750140045e-14, "unit": "relative"},
+    {"section": "Schwarzschild Monte-Carlo validation", "name": "Schwarzschild max_semi_axis_error", "value": 3.37383910211e-06, "unit": "relative"},
+    {"section": "Kerr Monte-Carlo validation", "name": "Kerr max_semi_axis_error", "value": 1.33820856559e-06, "unit": "relative"}
+  ]
+}

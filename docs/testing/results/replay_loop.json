@@ -1,0 +1,16 @@
+{
+  "suite": "replay_loop",
+  "description": "Verifies deterministic record and replay: a geodesic bundle is evolved for ten thousand ticks while randomly generated impulse and mass events are recorded in the journal, then the journal is rewound and the same evolution is replayed from the recorded events alone, and the SHA-256 digests of the two final bundle states must be identical.",
+  "generated": "2026-10-19 22:21:06 UTC",
+  "duration_seconds": 1.2143724,
+  "passed": true,
+  "checks": [
+    {"section": "Recording", "label": "the recording session stores events in the journal", "detail": "events=548", "passed": true},
+    {"section": "Recording", "label": "the recorded evolution changes the bundle state", "detail": "", "passed": true},
+    {"section": "Replay", "label": "the replay consumes every recorded event", "detail": "", "passed": true},
+    {"section": "Replay", "label": "the record and replay digests are identical", "detail": "record=63fc6f79a6252a280aedb90c6af507875b681db45bf8cccb15e033d8bd6e2fae replay=63fc6f79a6252a280aedb90c6af507875b681db45bf8cccb15e033d8bd6e2fae", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Replay", "name": "recorded_events", "value": 548, "unit": "events"}
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "suite": "scenario_serializer",
   "description": "Verifies the declarative scenario reader and writer: field fidelity across a serialization round trip and the validation rules for names, metrics, mass and spin.",
-  "generated": "2026-10-19 13:44:07 UTC",
-  "duration_seconds": 0.0019507,
+  "generated": "2026-10-19 22:21:09 UTC",
+  "duration_seconds": 0.0018676,
   "passed": true,
   "checks": [
     {"section": "YAML round trip", "label": "serialization produces a document", "detail": "", "passed": true},

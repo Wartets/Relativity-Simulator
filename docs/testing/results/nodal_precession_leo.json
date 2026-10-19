@@ -1,0 +1,21 @@
+{
+  "suite": "nodal_precession_leo",
+  "description": "Verifies the secular J2 perturbation of low Earth orbits: the sun-synchronous inclination, the equatorial and polar nodal rates, the vanishing apsidal drift at the critical inclination, the size of the J4 correction, and the nodal drift of a numerically integrated 98.2 degree orbit against the analytic rate.",
+  "generated": "2026-10-19 22:20:51 UTC",
+  "duration_seconds": 0.9657055,
+  "passed": true,
+  "checks": [
+    {"section": "Analytical precession formulas", "label": "the sun-synchronous inclination yields a nodal drift of one revolution per tropical year", "detail": "actual=0.0172027912086 expected=0.0172027912086 abs_error=0 tolerance=1e-12", "passed": true},
+    {"section": "Analytical precession formulas", "label": "the equatorial nodal rate equals -3/2 n J2 (R/p)^2", "detail": "actual=-1.33102535733e-06 expected=-1.33102535733e-06 abs_error=0 tolerance=1e-15", "passed": true},
+    {"section": "Analytical precession formulas", "label": "a polar orbit has no J2 nodal drift", "detail": "value=8.15018e-23 limit=1e-15", "passed": true},
+    {"section": "Analytical precession formulas", "label": "the apsidal drift vanishes at the critical inclination", "detail": "value=2.95547e-22 limit=1e-14", "passed": true},
+    {"section": "Analytical precession formulas", "label": "the J4 term changes the nodal rate", "detail": "", "passed": true},
+    {"section": "Analytical precession formulas", "label": "the J4 correction stays small against the J2 rate", "detail": "value=5.38425e-10 limit=1e-06", "passed": true},
+    {"section": "Numerical nodal drift", "label": "at least thirty ascending node crossings are detected", "detail": "nodes=40", "passed": true},
+    {"section": "Numerical nodal drift", "label": "the regression slope of the node longitude matches the analytic J2 rate within 2 percent", "detail": "actual=2.0027060219e-07 expected=1.99396633287e-07 rel_error=0.004383 tolerance=0.02", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Numerical nodal drift", "name": "theoretical_nodal_rate", "value": 0.017227869116, "unit": "rad/day"},
+    {"section": "Numerical nodal drift", "name": "numerical_nodal_rate", "value": 0.0173033800293, "unit": "rad/day"}
+  ]
+}

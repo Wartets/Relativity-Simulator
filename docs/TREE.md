@@ -83,7 +83,6 @@ Relativity-Simulator/
 │   │   │   ├── pcg64.md
 │   │   │   ├── projection_modes.json
 │   │   │   ├── projection_modes.md
-│   │   │   ├── README.md
 │   │   │   ├── repl_parser.json
 │   │   │   ├── repl_parser.md
 │   │   │   ├── scenario_serializer.json
@@ -98,63 +97,89 @@ Relativity-Simulator/
 │   │   │   └── thread_pool.md
 │   │   │
 │   │   ├── suites/
+│   │   │   ├── barnes_hut_octree.md
+│   │   │   ├── bssn_gauge_wave.md
 │   │   │   ├── camera_navigation_modes.md
 │   │   │   ├── camera_projections.md
+│   │   │   ├── carter_constant.md
+│   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.md
+│   │   │   ├── concurrent_command_injection.md
+│   │   │   ├── covariance_propagation.md
+│   │   │   ├── dark_matter_field.md
 │   │   │   ├── dark_matter_profiles.md
+│   │   │   ├── default_startup_scenario.md
 │   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.md
+│   │   │   ├── eos_tov.md
 │   │   │   ├── ephemeris_kepler.md
 │   │   │   ├── exotic_metrics.md
 │   │   │   ├── f_r_chameleon.md
 │   │   │   ├── fishbone_moncrief_torus.md
 │   │   │   ├── fits_exporter.md
 │   │   │   ├── frame_transforms.md
+│   │   │   ├── galaxy_collision_nbody.md
+│   │   │   ├── geodesic_bundle.md
 │   │   │   ├── gravitational_waves.md
 │   │   │   ├── hdf5_serializer.md
 │   │   │   ├── hermite4_aarseth.md
 │   │   │   ├── high_order_integrators.md
+│   │   │   ├── horizon_crossing.md
 │   │   │   ├── horizon_regime.md
 │   │   │   ├── horizons_parser.md
 │   │   │   ├── hulse_taylor_orbital_decay.md
 │   │   │   ├── hyperbolic_motion.md
 │   │   │   ├── interval_arithmetic.md
+│   │   │   ├── invariant_preservation.md
 │   │   │   ├── kerr_metrics.md
+│   │   │   ├── kerr_schild_geodesics.md
 │   │   │   ├── kerr_shadow_eht.md
 │   │   │   ├── memory_arena.md
+│   │   │   ├── mercury_precession.md
 │   │   │   ├── mond_rotation_curves.md
+│   │   │   ├── nodal_precession_leo.md
 │   │   │   ├── novikov_thorne_disk.md
+│   │   │   ├── observer_tetrad.md
 │   │   │   ├── pcg64.md
 │   │   │   ├── pn_conservative.md
 │   │   │   ├── pn_radiation_reaction.md
 │   │   │   ├── pn_spin_precession.md
+│   │   │   ├── polarized_radiative_transfer.md
 │   │   │   ├── polynomial_chaos.md
 │   │   │   ├── projection_modes.md
+│   │   │   ├── relativistic_hydro.md
 │   │   │   ├── repl_parser.md
+│   │   │   ├── replay_loop.md
 │   │   │   ├── rocket_dynamics.md
 │   │   │   ├── scenario_serializer.md
 │   │   │   ├── scheduler.md
+│   │   │   ├── schwarzschild_shadow_render.md
+│   │   │   ├── shapiro_delay.md
 │   │   │   ├── simd_bundle.md
 │   │   │   ├── simd_vec.md
+│   │   │   ├── solar_deflection.md
 │   │   │   ├── spectral_shift_beaming.md
 │   │   │   ├── spherical_harmonics.md
 │   │   │   ├── spk_reader.md
 │   │   │   ├── spsc_queue.md
 │   │   │   ├── static_metrics.md
 │   │   │   ├── symplectic_gauss_legendre.md
+│   │   │   ├── tensor_algebra.md
 │   │   │   ├── terrell_penrose.md
 │   │   │   ├── teves_metric.md
 │   │   │   ├── thread_pool.md
 │   │   │   ├── tidal_rotational_gravity.md
+│   │   │   ├── ui_multi_window.md
 │   │   │   ├── uncertain_quantity.md
 │   │   │   ├── uncertainty_metrology.md
+│   │   │   ├── uncertainty_pce.md
 │   │   │   ├── vacuum_cosmo_metrics.md
 │   │   │   ├── vtk_exporter.md
+│   │   │   ├── vulkan_compute_pipeline.md
 │   │   │   └── zonotope_propagation.md
 │   │   │
 │   │   ├── CONTRIBUTING_TESTS.md
-│   │   ├── README.md
-│   │   └── test_catalog.md
+│   │   └── README.md
 │   │
 │   ├── ARCHITECTURE.md
 │   ├── CLI_REFERENCE.md

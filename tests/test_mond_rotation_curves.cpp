@@ -1,48 +1,43 @@
+#include "support/test_harness.hpp"
 #include "relativistic/modified_gravity/mond.hpp"
 #include "relativistic/core/constants.hpp"
-#include <cassert>
 #include <cmath>
 
+using namespace Relativistic::ModifiedGravity;
+using namespace Relativistic::Core;
+using Relativistic::Testing::TestSuite;
+
 int main() {
-	using namespace Relativistic::ModifiedGravity;
-	using namespace Relativistic::Core;
+	TestSuite suite(
+		"mond_rotation_curves",
+		"Verifies the MOND framework: the Newtonian limit at high acceleration, the deep-MOND limit at low acceleration, the asymptotically flat rotation velocity of a point mass, the baryonic Tully-Fisher relation v^4 = G M a0, and the simple interpolation function."
+	);
 
-	const double a0 = 1.2e-10;
+	constexpr double a0 = 1.2e-10;
+	constexpr double parsec = 3.085677581491367e16;
 	const double g = PhysicalConstants<double>::GRAVITATIONAL_CONSTANT;
-	const double m_baryon = 1e11 * PhysicalConstants<double>::SOLAR_MASS;
-
+	const double baryonic_mass = 1e11 * PhysicalConstants<double>::SOLAR_MASS;
 	MondFramework<double> mond(a0, MondInterpolationFunction::Standard, g);
 
-	const double a_newt_high = 1e-7;
-	const double a_mond_high = mond.compute_mond_acceleration(a_newt_high);
-	assert(std::abs(a_mond_high - a_newt_high) / a_newt_high < 0.01);
+	suite.section("Acceleration limits");
+	constexpr double high = 1e-7;
+	suite.check_relative(mond.compute_mond_acceleration(high), high, 0.01, "at high acceleration the MOND acceleration equals the Newtonian value within 1 percent");
+	constexpr double low = 1e-13;
+	suite.check_relative(mond.compute_mond_acceleration(low), std::sqrt(low * a0), 0.05, "at low acceleration the MOND acceleration follows sqrt(a_N a0) within 5 percent");
 
-	const double a_newt_low = 1e-13;
-	const double a_mond_low = mond.compute_mond_acceleration(a_newt_low);
-	const double a_mond_asymp = std::sqrt(a_newt_low * a0);
-	assert(std::abs(a_mond_low - a_mond_asymp) / a_mond_asymp < 0.05);
+	suite.section("Rotation curve of a point mass");
+	const double flat = mond.asymptotic_flat_velocity(baryonic_mass);
+	suite.measure("asymptotic_flat_velocity", flat, "m/s");
+	suite.check_relative(mond.point_mass_circular_velocity(baryonic_mass, 30.0 * 1000.0 * parsec), flat, 0.05, "the circular velocity at 30 kpc is within 5 percent of the flat value");
+	suite.check_relative(mond.point_mass_circular_velocity(baryonic_mass, 50.0 * 1000.0 * parsec), flat, 0.03, "the circular velocity at 50 kpc is within 3 percent of the flat value");
+	const double velocity_100 = mond.point_mass_circular_velocity(baryonic_mass, 100.0 * 1000.0 * parsec);
+	suite.check_relative(velocity_100, flat, 0.02, "the circular velocity at 100 kpc is within 2 percent of the flat value");
 
-	const double v_flat_theory = mond.asymptotic_flat_velocity(m_baryon);
+	suite.section("Baryonic Tully-Fisher relation");
+	suite.check_relative(velocity_100 * velocity_100 * velocity_100 * velocity_100, g * baryonic_mass * a0, 0.05, "v^4 equals G M a0 within 5 percent at 100 kpc");
 
-	const double r_kpc30 = 30.0 * 1000.0 * 3.085677581491367e16;
-	const double r_kpc50 = 50.0 * 1000.0 * 3.085677581491367e16;
-	const double r_kpc100 = 100.0 * 1000.0 * 3.085677581491367e16;
-
-	const double v_30 = mond.point_mass_circular_velocity(m_baryon, r_kpc30);
-	const double v_50 = mond.point_mass_circular_velocity(m_baryon, r_kpc50);
-	const double v_100 = mond.point_mass_circular_velocity(m_baryon, r_kpc100);
-
-	assert(std::abs(v_30 - v_flat_theory) / v_flat_theory < 0.05);
-	assert(std::abs(v_50 - v_flat_theory) / v_flat_theory < 0.03);
-	assert(std::abs(v_100 - v_flat_theory) / v_flat_theory < 0.02);
-
-	const double v4_relation = (v_100 * v_100 * v_100 * v_100);
-	const double gm_a0 = g * m_baryon * a0;
-	assert(std::abs(v4_relation - gm_a0) / gm_a0 < 0.05);
-
+	suite.section("Simple interpolation function");
 	mond.set_function_type(MondInterpolationFunction::Simple);
-	const double v_simple_100 = mond.point_mass_circular_velocity(m_baryon, r_kpc100);
-	assert(std::abs(v_simple_100 - v_flat_theory) / v_flat_theory < 0.05);
-
-	return 0;
+	suite.check_relative(mond.point_mass_circular_velocity(baryonic_mass, 100.0 * 1000.0 * parsec), flat, 0.05, "the simple interpolation reaches the flat velocity within 5 percent at 100 kpc");
+	return suite.finish();
 }

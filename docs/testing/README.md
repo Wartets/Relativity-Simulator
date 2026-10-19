@@ -63,3 +63,23 @@ Commit refreshed results together with the change that motivated the run.
 | Interval arithmetic | `test_interval_arithmetic` | [suites/interval_arithmetic.md](suites/interval_arithmetic.md) |
 | Horizon regime | `test_horizon_regime` | [suites/horizon_regime.md](suites/horizon_regime.md) |
 | Double-single arithmetic | `test_double_single` | [suites/double_single.md](suites/double_single.md) |
+| Post-Newtonian conservation | `test_pn_conservative` | [suites/pn_conservative.md](suites/pn_conservative.md) |
+| Post-Newtonian radiation reaction | `test_pn_radiation_reaction` | [suites/pn_radiation_reaction.md](suites/pn_radiation_reaction.md) |
+| Post-Newtonian spin precession | `test_pn_spin_precession` | [suites/pn_spin_precession.md](suites/pn_spin_precession.md) |
+| Gravitational waves | `test_gravitational_waves` | [suites/gravitational_waves.md](suites/gravitational_waves.md) |
+| Hulse-Taylor orbital decay | `test_hulse_taylor_orbital_decay` | [suites/hulse_taylor_orbital_decay.md](suites/hulse_taylor_orbital_decay.md) |
+| Hyperbolic motion | `test_hyperbolic_motion` | [suites/hyperbolic_motion.md](suites/hyperbolic_motion.md) |
+| Polynomial chaos | `test_polynomial_chaos` | [suites/polynomial_chaos.md](suites/polynomial_chaos.md) |
+| Uncertain quantity | `test_uncertain_quantity` | [suites/uncertain_quantity.md](suites/uncertain_quantity.md) |
+| Zonotope propagation | `test_zonotope_propagation` | [suites/zonotope_propagation.md](suites/zonotope_propagation.md) |
+| SPK reader | `test_spk_reader` | [suites/spk_reader.md](suites/spk_reader.md) |
+| HORIZONS parser | `test_horizons_parser` | [suites/horizons_parser.md](suites/horizons_parser.md) |
+| Frame transforms | `test_frame_transforms` | [suites/frame_transforms.md](suites/frame_transforms.md) |
+| Ephemeris and Keplerian elements | `test_ephemeris_kepler` | [suites/ephemeris_kepler.md](suites/ephemeris_kepler.md) |
+| FITS exporter | `test_fits_exporter` | [suites/fits_exporter.md](suites/fits_exporter.md) |
+| VTK exporter | `test_vtk_exporter` | [suites/vtk_exporter.md](suites/vtk_exporter.md) |
+| Dark matter profiles | `test_dark_matter_profiles` | [suites/dark_matter_profiles.md](suites/dark_matter_profiles.md) |
+| MOND rotation curves | `test_mond_rotation_curves` | [suites/mond_rotation_curves.md](suites/mond_rotation_curves.md) |
+| f(R) chameleon | `test_f_r_chameleon` | [suites/f_r_chameleon.md](suites/f_r_chameleon.md) |
+| Spectral shift and beaming | `test_spectral_shift_beaming` | [suites/spectral_shift_beaming.md](suites/spectral_shift_beaming.md) |
+| Camera projections | `test_camera_projections` | [suites/camera_projections.md](suites/camera_projections.md) |

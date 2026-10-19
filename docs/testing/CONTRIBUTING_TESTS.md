@@ -46,7 +46,7 @@ This guide is mandatory for every test and benchmark. No external test framework
 
 ## Documentation
 
-Every maintained test has a suite page with: executable, source, link to its generated result, purpose, covered metrics or modes, a table of checks with tolerances and their justification, scenario parameters, limits and acceptance criteria. Move the test from Legacy to Maintained in [test_catalog.md](test_catalog.md) and list it in [README.md](README.md). Commit the generated reports in the same commit as any change that alters a test or the behaviour it covers.
+Every maintained test has a suite page with: executable, source, link to its generated result, purpose, covered metrics or modes, a table of checks with tolerances and their justification, scenario parameters, limits and acceptance criteria. Move the test from Legacy to Maintained in [test_catalog.md](test_catalog.md) and list it in [README.md](README.md). Every suite page ends with a "Recorded results" section linking to `docs/testing/results/<suite_name>.md` and `.json`, and every check of the test must appear in the check table of its page with its tolerance and justification. A test without a suite page, a catalogue entry and committed results is not considered maintained. Commit the generated reports in the same commit as any change that alters a test or the behaviour it covers.
 
 ## Review checklist
 

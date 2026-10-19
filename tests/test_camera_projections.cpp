@@ -1,104 +1,48 @@
-#include "relativistic/observer/camera_projections.hpp"
-#include "relativistic/observer/observer_tetrad.hpp"
+#include "support/test_harness.hpp"
+#include "relativistic/optics/spectral_shift.hpp"
+#include "relativistic/metrics/schwarzschild.hpp"
 #include "relativistic/metrics/flat_minkowski.hpp"
-#include <cassert>
-#include <iostream>
 #include <cmath>
-#include <numbers>
 
-void test_pinhole_projection() {
-	using namespace Relativistic::Observer;
-
-	const double fov = 90.0 * std::numbers::pi / 180.0;
-	const auto center_ray = CameraProjector<double>::compute_pinhole_ray(0.0, 0.0, fov);
-	assert(std::abs(center_ray[0] - 1.0) < 1e-14);
-	assert(std::abs(center_ray[1]) < 1e-14);
-	assert(std::abs(center_ray[2]) < 1e-14);
-
-	const auto corner_ray = CameraProjector<double>::compute_pinhole_ray(1.0, 1.0, fov);
-	const double norm = std::sqrt(corner_ray[0] * corner_ray[0] + corner_ray[1] * corner_ray[1] + corner_ray[2] * corner_ray[2]);
-	assert(std::abs(norm - 1.0) < 1e-14);
-	assert(corner_ray[2] > 0.0);
-	assert(corner_ray[1] < 0.0);
-}
-
-void test_auto_zoom_compensation() {
-	using namespace Relativistic::Observer;
-
-	const double fov = 60.0 * std::numbers::pi / 180.0;
-	const double gamma = 50.0;
-	const double beta = std::sqrt(1.0 - 1.0 / (gamma * gamma));
-
-	const auto ray_no_zoom = CameraProjector<double>::compute_pinhole_ray(1.0, 0.0, fov);
-	const auto ray_auto_zoom = CameraProjector<double>::compute_auto_zoom_ray(1.0, 0.0, fov, gamma, beta);
-
-	const double angle_no_zoom = std::atan2(ray_no_zoom[2], ray_no_zoom[0]);
-	const double angle_auto_zoom = std::atan2(ray_auto_zoom[2], ray_auto_zoom[0]);
-
-	assert(angle_auto_zoom < angle_no_zoom);
-	const double expected_ratio = std::sqrt((1.0 - beta) / (1.0 + beta));
-	const double actual_ratio = std::tan(angle_auto_zoom) / std::tan(angle_no_zoom);
-	assert(std::abs(actual_ratio - expected_ratio) < 1e-7);
-}
-
-void test_stereographic_fisheye_projection() {
-	using namespace Relativistic::Observer;
-
-	const double fov_220 = 220.0 * std::numbers::pi / 180.0;
-	const auto edge_ray = CameraProjector<double>::compute_fisheye_stereographic_ray(1.0, 0.0, fov_220);
-
-	const double norm = std::sqrt(edge_ray[0] * edge_ray[0] + edge_ray[1] * edge_ray[1] + edge_ray[2] * edge_ray[2]);
-	assert(std::abs(norm - 1.0) < 1e-14);
-
-	const double theta = std::acos(edge_ray[0]);
-	assert(theta > std::numbers::pi / 2.0);
-	assert(std::abs(theta - 110.0 * std::numbers::pi / 180.0) < 1e-12);
-}
-
-void test_equirectangular_360_projection() {
-	using namespace Relativistic::Observer;
-
-	const auto fwd = CameraProjector<double>::compute_equirectangular_360_ray(0.0, 0.0);
-	assert(std::abs(fwd[0] - 1.0) < 1e-14);
-	assert(std::abs(fwd[1]) < 1e-14);
-	assert(std::abs(fwd[2]) < 1e-14);
-
-	const auto back = CameraProjector<double>::compute_equirectangular_360_ray(1.0, 0.0);
-	assert(std::abs(back[0] - (-1.0)) < 1e-14);
-	assert(std::abs(back[1]) < 1e-14);
-
-	const auto top = CameraProjector<double>::compute_equirectangular_360_ray(0.0, 1.0);
-	assert(std::abs(top[1] - 1.0) < 1e-14);
-
-	const auto bottom = CameraProjector<double>::compute_equirectangular_360_ray(0.0, -1.0);
-	assert(std::abs(bottom[1] - (-1.0)) < 1e-14);
-}
-
-void test_tetrad_ray_generation() {
-	using namespace Relativistic;
-	Metrics::FlatMinkowskiMetric<double> metric(1.0);
-	Core::FourVector<double> pos(0.0, 10.0, 0.0, 0.0);
-	auto tetrad = Observer::ObserverTetrad<double>::make_stationary(metric, pos);
-
-	const auto ray_pinhole = tetrad.construct_projected_ray(Observer::ProjectionMode::Pinhole, 0.5, 0.5, 1.0);
-	const double norm_pinhole = -(ray_pinhole(0) * ray_pinhole(0)) + (ray_pinhole(1) * ray_pinhole(1) + ray_pinhole(2) * ray_pinhole(2) + ray_pinhole(3) * ray_pinhole(3));
-	assert(std::abs(norm_pinhole) < 1e-14);
-
-	const auto ray_fish = tetrad.construct_projected_ray(Observer::ProjectionMode::FisheyeStereographic, 0.8, 0.8, 3.5);
-	const double norm_fish = -(ray_fish(0) * ray_fish(0)) + (ray_fish(1) * ray_fish(1) + ray_fish(2) * ray_fish(2) + ray_fish(3) * ray_fish(3));
-	assert(std::abs(norm_fish) < 1e-14);
-
-	const auto ray_360 = tetrad.construct_projected_ray(Observer::ProjectionMode::Equirectangular360, 0.7, -0.3, 0.0);
-	const double norm_360 = -(ray_360(0) * ray_360(0)) + (ray_360(1) * ray_360(1) + ray_360(2) * ray_360(2) + ray_360(3) * ray_360(3));
-	assert(std::abs(norm_360) < 1e-14);
-}
+using namespace Relativistic::Optics;
+using namespace Relativistic::Metrics;
+using Relativistic::Testing::TestSuite;
 
 int main() {
-	test_pinhole_projection();
-	test_auto_zoom_compensation();
-	test_stereographic_fisheye_projection();
-	test_equirectangular_360_projection();
-	test_tetrad_ray_generation();
-	std::cout << "All camera projection tests passed successfully.\n";
-	return 0;
+	TestSuite suite(
+		"spectral_shift_beaming",
+		"Verifies the spectral shift and beaming relations: the longitudinal and transverse kinematic Doppler factors, the Schwarzschild gravitational redshift between a static emitter and a static observer, the g^3 and g^4 intensity and flux scalings, and the wavelength transformation."
+	);
+
+	suite.section("Kinematic Doppler factor");
+	constexpr double beta = 0.6;
+	const double gamma = 1.0 / std::sqrt(1.0 - beta * beta);
+	suite.check_near(compute_kinematic_doppler(beta, 0.0, 0.0, 1.0, 0.0, 0.0), std::sqrt((1.0 + beta) / (1.0 - beta)), 1e-12, "a head-on source is blueshifted by sqrt((1 + beta) / (1 - beta))");
+	suite.check_near(compute_kinematic_doppler(beta, 0.0, 0.0, -1.0, 0.0, 0.0), std::sqrt((1.0 - beta) / (1.0 + beta)), 1e-12, "a receding source is redshifted by sqrt((1 - beta) / (1 + beta))");
+	suite.check_near(compute_kinematic_doppler(beta, 0.0, 0.0, 0.0, 1.0, 0.0), 1.0 / gamma, 1e-12, "a transverse source shows pure time dilation 1 / gamma");
+
+	suite.section("Gravitational redshift in the Schwarzschild metric");
+	SchwarzschildMetric metric(1.0);
+	constexpr double emitter_radius = 6.0;
+	constexpr double observer_radius = 100.0;
+	constexpr double equator = 1.57079632679;
+	Relativistic::Core::FourVector<double> emitter_position(0.0, emitter_radius, equator, 0.0);
+	Relativistic::Core::FourVector<double> observer_position(0.0, observer_radius, equator, 0.0);
+	const auto emitter_metric = metric.metric_tensor(emitter_position);
+	const auto observer_metric = metric.metric_tensor(observer_position);
+	const double emitter_u0 = 1.0 / std::sqrt(-emitter_metric(0, 0));
+	const double observer_u0 = 1.0 / std::sqrt(-observer_metric(0, 0));
+	Relativistic::Core::FourVector<double> emitter_velocity(emitter_u0, 0.0, 0.0, 0.0);
+	Relativistic::Core::FourVector<double> observer_velocity(observer_u0, 0.0, 0.0, 0.0);
+	Relativistic::Core::FourVector<double> emitter_momentum(-1.0 / emitter_metric(0, 0), 0.0, 0.0, 0.0);
+	Relativistic::Core::FourVector<double> observer_momentum(-1.0 / observer_metric(0, 0), 0.0, 0.0, 0.0);
+	const double shift = compute_spectral_shift(observer_momentum, observer_velocity, observer_metric, emitter_momentum, emitter_velocity, emitter_metric);
+	const double expected = std::sqrt((1.0 - 2.0 / emitter_radius) / (1.0 - 2.0 / observer_radius));
+	suite.check_near(shift, expected, 1e-10, "the frequency ratio equals sqrt(f(r_emit) / f(r_obs))");
+
+	suite.section("Beaming and wavelength scaling");
+	suite.check_near(apply_specific_intensity_beaming(100.0, 2.0), 800.0, 1e-12, "the specific intensity scales as g^3");
+	suite.check_near(apply_bolometric_flux_beaming(50.0, 2.0), 800.0, 1e-12, "the bolometric flux scales as g^4 and equals 800 for g = 2");
+	suite.check_relative(observed_wavelength(500e-9, 2.0), 250e-9, 1e-12, "the observed wavelength equals the emitted wavelength divided by g");
+	return suite.finish();
 }

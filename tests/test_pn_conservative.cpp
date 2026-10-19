@@ -1,80 +1,70 @@
+#include "support/test_harness.hpp"
 #include "relativistic/dynamics/pn/pn_body.hpp"
 #include "relativistic/dynamics/pn/pn_orders.hpp"
 #include "relativistic/dynamics/pn/pn_acceleration.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
-#include <iostream>
-#include <cassert>
 #include <cmath>
+#include <cstddef>
+
+using namespace Relativistic::Dynamics;
+using Relativistic::Testing::TestSuite;
+
+namespace {
+
+constexpr double kMassEach = 1.0;
+constexpr double kSeparation = 20.0;
+constexpr double kSpeed = 0.15;
+constexpr double kStep = 0.01;
+constexpr size_t kStepCount = 2000;
+
+void add_equal_mass_binary(PostNewtonianSystem& system) {
+	const PostNewtonianBody first(1, kMassEach, 1.0, {-kSeparation * 0.5, 0.0, 0.0}, {0.0, -kSpeed, 0.0});
+	const PostNewtonianBody second(2, kMassEach, 1.0, {kSeparation * 0.5, 0.0, 0.0}, {0.0, kSpeed, 0.0});
+	system.add_body(first);
+	system.add_body(second);
+	system.update_accelerations();
+}
+
+void check_first_order_conservation(TestSuite& suite) {
+	suite.section("1PN binary with the Runge-Kutta integrator");
+	PostNewtonianSystem system(PNOrderConfig::make_1pn_only(10.0, 1.0));
+	add_equal_mass_binary(system);
+	const double initial_energy = system.compute_total_energy();
+	const auto initial_momentum = system.total_angular_momentum();
+	for (size_t step = 0; step < kStepCount; ++step) {
+		RungeKutta4PNIntegrator::step(system, kStep);
+	}
+	const double energy_drift = std::abs((system.compute_total_energy() - initial_energy) / initial_energy);
+	const double momentum_drift = std::abs((system.total_angular_momentum()[2] - initial_momentum[2]) / initial_momentum[2]);
+	suite.measure("relative_energy_drift_1pn_rk4", energy_drift, "dimensionless");
+	suite.measure("relative_angular_momentum_drift_1pn_rk4", momentum_drift, "dimensionless");
+	suite.check_finite(initial_energy, "the initial total energy is finite");
+	suite.check_at_most(energy_drift, 1e-4, "the relative energy drift over 2000 steps stays below 1e-4");
+	suite.check_at_most(momentum_drift, 1e-4, "the relative drift of the orbital angular momentum stays below 1e-4");
+}
+
+void check_newtonian_symplectic_conservation(TestSuite& suite) {
+	suite.section("Newtonian binary with the symplectic integrator");
+	PostNewtonianSystem system(PNOrderConfig::make_newtonian_only(10.0, 1.0));
+	add_equal_mass_binary(system);
+	const double initial_energy = system.compute_total_energy();
+	for (size_t step = 0; step < kStepCount; ++step) {
+		SymplecticForestRuthPNIntegrator::step(system, kStep);
+	}
+	const double energy_drift = std::abs((system.compute_total_energy() - initial_energy) / initial_energy);
+	suite.measure("relative_energy_drift_newtonian_symplectic", energy_drift, "dimensionless");
+	suite.check_at_most(energy_drift, 1e-5, "the relative energy drift of the symplectic scheme stays below 1e-5");
+}
+
+}
 
 int main() {
-	using namespace Relativistic::Dynamics;
-
-	{
-		const auto cfg_1pn = PNOrderConfig::make_1pn_only(10.0, 1.0);
-		PostNewtonianSystem sys(cfg_1pn);
-
-		const double m1 = 1.0;
-		const double m2 = 1.0;
-		const double separation = 20.0;
-		const double speed = 0.15;
-
-		const PostNewtonianBody b1(1, m1, 1.0, {-separation * 0.5, 0.0, 0.0}, {0.0, -speed, 0.0});
-		const PostNewtonianBody b2(2, m2, 1.0, { separation * 0.5, 0.0, 0.0}, {0.0,  speed, 0.0});
-
-		sys.add_body(b1);
-		sys.add_body(b2);
-		sys.update_accelerations();
-
-		const double initial_energy = sys.compute_total_energy();
-		const auto initial_l = sys.total_angular_momentum();
-
-		const double dt = 0.01;
-		const size_t num_steps = 2000;
-
-		for (size_t step = 0; step < num_steps; ++step) {
-			RungeKutta4PNIntegrator::step(sys, dt);
-		}
-
-		const double final_energy = sys.compute_total_energy();
-		const auto final_l = sys.total_angular_momentum();
-
-		const double rel_energy_drift = std::abs((final_energy - initial_energy) / initial_energy);
-		const double rel_l_drift = std::abs((final_l[2] - initial_l[2]) / initial_l[2]);
-
-		assert(rel_energy_drift < 1e-4);
-		assert(rel_l_drift < 1e-4);
-	}
-
-	{
-		const auto cfg_newton = PNOrderConfig::make_newtonian_only(10.0, 1.0);
-		PostNewtonianSystem sys_n(cfg_newton);
-
-		const double m1 = 1.0;
-		const double m2 = 1.0;
-		const double separation = 20.0;
-		const double speed = 0.15;
-
-		const PostNewtonianBody b1(1, m1, 1.0, {-separation * 0.5, 0.0, 0.0}, {0.0, -speed, 0.0});
-		const PostNewtonianBody b2(2, m2, 1.0, { separation * 0.5, 0.0, 0.0}, {0.0,  speed, 0.0});
-
-		sys_n.add_body(b1);
-		sys_n.add_body(b2);
-		sys_n.update_accelerations();
-
-		const double initial_energy = sys_n.compute_total_energy();
-		const double dt = 0.01;
-		const size_t num_steps = 2000;
-
-		for (size_t step = 0; step < num_steps; ++step) {
-			SymplecticForestRuthPNIntegrator::step(sys_n, dt);
-		}
-
-		const double final_energy = sys_n.compute_total_energy();
-		const double rel_energy_drift = std::abs((final_energy - initial_energy) / initial_energy);
-		assert(rel_energy_drift < 1e-5);
-	}
-
-	std::cout << "test_pn_conservative passed.\n";
-	return 0;
+	TestSuite suite(
+		"pn_conservative",
+		"Verifies the conservative post-Newtonian dynamics: energy and orbital angular momentum conservation of an equal-mass 1PN binary integrated with the fourth-order Runge-Kutta scheme, and energy conservation of a Newtonian binary integrated with the symplectic Forest-Ruth scheme."
+	);
+	check_first_order_conservation(suite);
+	check_newtonian_symplectic_conservation(suite);
+	return suite.finish();
 }

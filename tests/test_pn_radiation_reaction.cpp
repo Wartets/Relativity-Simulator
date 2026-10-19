@@ -1,44 +1,45 @@
+#include "support/test_harness.hpp"
 #include "relativistic/dynamics/pn/pn_body.hpp"
 #include "relativistic/dynamics/pn/pn_orders.hpp"
 #include "relativistic/dynamics/pn/pn_acceleration.hpp"
 #include "relativistic/dynamics/pn/pn_nbody_system.hpp"
 #include "relativistic/dynamics/pn/pn_integrator.hpp"
-#include <iostream>
-#include <cassert>
-#include <cmath>
+#include <cstddef>
+
+using namespace Relativistic::Dynamics;
+using Relativistic::Testing::TestSuite;
 
 int main() {
-	using namespace Relativistic::Dynamics;
+	TestSuite suite(
+		"pn_radiation_reaction",
+		"Verifies the 2.5PN radiation reaction of an equal-mass binary: the total energy decreases monotonically in aggregate and the quadrupole radiated power is positive."
+	);
 
-	const auto cfg_rad = PNOrderConfig::make_2_5pn_radiation_only(1.0, 1.0);
-	PostNewtonianSystem sys(cfg_rad);
+	suite.section("Radiative energy loss");
+	constexpr double separation = 15.0;
+	constexpr double speed = 0.2;
+	constexpr double step = 0.01;
+	constexpr size_t step_count = 2000;
 
-	const double m1 = 1.0;
-	const double m2 = 1.0;
-	const double separation = 15.0;
-	const double speed = 0.2;
+	PostNewtonianSystem system(PNOrderConfig::make_2_5pn_radiation_only(1.0, 1.0));
+	const PostNewtonianBody first(1, 1.0, 1.0, {-separation * 0.5, 0.0, 0.0}, {0.0, -speed, 0.0});
+	const PostNewtonianBody second(2, 1.0, 1.0, {separation * 0.5, 0.0, 0.0}, {0.0, speed, 0.0});
+	system.add_body(first);
+	system.add_body(second);
+	system.update_accelerations();
 
-	const PostNewtonianBody b1(1, m1, 1.0, {-separation * 0.5, 0.0, 0.0}, {0.0, -speed, 0.0});
-	const PostNewtonianBody b2(2, m2, 1.0, { separation * 0.5, 0.0, 0.0}, {0.0,  speed, 0.0});
-
-	sys.add_body(b1);
-	sys.add_body(b2);
-	sys.update_accelerations();
-
-	const double e_init = sys.compute_total_energy();
-
-	double dt = 0.01;
-	const size_t num_steps = 2000;
-
-	for (size_t step = 0; step < num_steps; ++step) {
-		RungeKutta4PNIntegrator::step(sys, dt);
+	const double initial_energy = system.compute_total_energy();
+	for (size_t index = 0; index < step_count; ++index) {
+		RungeKutta4PNIntegrator::step(system, step);
 	}
+	const double final_energy = system.compute_total_energy();
+	const double radiated_power = system.latest_gw_emission().radiated_power;
 
-	const double e_final = sys.compute_total_energy();
-
-	assert(e_final < e_init);
-	assert(sys.latest_gw_emission().radiated_power > 0.0);
-
-	std::cout << "test_pn_radiation_reaction passed with e_init = " << e_init << ", e_final = " << e_final << "\n";
-	return 0;
+	suite.measure("initial_energy", initial_energy, "simulation energy");
+	suite.measure("final_energy", final_energy, "simulation energy");
+	suite.measure("radiated_power", radiated_power, "simulation power");
+	suite.check_finite(final_energy, "the final total energy is finite");
+	suite.check(final_energy < initial_energy, "the total energy after 2000 steps is lower than the initial energy", "initial=" + Relativistic::Testing::format_number(initial_energy, 12) + " final=" + Relativistic::Testing::format_number(final_energy, 12));
+	suite.check(radiated_power > 0.0, "the quadrupole radiated power is positive");
+	return suite.finish();
 }

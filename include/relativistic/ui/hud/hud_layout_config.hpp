@@ -158,6 +158,7 @@ struct ToolbarButtonVisibility {
 	bool step_controller_cycle{false};
 	bool render_distance_toggle{false};
 	bool pole_precision_nudge{false};
+	bool coordinate_cycle{false};
 };
 
 struct HudCoordinateDisplay {
@@ -358,10 +359,10 @@ struct HudLayoutConfig {
 		dark_matter_ro.text_color = {0.75f, 0.6f, 1.0f, 1.0f};
 
 		auto& camera_position_ro = element(HudElementId::CameraPositionReadout);
-		camera_position_ro.enabled = false;
-		camera_position_ro.anchor = HudAnchor::BottomLeft;
+		camera_position_ro.enabled = true;
+		camera_position_ro.anchor = HudAnchor::TopLeft;
 		camera_position_ro.offset_x = 16.0f;
-		camera_position_ro.offset_y = 500.0f;
+		camera_position_ro.offset_y = 180.0f;
 		camera_position_ro.text_color = {0.7f, 1.0f, 0.8f, 1.0f};
 
 		auto& cursor_ro = element(HudElementId::CursorReadout);

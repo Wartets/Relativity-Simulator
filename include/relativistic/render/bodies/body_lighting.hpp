@@ -89,6 +89,13 @@ public:
 		sample.intensity = params.light_intensity;
 		sample.color = {params.light_color_r, params.light_color_g, params.light_color_b};
 
+		if (self_index < bodies.size() && bodies[self_index].body_id >= kBeaconBodyIdBase) {
+			sample.lit = false;
+			sample.intensity = 1.0f;
+			sample.color = {1.0f, 1.0f, 1.0f};
+			return sample;
+		}
+
 		const auto mode = static_cast<LightSourceMode>(std::min(params.light_source_mode, kLightSourceModeCount - 1U));
 		if (mode == LightSourceMode::Unlit) {
 			sample.lit = false;

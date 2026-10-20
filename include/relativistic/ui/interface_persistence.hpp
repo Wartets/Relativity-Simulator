@@ -162,6 +162,7 @@ private:
 		visitor("step_controller_cycle", tb.step_controller_cycle);
 		visitor("render_distance_toggle", tb.render_distance_toggle);
 		visitor("pole_precision_nudge", tb.pole_precision_nudge);
+		visitor("coordinate_cycle", tb.coordinate_cycle);
 	}
 
 	template <typename Schematic, typename Visitor>

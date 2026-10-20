@@ -399,6 +399,7 @@ struct alignas(16) GpuCameraPushConstants {
 	GpuJetProfile jet{};
 	GpuDarkMatterField dark_matter{};
 	GpuCosmologyProfile cosmology{};
+	std::array<double, 4> observer_boost{0.0, 0.0, 0.0, 0.0};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
@@ -450,6 +451,7 @@ namespace RenderFlags {
 }
 
 inline constexpr size_t kMaxSurfaceLayers = 4;
+inline constexpr uint32_t kBeaconBodyIdBase = 0xFFFF0000U;
 
 enum class SurfaceLayerPattern : uint32_t {
 	Noise = 0,

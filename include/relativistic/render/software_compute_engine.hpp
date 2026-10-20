@@ -37,6 +37,7 @@
 #include "relativistic/modified_gravity/teves.hpp"
 #include "relativistic/cosmology/dark_energy_models.hpp"
 #include "relativistic/observer/direction_projection.hpp"
+#include "relativistic/observer/observer_aberration.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
 #include <vector>
 #include <span>
@@ -157,6 +158,7 @@ private:
 		const size_t candidate_count = candidate_indices.empty() ? bodies.size() : candidate_indices.size();
 		for (size_t candidate_i = 0; candidate_i < candidate_count; ++candidate_i) {
 			const size_t body_index = candidate_indices.empty() ? candidate_i : static_cast<size_t>(candidate_indices[candidate_i]);
+			if (body_index >= bodies.size()) continue;
 			const auto& body = bodies[body_index];
 			if (body.preset_3d == 8U) continue;
 			const double bx = body.position[0];
@@ -255,8 +257,9 @@ private:
 			if (earth_shading) {
 				const auto earth_variant = Optics::earth_map_variant_from_index(body.earth_map_variant);
 				const auto earth_quality = Optics::earth_map_quality_from_index(body.earth_map_quality);
-				const double earth_u = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
-				const double earth_v = theta * (1.0 / std::numbers::pi_v<double>);
+				const double earth_u_unwrapped = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
+				const double earth_u = std::isfinite(earth_u_unwrapped) ? (earth_u_unwrapped - std::floor(earth_u_unwrapped)) : 0.0;
+				const double earth_v = std::isfinite(theta) ? std::clamp(theta * (1.0 / std::numbers::pi_v<double>), 0.0, 1.0) : 0.5;
 				auto& earth_loader = Optics::EarthTextureLoader::instance();
 				std::array<float, 3> earth_day_rgb{r_surf, g_surf, b_surf};
 				std::array<float, 3> earth_night_rgb{0.0f, 0.0f, 0.0f};
@@ -787,7 +790,9 @@ private:
 
 			if (center_dist <= bounding_radius * 1.05 || b.preset_3d == 8U) {
 				for (size_t t = 0; t < result.total_tile_count; ++t) {
-					result.candidate_pool[result.tile_offsets[t] + written[t]++] = static_cast<uint32_t>(bi);
+					if (written[t] < result.tile_counts[t]) {
+						result.candidate_pool[result.tile_offsets[t] + written[t]++] = static_cast<uint32_t>(bi);
+					}
 				}
 				continue;
 			}
@@ -848,7 +853,9 @@ private:
 			for (size_t ty = ty0; ty <= ty1; ++ty) {
 				for (size_t tx = tx0; tx <= tx1; ++tx) {
 					const size_t idx = ty * tiles_x + tx;
-					result.candidate_pool[result.tile_offsets[idx] + written[idx]++] = static_cast<uint32_t>(bi);
+					if (written[idx] < result.tile_counts[idx]) {
+						result.candidate_pool[result.tile_offsets[idx] + written[idx]++] = static_cast<uint32_t>(bi);
+					}
 				}
 			}
 		}
@@ -3370,10 +3377,10 @@ public:
 
 					const bool is_allsky = (params.projection_mode == 3 || params.projection_mode == 7);
 					const double u_coord = is_allsky ? (((static_cast<double>(x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0) : u_norm;
-					const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
+					const auto n_local = Observer::apply_observer_boost(Observer::CameraProjector<double>::compute_ray_direction(
 						static_cast<Observer::ProjectionMode>(params.projection_mode),
 						u_coord, v_norm, params.field_of_view_rad
-					);
+					), params.observer_boost);
 
 					const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
 					const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
@@ -3399,7 +3406,11 @@ public:
 						const size_t mask_tiles_x = (width + 31) / 32;
 						const size_t tile_idx = (y / 32) * mask_tiles_x + (x / 32);
 						if (tile_idx < tile_counts.size() && tile_counts[tile_idx] > 0) {
-							body_candidates = std::span<const uint32_t>(candidate_pool.data() + tile_offsets[tile_idx], tile_counts[tile_idx]);
+							const size_t pool_begin = tile_offsets[tile_idx];
+							const size_t pool_count = tile_counts[tile_idx];
+							if (tile_idx < tile_offsets.size() && pool_begin + pool_count <= candidate_pool.size()) {
+								body_candidates = std::span<const uint32_t>(candidate_pool.data() + pool_begin, pool_count);
+							}
 						}
 					}
 
@@ -3909,9 +3920,9 @@ public:
 								? (((static_cast<double>(cur_x) + 0.5) / static_cast<double>(width)) * 2.0 - 1.0)
 								: (((static_cast<double>(cur_x) + 0.5) / static_cast<double>(width) * 2.0 - 1.0) * aspect);
 
-							const auto n_local = Observer::CameraProjector<double>::compute_ray_direction(
+							const auto n_local = Observer::apply_observer_boost(Observer::CameraProjector<double>::compute_ray_direction(
 								proj_mode, u_norm, v_norm, fov_rad
-							);
+							), params.observer_boost);
 
 							const double ray_dir_x = n_local[0] * fwd_x + n_local[2] * rgt_x + n_local[1] * up_x;
 							const double ray_dir_y = n_local[0] * fwd_y + n_local[2] * rgt_y + n_local[1] * up_y;
@@ -5031,7 +5042,7 @@ public:
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}
-		if (requires_exact_kerr || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
+		if (requires_exact_kerr || Observer::has_observer_boost(params.observer_boost) || (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE)) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}

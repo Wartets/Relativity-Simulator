@@ -496,6 +496,7 @@ Relativity-Simulator/
 │       │   ├── camera_projections.hpp
 │       │   ├── coordinate_systems.hpp
 │       │   ├── direction_projection.hpp
+│       │   ├── observer_aberration.hpp
 │       │   ├── observer_lapse.hpp
 │       │   ├── observer_tetrad.hpp
 │       │   ├── planet_orbit.hpp
@@ -618,6 +619,7 @@ Relativity-Simulator/
 │       │   ├── polarization_panel.hpp
 │       │   ├── ray_probe_panel.hpp
 │       │   ├── scenario_selector_window.hpp
+│       │   ├── secondary_view_roles.hpp
 │       │   ├── secondary_view_window.hpp
 │       │   ├── secondary_viewport_manager.hpp
 │       │   ├── spectrograph_window.hpp

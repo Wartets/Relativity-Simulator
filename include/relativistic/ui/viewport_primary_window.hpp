@@ -99,6 +99,9 @@ private:
 	bool has_sufficient_rolling_frames_{false};
 	std::function<void()> fullscreen_toggle_callback_{};
 	std::function<void()> open_screenshot_settings_callback_{};
+	using AuxiliaryBodyProvider = std::function<void(std::vector<Render::GpuBodyData>&, const std::array<double, 3>&)>;
+	AuxiliaryBodyProvider auxiliary_body_provider_{};
+	uint64_t last_auxiliary_signature_{0};
 	std::unique_ptr<Capture::CaptureCoordinator> capture_coordinator_{};
 	bool capture_constants_valid_{false};
 	ImVec2 viewport_content_size_{0.0f, 0.0f};
@@ -267,6 +270,12 @@ public:
 		open_screenshot_settings_callback_ = std::move(callback);
 	}
 
+	void set_auxiliary_body_provider(AuxiliaryBodyProvider provider) {
+		auxiliary_body_provider_ = std::move(provider);
+		last_auxiliary_signature_ = 0;
+		force_rerender_ = true;
+	}
+
 	void handle_zoom_scroll(double yoffset) noexcept {
 		const auto& zoom_cfg = camera_controller_.config().zoom;
 		zoom_level_ = std::clamp(zoom_level_ + yoffset * zoom_cfg.zoom_scroll_sensitivity * zoom_level_, zoom_cfg.min_zoom, zoom_cfg.max_zoom);
@@ -338,6 +347,9 @@ public:
 			if (b.enabled) {
 				bodies.push_back(orchestrator_.make_gpu_body_data(b));
 			}
+		}
+		if (auxiliary_body_provider_) {
+			auxiliary_body_provider_(bodies, orchestrator_.camera().position);
 		}
 		return bodies;
 	}
@@ -852,6 +864,26 @@ public:
 						if (std::acos(cos_angle) > frustum_half_angle + angular_radius) continue;
 					}
 					gpu_bodies.push_back(orchestrator_.make_gpu_body_data(b));
+				}
+			}
+			if (auxiliary_body_provider_) {
+				const size_t native_body_total = gpu_bodies.size();
+				auxiliary_body_provider_(gpu_bodies, cam.position);
+				uint64_t auxiliary_signature = 0;
+				if (gpu_bodies.size() > native_body_total) {
+					cam_consts.render_flags |= Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING;
+					auxiliary_signature = 1469598103934665603ULL;
+					for (size_t i = native_body_total; i < gpu_bodies.size(); ++i) {
+						const auto& beacon = gpu_bodies[i];
+						for (size_t c = 0; c < 3; ++c) {
+							auxiliary_signature = (auxiliary_signature ^ std::hash<double>{}(beacon.position[c])) * 1099511628211ULL;
+						}
+						auxiliary_signature = (auxiliary_signature ^ std::hash<double>{}(beacon.radius)) * 1099511628211ULL;
+					}
+				}
+				if (auxiliary_signature != last_auxiliary_signature_) {
+					force_rerender_ = true;
+					last_auxiliary_signature_ = auxiliary_signature;
 				}
 			}
 			cam_consts.body_count = static_cast<uint32_t>(gpu_bodies.size());
@@ -1542,6 +1574,35 @@ public:
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::PoleGuardPrecisionScale, next_val)));
 			}
 			render_setting_tooltip("Increases polar region integration damping precision scale to eliminate axis artifacts.");
+		}
+
+		if (tb.coordinate_cycle) {
+			ImGui::SameLine();
+			auto& display = hud_layout_.coordinates;
+			const uint32_t system_total = static_cast<uint32_t>(Observer::kCoordinateSystemCount);
+			const uint32_t primary_index = static_cast<uint32_t>(display.primary);
+			const std::string primary_label = "Coord 1: " + std::string(Observer::kCoordinateSystemTitles[primary_index]);
+			if (ImGui::Button(primary_label.c_str(), ImVec2(0.0f, 24.0f))) {
+				display.primary = Observer::coordinate_system_from_index((primary_index + 1U) % system_total);
+			}
+			render_setting_tooltip("Cycles the primary coordinate system used by the coordinate readouts of the overlay.");
+			ImGui::SameLine();
+			const std::string secondary_label = display.secondary_enabled
+				? ("Coord 2: " + std::string(Observer::kCoordinateSystemTitles[static_cast<uint32_t>(display.secondary)]))
+				: std::string("Coord 2: Off");
+			if (ImGui::Button(secondary_label.c_str(), ImVec2(0.0f, 24.0f))) {
+				uint32_t next_index = display.secondary_enabled ? (static_cast<uint32_t>(display.secondary) + 1U) : 0U;
+				if (next_index == static_cast<uint32_t>(display.primary)) {
+					++next_index;
+				}
+				if (next_index >= system_total) {
+					display.secondary_enabled = false;
+				} else {
+					display.secondary_enabled = true;
+					display.secondary = Observer::coordinate_system_from_index(next_index);
+				}
+			}
+			render_setting_tooltip("Cycles the secondary coordinate system shown beside the primary one, or switches it off.");
 		}
 
 		ImGui::EndGroup();

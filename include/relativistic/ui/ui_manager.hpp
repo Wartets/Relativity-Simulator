@@ -206,6 +206,11 @@ public:
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
 		viewport_window_->set_open_screenshot_settings_callback([this]() { open_capture_studio(); });
+		viewport_window_->set_auxiliary_body_provider([this](std::vector<Render::GpuBodyData>& bodies, const std::array<double, 3>& viewer) {
+			if (secondary_viewport_manager_) {
+				secondary_viewport_manager_->append_beacon_bodies(bodies, viewer);
+			}
+		});
 		report_startup(Startup::StartupStage::Interface, 0.25f, "Building interface", "Creating the scenario manager...");
 		scenario_window_ = std::make_unique<ScenarioSelectorWindow>(orchestrator_, user_settings_, &camera_controller_);
 		scenario_window_->set_settings_persist_callback([this]() {
@@ -301,11 +306,15 @@ public:
 		queue_session_restore();
 
 		if (secondary_viewport_manager_) {
+			secondary_viewport_manager_->restore_manager_state(user_settings_.session_values);
+			size_t saved_slot = 0;
 			for (const auto& saved : user_settings_.secondary_views) {
+				const size_t slot_index = saved_slot++;
 				if (!saved.active) continue;
 				report_startup(Startup::StartupStage::Content, 0.4f, "Loading content", "Restoring secondary observer viewport '" + saved.name + "'...");
 				auto& view = secondary_viewport_manager_->add_view_with_state(saved.name, saved.open);
 				view.apply_saved_state(saved.radius, saved.theta, saved.phi, saved.fov_deg, saved.exposure, saved.tonemapping_mode, saved.projection_mode, saved.max_steps, saved.resolution_scale, saved.follow_primary, saved.follow_offset_theta, saved.follow_offset_phi);
+				view.restore_extended_state(user_settings_.session_values, secondary_view_state_prefix(slot_index));
 			}
 		}
 
@@ -426,6 +435,7 @@ public:
 			slot = IO::SecondaryViewPersistedState{};
 		}
 		if (secondary_viewport_manager_) {
+			secondary_viewport_manager_->store_manager_state(user_settings_.session_values);
 			size_t slot_index = 0;
 			for (auto& view_ptr : secondary_viewport_manager_->views()) {
 				if (slot_index >= user_settings_.secondary_views.size()) break;
@@ -445,6 +455,7 @@ public:
 				slot.follow_primary = view_ptr->follow_primary_camera();
 				slot.follow_offset_theta = view_ptr->follow_offset_theta();
 				slot.follow_offset_phi = view_ptr->follow_offset_phi();
+				view_ptr->store_extended_state(user_settings_.session_values, secondary_view_state_prefix(slot_index - 1));
 			}
 		}
 	}

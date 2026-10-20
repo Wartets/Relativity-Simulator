@@ -2170,6 +2170,7 @@ private:
 			ImGui::Text("Bodies Rendered On GPU: %s", tel.bodies_rendered_on_gpu ? "Yes" : "No");
 			render_setting_tooltip("Whether the celestial bodies visible this frame were intersected and shaded directly by the Vulkan compute shader instead of the CPU fallback path.");
 		} else {
+			std::lock_guard<std::recursive_mutex> enabled_bodies_lock(orchestrator_.nbody_system().bodies_mutex());
 			size_t enabled_body_count = 0;
 			for (const auto& b : orchestrator_.nbody_system().bodies()) {
 				if (b.enabled) ++enabled_body_count;
@@ -2615,6 +2616,13 @@ private:
 		render_setting_tooltip("Displays every coordinate readout in a second coordinate system on an additional line.");
 		if (hud_layout_.coordinates.secondary_enabled) {
 			static_cast<void>(coordinate_system_combo("Secondary Coordinate System", hud_layout_.coordinates.secondary));
+			if (ImGui::Button("Swap Primary And Secondary", ImVec2(240.0f, 24.0f))) {
+				std::swap(hud_layout_.coordinates.primary, hud_layout_.coordinates.secondary);
+			}
+			render_setting_tooltip("Exchanges the two displayed coordinate systems so the second one becomes the headline reading.");
+			if (hud_layout_.coordinates.primary == hud_layout_.coordinates.secondary) {
+				ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Both lines use the same coordinate system; pick a different secondary system to see two representations.");
+			}
 		}
 		ImGui::Checkbox("Show Coordinate Axis Labels", &hud_layout_.coordinates.show_axis_labels);
 		render_setting_tooltip("Prefixes every component with its axis name. Disable for a more compact readout.");
@@ -2663,6 +2671,7 @@ private:
 		ImGui::Checkbox("Render Distance Toggle Button", &tb.render_distance_toggle);
 		ImGui::SameLine();
 		ImGui::Checkbox("Pole Precision Nudge Buttons", &tb.pole_precision_nudge);
+		ImGui::Checkbox("Coordinate System Cycle Buttons", &tb.coordinate_cycle);
 		render_setting_tooltip("Adds shortcuts to the floating toolbar for the same controls exposed elsewhere in this panel, so frequently used settings stay reachable without opening a tab.");
 
 		ImGui::SliderFloat("Toolbar Button Padding Scale", &hud_layout_.toolbar_padding_scale, 0.4f, 3.0f, "%.2fx");

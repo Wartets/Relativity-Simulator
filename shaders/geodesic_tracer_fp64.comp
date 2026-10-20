@@ -294,6 +294,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	JetProfile jet;
 	DarkMatterField dark_matter;
 	CosmologyProfile cosmology;
+	dvec4 observer_boost;
 } pc;
 
 struct PixelOutput {
@@ -1994,6 +1995,7 @@ struct LightSample {
 };
 
 const float EMITTER_THRESHOLD = 1e-3;
+const uint BEACON_BODY_ID_BASE = 0xFFFF0000u;
 
 dvec3 body_center(uint bi) {
 	return dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
@@ -2020,6 +2022,13 @@ LightSample resolve_body_light(dvec3 hit, uint self_index) {
 	s.lit = true;
 	s.at_origin = false;
 	s.source_index = -1;
+
+	if (self_index < pc.body_count && bodies[self_index].body_id >= BEACON_BODY_ID_BASE) {
+		s.lit = false;
+		s.intensity = 1.0;
+		s.color = vec3(1.0);
+		return s;
+	}
 
 	uint mode = min(pc.light_source_mode, 6u);
 	if (mode == 6u) {
@@ -2080,7 +2089,7 @@ float wrapped_diffuse(float ndl, float softness) {
 bool light_is_occluded(dvec3 hit, LightSample s, uint self_index) {
 	if (s.dist < 1e-6) return false;
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
-		if (bi == self_index || int(bi) == s.source_index) continue;
+		if (bi == self_index || int(bi) == s.source_index || bodies[bi].body_id >= BEACON_BODY_ID_BASE) continue;
 		dvec3 to_body = body_center(bi) - hit;
 		double proj = dot(to_body, s.direction);
 		if (proj <= 1e-6 || proj >= s.dist) continue;

@@ -287,6 +287,7 @@ private:
 			return;
 		}
 
+		std::lock_guard<std::recursive_mutex> bodies_lock(nbody_system_.bodies_mutex());
 		bool body_at_center = false;
 		for (const auto& b : nbody_system_.bodies()) {
 			const double d2 = b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2];

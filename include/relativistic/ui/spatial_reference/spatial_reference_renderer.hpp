@@ -61,6 +61,8 @@ private:
 	struct Projected {
 		bool visible{false};
 		ImVec2 screen{0.0f, 0.0f};
+		double raw_x{0.0};
+		double raw_y{0.0};
 		double depth{0.0};
 	};
 
@@ -75,6 +77,7 @@ private:
 	double aspect_{1.0};
 	bool all_sky_{false};
 	bool clip_front_{false};
+	bool linear_projection_{false};
 	bool lens_active_{false};
 	double unit_meters_{1.0};
 	double length_scale_{1.0};
@@ -117,7 +120,7 @@ private:
 	}
 
 	[[nodiscard]] uint32_t line_subdivisions(bool needs_gradient) const noexcept {
-		if (!clip_front_ || lens_active_) {
+		if (!linear_projection_ || lens_active_) {
 			return std::max<uint32_t>(cfg_->curve_subdivisions, 2U);
 		}
 		return needs_gradient ? 16U : 1U;
@@ -131,6 +134,7 @@ private:
 		all_sky_ = (mode == Observer::ProjectionMode::Equirectangular360 || mode == Observer::ProjectionMode::HammerAitoff);
 		clip_front_ = (mode == Observer::ProjectionMode::Pinhole || mode == Observer::ProjectionMode::AutoZoomAberration
 			|| mode == Observer::ProjectionMode::PaniniCylindrical || mode == Observer::ProjectionMode::FisheyeOrthographic);
+		linear_projection_ = (mode == Observer::ProjectionMode::Pinhole);
 		lens_active_ = cfg.lens_approximation && view.lensing_mass > 0.0;
 		length_scale_ = std::max(view.length_scale_meters, 1.0e-300);
 		unit_meters_ = SpatialUnits::meters_per_distance_unit(view.distance_unit);
@@ -200,10 +204,15 @@ private:
 		if (!std::isfinite(u_screen) || !std::isfinite(v_screen)) {
 			return result;
 		}
-		constexpr double limit = 2.0e5;
-		const double x = std::clamp((u_screen * 0.5 + 0.5) * static_cast<double>(view.rect_size.x), -limit, limit);
-		const double y = std::clamp((v_screen * 0.5 + 0.5) * static_cast<double>(view.rect_size.y), -limit, limit);
-		result.screen = ImVec2(view.rect_min.x + static_cast<float>(x), view.rect_min.y + static_cast<float>(y));
+		constexpr double limit = 1.0e7;
+		const double x = (u_screen * 0.5 + 0.5) * static_cast<double>(view.rect_size.x);
+		const double y = (v_screen * 0.5 + 0.5) * static_cast<double>(view.rect_size.y);
+		result.raw_x = static_cast<double>(view.rect_min.x) + x;
+		result.raw_y = static_cast<double>(view.rect_min.y) + y;
+		result.screen = ImVec2(
+			static_cast<float>(std::clamp(result.raw_x, -limit, limit)),
+			static_cast<float>(std::clamp(result.raw_y, -limit, limit))
+		);
 		result.visible = true;
 		return result;
 	}
@@ -266,14 +275,46 @@ private:
 		return alpha;
 	}
 
-	[[nodiscard]] bool segment_outside(const ImVec2& a, const ImVec2& b) const noexcept {
+	[[nodiscard]] bool crosses_all_sky_seam(const Projected& a, const Projected& b) const noexcept {
+		return all_sky_ && std::abs(a.raw_x - b.raw_x) > 0.5 * static_cast<double>(view_->rect_size.x);
+	}
+
+	[[nodiscard]] bool clip_to_view(const Projected& from, const Projected& to, ImVec2& out_from, ImVec2& out_to) const noexcept {
 		const SpatialReferenceView& view = *view_;
-		constexpr float margin = 64.0f;
-		const float left = view.rect_min.x - margin;
-		const float right = view.rect_min.x + view.rect_size.x + margin;
-		const float top = view.rect_min.y - margin;
-		const float bottom = view.rect_min.y + view.rect_size.y + margin;
-		return (a.x < left && b.x < left) || (a.x > right && b.x > right) || (a.y < top && b.y < top) || (a.y > bottom && b.y > bottom);
+		constexpr double margin = 64.0;
+		const double min_x = static_cast<double>(view.rect_min.x) - margin;
+		const double max_x = static_cast<double>(view.rect_min.x + view.rect_size.x) + margin;
+		const double min_y = static_cast<double>(view.rect_min.y) - margin;
+		const double max_y = static_cast<double>(view.rect_min.y + view.rect_size.y) + margin;
+		const double dx = to.raw_x - from.raw_x;
+		const double dy = to.raw_y - from.raw_y;
+		double t_enter = 0.0;
+		double t_exit = 1.0;
+		const auto clip_edge = [&t_enter, &t_exit](double p, double q) noexcept -> bool {
+			if (std::abs(p) < 1.0e-12) {
+				return q >= 0.0;
+			}
+			const double t = q / p;
+			if (p < 0.0) {
+				if (t > t_exit) {
+					return false;
+				}
+				t_enter = std::max(t_enter, t);
+			} else {
+				if (t < t_enter) {
+					return false;
+				}
+				t_exit = std::min(t_exit, t);
+			}
+			return true;
+		};
+		if (!clip_edge(-dx, from.raw_x - min_x) || !clip_edge(dx, max_x - from.raw_x)
+			|| !clip_edge(-dy, from.raw_y - min_y) || !clip_edge(dy, max_y - from.raw_y)) {
+			return false;
+		}
+		out_from = ImVec2(static_cast<float>(from.raw_x + t_enter * dx), static_cast<float>(from.raw_y + t_enter * dy));
+		out_to = ImVec2(static_cast<float>(from.raw_x + t_exit * dx), static_cast<float>(from.raw_y + t_exit * dy));
+		return true;
 	}
 
 	void draw_segment(const Vec3& a, const Vec3& b, const std::array<float, 4>& color, float opacity, float thickness, uint32_t subdivisions, const RadialFade* radial) {
@@ -289,10 +330,12 @@ private:
 		for (uint32_t i = 1; i <= pieces; ++i) {
 			const Vec3 current_world = lerp(start, end, static_cast<double>(i) / static_cast<double>(pieces));
 			const Projected current = project(current_world);
-			if (previous.visible && current.visible && !segment_outside(previous.screen, current.screen)) {
+			ImVec2 clipped_from;
+			ImVec2 clipped_to;
+			if (previous.visible && current.visible && !crosses_all_sky_seam(previous, current) && clip_to_view(previous, current, clipped_from, clipped_to)) {
 				const float alpha = piece_alpha(lerp(previous_world, current_world, 0.5), base_alpha, radial);
 				if (alpha > 0.004f) {
-					list_->AddLine(previous.screen, current.screen, make_color(color, alpha), thickness);
+					list_->AddLine(clipped_from, clipped_to, make_color(color, alpha), thickness);
 				}
 			}
 			previous_world = current_world;

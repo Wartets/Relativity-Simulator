@@ -154,6 +154,8 @@ private:
 		const bool enable_doppler = (params.render_flags & RenderFlags::ENABLE_BODY_DOPPLER_BEAMING) != 0U;
 		const bool enable_redshift = (params.render_flags & RenderFlags::ENABLE_BODY_GRAV_REDSHIFT) != 0U;
 		const bool enable_atmo = (params.render_flags & RenderFlags::ENABLE_ATMOSPHERE_SCATTERING) != 0U;
+		const auto lighting_detail = static_cast<BodyLightingDetail>(std::min(params.body_lighting_detail, kBodyLightingDetailCount - 1U));
+		const uint32_t shadow_caster_limit = std::max(params.body_shadow_caster_limit, 1U);
 
 		const size_t candidate_count = candidate_indices.empty() ? bodies.size() : candidate_indices.size();
 		for (size_t candidate_i = 0; candidate_i < candidate_count; ++candidate_i) {
@@ -164,6 +166,7 @@ private:
 			const double bx = body.position[0];
 			const double by = body.position[1];
 			const double bz = body.position[2];
+			if (!std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz) || !std::isfinite(body.radius)) continue;
 
 			const double ox = ray_pos[0] - bx;
 			const double oy = ray_pos[1] - by;
@@ -198,7 +201,7 @@ private:
 			const double C = ox * ox * inv_a2 + oy * oy * inv_b2 + oz * oz * inv_c2 - 1.0;
 
 			const double discr = B * B - 4.0 * A * C;
-			if (discr < 0.0) continue;
+			if (!(A > 1e-300) || !(discr >= 0.0)) continue;
 
 			const double sqrt_discr = std::sqrt(discr);
 			const double t1 = (-B - sqrt_discr) / (2.0 * A);
@@ -470,10 +473,14 @@ private:
 			double specular_term = 0.0;
 			bool occluded = false;
 
-			if (!lod_point && diffuse_term > 0.0 && has_light_source && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
+			if (!lod_point && lighting_detail != BodyLightingDetail::Minimal && diffuse_term > 0.0 && has_light_source && (params.render_flags & RenderFlags::ENABLE_BODY_SHADOWS) != 0U) {
+				uint32_t casters_tested = 0;
 				for (size_t shadow_i = 0; shadow_i < bodies.size(); ++shadow_i) {
+					if (casters_tested >= shadow_caster_limit) break;
 					if (shadow_i == body_index || static_cast<int>(shadow_i) == light.source_body_index) continue;
 					const auto& occluder = bodies[shadow_i];
+					if (occluder.body_id >= kBeaconBodyIdBase) continue;
+					++casters_tested;
 					const double ocx = occluder.position[0] - hit_x;
 					const double ocy = occluder.position[1] - hit_y;
 					const double ocz = occluder.position[2] - hit_z;
@@ -505,7 +512,7 @@ private:
 
 			if (occluded) {
 				diffuse_term = 0.0;
-			} else if (!lod_point && diffuse_term > 0.0 && has_light_source) {
+			} else if (!lod_point && lighting_detail != BodyLightingDetail::Minimal && diffuse_term > 0.0 && has_light_source) {
 				const double half_x = light_dir_x - ray_dir[0];
 				const double half_y = light_dir_y - ray_dir[1];
 				const double half_z = light_dir_z - ray_dir[2];
@@ -529,7 +536,7 @@ private:
 				for (size_t c = 0; c < 3; ++c) {
 					light_factor[c] = ambient_level + direct_level * light.color[c];
 				}
-				if (params.body_emission_lighting_enabled != 0U) {
+				if (params.body_emission_lighting_enabled != 0U && lighting_detail != BodyLightingDetail::Minimal) {
 					const auto emitted = BodyLighting::emitted_irradiance(params, std::array<double, 3>{hit_x, hit_y, hit_z}, std::array<double, 3>{nx, ny, nz}, bodies, body_index, light.source_body_index);
 					for (size_t c = 0; c < 3; ++c) {
 						light_factor[c] += emitted[c];

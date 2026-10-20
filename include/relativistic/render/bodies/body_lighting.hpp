@@ -25,8 +25,21 @@ enum class LightAttenuationMode : uint32_t {
 	InverseSquare = 1
 };
 
+enum class BodyLightingDetail : uint32_t {
+	Minimal = 0,
+	Reduced = 1,
+	Full = 2
+};
+
 inline constexpr uint32_t kLightSourceModeCount = 7;
 inline constexpr uint32_t kLightAttenuationModeCount = 2;
+inline constexpr uint32_t kBodyLightingDetailCount = 3;
+
+inline constexpr std::array<const char*, kBodyLightingDetailCount> kBodyLightingDetailNames{
+	"Minimal (Diffuse And Ambient Only)",
+	"Reduced (Capped Shadow Casters And Emission Sources)",
+	"Full (Unrestricted Shadows, Specular And Emission)"
+};
 
 inline constexpr std::array<const char*, kLightSourceModeCount> kLightSourceModeNames{
 	"Central Spacetime Source (Origin)",
@@ -186,10 +199,14 @@ public:
 		std::array<float, 3> total{0.0f, 0.0f, 0.0f};
 		const double reference = static_cast<double>(params.body_emission_lighting_reference_distance);
 		const double gain = static_cast<double>(params.body_emission_lighting_gain);
+		const uint32_t source_limit = std::max(params.body_emission_source_limit, 1U);
+		uint32_t sources_used = 0;
 		for (size_t i = 0; i < bodies.size(); ++i) {
+			if (sources_used >= source_limit) break;
 			if (i == self_index || static_cast<int>(i) == excluded_index) continue;
 			const auto& emitter = bodies[i];
 			if (!is_emitter(emitter)) continue;
+			++sources_used;
 			const double dx = emitter.position[0] - hit[0];
 			const double dy = emitter.position[1] - hit[1];
 			const double dz = emitter.position[2] - hit[2];

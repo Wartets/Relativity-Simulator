@@ -169,6 +169,9 @@ private:
 			std::vector<GpuBodyGpuLayout> gpu_bodies_layout;
 			gpu_bodies_layout.reserve(bodies.size());
 			for (const auto& body : bodies) {
+				if (!std::isfinite(body.position[0]) || !std::isfinite(body.position[1]) || !std::isfinite(body.position[2]) || !std::isfinite(body.radius) || !std::isfinite(body.mass)) {
+					continue;
+				}
 				gpu_bodies_layout.push_back(GpuBodyGpuLayout::from(body));
 			}
 			dispatched = gpu_executor_->dispatch_and_readback(gpu_params, output, gpu_bodies_layout, cancel);

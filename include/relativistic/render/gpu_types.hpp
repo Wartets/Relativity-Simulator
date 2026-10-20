@@ -376,6 +376,9 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
 	uint32_t body_emission_lighting_enabled{0};
+	uint32_t body_lighting_detail{2};
+	uint32_t body_shadow_caster_limit{32};
+	uint32_t body_emission_source_limit{8};
 
 	float light_intensity{1.0f};
 	float light_color_r{1.0f};

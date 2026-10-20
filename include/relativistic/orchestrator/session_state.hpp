@@ -240,7 +240,10 @@ private:
 		{"light_source_mode", &PhysicalParameters::light_source_mode, 0U, static_cast<uint32_t>(Render::kLightSourceModeCount) - 1U},
 		{"light_attenuation_mode", &PhysicalParameters::light_attenuation_mode, 0U, static_cast<uint32_t>(Render::kLightAttenuationModeCount) - 1U},
 		{"light_source_body_id", &PhysicalParameters::light_source_body_id, 0U, 0xFFFFFFFFU},
-		{"rolling_average_frame_count", &PhysicalParameters::rolling_average_frame_count, 2U, 120U}
+		{"rolling_average_frame_count", &PhysicalParameters::rolling_average_frame_count, 2U, 120U},
+		{"body_lighting_detail", &PhysicalParameters::body_lighting_detail, 0U, static_cast<uint32_t>(Render::kBodyLightingDetailCount) - 1U},
+		{"body_shadow_caster_limit", &PhysicalParameters::body_shadow_caster_limit, 1U, 512U},
+		{"body_emission_source_limit", &PhysicalParameters::body_emission_source_limit, 1U, 512U}
 	};
 
 	static inline constexpr BoolField kBoolFields[] = {

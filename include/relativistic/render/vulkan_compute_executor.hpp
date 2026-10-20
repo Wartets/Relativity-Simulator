@@ -1243,8 +1243,14 @@ private:
 		static_cast<void>(synchronize_earth_textures(EarthTextureRequirements::gather(bodies)));
 		actual_params.earth_day_width = earth_slots_[0].resident ? earth_slots_[0].width : 0U;
 		actual_params.earth_night_width = earth_slots_[1].resident ? earth_slots_[1].width : 0U;
+		if (!is_ready() || uniform_mapped_ == nullptr || staging_mapped_ == nullptr) {
+			return false;
+		}
+		if (!bodies.empty() && (body_mapped_ == nullptr || bodies.size() * sizeof(GpuBodyGpuLayout) > static_cast<size_t>(body_capacity_bytes_))) {
+			return false;
+		}
 		std::memcpy(uniform_mapped_, &actual_params, sizeof(GpuCameraPushConstants));
-		if (!bodies.empty() && body_mapped_ != nullptr) {
+		if (!bodies.empty()) {
 			std::memcpy(body_mapped_, bodies.data(), bodies.size() * sizeof(GpuBodyGpuLayout));
 		}
 
@@ -1324,7 +1330,7 @@ private:
 			range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
 			range.memory = staging_memory_;
 			range.offset = 0;
-			range.size = copy_region.size;
+			range.size = VK_WHOLE_SIZE;
 			vkInvalidateMappedMemoryRanges(device_, 1, &range);
 		}
 

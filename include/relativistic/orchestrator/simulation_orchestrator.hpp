@@ -153,6 +153,9 @@ struct PhysicalParameters {
 	uint32_t light_attenuation_mode{0};
 	uint32_t light_source_body_id{0};
 	bool body_emission_lighting_enabled{false};
+	uint32_t body_lighting_detail{2};
+	uint32_t body_shadow_caster_limit{32};
+	uint32_t body_emission_source_limit{8};
 	double light_intensity{1.0};
 	double light_color_r{1.0};
 	double light_color_g{1.0};
@@ -906,8 +909,14 @@ public:
 				params_.body_render_low_power_mode = false;
 				break;
 			default:
-				break;
+				return;
 		}
+		static constexpr std::array<uint32_t, 6> kPresetLightingDetail{0, 1, 2, 2, 2, 2};
+		static constexpr std::array<uint32_t, 6> kPresetShadowCasters{4, 8, 16, 32, 64, 128};
+		static constexpr std::array<uint32_t, 6> kPresetEmissionSources{1, 2, 4, 8, 16, 32};
+		params_.body_lighting_detail = kPresetLightingDetail[preset_index];
+		params_.body_shadow_caster_limit = kPresetShadowCasters[preset_index];
+		params_.body_emission_source_limit = kPresetEmissionSources[preset_index];
 	}
 
 	void load_scenario_file(const char* filepath, CommandResult& res) noexcept {
@@ -1922,6 +1931,11 @@ public:
 		push.light_attenuation_mode = std::min<uint32_t>(params_.light_attenuation_mode, Relativistic::Render::kLightAttenuationModeCount - 1U);
 		push.light_source_body_id = params_.light_source_body_id;
 		push.body_emission_lighting_enabled = params_.body_emission_lighting_enabled ? 1U : 0U;
+		const uint32_t lighting_detail = std::min<uint32_t>(params_.body_lighting_detail, Relativistic::Render::kBodyLightingDetailCount - 1U);
+		const bool unrestricted_lighting = lighting_detail == static_cast<uint32_t>(Relativistic::Render::BodyLightingDetail::Full);
+		push.body_lighting_detail = lighting_detail;
+		push.body_shadow_caster_limit = unrestricted_lighting ? 512U : std::clamp<uint32_t>(params_.body_shadow_caster_limit, 1U, 512U);
+		push.body_emission_source_limit = unrestricted_lighting ? 512U : std::clamp<uint32_t>(params_.body_emission_source_limit, 1U, 512U);
 		push.light_intensity = static_cast<float>(params_.light_intensity);
 		push.light_color_r = static_cast<float>(params_.light_color_r);
 		push.light_color_g = static_cast<float>(params_.light_color_g);

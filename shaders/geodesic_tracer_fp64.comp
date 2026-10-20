@@ -271,6 +271,9 @@ layout(scalar, binding = 0) uniform CameraParams {
 	uint light_attenuation_mode;
 	uint light_source_body_id;
 	uint body_emission_lighting_enabled;
+	uint body_lighting_detail;
+	uint body_shadow_caster_limit;
+	uint body_emission_source_limit;
 
 	float light_intensity;
 	float light_color_r;
@@ -378,6 +381,7 @@ layout(std430, binding = 4) buffer PersistentWorkQueue {
 };
 
 const double PI_D = 3.14159265358979323846;
+const float PI_F = 3.14159265358979323846f;
 
 uint hash_u32(uint x) {
 	x ^= x >> 16;
@@ -651,8 +655,8 @@ dvec3 compute_ray_direction(uint mode, double u, double v, double fov) {
 vec3 sample_celestial_starfield(vec3 dir, float star_density, float star_brightness, float nebula_intensity, float brightness_variation, float size_variation, float color_variation, float temperature_bias, uint seed) {
 	float theta = acos(clamp(dir.z, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
-	float v = theta * (1.0 / 3.14159265);
+	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
+	float v = theta * (1.0 / PI_F);
 
 	float gal_lat = 0.5 - v;
 	float gal_band = exp(-(gal_lat * gal_lat) / 0.015);
@@ -705,8 +709,8 @@ vec3 sample_deep_field_galaxies(vec3 dir, uint seed, double density, double brig
 	if (density <= 0.0) return vec3(0.0);
 	float theta = acos(clamp(dir.z, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
-	float v = theta * (1.0 / 3.14159265);
+	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
+	float v = theta * (1.0 / PI_F);
 
 	const float grid_u = 48.0;
 	const float grid_v = 24.0;
@@ -772,8 +776,8 @@ vec3 sample_star_clusters(vec3 dir, uint seed, double density, double brightness
 	if (density <= 0.0) return vec3(0.0);
 	float theta = acos(clamp(dir.z, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
-	float v = theta * (1.0 / 3.14159265);
+	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
+	float v = theta * (1.0 / PI_F);
 
 	const float grid_u = 90.0;
 	const float grid_v = 45.0;
@@ -809,8 +813,8 @@ vec3 sample_star_clusters(vec3 dir, uint seed, double density, double brightness
 vec3 sample_celestial_grid_sphere(vec3 dir, float grid_opacity) {
 	float theta = acos(clamp(dir.z, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-	float lat_deg = 90.0 - theta * (180.0 / 3.14159265);
-	float lon_deg = phi * (180.0 / 3.14159265);
+	float lat_deg = 90.0 - theta * (180.0 / PI_F);
+	float lon_deg = phi * (180.0 / PI_F);
 	float lat_line = abs(mod(lat_deg + 7.5, 15.0) - 7.5);
 	float lon_line = abs(mod(lon_deg + 7.5, 15.0) - 7.5);
 	const float line_width = 0.35;
@@ -865,8 +869,8 @@ vec3 sample_panorama(vec3 dir) {
 	if (len < 1e-12) return vec3(0.0);
 	float theta = acos(clamp(dir.z / len, -1.0, 1.0));
 	float phi = atan(dir.y, dir.x);
-	float u = (phi + 3.14159265) * (1.0 / (2.0 * 3.14159265));
-	float v = theta * (1.0 / 3.14159265);
+	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
+	float v = theta * (1.0 / PI_F);
 	return textureLod(panorama_sampler, vec2(u, clamp(v, 0.0, 1.0)), 0.0).rgb;
 }
 
@@ -1130,7 +1134,7 @@ void disk_shade_with_base(DiskProfile disk, double mass_in, double spin, double 
 
 	float ring_wave = 0.5 + 0.5 * cos(6.28318531 * disk.ring_frequency * radial_coordinate);
 	float ring_sharpness = max(disk.ring_sharpness, 1.0);
-	float ring = max(1.0 + disk.ring_amplitude * (pow(ring_wave, ring_sharpness) * sqrt(3.14159265 * ring_sharpness) - 1.0), 0.0);
+	float ring = max(1.0 + disk.ring_amplitude * (pow(ring_wave, ring_sharpness) * sqrt(PI_F * ring_sharpness) - 1.0), 0.0);
 
 	float arms = floor(disk.spiral_arm_count + 0.5);
 	float spiral = (arms > 0.5) ? max(1.0 + disk.spiral_amplitude * cos(arms * (float(pattern_phase) - disk.spiral_pitch * log_ratio)), 0.0) : 1.0;
@@ -1716,18 +1720,18 @@ vec3 surface_apply_blend(uint blend, vec3 base, vec3 layer_color, float a) {
 vec3 shade_earth_surface(uint bi, float phi, float cos_t, float sun, float vdn, float footprint_pixels, vec3 fallback, out vec3 emissive) {
 	emissive = vec3(0.0);
 	uint variant = bodies[bi].earth_map_variant;
-	vec2 uv = vec2((phi + 3.14159265) * (1.0 / (2.0 * 3.14159265)), clamp(acos(cos_t) * (1.0 / 3.14159265), 0.0, 1.0));
-	float safe_footprint = max(footprint_pixels, 1e-3);
-	float grazing_lod = -0.5 * log2(max(vdn, 0.05));
+	vec2 uv = vec2(fract((phi + PI_F) * (1.0 / (2.0 * PI_F))), clamp(acos(clamp(cos_t, -1.0, 1.0)) * (1.0 / PI_F), 0.0, 1.0));
+	float safe_footprint = (footprint_pixels == footprint_pixels) ? clamp(footprint_pixels, 1e-3, 1.0e6) : 1.0;
+	float grazing_lod = -0.5 * log2(clamp(vdn, 0.05, 1.0));
 	vec3 day_rgb = fallback;
 	vec3 night_rgb = vec3(0.0);
 
 	if (variant != 1u && pc.earth_day_width > 0u) {
-		float day_lod = max(log2(max(float(pc.earth_day_width) / safe_footprint, 1.0)) + grazing_lod, 0.0);
+		float day_lod = clamp(log2(max(float(pc.earth_day_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
 		day_rgb = textureLod(earth_day_sampler, uv, day_lod).rgb;
 	}
 	if (variant != 0u && pc.earth_night_width > 0u) {
-		float night_lod = max(log2(max(float(pc.earth_night_width) / safe_footprint, 1.0)) + grazing_lod, 0.0);
+		float night_lod = clamp(log2(max(float(pc.earth_night_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
 		night_rgb = textureLod(earth_night_sampler, uv, night_lod).rgb;
 	}
 
@@ -1761,7 +1765,10 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 	float cos_t = float(clamp(nrm.z, -1.0, 1.0));
 	float theta = acos(cos_t);
 	float sin_th = sin(theta);
-	float phi = atan(float(nrm.y), float(nrm.x)) + float(bodies[bi].rotation_speed * pc.time);
+	vec2 azimuth_vector = vec2(float(nrm.x), float(nrm.y));
+	float base_azimuth = (dot(azimuth_vector, azimuth_vector) > 1e-18) ? atan(azimuth_vector.y, azimuth_vector.x) : 0.0;
+	float rotation_offset = float(bodies[bi].rotation_speed * pc.time);
+	float phi = base_azimuth + ((rotation_offset == rotation_offset) ? rotation_offset : 0.0);
 	vec3 sph = vec3(sin_th * cos(phi), sin_th * sin(phi), cos_t);
 	vec3 sp = sph * noise_scale;
 	bool earth_mode = (bodies[bi].surface_texture_mode == 13u);
@@ -2088,8 +2095,12 @@ float wrapped_diffuse(float ndl, float softness) {
 
 bool light_is_occluded(dvec3 hit, LightSample s, uint self_index) {
 	if (s.dist < 1e-6) return false;
+	uint casters_tested = 0u;
+	uint caster_limit = max(pc.body_shadow_caster_limit, 1u);
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (casters_tested >= caster_limit) break;
 		if (bi == self_index || int(bi) == s.source_index || bodies[bi].body_id >= BEACON_BODY_ID_BASE) continue;
+		++casters_tested;
 		dvec3 to_body = body_center(bi) - hit;
 		double proj = dot(to_body, s.direction);
 		if (proj <= 1e-6 || proj >= s.dist) continue;
@@ -2111,10 +2122,14 @@ vec3 emitted_irradiance(dvec3 hit, dvec3 nrm, uint self_index, int excluded_inde
 	vec3 total = vec3(0.0);
 	double reference = double(pc.body_emission_lighting_reference_distance);
 	double gain = double(pc.body_emission_lighting_gain);
+	uint sources_used = 0u;
+	uint source_limit = max(pc.body_emission_source_limit, 1u);
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
+		if (sources_used >= source_limit) break;
 		if (bi == self_index || int(bi) == excluded_index) continue;
 		double emission = bodies[bi].emission_intensity;
 		if (bodies[bi].preset_3d == 8u || emission <= double(EMITTER_THRESHOLD)) continue;
+		++sources_used;
 		dvec3 delta = body_center(bi) - hit;
 		double d = length(delta);
 		if (d < 1e-9) continue;
@@ -2132,6 +2147,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 	bool hit_any = false;
 	double best_t = max_dist;
 	vec3 best_color = vec3(0.0);
+	uint lighting_detail = min(pc.body_lighting_detail, 2u);
 
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
 		if (bodies[bi].preset_3d == 8u) continue;
@@ -2172,7 +2188,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double C = o.x * o.x * inv_a2 + o.y * o.y * inv_b2 + o.z * o.z * inv_c2 - 1.0;
 
 		double discr = B * B - 4.0 * A * C;
-		if (discr < 0.0) continue;
+		if (!(A > 1e-300) || !(discr >= 0.0)) continue;
 		double sqrt_discr = sqrt(discr);
 		double t1 = (-B - sqrt_discr) / (2.0 * A);
 		double t2 = (-B + sqrt_discr) / (2.0 * A);
@@ -2191,7 +2207,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
 		double max_axis = max(scale_a, max(scale_b, scale_c));
 		double apparent_radius = double(asin(float(clamp(max_axis / max(dist_to_cam, 1e-9), 0.0, 1.0))));
-		double coverage = apparent_radius / max(angular_pixel_size, 1e-12);
+		double coverage = clamp(apparent_radius / max(angular_pixel_size, 1e-12), 0.0, 1.0e7);
 
 		bool is_point_lod = (pc.body_render_low_power_mode == 0u) && (coverage < double(max(pc.body_render_point_pixel_threshold, 1u)));
 		bool is_simple_lod = (pc.body_render_low_power_mode != 0u) || is_point_lod || (coverage < double(pc.body_render_lod_pixel_threshold));
@@ -2211,7 +2227,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double view_dot_n = max(0.0, dot(-ray_dir, nrm));
 		double raw_ndl = body_light.lit ? dot(nrm, body_light.direction) : 1.0;
 		bool shadowed = false;
-		if (!is_point_lod && body_light.lit && raw_ndl > 0.0 && (pc.render_flags & (1u << 16)) != 0u) {
+		if (!is_point_lod && lighting_detail != 0u && body_light.lit && raw_ndl > 0.0 && (pc.render_flags & (1u << 16)) != 0u) {
 			shadowed = light_is_occluded(hit_pos, body_light, bi);
 		}
 
@@ -2222,10 +2238,10 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 			float lit_amount = body_light.lit ? (shadowed ? 0.0 : wrapped_diffuse(float(raw_ndl), terminator_softness)) : 1.0;
 			float ambient_level = body_light.lit ? pc.light_ambient : 0.0;
 			light_factor = vec3(ambient_level) + body_light.color * (lit_amount * body_light.intensity);
-			if (pc.body_emission_lighting_enabled != 0u) {
+			if (pc.body_emission_lighting_enabled != 0u && lighting_detail != 0u) {
 				light_factor += emitted_irradiance(hit_pos, nrm, bi, body_light.source_index);
 			}
-			if (body_light.lit && !shadowed && raw_ndl > 0.0) {
+			if (lighting_detail != 0u && body_light.lit && !shadowed && raw_ndl > 0.0) {
 				dvec3 half_vec = body_light.direction - ray_dir;
 				double half_len = length(half_vec);
 				if (half_len > 1e-9) {

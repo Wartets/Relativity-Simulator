@@ -2038,6 +2038,33 @@ private:
 		ImGui::EndDisabled();
 
 		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.65f, 1.0f), "Lighting Quality & Performance:");
+		auto& lighting_params = orchestrator_.parameters();
+		int lighting_detail = static_cast<int>(std::min<uint32_t>(lighting_params.body_lighting_detail, Render::kBodyLightingDetailCount - 1U));
+		if (ImGui::Combo("Lighting Detail", &lighting_detail, Render::kBodyLightingDetailNames.data(), static_cast<int>(Render::kBodyLightingDetailNames.size()))) {
+			lighting_params.body_lighting_detail = static_cast<uint32_t>(lighting_detail);
+			lighting_params.performance_preset = Orchestrator::SimulationOrchestrator<1024>::CUSTOM_PERFORMANCE_PRESET;
+			orchestrator_.notify_state_changed();
+		}
+		render_setting_tooltip("Minimal keeps only ambient and wrapped diffuse light. Reduced adds shadows, specular highlights and emission lighting with the caps below. Full removes every cap. Lower levels keep the frame cost bounded when bodies are numerous or the camera is close to them.");
+		ImGui::BeginDisabled(lighting_detail != static_cast<int>(Render::BodyLightingDetail::Reduced));
+		int shadow_caster_limit = static_cast<int>(lighting_params.body_shadow_caster_limit);
+		if (slider_int_with_input("Shadow Caster Limit", &shadow_caster_limit, 1, 512)) {
+			lighting_params.body_shadow_caster_limit = static_cast<uint32_t>(std::clamp(shadow_caster_limit, 1, 512));
+			lighting_params.performance_preset = Orchestrator::SimulationOrchestrator<1024>::CUSTOM_PERFORMANCE_PRESET;
+			orchestrator_.notify_state_changed();
+		}
+		render_setting_tooltip("Maximum number of other bodies tested as shadow occluders for each lit surface point. Applies to the Reduced detail level.");
+		int emission_source_limit = static_cast<int>(lighting_params.body_emission_source_limit);
+		if (slider_int_with_input("Emission Source Limit", &emission_source_limit, 1, 512)) {
+			lighting_params.body_emission_source_limit = static_cast<uint32_t>(std::clamp(emission_source_limit, 1, 512));
+			lighting_params.performance_preset = Orchestrator::SimulationOrchestrator<1024>::CUSTOM_PERFORMANCE_PRESET;
+			orchestrator_.notify_state_changed();
+		}
+		render_setting_tooltip("Maximum number of emissive bodies accumulated as light for each surface point. Applies to the Reduced detail level.");
+		ImGui::EndDisabled();
+
+		ImGui::Spacing();
 		ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.35f, 1.0f), "Body Emission Lighting:");
 		bool emission_lighting = params.body_emission_lighting_enabled;
 		if (ImGui::Checkbox("Bodies Emit Light Onto Other Bodies", &emission_lighting)) {

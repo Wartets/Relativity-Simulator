@@ -60,6 +60,7 @@ class StartupProgress {
 private:
 	mutable std::mutex mutex_{};
 	std::function<void()> listener_{};
+	std::function<void(const StartupSnapshot&)> observer_{};
 	std::string stage_{};
 	std::string detail_{};
 	std::string error_{};
@@ -71,13 +72,21 @@ private:
 	template <typename Mutator>
 	void update(Mutator&& mutator) {
 		std::function<void()> listener;
+		std::function<void(const StartupSnapshot&)> observer;
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
 			mutator();
 			listener = listener_;
+			observer = observer_;
 		}
 		if (listener) {
 			listener();
+		}
+		if (observer) {
+			try {
+				observer(snapshot());
+			} catch (...) {
+			}
 		}
 	}
 
@@ -85,6 +94,11 @@ public:
 	void set_listener(std::function<void()> listener) {
 		std::lock_guard<std::mutex> lock(mutex_);
 		listener_ = std::move(listener);
+	}
+
+	void set_observer(std::function<void(const StartupSnapshot&)> observer) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		observer_ = std::move(observer);
 	}
 
 	void report(StartupRange range, float local_fraction, std::string_view stage, std::string_view detail) {

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
+#include <cstdio>
 #include "relativistic/startup/startup_progress.hpp"
 #include <vulkan/vulkan.h>
 #include <cstdint>
@@ -55,6 +57,7 @@ private:
 		instance_info.pApplicationInfo = &app_info;
 
 		if (vkCreateInstance(&instance_info, nullptr, &instance_) != VK_SUCCESS) {
+			Core::log_warning("Vulkan instance creation failed; no GPU compute path will be available.");
 			return false;
 		}
 
@@ -62,6 +65,7 @@ private:
 		uint32_t device_count = 0;
 		vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
 		if (device_count == 0) {
+			Core::log_warning("Vulkan reported no physical devices.");
 			return false;
 		}
 
@@ -81,6 +85,7 @@ private:
 			supported_features.pNext = &supported_12;
 
 			vkGetPhysicalDeviceFeatures2(candidate, &supported_features);
+			Core::log_trace(std::string("Vulkan device candidate: ") + properties.deviceName + " | type " + std::to_string(static_cast<int>(properties.deviceType)) + " | fp64 " + ((supported_features.features.shaderFloat64 != VK_FALSE) ? "yes" : "no") + " | scalar block layout " + ((supported_12.scalarBlockLayout != VK_FALSE) ? "yes" : "no"));
 
 			if (prefer_fp64 && supported_features.features.shaderFloat64 == VK_FALSE) {
 				continue;
@@ -126,6 +131,7 @@ private:
 		}
 
 		if (physical_device_ == VK_NULL_HANDLE) {
+			Core::log_warning("No Vulkan device satisfies the compute requirements (compute queue, scalar block layout and optional FP64).");
 			return false;
 		}
 
@@ -134,6 +140,16 @@ private:
 		Startup::note(std::string("Selected compute device: ") + selected_properties.deviceName);
 		VkPhysicalDeviceFeatures supported_device_features{};
 		vkGetPhysicalDeviceFeatures(physical_device_, &supported_device_features);
+		{
+			const uint32_t api = selected_properties.apiVersion;
+			char summary[512];
+			std::snprintf(summary, sizeof(summary), "Vulkan compute device selected: %s | type %d | vendor 0x%04X device 0x%04X | API %u.%u.%u | driver 0x%08X | fp64 %s | int64 %s", selected_properties.deviceName, static_cast<int>(selected_properties.deviceType), selected_properties.vendorID, selected_properties.deviceID, api >> 22U, (api >> 12U) & 0x3FFU, api & 0xFFFU, selected_properties.driverVersion, (supported_device_features.shaderFloat64 == VK_TRUE) ? "yes" : "no", (supported_device_features.shaderInt64 == VK_TRUE) ? "yes" : "no");
+			Core::log_info(summary);
+			Core::Diagnostics::set_environment("gpu.device", selected_properties.deviceName);
+			std::snprintf(summary, sizeof(summary), "vendor 0x%04X device 0x%04X driver 0x%08X API %u.%u.%u", selected_properties.vendorID, selected_properties.deviceID, selected_properties.driverVersion, api >> 22U, (api >> 12U) & 0x3FFU, api & 0xFFFU);
+			Core::Diagnostics::set_environment("gpu.identity", summary);
+			Core::Diagnostics::set_environment("gpu.max.image.dimension", std::to_string(selected_properties.limits.maxImageDimension2D));
+		}
 
 		const float queue_priority = 1.0f;
 		VkDeviceQueueCreateInfo queue_info{};
@@ -145,6 +161,7 @@ private:
 		VkPhysicalDeviceFeatures enabled_features{};
 		enabled_features.shaderFloat64 = (prefer_fp64 && supported_device_features.shaderFloat64 == VK_TRUE) ? VK_TRUE : VK_FALSE;
 		enabled_features.shaderInt64 = supported_device_features.shaderInt64;
+		enabled_features.robustBufferAccess = supported_device_features.robustBufferAccess;
 
 		VkPhysicalDeviceVulkan12Features enabled_12{};
 		enabled_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -158,6 +175,7 @@ private:
 		device_ci.pEnabledFeatures = &enabled_features;
 
 		if (vkCreateDevice(physical_device_, &device_ci, nullptr, &device_) != VK_SUCCESS) {
+			Core::log_error("Vulkan logical device creation failed for the selected compute device.");
 			return false;
 		}
 

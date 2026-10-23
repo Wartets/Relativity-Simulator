@@ -606,9 +606,12 @@ private:
 			best_result.hit = true;
 			best_result.t_hit = t;
 			best_result.body_id = body.body_id;
-			best_result.color.r = std::clamp(r_surf, 0.0f, 10.0f);
-			best_result.color.g = std::clamp(g_surf, 0.0f, 10.0f);
-			best_result.color.b = std::clamp(b_surf, 0.0f, 10.0f);
+			const auto finite_channel = [](float value) noexcept -> float {
+				return std::isfinite(value) ? std::clamp(value, 0.0f, 10.0f) : 0.0f;
+			};
+			best_result.color.r = finite_channel(r_surf);
+			best_result.color.g = finite_channel(g_surf);
+			best_result.color.b = finite_channel(b_surf);
 			best_result.color.a = 1.0f;
 			best_result.color.status_flags |= PixelFlags::BODY_SURFACE_HIT;
 		}

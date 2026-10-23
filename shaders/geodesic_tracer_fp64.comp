@@ -2152,7 +2152,8 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 	for (uint bi = 0u; bi < pc.body_count; ++bi) {
 		if (bodies[bi].preset_3d == 8u) continue;
 		dvec3 bpos = dvec3(bodies[bi].position_xy.x, bodies[bi].position_xy.y, bodies[bi].position_zw.x);
-		double radius = max(bodies[bi].radius, 1e-6);
+		if (any(isnan(bpos)) || any(isinf(bpos)) || isnan(bodies[bi].radius) || isinf(bodies[bi].radius)) continue;
+		double radius = clamp(bodies[bi].radius, 1e-6, 1.0e15);
 		double oblateness = clamp(bodies[bi].oblateness_ratio, 0.1, 5.0);
 
 		double scale_a = radius;
@@ -2289,6 +2290,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		}
 
 		best_t = t;
+		if (any(isnan(surf)) || any(isinf(surf))) surf = vec3(0.0);
 		best_color = clamp(surf, 0.0, 10.0);
 		hit_any = true;
 	}
@@ -3091,7 +3093,7 @@ void warp_shape(double rs, out double f, out double df) {
 }
 
 double tabulated_hubble(double a) {
-	uint n = pc.cosmology.table_size;
+	uint n = min(pc.cosmology.table_size, 192u);
 	if (n < 2u) return max(double(pc.cosmology.hubble0), 1.0e-6);
 	double log_min = double(pc.cosmology.table_log_a_min);
 	double span = max(double(pc.cosmology.table_log_a_max) - log_min, 1.0e-9);

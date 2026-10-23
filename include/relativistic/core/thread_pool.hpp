@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <exception>
 #include "relativistic/startup/startup_progress.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 
 namespace Relativistic::Core {
 
@@ -25,8 +26,12 @@ private:
 	std::condition_variable cv_finished_;
 	std::atomic<size_t> active_tasks_{0};
 	std::atomic<bool> stop_{false};
+	static inline std::atomic<unsigned> worker_counter_{0};
 
 	void worker_loop(std::stop_token st) noexcept {
+		char worker_name[Diagnostics::kThreadNameCapacity];
+		std::snprintf(worker_name, sizeof(worker_name), "render-pool-%u", worker_counter_.fetch_add(1, std::memory_order_relaxed));
+		Diagnostics::set_thread_name(worker_name);
 		while (!st.stop_requested()) {
 			std::function<void()> task;
 			{
@@ -46,6 +51,7 @@ private:
 			}
 
 			if (task) {
+				Diagnostics::ActivityScope activity("render pool task");
 				try {
 					task();
 				} catch (const std::exception& ex) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include "relativistic/optics/textures/sky_panorama_catalog.hpp"
 #include "relativistic/optics/textures/sky_panorama_codecs.hpp"
 #include <algorithm>
@@ -1161,7 +1163,7 @@ private:
 		}
 		if (!image) {
 			try {
-				// Core::log_error("Sky panorama could not be decoded, the procedural sky is used instead: " + std::string(path));
+				Core::log_error("Sky panorama could not be decoded, the procedural sky is used instead: " + std::string(path));
 			} catch (...) {
 			}
 		}
@@ -1211,6 +1213,8 @@ public:
 		if (need_decode) {
 			try {
 				std::jthread decode_thread([this, target, key]() {
+					Core::Diagnostics::set_thread_name("sky-decode");
+					Core::Diagnostics::ActivityScope decode_activity("sky panorama decode");
 					auto decoded = decode_key(key);
 					std::lock_guard<std::mutex> lock(mutex_);
 					target->image = decoded;

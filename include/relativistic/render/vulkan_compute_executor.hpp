@@ -7,6 +7,7 @@
 #include "relativistic/render/bodies/earth_texture_requirements.hpp"
 #include <thread>
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
@@ -699,7 +700,7 @@ private:
 	}
 
 	[[nodiscard]] bool synchronize_earth_textures(const EarthTextureRequirements& requirements) {
-		if (!earth_supported_) {
+		if (!earth_supported_ || !is_ready()) {
 			return false;
 		}
 
@@ -742,6 +743,7 @@ private:
 				slot.quality = requirements.quality;
 				slot.rejected = false;
 				write_earth_descriptor(index, slot.view);
+				Core::log_info("Earth texture uploaded to the GPU: " + std::string(index == 0 ? "day" : "night") + " map " + std::to_string(slot.width) + "x" + std::to_string(slot.height) + ", " + std::to_string(image->levels.size()) + " mip levels");
 			} else {
 				slot.quality = requirements.quality;
 				slot.rejected = true;
@@ -1209,7 +1211,12 @@ private:
 			return false;
 		}
 
+		char band_label[Core::Diagnostics::kActivityLabelCapacity];
+		std::snprintf(band_label, sizeof(band_label), "vulkan band rows %u+%u of %ux%u", params.dispatch_row_offset, params.dispatch_row_count, params.screen_width, params.screen_height);
+		Core::Diagnostics::ActivityScope band_activity(band_label);
+
 		if (!ensure_output_capacity(pixel_count)) {
+			Core::log_error("GPU output buffer allocation failed for " + std::to_string(pixel_count * sizeof(GpuPixelOutput)) + " bytes.");
 			return false;
 		}
 
@@ -1319,7 +1326,7 @@ private:
 		constexpr uint64_t kComputeDispatchTimeoutNs = 10000000000ULL;
 		const VkResult fence_wait_result = vkWaitForFences(device_, 1, &fence_, VK_TRUE, kComputeDispatchTimeoutNs);
 		if (fence_wait_result != VK_SUCCESS) {
-			Core::log_error("GPU compute dispatch timed out or the device was lost; falling back to the CPU renderer for subsequent frames.");
+			Core::log_error("GPU compute dispatch failed with VkResult " + std::to_string(static_cast<int>(fence_wait_result)) + " for rows " + std::to_string(params.dispatch_row_offset) + "+" + std::to_string(params.dispatch_row_count) + " of " + std::to_string(params.screen_width) + "x" + std::to_string(params.screen_height) + "; falling back to the CPU renderer for subsequent frames.");
 			device_lost_ = true;
 			ready_ = false;
 			return false;

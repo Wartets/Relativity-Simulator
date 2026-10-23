@@ -4,6 +4,8 @@
 #include "relativistic/render/vulkan_context.hpp"
 #include "relativistic/render/vulkan_compute_executor.hpp"
 #include "relativistic/render/software_compute_engine.hpp"
+#include "relativistic/render/bodies/body_render_guard.hpp"
+#include "relativistic/render/render_diagnostics.hpp"
 #include "relativistic/core/thread_pool.hpp"
 #include "relativistic/core/engine_log.hpp"
 #include <vector>
@@ -83,8 +85,38 @@ private:
 	std::mutex gpu_mutex_;
 	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
 	std::atomic<uint32_t> pending_total_enabled_bodies_{0};
+	std::atomic<uint64_t> last_guard_signature_{0};
+	std::atomic<int> last_render_route_{-1};
 	std::jthread worker_thread_;
 	static constexpr size_t kMaxGpuBackgroundBodies = 512;
+
+	[[nodiscard]] std::vector<GpuBodyData> guarded_bodies(std::span<const GpuBodyData> bodies) {
+		BodyGuardReport report;
+		std::vector<GpuBodyData> safe = BodyRenderGuard::sanitized_copy(bodies, &report);
+		if (report.clean()) {
+			last_guard_signature_.store(0, std::memory_order_release);
+			return safe;
+		}
+		const uint64_t signature = (static_cast<uint64_t>(report.repaired) << 32U) ^ static_cast<uint64_t>(report.discarded) ^ 0x8000000000000000ULL;
+		if (last_guard_signature_.exchange(signature, std::memory_order_acq_rel) != signature) {
+			try {
+				Core::log_warning("Body render guard: " + std::to_string(report.repaired) + " of " + std::to_string(report.inspected) + " bodies had invalid values repaired, " + std::to_string(report.discarded) + " were discarded.");
+			} catch (...) {
+			}
+		}
+		return safe;
+	}
+
+	void note_render_route(bool gpu) noexcept {
+		const int route = gpu ? 1 : 0;
+		if (last_render_route_.exchange(route, std::memory_order_acq_rel) == route) {
+			return;
+		}
+		try {
+			Core::log_info(gpu ? "Render path changed to the Vulkan compute dispatch." : "Render path changed to the CPU software renderer.");
+		} catch (...) {
+		}
+	}
 
 	[[nodiscard]] static bool is_metric_gpu_accelerable(const GpuCameraPushConstants& params) noexcept {
 		switch (params.metric_type) {
@@ -188,6 +220,7 @@ private:
 	}
 
 	void worker_loop(std::stop_token st) noexcept {
+		Core::Diagnostics::set_thread_name("render-worker");
 		while (!st.stop_requested() && is_running_.load(std::memory_order_relaxed)) {
 			GpuCameraPushConstants current_job;
 			std::vector<GpuBodyData> current_bodies;
@@ -236,6 +269,8 @@ private:
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
 			bool dispatch_failed = false;
+			Core::Diagnostics::set_activity("render worker: dispatching frame");
+			RenderDiagnostics::publish(current_job, current_bodies, gpu_background_eligible ? "vulkan compute preferred" : "cpu software", DispatchState::InFlight, 0.0);
 			try {
 				if (gpu_background_eligible) {
 					if (try_gpu_dispatch(current_job, back_buffer_, current_bodies, &cancel_render_) && back_buffer_.size() == req_pixels) {
@@ -259,6 +294,7 @@ private:
 			}
 
 			if (dispatch_failed) {
+				RenderDiagnostics::publish(current_job, current_bodies, "dispatch threw an exception", DispatchState::Failed, 0.0);
 				is_rendering_.store(false, std::memory_order_relaxed);
 				continue;
 			}
@@ -268,6 +304,9 @@ private:
 				continue;
 			}
 			const double duration_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+			note_render_route(rendered_on_gpu);
+			RenderDiagnostics::publish(current_job, current_bodies, rendered_on_gpu ? "vulkan compute" : (current_precision == PrecisionMode::NativeFloat64 ? "cpu fp64" : "cpu double-single"), DispatchState::Completed, duration_ms);
+			Core::Diagnostics::set_activity("render worker: finishing frame");
 
 			const auto classify_t0 = std::chrono::high_resolution_clock::now();
 			struct TelemetryAccumulator {
@@ -496,7 +535,9 @@ public:
 		return gpu_executor_ != nullptr && gpu_executor_->is_ready();
 	}
 
-	[[nodiscard]] bool render_capture(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies, std::vector<GpuPixelOutput>& output) {
+	[[nodiscard]] bool render_capture(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> requested_bodies, std::vector<GpuPixelOutput>& output) {
+		const std::vector<GpuBodyData> guarded_storage = guarded_bodies(requested_bodies);
+		const std::span<const GpuBodyData> bodies(guarded_storage);
 		const size_t pixel_count = static_cast<size_t>(camera_constants.screen_width) * static_cast<size_t>(camera_constants.screen_height);
 		if (pixel_count == 0) {
 			return false;
@@ -528,12 +569,14 @@ public:
 
 	[[nodiscard]] bool render_capture_band(
 		const GpuCameraPushConstants& camera_constants,
-		std::span<const GpuBodyData> bodies,
+		std::span<const GpuBodyData> requested_bodies,
 		uint32_t first_row,
 		uint32_t row_count,
 		std::vector<GpuPixelOutput>& output,
 		const std::atomic<bool>* cancel
 	) {
+		const std::vector<GpuBodyData> guarded_storage = guarded_bodies(requested_bodies);
+		const std::span<const GpuBodyData> bodies(guarded_storage);
 		const uint32_t width = camera_constants.screen_width;
 		const uint32_t height = camera_constants.screen_height;
 		if (width == 0U || height == 0U || row_count == 0U || first_row >= height) {
@@ -573,7 +616,9 @@ public:
 		return false;
 	}
 
-	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> bodies = {}, uint32_t total_enabled_bodies = 0, bool preserve_in_flight_render = false) {
+	void dispatch(const GpuCameraPushConstants& camera_constants, std::span<const GpuBodyData> requested_bodies = {}, uint32_t total_enabled_bodies = 0, bool preserve_in_flight_render = false) {
+		const std::vector<GpuBodyData> guarded_storage = guarded_bodies(requested_bodies);
+		const std::span<const GpuBodyData> bodies(guarded_storage);
 		if (config_.headless) {
 			GpuCameraPushConstants actual_constants = camera_constants;
 			{

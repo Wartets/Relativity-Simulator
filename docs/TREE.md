@@ -335,6 +335,13 @@ Relativity-Simulator/
 │       │   └── script_events.hpp
 │       │
 │       ├── core/
+│       │   ├── diagnostics/
+│       │   │   ├── crash_reporter.hpp
+│       │   │   ├── diagnostics_paths.hpp
+│       │   │   ├── diagnostics_registry.hpp
+│       │   │   ├── diagnostics_session.hpp
+│       │   │   └── system_report.hpp
+│       │   │
 │       │   ├── math/
 │       │   │   ├── christoffel.hpp
 │       │   │   ├── four_vector_bundle.hpp
@@ -534,6 +541,7 @@ Relativity-Simulator/
 │       │   ├── command.hpp
 │       │   ├── performance_profiler.hpp
 │       │   ├── repl.hpp
+│       │   ├── scene_diagnostics.hpp
 │       │   ├── scheduler.hpp
 │       │   ├── session_state.hpp
 │       │   └── simulation_orchestrator.hpp
@@ -547,6 +555,7 @@ Relativity-Simulator/
 │       │   │
 │       │   ├── bodies/
 │       │   │   ├── body_lighting.hpp
+│       │   │   ├── body_render_guard.hpp
 │       │   │   ├── body_surface_shading.hpp
 │       │   │   ├── earth_surface_shading.hpp
 │       │   │   ├── earth_terminator.hpp
@@ -558,6 +567,7 @@ Relativity-Simulator/
 │       │   ├── double_single.hpp
 │       │   ├── geodesic_compute_pipeline.hpp
 │       │   ├── gpu_types.hpp
+│       │   ├── render_diagnostics.hpp
 │       │   ├── software_compute_engine.hpp
 │       │   ├── vulkan_compute_executor.hpp
 │       │   └── vulkan_context.hpp
@@ -648,6 +658,12 @@ Relativity-Simulator/
 │           ├── unit_aware_widgets.hpp
 │           └── unit_system.hpp
 │       
+│   
+│
+├── logs/
+│   ├── crashes/
+│   │
+│   └── sessions/
 │   
 │
 ├── resources/

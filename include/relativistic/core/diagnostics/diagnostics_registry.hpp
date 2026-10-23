@@ -70,8 +70,10 @@ inline void copy_text(char* destination, size_t capacity, std::string_view sourc
 	destination[length] = '\0';
 }
 
-#if defined(__GNUC__)
+#if defined(__clang__)
 __attribute__((format(printf, 2, 3)))
+#elif defined(__GNUC__)
+__attribute__((format(gnu_printf, 2, 3)))
 #endif
 inline void append_format(std::string& output, const char* format, ...) {
 	char buffer[1024];
@@ -125,7 +127,15 @@ inline size_t format_wall_clock(char* buffer, size_t capacity, const char* patte
 #else
 	localtime_r(&value, &broken);
 #endif
-	return std::strftime(buffer, capacity, pattern, &broken);
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
+	const size_t written = std::strftime(buffer, capacity, pattern, &broken);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+	return written;
 }
 
 inline void wall_clock_text(char* buffer, size_t capacity) noexcept {

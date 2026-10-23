@@ -5,6 +5,7 @@
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/core/system_console.hpp"
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_session.hpp"
 #include "relativistic/startup/application_info.hpp"
 #include "relativistic/startup/platform_bootstrap.hpp"
 #include "relativistic/startup/startup_progress.hpp"
@@ -36,37 +37,6 @@ extern "C" {
 	__declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x00000001;
 }
 
-namespace {
-
-LONG WINAPI relativistic_crash_handler(EXCEPTION_POINTERS* info) noexcept {
-	if (info == nullptr || info->ExceptionRecord == nullptr) {
-		return EXCEPTION_CONTINUE_SEARCH;
-	}
-	const DWORD code = info->ExceptionRecord->ExceptionCode;
-	if (code != EXCEPTION_ACCESS_VIOLATION &&
-	    code != EXCEPTION_STACK_OVERFLOW &&
-	    code != EXCEPTION_ILLEGAL_INSTRUCTION &&
-	    code != EXCEPTION_ARRAY_BOUNDS_EXCEEDED &&
-	    code != EXCEPTION_INT_DIVIDE_BY_ZERO) {
-		return EXCEPTION_CONTINUE_SEARCH;
-	}
-	FILE* crash_file = std::fopen("crash_report.log", "a");
-	if (crash_file != nullptr) {
-		const std::time_t now = std::time(nullptr);
-		std::fprintf(
-			crash_file,
-			"[%ld] Native exception code=0x%08lX address=%p\n",
-			static_cast<long>(now),
-			static_cast<unsigned long>(code),
-			info->ExceptionRecord->ExceptionAddress
-		);
-		std::fflush(crash_file);
-		std::fclose(crash_file);
-	}
-	return EXCEPTION_CONTINUE_SEARCH;
-}
-
-}
 #endif
 
 namespace {
@@ -154,6 +124,7 @@ void process_console_line(TerminalRepl& repl, const std::string& raw_line) {
 
 std::jthread start_simulation_thread(SimulationHost& orchestrator) {
 	return std::jthread([&orchestrator](std::stop_token stop_token) {
+		Relativistic::Core::Diagnostics::set_thread_name("simulation");
 		auto last_time = std::chrono::steady_clock::now();
 		while (!stop_token.stop_requested() && orchestrator.is_running()) {
 			try {
@@ -162,9 +133,11 @@ std::jthread start_simulation_thread(SimulationHost& orchestrator) {
 				last_time = current_time;
 
 				orchestrator.scheduler().add_real_time_nanoseconds(elapsed_ns);
+				Relativistic::Core::Diagnostics::set_activity("simulation: processing commands");
 				orchestrator.process_incoming_commands();
 
 				if (!orchestrator.parameters().schematic_mode_enabled || orchestrator.parameters().schematic_allow_simulation) {
+					Relativistic::Core::Diagnostics::set_activity("simulation: advancing physics");
 					uint32_t ticks_this_iteration = 0;
 					while (orchestrator.scheduler().can_advance_tick() && ticks_this_iteration < 200U) {
 						if (orchestrator.scheduler().advance_tick()) {
@@ -181,6 +154,7 @@ std::jthread start_simulation_thread(SimulationHost& orchestrator) {
 			}
 
 			if (orchestrator.scheduler().is_paused()) {
+				Relativistic::Core::Diagnostics::set_activity("simulation: idle (paused)");
 				std::this_thread::sleep_for(std::chrono::milliseconds(2));
 			} else {
 				std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -220,6 +194,7 @@ int run_headless() {
 	orchestrator->stop();
 	sim_thread.request_stop();
 	sim_thread.join();
+	Relativistic::Core::Diagnostics::DiagnosticsSession::end_clean();
 	return 0;
 }
 
@@ -228,6 +203,8 @@ int run_interactive(const CommandLineOptions& options) {
 	namespace Stage = Startup::StartupStage;
 
 	Startup::StartupProgress progress;
+	Core::Diagnostics::DiagnosticsSession::attach_startup(progress);
+	Core::Diagnostics::set_phase(Core::Diagnostics::AppPhase::Startup);
 	Startup::set_active_progress(&progress);
 	Startup::StartupWindow splash;
 	if (!options.skip_splash) {
@@ -287,6 +264,8 @@ int run_interactive(const CommandLineOptions& options) {
 
 		ui_manager->reveal_window();
 		progress.complete();
+		Core::Diagnostics::set_phase(Core::Diagnostics::AppPhase::Running);
+		Core::log_info("Startup completed in " + std::to_string(Core::Diagnostics::uptime_seconds()) + " s, workspace ready.");
 		Startup::set_active_progress(nullptr);
 		splash.close();
 	} catch (const Startup::StartupCancelled&) {
@@ -324,6 +303,7 @@ int run_interactive(const CommandLineOptions& options) {
 	}
 
 	std::thread console_thread([&repl, &orchestrator]() {
+		Core::Diagnostics::set_thread_name("console");
 		bool banner_printed = false;
 		std::string console_line;
 		while (orchestrator->is_running()) {
@@ -352,6 +332,8 @@ int run_interactive(const CommandLineOptions& options) {
 
 	while (orchestrator->is_running() && !ui_manager->should_close()) {
 		try {
+			Core::Diagnostics::count_frame();
+			Core::Diagnostics::set_activity("ui: rendering frame");
 			ui_manager->render_frame();
 		} catch (const std::exception& ex) {
 			Core::log_error(std::string("UI frame render failed and was skipped: ") + ex.what());
@@ -370,6 +352,7 @@ int run_interactive(const CommandLineOptions& options) {
 	orchestrator->stop();
 	sim_thread.request_stop();
 	sim_thread.join();
+	Core::Diagnostics::DiagnosticsSession::end_clean();
 	std::fflush(stdout);
 	std::fflush(stderr);
 	std::_Exit(0);
@@ -380,22 +363,15 @@ int run_interactive(const CommandLineOptions& options) {
 int main(int argc, char* argv[]) {
 	Relativistic::Startup::PlatformBootstrap::initialize();
 #if defined(_WIN32)
-	AddVectoredExceptionHandler(1, relativistic_crash_handler);
 	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #endif
 
-	std::set_terminate([]() noexcept {
-		try {
-			if (const auto current_exception_ptr = std::current_exception()) {
-				std::rethrow_exception(current_exception_ptr);
-			}
-		} catch (const std::exception& ex) {
-			Relativistic::Core::log_error(std::string("Unhandled exception reached top level, engine is terminating: ") + ex.what());
-		} catch (...) {
-			Relativistic::Core::log_error("Unhandled non-standard exception reached top level, engine is terminating.");
-		}
-		std::abort();
-	});
+	static_cast<void>(Relativistic::Core::Diagnostics::DiagnosticsSession::begin(Relativistic::Core::Diagnostics::SessionDescriptor{
+		.product_name = Relativistic::Startup::ApplicationInfo::kProductName,
+		.product_version = Relativistic::Startup::ApplicationInfo::kVersion,
+		.argument_count = argc,
+		.arguments = argv
+	}));
 
 	const CommandLineOptions options = parse_command_line(argc, argv);
 

@@ -4,6 +4,7 @@
 #include "relativistic/orchestrator/performance_profiler.hpp"
 #include "relativistic/render/geodesic_compute_pipeline.hpp"
 #include "relativistic/optics/textures/earth_texture_image.hpp"
+#include "relativistic/orchestrator/scene_diagnostics.hpp"
 #include "relativistic/ui/interactive_camera_controller.hpp"
 #include "relativistic/ui/hud/hud_layout_config.hpp"
 #include "relativistic/ui/input_actions.hpp"
@@ -88,6 +89,9 @@ private:
 	double last_precision_selector_{-1.0};
 	uint64_t last_synced_version_{0};
 	uint64_t last_earth_texture_revision_{0};
+	double last_scene_snapshot_time_{-1.0};
+	uint32_t proximity_body_id_{0};
+	int proximity_state_{0};
 	bool force_rerender_{true};
 	bool has_received_frame_{false};
 	uint32_t interlace_phase_{0};
@@ -134,6 +138,55 @@ private:
 
 	[[nodiscard]] static uint32_t get_metric_id_from_name(std::string_view name) noexcept {
 		return Orchestrator::SimulationOrchestrator<1024>::metric_name_to_id(name);
+	}
+
+	void track_camera_body_proximity() noexcept {
+		const auto& camera = orchestrator_.camera();
+		const Dynamics::PostNewtonianBody* nearest = nullptr;
+		double nearest_ratio = std::numeric_limits<double>::max();
+		for (const auto& body : orchestrator_.nbody_system().bodies()) {
+			if (!body.enabled) continue;
+			const double dx = body.position[0] - camera.position[0];
+			const double dy = body.position[1] - camera.position[1];
+			const double dz = body.position[2] - camera.position[2];
+			const double ratio = std::sqrt(dx * dx + dy * dy + dz * dz) / std::max(body.effective_radius(), 1e-9);
+			if (ratio < nearest_ratio) {
+				nearest_ratio = ratio;
+				nearest = &body;
+			}
+		}
+		int state = 0;
+		if (nearest != nullptr) {
+			state = (nearest_ratio < 1.0) ? 2 : ((nearest_ratio < 2.0) ? 1 : 0);
+		}
+		const uint32_t id = (state != 0 && nearest != nullptr) ? nearest->id : 0U;
+		if (state == proximity_state_ && id == proximity_body_id_) {
+			return;
+		}
+		try {
+			if (state == 0) {
+				Core::log_trace("Camera left the proximity of body #" + std::to_string(proximity_body_id_));
+			} else {
+				const std::string name = nearest->has_name() ? std::string(nearest->name_view()) : std::string("unnamed");
+				Core::log_trace(std::string(state == 2 ? "Camera is inside body #" : "Camera is within two radii of body #") + std::to_string(id) + " (" + name + ") at " + std::to_string(nearest_ratio) + " radii");
+			}
+		} catch (...) {
+		}
+		proximity_state_ = state;
+		proximity_body_id_ = id;
+	}
+
+	void publish_scene_diagnostics() noexcept {
+		track_camera_body_proximity();
+		const double now = ImGui::GetTime();
+		if (last_scene_snapshot_time_ >= 0.0 && (now - last_scene_snapshot_time_) < 0.5) {
+			return;
+		}
+		last_scene_snapshot_time_ = now;
+		try {
+			Orchestrator::SceneDiagnostics::publish(orchestrator_);
+		} catch (...) {
+		}
 	}
 
 	void init_gl_texture() noexcept {
@@ -690,6 +743,7 @@ public:
 
 			const auto& cam = orchestrator_.camera();
 			const auto obs_sph = cam.spherical_coordinates();
+			publish_scene_diagnostics();
 
 			if (params.schematic_mode_enabled) {
 				cursor_inside_ = false;

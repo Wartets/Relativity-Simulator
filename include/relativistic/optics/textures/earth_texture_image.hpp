@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include "relativistic/optics/textures/earth_texture_catalog.hpp"
 #include "relativistic/optics/textures/sky_panorama_image.hpp"
 #include <algorithm>
@@ -175,9 +176,15 @@ private:
 	[[nodiscard]] static ImageHandle decode(EarthMapKind kind, EarthMapQuality quality) noexcept {
 		const std::string_view path = earth_map_relative_path(kind, quality);
 		try {
+			const auto decode_started = std::chrono::steady_clock::now();
 			auto decoded = PanoramaDecodeDetail::decode_panorama_file(path);
 			if (decoded.has_value() && decoded->is_valid()) {
-				return std::make_shared<const EarthTextureImage>(EarthTextureImage::from_base(std::move(*decoded)));
+				const uint32_t decoded_width = decoded->width;
+				const uint32_t decoded_height = decoded->height;
+				auto image = std::make_shared<const EarthTextureImage>(EarthTextureImage::from_base(std::move(*decoded)));
+				const double elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - decode_started).count();
+				Core::log_info("Earth texture decoded: " + std::string(path) + " (" + std::to_string(decoded_width) + "x" + std::to_string(decoded_height) + ", " + std::to_string(image->levels.size()) + " mip levels, " + std::to_string(static_cast<int>(elapsed_ms)) + " ms)");
+				return image;
 			}
 		} catch (...) {
 		}
@@ -192,6 +199,8 @@ private:
 		auto finished = std::make_shared<std::atomic<bool>>(false);
 		try {
 			std::jthread thread([this, kind, quality, index, generation, finished]() {
+				Core::Diagnostics::set_thread_name("earth-decode");
+				Core::Diagnostics::ActivityScope decode_activity("earth texture decode");
 				ImageHandle image = decode(kind, quality);
 				{
 					std::lock_guard<std::mutex> lock(mutex_);
@@ -323,6 +332,9 @@ public:
 			if (!entry.image) {
 				return std::nullopt;
 			}
+		}
+		if (!entry.image->is_valid()) {
+			return std::nullopt;
 		}
 		return entry.image->levels.front().sample_bilinear(u, v);
 	}

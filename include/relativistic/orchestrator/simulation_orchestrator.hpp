@@ -2,6 +2,7 @@
 
 #include "relativistic/core/spsc_queue.hpp"
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
@@ -622,6 +623,12 @@ public:
 
 	void apply_command(const Command& cmd, CommandResult& res) noexcept {
 		res.success = true;
+		Core::Diagnostics::count_command();
+		{
+			char trace[256];
+			std::snprintf(trace, sizeof(trace), "Command type=%u parameter=%u value=%.9g steps=%llu name='%.32s' payload='%.96s'", static_cast<unsigned>(cmd.type), static_cast<unsigned>(cmd.param_type), cmd.numeric_value, static_cast<unsigned long long>(cmd.step_count), cmd.custom_param_name, cmd.text_payload);
+			Core::log_trace(trace);
+		}
 		switch (cmd.type) {
 			case CommandType::Pause:
 				scheduler_.pause();
@@ -773,6 +780,10 @@ public:
 				res.success = false;
 				std::strncpy(res.message, "Unknown or unsupported command", sizeof(res.message) - 1);
 				break;
+		}
+
+		if (!res.success) {
+			Core::log_warning(std::string("Command rejected: ") + res.message);
 		}
 
 		if (res.success && command_marks_custom_performance_preset(cmd)) {
@@ -1052,6 +1063,7 @@ public:
 		state_version_.fetch_add(1, std::memory_order_release);
 		res.success = true;
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
+		Core::log_info("Scenario loaded: " + active_scenario_name_ + " (metric " + active_metric_name_ + ", " + std::to_string(s.bodies.size()) + " bodies, path " + active_scenario_path_ + ")");
 	}
 
 	void save_scenario_file(

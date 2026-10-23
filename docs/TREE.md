@@ -340,6 +340,7 @@ Relativity-Simulator/
 │       │   │   ├── diagnostics_paths.hpp
 │       │   │   ├── diagnostics_registry.hpp
 │       │   │   ├── diagnostics_session.hpp
+│       │   │   ├── hang_watchdog.hpp
 │       │   │   └── system_report.hpp
 │       │   │
 │       │   ├── math/
@@ -570,7 +571,8 @@ Relativity-Simulator/
 │       │   ├── render_diagnostics.hpp
 │       │   ├── software_compute_engine.hpp
 │       │   ├── vulkan_compute_executor.hpp
-│       │   └── vulkan_context.hpp
+│       │   ├── vulkan_context.hpp
+│       │   └── vulkan_device_report.hpp
 │       │
 │       ├── semiclassical/
 │       │   └── hawking_unruh.hpp

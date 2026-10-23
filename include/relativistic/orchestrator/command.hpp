@@ -39,6 +39,38 @@ enum class CommandType : uint32_t {
 	CaptureScreenshot = 25
 };
 
+[[nodiscard]] constexpr const char* command_type_name(CommandType type) noexcept {
+	switch (type) {
+		case CommandType::None: return "None";
+		case CommandType::Pause: return "Pause";
+		case CommandType::Resume: return "Resume";
+		case CommandType::Step: return "Step";
+		case CommandType::Warp: return "Warp";
+		case CommandType::Reset: return "Reset";
+		case CommandType::SetParam: return "SetParam";
+		case CommandType::SetTickRate: return "SetTickRate";
+		case CommandType::Status: return "Status";
+		case CommandType::Shutdown: return "Shutdown";
+		case CommandType::CameraMove: return "CameraMove";
+		case CommandType::CameraRotate: return "CameraRotate";
+		case CommandType::CameraSetFov: return "CameraSetFov";
+		case CommandType::CameraSetSpeed: return "CameraSetSpeed";
+		case CommandType::CameraReset: return "CameraReset";
+		case CommandType::SetMetric: return "SetMetric";
+		case CommandType::LoadScenario: return "LoadScenario";
+		case CommandType::SaveScenario: return "SaveScenario";
+		case CommandType::SetIntegrator: return "SetIntegrator";
+		case CommandType::TriggerExport: return "TriggerExport";
+		case CommandType::SetResolutionScale: return "SetResolutionScale";
+		case CommandType::SetRenderSteps: return "SetRenderSteps";
+		case CommandType::SetPerformancePreset: return "SetPerformancePreset";
+		case CommandType::SetCameraMode: return "SetCameraMode";
+		case CommandType::SetVisualOverlay: return "SetVisualOverlay";
+		case CommandType::CaptureScreenshot: return "CaptureScreenshot";
+	}
+	return "Unknown";
+}
+
 enum class ParameterType : uint32_t {
 	Unknown = 0,
 	Mass = 1,

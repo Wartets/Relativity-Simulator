@@ -97,6 +97,7 @@ private:
 
 	bool ready_{false};
 	bool device_lost_{false};
+	uint32_t slow_band_warnings_{0};
 
 	[[nodiscard]] static std::optional<std::filesystem::path> find_spirv_path() {
 		static constexpr const char* candidates[] = {
@@ -1136,6 +1137,8 @@ public:
 	static constexpr VkDeviceSize kMaxBandBytes = 64ULL * 1024ULL * 1024ULL;
 	static constexpr uint32_t kBandRowAlignment = 16U;
 	static constexpr double kBandTargetMs = 120.0;
+	static constexpr double kSlowBandWarningMs = 2000.0;
+	static constexpr uint32_t kMaxSlowBandWarnings = 24;
 
 	[[nodiscard]] bool dispatch_and_readback(
 		const GpuCameraPushConstants& params,
@@ -1190,6 +1193,10 @@ public:
 				return false;
 			}
 			const double band_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - band_start).count();
+			if (band_ms > kSlowBandWarningMs && slow_band_warnings_ < kMaxSlowBandWarnings) {
+				++slow_band_warnings_;
+				Core::log_warning("Slow GPU band: rows " + std::to_string(band_params.dispatch_row_offset) + "+" + std::to_string(band_params.dispatch_row_count) + " of " + std::to_string(params.screen_width) + "x" + std::to_string(params.screen_height) + " took " + std::to_string(static_cast<int>(band_ms)) + " ms (the dispatch times out at 10000 ms)");
+			}
 
 			row += band_rows;
 			const double scale = std::clamp(kBandTargetMs / std::max(band_ms, 1.0), 0.5, 2.0);

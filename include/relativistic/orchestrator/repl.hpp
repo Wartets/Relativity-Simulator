@@ -62,6 +62,9 @@ public:
 			<< "Cosmo Lambda:     " << p.cosmological_lambda << "\n"
 			<< "Wormhole Throat:  " << p.wormhole_throat << "\n"
 			<< "Warp Velocity:    " << p.warp_velocity << "\n"
+			<< "Uptime:           " << Core::Diagnostics::uptime_seconds() << " s\n"
+			<< "Warnings/Errors:  " << Core::Diagnostics::g_registry.warning_counter.load(std::memory_order_relaxed) << " / " << Core::Diagnostics::g_registry.error_counter.load(std::memory_order_relaxed) << "\n"
+			<< "Dropped Commands: " << Core::Diagnostics::g_registry.dropped_command_counter.load(std::memory_order_relaxed) << "\n"
 			<< "=========================\n";
 	}
 
@@ -75,6 +78,8 @@ public:
 			<< "  set <param> <value>    - Modify physical parameter (mass, spin, charge, lambda, throat, warp_velocity, tickrate, <custom>)\n"
 			<< "  reset                  - Reset simulation clock and parameters\n"
 			<< "  status                 - Display current simulation state\n"
+			<< "  snapshot               - Write a live diagnostic report folder\n"
+			<< "  journal                - Print the command journal and recent warnings and errors\n"
 			<< "  quit / exit / shutdown - Terminate simulation\n";
 	}
 };

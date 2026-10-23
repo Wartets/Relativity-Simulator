@@ -13,7 +13,9 @@
 #include <cstring>
 #include <ctime>
 #include <exception>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <typeinfo>
 
 #if defined(_WIN32)
@@ -103,6 +105,16 @@ inline void copy_file_tail(const char* source, const char* destination, size_t m
 	std::fclose(input);
 }
 
+inline void copy_scenario_attachment(const char* folder) noexcept {
+	char scenario[kPathCapacity];
+	if (!copy_environment_value("scenario.path", scenario, sizeof(scenario)) || scenario[0] == '\0') {
+		return;
+	}
+	char destination[kPathCapacity];
+	std::snprintf(destination, sizeof(destination), "%s/scenario.yaml", folder);
+	copy_file_tail(scenario, destination, 4U * 1024U * 1024U);
+}
+
 inline void write_section(std::FILE* out, const char* title) noexcept {
 	std::fprintf(out, "\n---- %s ----\n", title);
 }
@@ -130,6 +142,43 @@ inline void write_application_section(std::FILE* out) noexcept {
 	std::fprintf(out, "  Settings file        %s\n", g_state.settings_path.data());
 }
 
+inline void write_age(std::FILE* out, const char* label, int64_t stamp) noexcept {
+	if (stamp == 0) {
+		std::fprintf(out, "  %-28s never\n", label);
+		return;
+	}
+	std::fprintf(out, "  %-28s %.3f s ago\n", label, static_cast<double>(monotonic_nanoseconds() - stamp) * 1.0e-9);
+}
+
+inline void write_extended_context(std::FILE* out) noexcept {
+	write_section(out, "Activity counters");
+	std::fprintf(out, "  Warnings logged              %llu\n", static_cast<unsigned long long>(g_registry.warning_counter.load(std::memory_order_relaxed)));
+	std::fprintf(out, "  Errors logged                %llu\n", static_cast<unsigned long long>(g_registry.error_counter.load(std::memory_order_relaxed)));
+	std::fprintf(out, "  Commands dropped (queue full) %llu\n", static_cast<unsigned long long>(g_registry.dropped_command_counter.load(std::memory_order_relaxed)));
+	std::fprintf(out, "  Simulation heartbeats        %llu\n", static_cast<unsigned long long>(g_registry.simulation_heartbeat.load(std::memory_order_relaxed)));
+	std::fprintf(out, "  Render frames completed      %llu\n", static_cast<unsigned long long>(g_registry.render_frame_counter.load(std::memory_order_relaxed)));
+	write_age(out, "Last UI frame", g_registry.last_frame_ns.load(std::memory_order_relaxed));
+	write_age(out, "Last simulation heartbeat", g_registry.simulation_heartbeat_ns.load(std::memory_order_relaxed));
+
+	write_section(out, "Session milestones (most recent last)");
+	if (ring_write(out, g_registry.milestones, 192) == 0) {
+		std::fprintf(out, "  (none)\n");
+	}
+	write_section(out, "Command journal (most recent last)");
+	if (ring_write(out, g_registry.commands, 256) == 0) {
+		std::fprintf(out, "  (no command was applied)\n");
+	}
+	write_section(out, "Recent warnings and errors (most recent last)");
+	if (ring_write(out, g_registry.problems, 128) == 0) {
+		std::fprintf(out, "  (none)\n");
+	}
+	write_section(out, "Vulkan device details");
+	write_snapshot(out, g_registry.vulkan, "no Vulkan device information was published");
+	write_section(out, "OpenGL and window system details");
+	write_snapshot(out, g_registry.opengl, "no OpenGL or window system information was published");
+	std::fflush(out);
+}
+
 inline void write_runtime_state_section(std::FILE* out, uint64_t faulting_thread) noexcept {
 	write_section(out, "Runtime state");
 	std::fprintf(out, "  Phase                %s\n", app_phase_name(current_phase()));
@@ -148,6 +197,7 @@ inline void write_runtime_state_section(std::FILE* out, uint64_t faulting_thread
 	write_snapshot(out, g_registry.render, "no render dispatch was recorded yet");
 	write_section(out, "Recent events (most recent last)");
 	write_recent_events(out, 300);
+	write_extended_context(out);
 	std::fflush(out);
 }
 
@@ -196,6 +246,15 @@ inline void write_diagnosis(std::FILE* out, unsigned long long code, int access_
 	}
 	if (code == 0xE0000001ULL) {
 		std::fprintf(out, "  Hint                 : fatal condition reported by the application itself (terminate or abort).\n");
+	}
+	if (code == 0xC000001DULL) {
+		std::fprintf(out, "  Hint                 : illegal instruction. The binary may use instruction sets the CPU lacks; compare 'build.compile.time.simd' with 'cpu.features' in the environment section.\n");
+	}
+	if (code == 0xC0000409ULL) {
+		std::fprintf(out, "  Hint                 : stack buffer overrun or fast-fail condition detected by the runtime.\n");
+	}
+	if (code == 0xC0000094ULL || code == 0xC000008EULL || code == 0xC0000090ULL) {
+		std::fprintf(out, "  Hint                 : arithmetic fault; check the simulation state snapshot for non-finite or zero-valued parameters.\n");
 	}
 }
 
@@ -533,6 +592,7 @@ inline void write_windows_report(const WindowsReportRequest& request) noexcept {
 	SystemReport::write_memory(out);
 	write_section(out, "Process");
 	SystemReport::write_process(out);
+	SystemReport::write_extended(out);
 	write_section(out, "Threads");
 	SystemReport::write_threads(out, static_cast<uint64_t>(request.crashing_thread_id));
 	write_section(out, "Loaded modules");
@@ -552,6 +612,7 @@ inline void write_windows_report(const WindowsReportRequest& request) noexcept {
 	copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
 	std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder);
 	copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+	copy_scenario_attachment(folder);
 
 	if (have_debug_help && api.write_dump != nullptr) {
 		std::snprintf(attachment, sizeof(attachment), "%s/minidump.dmp", folder);
@@ -684,6 +745,97 @@ inline void abort_handler(int) noexcept {
 	std::_Exit(3);
 }
 
+inline void invalid_parameter_handler(const wchar_t* expression, const wchar_t* function, const wchar_t* file, unsigned int line, uintptr_t) noexcept {
+	char detail[1536];
+	std::snprintf(detail, sizeof(detail), "function=%s file=%s line=%u expression=%s", narrow_string(function).c_str(), narrow_string(file).c_str(), line, narrow_string(expression).c_str());
+	report_manual_windows("invalid CRT parameter", detail);
+	show_crash_dialog();
+	std::_Exit(3);
+}
+
+inline void purecall_handler() noexcept {
+	report_manual_windows("pure virtual function call", "A pure virtual function was called, usually from a constructor or destructor of a base class.");
+	show_crash_dialog();
+	std::_Exit(3);
+}
+
+inline void write_target_stack(std::FILE* out, uint64_t thread_id) noexcept {
+	DebugHelp api;
+	if (!load_debug_help(api)) {
+		std::fprintf(out, "  (dbghelp.dll could not be loaded)\n");
+		return;
+	}
+	const DWORD id = static_cast<DWORD>(thread_id);
+	if (id == 0U || id == GetCurrentThreadId()) {
+		void* raw[62]{};
+		const USHORT captured = CaptureStackBackTrace(0, 62, raw, nullptr);
+		for (USHORT frame_index = 0; frame_index < captured; ++frame_index) {
+			write_frame(out, api, GetCurrentProcess(), static_cast<int>(frame_index), static_cast<uint64_t>(reinterpret_cast<uintptr_t>(raw[frame_index])));
+		}
+		return;
+	}
+	HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, id);
+	if (thread == nullptr) {
+		std::fprintf(out, "  (thread %lu could not be opened, error %lu)\n", static_cast<unsigned long>(id), static_cast<unsigned long>(GetLastError()));
+		return;
+	}
+	std::array<uint64_t, 96> frames{};
+	size_t frame_count = 0;
+	CONTEXT context{};
+	context.ContextFlags = CONTEXT_FULL;
+	bool captured_context = false;
+	if (SuspendThread(thread) != static_cast<DWORD>(-1)) {
+		if (GetThreadContext(thread, &context) != FALSE) {
+			captured_context = true;
+#if defined(_M_X64) || defined(__x86_64__)
+			if (api.walk != nullptr) {
+				STACKFRAME64 frame{};
+				frame.AddrPC.Offset = context.Rip;
+				frame.AddrPC.Mode = AddrModeFlat;
+				frame.AddrFrame.Offset = context.Rbp;
+				frame.AddrFrame.Mode = AddrModeFlat;
+				frame.AddrStack.Offset = context.Rsp;
+				frame.AddrStack.Mode = AddrModeFlat;
+				CONTEXT walk_context = context;
+				const HANDLE process = GetCurrentProcess();
+				while (frame_count < frames.size() && api.walk(IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &walk_context, nullptr, api.function_table, api.module_base, nullptr) != FALSE && frame.AddrPC.Offset != 0) {
+					frames[frame_count++] = frame.AddrPC.Offset;
+				}
+			}
+#endif
+		}
+		ResumeThread(thread);
+	}
+	CloseHandle(thread);
+	if (!captured_context) {
+		std::fprintf(out, "  (the context of thread %lu could not be captured)\n", static_cast<unsigned long>(id));
+		return;
+	}
+	write_registers(out, context);
+	for (size_t index = 0; index < frame_count; ++index) {
+		write_frame(out, api, GetCurrentProcess(), static_cast<int>(index), frames[index]);
+	}
+	if (frame_count == 0) {
+		std::fprintf(out, "  (stack walk produced no frames)\n");
+	}
+}
+
+inline void write_live_minidump(const char* folder) noexcept {
+	DebugHelp api;
+	if (!load_debug_help(api) || api.write_dump == nullptr) {
+		return;
+	}
+	char path[kPathCapacity];
+	std::snprintf(path, sizeof(path), "%s/minidump.dmp", folder);
+	const HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	const MINIDUMP_TYPE type = static_cast<MINIDUMP_TYPE>(MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules | MiniDumpWithHandleData);
+	api.write_dump(GetCurrentProcess(), GetCurrentProcessId(), file, type, nullptr, nullptr, nullptr);
+	CloseHandle(file);
+}
+
 }
 
 #else
@@ -755,6 +907,7 @@ inline void write_posix_report(int number, const siginfo_t* info, const void* co
 	SystemReport::write_memory(out);
 	write_section(out, "Process");
 	SystemReport::write_process(out);
+	SystemReport::write_extended(out);
 	write_section(out, "Memory map");
 	SystemReport::write_modules(out);
 	std::fprintf(out, "\n==== END OF REPORT ====\n");
@@ -767,6 +920,7 @@ inline void write_posix_report(int number, const siginfo_t* info, const void* co
 	copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
 	std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder);
 	copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+	copy_scenario_attachment(folder);
 	copy_text(g_state.last_report_folder.data(), kPathCapacity, folder);
 	if (g_state.marker_path[0] != '\0') {
 		std::FILE* marker = std::fopen(g_state.marker_path.data(), "wb");
@@ -816,9 +970,109 @@ inline void terminate_handler() noexcept {
 	::_exit(3);
 }
 
+inline void write_target_stack(std::FILE* out, uint64_t thread_id) noexcept {
+	if (thread_id != 0 && thread_id != current_thread_id()) {
+		std::fprintf(out, "  (the stack of thread %llu cannot be captured from another thread on this platform; see the thread activity table)\n", static_cast<unsigned long long>(thread_id));
+		return;
+	}
+	void* frames[96];
+	std::fflush(out);
+	const int count = ::backtrace(frames, 96);
+	::backtrace_symbols_fd(frames, count, ::fileno(out));
+}
+
+inline void write_live_minidump(const char*) noexcept {
+}
+
 }
 
 #endif
+
+namespace CrashDetail {
+
+inline std::atomic<uint32_t> g_live_reports{0};
+inline constexpr uint32_t kMaximumLiveReports = 12;
+
+[[nodiscard]] inline std::string write_live_report(const char* kind, const char* reason, const char* detail, uint64_t target_thread, bool with_dump) noexcept {
+	const uint32_t index = g_live_reports.fetch_add(1, std::memory_order_acq_rel) + 1;
+	if (index > kMaximumLiveReports) {
+		return {};
+	}
+	try {
+		char stamp[48];
+		char readable[48];
+		const std::time_t now = std::time(nullptr);
+		format_wall_clock(stamp, sizeof(stamp), "%Y-%m-%d_%H-%M-%S", now);
+		format_wall_clock(readable, sizeof(readable), "%Y-%m-%d %H:%M:%S", now);
+
+		std::string folder;
+		std::FILE* out = stderr;
+		bool owns_stream = false;
+		if (g_state.crashes_directory[0] != '\0') {
+			char path[kPathCapacity];
+			std::snprintf(path, sizeof(path), "%s/%s_%s_pid%llu_n%u", g_state.crashes_directory.data(), kind, stamp, static_cast<unsigned long long>(current_process_id()), index);
+			std::error_code ec;
+			std::filesystem::create_directories(path, ec);
+			if (!ec) {
+				folder = path;
+				const std::string report_path = folder + "/report.txt";
+				if (std::FILE* file = std::fopen(report_path.c_str(), "wb")) {
+					out = file;
+					owns_stream = true;
+				}
+			}
+		}
+
+		std::fprintf(out, "==== %s LIVE DIAGNOSTIC REPORT ====\n", g_state.product_name.data());
+		std::fprintf(out, "Report kind                   : %s\n", kind);
+		std::fprintf(out, "Report number in this process : %u\n", index);
+		std::fprintf(out, "Captured                      : %s (local time)\n", readable);
+		write_section(out, "Request");
+		std::fprintf(out, "  Reason               %s\n", (reason != nullptr) ? reason : "-");
+		std::fprintf(out, "  Detail               %s\n", (detail != nullptr) ? detail : "-");
+		std::fprintf(out, "  Target thread id     %llu\n", static_cast<unsigned long long>(target_thread));
+		write_section(out, "Call stack of the target thread");
+		write_target_stack(out, target_thread);
+		std::fflush(out);
+		write_application_section(out);
+		write_runtime_state_section(out, target_thread);
+		write_section(out, "Operating system");
+		SystemReport::write_operating_system(out);
+		write_section(out, "Processor");
+		SystemReport::write_processor(out);
+		write_section(out, "Memory");
+		SystemReport::write_memory(out);
+		write_section(out, "Process");
+		SystemReport::write_process(out);
+		SystemReport::write_extended(out);
+		write_section(out, "Threads");
+		SystemReport::write_threads(out, target_thread);
+		write_section(out, "Loaded modules");
+		SystemReport::write_modules(out);
+		std::fprintf(out, "\n==== END OF REPORT ====\n");
+		std::fflush(out);
+		if (owns_stream) {
+			std::fclose(out);
+		}
+
+		if (!folder.empty()) {
+			char attachment[kPathCapacity];
+			std::snprintf(attachment, sizeof(attachment), "%s/session.log", folder.c_str());
+			copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
+			std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder.c_str());
+			copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+			copy_scenario_attachment(folder.c_str());
+			if (with_dump) {
+				write_live_minidump(folder.c_str());
+			}
+		}
+		return folder;
+	} catch (...) {
+		return {};
+	}
+}
+
+}
 
 class CrashReporter {
 public:
@@ -843,6 +1097,8 @@ public:
 		SetUnhandledExceptionFilter(&CrashDetail::unhandled_filter);
 		std::signal(SIGABRT, &CrashDetail::abort_handler);
 		std::set_terminate(&CrashDetail::terminate_handler);
+		_set_invalid_parameter_handler(&CrashDetail::invalid_parameter_handler);
+		_set_purecall_handler(&CrashDetail::purecall_handler);
 #else
 		stack_t alternate{};
 		alternate.ss_sp = CrashDetail::g_alternate_stack.data();
@@ -881,6 +1137,14 @@ public:
 		}
 		::_exit(3);
 #endif
+	}
+
+	[[nodiscard]] static std::string report_hang(const char* reason, const char* detail, uint64_t thread_id) noexcept {
+		return CrashDetail::write_live_report("hang", reason, detail, thread_id, true);
+	}
+
+	[[nodiscard]] static std::string capture_snapshot(const char* reason, const char* detail = nullptr) noexcept {
+		return CrashDetail::write_live_report("snapshot", reason, detail, 0, false);
 	}
 
 	[[nodiscard]] static const char* last_report_folder() noexcept {

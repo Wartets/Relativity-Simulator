@@ -3,8 +3,11 @@
 #include "relativistic/core/diagnostics/crash_reporter.hpp"
 #include "relativistic/core/diagnostics/diagnostics_paths.hpp"
 #include "relativistic/core/diagnostics/diagnostics_registry.hpp"
+#include "relativistic/core/diagnostics/hang_watchdog.hpp"
 #include "relativistic/core/diagnostics/system_report.hpp"
 #include "relativistic/core/engine_log.hpp"
+#include <chrono>
+#include <mutex>
 #include "relativistic/startup/platform_bootstrap.hpp"
 #include "relativistic/startup/startup_progress.hpp"
 #include <array>
@@ -35,6 +38,29 @@ private:
 
 	static void record_log_event(std::string_view line) noexcept {
 		record_event(line);
+		if (line.starts_with("[ERROR]")) {
+			record_problem(true, line);
+		} else if (line.starts_with("[WARN]")) {
+			record_problem(false, line);
+		}
+	}
+
+	static void note_startup_stage(const Startup::StartupSnapshot& snapshot) noexcept {
+		static std::mutex guard;
+		static std::string last_stage;
+		static Startup::StartupPhase last_phase = Startup::StartupPhase::Running;
+		try {
+			std::lock_guard<std::mutex> lock(guard);
+			if (snapshot.stage == last_stage && snapshot.phase == last_phase) {
+				return;
+			}
+			last_stage = snapshot.stage;
+			last_phase = snapshot.phase;
+			char text[320];
+			std::snprintf(text, sizeof(text), "startup %5.1f%% stage='%.96s' detail='%.120s' phase=%u cancel=%s error='%.60s'", static_cast<double>(snapshot.fraction) * 100.0, snapshot.stage.c_str(), snapshot.detail.c_str(), static_cast<unsigned>(snapshot.phase), snapshot.cancel_requested ? "requested" : "no", snapshot.error.c_str());
+			record_milestone(text);
+		} catch (...) {
+		}
 	}
 
 	[[nodiscard]] static std::string compiler_description() {
@@ -131,6 +157,8 @@ private:
 			std::getline(marker, folder);
 		}
 		log_warning("The previous session terminated with a crash. Its report folder was: " + folder);
+		set_environment("previous.crash.folder", folder);
+		record_milestone("previous session crash marker found: " + folder);
 		const std::filesystem::path acknowledged = paths_.root_directory / "last_crash_acknowledged.txt";
 		std::filesystem::remove(acknowledged, ec);
 		std::filesystem::rename(paths_.crash_marker_file, acknowledged, ec);
@@ -163,6 +191,96 @@ private:
 				set_environment(std::string("env.") + name, value);
 			}
 		}
+		publish_extended_environment(configuration);
+	}
+
+	static void publish_extended_environment(const CrashConfiguration& configuration) noexcept {
+		try {
+			SystemReport::publish_environment();
+			set_environment("build.pointer.bits", std::to_string(sizeof(void*) * 8U));
+			std::string simd;
+#if defined(__AVX512F__)
+			simd += "avx512f ";
+#endif
+#if defined(__AVX2__)
+			simd += "avx2 ";
+#endif
+#if defined(__AVX__)
+			simd += "avx ";
+#endif
+#if defined(__FMA__)
+			simd += "fma ";
+#endif
+#if defined(__SSE4_2__)
+			simd += "sse4.2 ";
+#endif
+#if defined(__ARM_NEON)
+			simd += "neon ";
+#endif
+#if defined(__FAST_MATH__)
+			simd += "fast-math ";
+#endif
+			if (simd.empty()) {
+				simd = "baseline";
+			}
+			set_environment("build.compile.time.simd", simd);
+
+			std::error_code ec;
+			const auto describe_space = [&ec](const std::filesystem::path& path) -> std::string {
+				if (path.empty()) {
+					return "unavailable";
+				}
+				const auto info = std::filesystem::space(path, ec);
+				if (ec) {
+					ec.clear();
+					return "unavailable";
+				}
+				char text[96];
+				std::snprintf(text, sizeof(text), "%.2f GiB free of %.2f GiB", static_cast<double>(info.available) / 1073741824.0, static_cast<double>(info.capacity) / 1073741824.0);
+				return text;
+			};
+			set_environment("disk.working", describe_space(std::filesystem::current_path(ec)));
+			ec.clear();
+			set_environment("disk.logs", describe_space(paths_.root_directory));
+			set_environment("disk.temp", describe_space(std::filesystem::temp_directory_path(ec)));
+			ec.clear();
+
+			if (!configuration.executable_path.empty()) {
+				const auto size = std::filesystem::file_size(configuration.executable_path, ec);
+				if (!ec) {
+					set_environment("executable.size", std::to_string(static_cast<unsigned long long>(size)) + " bytes");
+				}
+				ec.clear();
+				const auto modified = std::filesystem::last_write_time(configuration.executable_path, ec);
+				if (!ec) {
+					const std::time_t converted = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(modified));
+					char stamp[48];
+					format_wall_clock(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", converted);
+					set_environment("executable.modified", stamp);
+				}
+				ec.clear();
+			}
+			if (!configuration.settings_path.empty()) {
+				const auto size = std::filesystem::file_size(configuration.settings_path, ec);
+				set_environment("settings.file", ec ? std::string("missing") : (std::to_string(static_cast<unsigned long long>(size)) + " bytes"));
+				ec.clear();
+			}
+			const auto count_entries = [&ec](const std::filesystem::path& directory) -> size_t {
+				size_t count = 0;
+				for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec)) {
+					++count;
+				}
+				ec.clear();
+				return count;
+			};
+			set_environment("logs.sessions.retained", std::to_string(count_entries(paths_.sessions_directory)));
+			set_environment("logs.reports.retained", std::to_string(count_entries(paths_.crashes_directory)));
+			char previous[512];
+			if (!copy_environment_value("previous.crash.folder", previous, sizeof(previous))) {
+				set_environment("previous.crash.folder", "none");
+			}
+		} catch (...) {
+		}
 	}
 
 	static void write_header(const CrashConfiguration& configuration) {
@@ -189,7 +307,7 @@ public:
 		try {
 			initialize_registry();
 			set_phase(AppPhase::Launching);
-			set_thread_name("main");
+			register_ui_thread();
 			start_time_ = std::time(nullptr);
 			paths_ = DiagnosticsLocator::resolve(start_time_);
 			if (!paths_.session_log_file.empty() && !EngineLog::instance().open_session_file(paths_.session_log_file.string())) {
@@ -202,6 +320,8 @@ public:
 			CrashReporter::configure(configuration);
 			CrashReporter::install();
 			write_header(configuration);
+			record_milestone("diagnostics session started: " + configuration.session_id);
+			HangWatchdog::instance().start();
 			active_ = true;
 			return true;
 		} catch (...) {
@@ -217,6 +337,7 @@ public:
 				append_format(text, "  error    %s\n", snapshot.error.c_str());
 			}
 			publish_startup_snapshot(text);
+			note_startup_stage(snapshot);
 			std::string line;
 			append_format(line, "Startup %5.1f%% [%s] %s", static_cast<double>(snapshot.fraction) * 100.0, snapshot.stage.c_str(), snapshot.detail.c_str());
 			log_trace(line);
@@ -229,8 +350,9 @@ public:
 		}
 		try {
 			set_phase(AppPhase::ShuttingDown);
+			HangWatchdog::instance().stop();
 			std::string text;
-			append_format(text, "Session ended cleanly after %.1f s (%llu UI frames, %llu commands processed)", uptime_seconds(), static_cast<unsigned long long>(g_registry.frame_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.command_counter.load(std::memory_order_relaxed)));
+			append_format(text, "Session ended cleanly after %.1f s (%llu UI frames, %llu render frames, %llu commands processed, %llu commands dropped, %llu warnings, %llu errors, %u watchdog reports)", uptime_seconds(), static_cast<unsigned long long>(g_registry.frame_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.render_frame_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.command_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.dropped_command_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.warning_counter.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_registry.error_counter.load(std::memory_order_relaxed)), HangWatchdog::instance().reports_written());
 			log_info(text);
 			log_info("==== session end ====");
 			EngineLog::instance().close_session_file();

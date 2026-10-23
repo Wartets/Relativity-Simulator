@@ -1,6 +1,7 @@
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
 #include "relativistic/orchestrator/repl.hpp"
+#include "relativistic/orchestrator/scene_diagnostics.hpp"
 #include "relativistic/ui/ui_manager.hpp"
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/core/system_console.hpp"
@@ -104,6 +105,7 @@ void process_console_line(TerminalRepl& repl, const std::string& raw_line) {
 	if (line.empty()) {
 		return;
 	}
+	Relativistic::Core::Diagnostics::record_command("console> " + line);
 	const std::string lowered = lowercase_console_line(line);
 	if (lowered == "help" || lowered == "?") {
 		repl.print_help();
@@ -113,8 +115,28 @@ void process_console_line(TerminalRepl& repl, const std::string& raw_line) {
 		repl.print_status();
 		return;
 	}
+	if (lowered == "snapshot") {
+		const std::string folder = Relativistic::Core::Diagnostics::CrashReporter::capture_snapshot("snapshot requested from the console");
+		if (folder.empty()) {
+			std::cout << "Error: the diagnostic snapshot could not be written\n";
+		} else {
+			std::cout << "OK: diagnostic snapshot written to " << folder << "\n";
+		}
+		return;
+	}
+	if (lowered == "journal") {
+		std::cout << "Command journal:\n";
+		std::cout.flush();
+		Relativistic::Core::Diagnostics::ring_write(stdout, Relativistic::Core::Diagnostics::g_registry.commands, 64);
+		std::cout << "Recent warnings and errors:\n";
+		std::cout.flush();
+		Relativistic::Core::Diagnostics::ring_write(stdout, Relativistic::Core::Diagnostics::g_registry.problems, 32);
+		std::fflush(stdout);
+		return;
+	}
 	Relativistic::Orchestrator::CommandResult result{};
 	const bool ok = repl.execute_line(line, &result);
+	Relativistic::Core::Diagnostics::record_command(std::string("console result: ") + (ok ? "accepted" : "rejected") + " (" + result.message + ")");
 	if (!ok) {
 		std::cout << "Error: " << result.message << "\n";
 	} else if (result.message[0] != '\0') {
@@ -122,11 +144,13 @@ void process_console_line(TerminalRepl& repl, const std::string& raw_line) {
 	}
 }
 
-std::jthread start_simulation_thread(SimulationHost& orchestrator) {
-	return std::jthread([&orchestrator](std::stop_token stop_token) {
-		Relativistic::Core::Diagnostics::set_thread_name("simulation");
+std::jthread start_simulation_thread(SimulationHost& orchestrator, bool publish_scene_snapshots = false) {
+	return std::jthread([&orchestrator, publish_scene_snapshots](std::stop_token stop_token) {
+		Relativistic::Core::Diagnostics::register_simulation_thread();
 		auto last_time = std::chrono::steady_clock::now();
+		auto last_scene_publish = std::chrono::steady_clock::time_point{};
 		while (!stop_token.stop_requested() && orchestrator.is_running()) {
+			Relativistic::Core::Diagnostics::count_simulation_heartbeat();
 			try {
 				const auto current_time = std::chrono::steady_clock::now();
 				const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(current_time - last_time).count();
@@ -147,6 +171,13 @@ std::jthread start_simulation_thread(SimulationHost& orchestrator) {
 						++ticks_this_iteration;
 					}
 				}
+			if (publish_scene_snapshots) {
+					const auto publish_time = std::chrono::steady_clock::now();
+					if (publish_time - last_scene_publish >= std::chrono::seconds(1)) {
+						last_scene_publish = publish_time;
+						Relativistic::Orchestrator::SceneDiagnostics::publish(orchestrator);
+					}
+				}
 			} catch (const std::exception& ex) {
 				Relativistic::Core::log_error(std::string("Simulation thread caught an exception and will continue: ") + ex.what());
 			} catch (...) {
@@ -165,6 +196,7 @@ std::jthread start_simulation_thread(SimulationHost& orchestrator) {
 
 int run_headless() {
 	Relativistic::Core::SystemConsole::attach(true);
+	Relativistic::Core::Diagnostics::set_phase(Relativistic::Core::Diagnostics::AppPhase::Headless);
 
 	auto orchestrator = std::make_unique<SimulationHost>();
 	orchestrator->profiler().load_from_disk();
@@ -172,7 +204,7 @@ int run_headless() {
 
 	print_banner();
 
-	std::jthread sim_thread = start_simulation_thread(*orchestrator);
+	std::jthread sim_thread = start_simulation_thread(*orchestrator, true);
 
 	std::cout << "Running in headless mode. Press Ctrl+C or send 'shutdown' to exit.\n";
 	std::string line;
@@ -236,6 +268,12 @@ int run_interactive(const CommandLineOptions& options) {
 			Core::log_warning("The previous session did not terminate cleanly.");
 			progress.report(Stage::Settings, 0.8f, "Loading configuration", "Previous session ended unexpectedly, validating restored state...");
 		}
+		Core::Diagnostics::set_environment("settings.format.version", std::to_string(user_settings->format_version));
+		Core::Diagnostics::set_environment("settings.previous.session.crashed", IO::UserSettings::previous_session_crashed() ? "yes" : "no");
+		Core::Diagnostics::set_environment("settings.session.entries", std::to_string(user_settings->session_values.size()));
+		Core::Diagnostics::set_environment("settings.default.scenario", user_settings->default_scenario_path);
+		Core::Diagnostics::set_environment("settings.load.scenario.on.startup", user_settings->load_scenario_on_startup ? "yes" : "no");
+		Core::Diagnostics::record_milestone("user settings loaded");
 		IO::UserSettings::mark_session_started();
 		session_marked = true;
 		progress.throw_if_cancelled();
@@ -374,6 +412,9 @@ int main(int argc, char* argv[]) {
 	}));
 
 	const CommandLineOptions options = parse_command_line(argc, argv);
+	Relativistic::Core::Diagnostics::set_environment("launch.headless", options.headless ? "yes" : "no");
+	Relativistic::Core::Diagnostics::set_environment("launch.skip.splash", options.skip_splash ? "yes" : "no");
+	Relativistic::Core::Diagnostics::record_milestone(options.headless ? "launch options parsed (headless)" : "launch options parsed (interactive)");
 
 	if (options.show_help || options.show_version) {
 		Relativistic::Core::SystemConsole::attach(true);

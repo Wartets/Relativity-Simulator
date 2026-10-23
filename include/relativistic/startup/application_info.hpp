@@ -3,7 +3,7 @@
 #include <string_view>
 
 #ifndef RELATIVISTIC_VERSION_STRING
-#define RELATIVISTIC_VERSION_STRING "0.4.2.004"
+#define RELATIVISTIC_VERSION_STRING "0.4.2.005"
 #endif
 
 namespace Relativistic::Startup::ApplicationInfo {

@@ -194,6 +194,7 @@ public:
 		ImGui_ImplGlfw_InitForOpenGL(main_window_, true);
 		ImGui_ImplOpenGL3_Init("#version 330");
 		platform_backends_ready_ = true;
+		publish_graphics_environment();
 		report_startup(Startup::StartupStage::GraphicsContext, 1.0f, "Initializing graphics", "Graphics context ready");
 
 		report_startup(Startup::StartupStage::RenderBackend, 0.0f, "Starting render backend", "Creating the ray-tracing viewport and GPU compute pipeline...");
@@ -202,6 +203,9 @@ public:
 			Startup::StartupStage::RenderBackend, 1.0f, "Starting render backend",
 			viewport_window_->pipeline_ref().gpu_compute_available() ? std::string("Vulkan compute offload ready") : std::string("Vulkan compute unavailable, CPU SIMD renderer active")
 		);
+		Core::Diagnostics::set_environment("render.gpu.compute.available", viewport_window_->pipeline_ref().gpu_compute_available() ? "yes" : "no");
+		Core::Diagnostics::set_environment("render.precision", (viewport_window_->pipeline_ref().config().precision == Render::PrecisionMode::NativeFloat64) ? "native float64" : "double-single emulation");
+		Core::Diagnostics::record_milestone("render backend ready");
 		report_startup(Startup::StartupStage::Interface, 0.05f, "Building interface", "Creating the capture studio...");
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
@@ -262,6 +266,10 @@ public:
 			orchestrator_.constants_engine().set_luminous_efficacy(user_settings_.constants_kcd);
 		}
 
+		Core::Diagnostics::set_environment("constants.preset", (user_settings_.constants_preset == 0U) ? "SI" : ((user_settings_.constants_preset == 1U) ? "Planck" : "Custom"));
+		Core::Diagnostics::set_environment("constants.c", std::to_string(orchestrator_.constants_engine().sim_speed_of_light()));
+		Core::Diagnostics::set_environment("constants.g", std::to_string(orchestrator_.constants_engine().sim_gravitational_constant()));
+		Core::Diagnostics::set_environment("units.length.scale.m", std::to_string(orchestrator_.constants_engine().length_scale()));
 		report_startup(Startup::StartupStage::Interface, 0.8f, "Configuring physics", "Applying camera, keybind and HUD configuration...");
 		camera_controller_.config() = user_settings_.camera_controls;
 		keybind_window_.attach_hud_layout(user_settings_.hud_layout);
@@ -462,6 +470,7 @@ public:
 
 	void apply_multi_window_layout_preset(UiLayoutPreset preset) noexcept {
 		current_layout_ = preset;
+		Core::Diagnostics::record_milestone("window layout preset " + std::to_string(static_cast<uint32_t>(preset)) + " requested");
 		pending_layout_reset_ = true;
 	}
 
@@ -632,6 +641,7 @@ public:
 	}
 
 	void shutdown() noexcept {
+		Core::Diagnostics::record_milestone("interface shutdown started");
 		capture_studio_window_.reset();
 		viewport_window_.reset();
 		scenario_window_.reset();
@@ -661,6 +671,76 @@ public:
 	}
 
 private:
+	void publish_graphics_environment() noexcept {
+		try {
+			using Core::Diagnostics::append_format;
+			using Core::Diagnostics::set_environment;
+			const auto gl_text = [](GLenum name) -> std::string {
+				const char* value = reinterpret_cast<const char*>(glGetString(name));
+				return (value != nullptr) ? std::string(value) : std::string("unavailable");
+			};
+			const std::string vendor = gl_text(GL_VENDOR);
+			const std::string renderer = gl_text(GL_RENDERER);
+			const std::string version = gl_text(GL_VERSION);
+			const std::string glsl = gl_text(static_cast<GLenum>(0x8B8C));
+			GLint texture_size = 0;
+			glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texture_size);
+			GLint viewport_dimensions[2]{0, 0};
+			glGetIntegerv(GL_MAX_VIEWPORT_DIMS, viewport_dimensions);
+
+			std::string text;
+			append_format(text, "  OpenGL vendor        %s\n  OpenGL renderer      %s\n  OpenGL version       %s\n  GLSL version         %s\n", vendor.c_str(), renderer.c_str(), version.c_str(), glsl.c_str());
+			append_format(text, "  OpenGL limits        max texture %d, max viewport %dx%d\n", static_cast<int>(texture_size), static_cast<int>(viewport_dimensions[0]), static_cast<int>(viewport_dimensions[1]));
+			append_format(text, "  GLFW                 %s\n", glfwGetVersionString());
+			append_format(text, "  Dear ImGui           %s (docking, multi-viewport)\n", IMGUI_VERSION);
+			append_format(text, "  GL context request   %d.%d core profile %d, forward compatible %d\n", glfwGetWindowAttrib(main_window_, GLFW_CONTEXT_VERSION_MAJOR), glfwGetWindowAttrib(main_window_, GLFW_CONTEXT_VERSION_MINOR), glfwGetWindowAttrib(main_window_, GLFW_OPENGL_PROFILE), glfwGetWindowAttrib(main_window_, GLFW_OPENGL_FORWARD_COMPAT));
+
+			int window_width = 0;
+			int window_height = 0;
+			int framebuffer_width = 0;
+			int framebuffer_height = 0;
+			float scale_x = 1.0f;
+			float scale_y = 1.0f;
+			glfwGetWindowSize(main_window_, &window_width, &window_height);
+			glfwGetFramebufferSize(main_window_, &framebuffer_width, &framebuffer_height);
+			glfwGetWindowContentScale(main_window_, &scale_x, &scale_y);
+			append_format(text, "  Main window          %dx%d, framebuffer %dx%d, content scale %.2fx%.2f, maximized %d\n", window_width, window_height, framebuffer_width, framebuffer_height, static_cast<double>(scale_x), static_cast<double>(scale_y), glfwGetWindowAttrib(main_window_, GLFW_MAXIMIZED));
+
+			int monitor_count = 0;
+			GLFWmonitor** monitors = glfwGetMonitors(&monitor_count);
+			GLFWmonitor* primary = glfwGetPrimaryMonitor();
+			for (int index = 0; index < monitor_count; ++index) {
+				GLFWmonitor* monitor = monitors[index];
+				const char* name = glfwGetMonitorName(monitor);
+				const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+				int physical_width = 0;
+				int physical_height = 0;
+				glfwGetMonitorPhysicalSize(monitor, &physical_width, &physical_height);
+				float monitor_scale_x = 1.0f;
+				float monitor_scale_y = 1.0f;
+				glfwGetMonitorContentScale(monitor, &monitor_scale_x, &monitor_scale_y);
+				int work_x = 0;
+				int work_y = 0;
+				int work_width = 0;
+				int work_height = 0;
+				glfwGetMonitorWorkarea(monitor, &work_x, &work_y, &work_width, &work_height);
+				append_format(text, "  Monitor %d%s          %s: %dx%d @ %d Hz, %d-bit, %dx%d mm, scale %.2fx%.2f, work area %dx%d at (%d,%d)\n", index, (monitor == primary) ? " (primary)" : "", (name != nullptr) ? name : "unnamed", (mode != nullptr) ? mode->width : 0, (mode != nullptr) ? mode->height : 0, (mode != nullptr) ? mode->refreshRate : 0, (mode != nullptr) ? (mode->redBits + mode->greenBits + mode->blueBits) : 0, physical_width, physical_height, static_cast<double>(monitor_scale_x), static_cast<double>(monitor_scale_y), work_width, work_height, work_x, work_y);
+			}
+			Core::Diagnostics::publish_opengl_snapshot(text);
+
+			set_environment("gl.vendor", vendor);
+			set_environment("gl.renderer", renderer);
+			set_environment("gl.version", version);
+			set_environment("gl.glsl.version", glsl);
+			set_environment("gl.max.texture.size", std::to_string(texture_size));
+			set_environment("glfw.version", glfwGetVersionString());
+			set_environment("display.monitor.count", std::to_string(monitor_count));
+			set_environment("window.main.size", std::to_string(window_width) + "x" + std::to_string(window_height) + " (framebuffer " + std::to_string(framebuffer_width) + "x" + std::to_string(framebuffer_height) + ")");
+			Core::Diagnostics::record_milestone("graphics context described: " + renderer);
+		} catch (...) {
+		}
+	}
+
 	void synchronize_analysis_links() noexcept {
 		if (!viewport_window_) {
 			return;
@@ -705,11 +785,13 @@ private:
 	}
 
 	void queue_session_restore() {
+		Core::Diagnostics::set_environment("session.restore.entries", std::to_string(user_settings_.session_values.size()));
 		if (user_settings_.session_values.empty()) {
 			return;
 		}
 		orchestrator_.queue_post_command_action([values = user_settings_.session_values](Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
 			Orchestrator::SessionStateStore::apply(orchestrator, values);
+			Core::Diagnostics::record_milestone("session state restored (" + std::to_string(values.size()) + " entries)");
 		});
 	}
 
@@ -721,6 +803,7 @@ private:
 		const auto startup = IO::ScenarioLocator::resolve_startup_scenario(user_settings_.default_scenario_path);
 		if (!startup.has_value()) {
 			Core::log_error("No valid startup scenario could be located; the simulation starts empty.");
+			Core::Diagnostics::set_environment("scenario.requested", "none located");
 			return;
 		}
 
@@ -730,6 +813,9 @@ private:
 			user_settings_.default_scenario_path = std::string(IO::ScenarioLocator::kBuiltInStartupScenario);
 		}
 
+		Core::Diagnostics::set_environment("scenario.requested", startup->path);
+		Core::Diagnostics::set_environment("scenario.requested.fallback", startup->used_fallback ? "yes" : "no");
+		Core::Diagnostics::record_milestone("startup scenario queued: " + startup->path + (startup->used_fallback ? " (fallback)" : ""));
 		report_startup(Startup::StartupStage::Content, 0.2f, "Loading content", "Loading scenario " + startup->path + "...");
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(startup->path)));
 	}

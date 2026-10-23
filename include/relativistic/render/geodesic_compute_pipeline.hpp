@@ -402,6 +402,7 @@ private:
 				telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !current_bodies.empty();
 				telemetry_.bodies_sent_this_frame = static_cast<uint32_t>(current_bodies.size());
 				telemetry_.bodies_total_enabled_this_frame = pending_total_enabled_bodies_.load(std::memory_order_relaxed);
+				Core::Diagnostics::count_render_frame();
 				new_frame_ready_.store(true, std::memory_order_release);
 				is_rendering_.store(false, std::memory_order_relaxed);
 			}

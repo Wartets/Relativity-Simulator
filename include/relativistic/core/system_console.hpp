@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include "relativistic/core/engine_log.hpp"
 
 #if defined(_WIN32)
@@ -56,6 +57,9 @@ public:
 			created = true;
 		}
 		if (!acquired) {
+			Diagnostics::set_environment("console.attached", "no");
+			Diagnostics::set_environment("console.acquire.error", std::to_string(static_cast<unsigned long>(GetLastError())));
+			Diagnostics::record_milestone("system console could not be acquired");
 			return false;
 		}
 
@@ -76,6 +80,12 @@ public:
 
 		owned_.store(created, std::memory_order_release);
 		attached_.store(true, std::memory_order_release);
+		Diagnostics::set_environment("console.attached", "yes");
+		Diagnostics::set_environment("console.owned", created ? "yes" : "no");
+		Diagnostics::set_environment("console.stdin.redirected", input_redirected ? "yes" : "no");
+		Diagnostics::set_environment("console.stdout.redirected", output_redirected ? "yes" : "no");
+		Diagnostics::set_environment("console.stderr.redirected", error_redirected ? "yes" : "no");
+		Diagnostics::record_milestone(created ? "system console window allocated" : "system console attached to an existing or parent console");
 
 		if (created) {
 			SetConsoleOutputCP(CP_UTF8);
@@ -115,6 +125,7 @@ public:
 		const HWND console_window = GetConsoleWindow();
 		if (console_window != nullptr) {
 			ShowWindow(console_window, visible ? SW_SHOW : SW_HIDE);
+			Diagnostics::record_milestone(visible ? "system console shown" : "system console hidden");
 		}
 #else
 		static_cast<void>(visible);

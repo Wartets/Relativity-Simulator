@@ -32,9 +32,9 @@ namespace Relativistic::Core::Diagnostics {
 
 inline constexpr size_t kEventLineCapacity = 320;
 inline constexpr size_t kEventRingSize = 512;
-inline constexpr size_t kEnvironmentEntryCount = 96;
+inline constexpr size_t kEnvironmentEntryCount = 256;
 inline constexpr size_t kEnvironmentKeyCapacity = 48;
-inline constexpr size_t kEnvironmentValueCapacity = 256;
+inline constexpr size_t kEnvironmentValueCapacity = 512;
 inline constexpr size_t kActivitySlotCount = 64;
 inline constexpr size_t kActivityLabelCapacity = 96;
 inline constexpr size_t kThreadNameCapacity = 32;
@@ -172,6 +172,23 @@ struct SnapshotBuffer {
 	std::atomic<bool> published{false};
 };
 
+template <size_t Slots, size_t Capacity>
+struct TextRing {
+	static_assert(Capacity > 64, "Ring slots must be larger than the line prefix");
+
+	struct Slot {
+		std::atomic<uint64_t> sequence{0};
+		std::array<char, Capacity> text{};
+	};
+
+	std::array<Slot, Slots> slots{};
+	std::atomic<uint64_t> cursor{0};
+};
+
+using CommandRing = TextRing<256, 384>;
+using ProblemRing = TextRing<128, 448>;
+using MilestoneRing = TextRing<192, 320>;
+
 struct Registry {
 	std::array<EventSlot, kEventRingSize> events{};
 	std::atomic<uint64_t> event_cursor{0};
@@ -181,10 +198,24 @@ struct Registry {
 	SnapshotBuffer scene{};
 	SnapshotBuffer render{};
 	SnapshotBuffer startup{};
+	SnapshotBuffer vulkan{};
+	SnapshotBuffer opengl{};
+	CommandRing commands{};
+	ProblemRing problems{};
+	MilestoneRing milestones{};
 	std::atomic<uint32_t> phase{0};
 	std::atomic<int64_t> process_start_ns{0};
 	std::atomic<uint64_t> frame_counter{0};
 	std::atomic<uint64_t> command_counter{0};
+	std::atomic<uint64_t> dropped_command_counter{0};
+	std::atomic<uint64_t> simulation_heartbeat{0};
+	std::atomic<int64_t> simulation_heartbeat_ns{0};
+	std::atomic<int64_t> last_frame_ns{0};
+	std::atomic<uint64_t> render_frame_counter{0};
+	std::atomic<uint64_t> warning_counter{0};
+	std::atomic<uint64_t> error_counter{0};
+	std::atomic<uint64_t> ui_thread_id{0};
+	std::atomic<uint64_t> simulation_thread_id{0};
 };
 
 inline Registry g_registry{};
@@ -201,8 +232,63 @@ inline void initialize_registry() noexcept {
 	return static_cast<double>(monotonic_nanoseconds() - start) * 1.0e-9;
 }
 
+template <size_t Slots, size_t Capacity>
+inline void ring_push(TextRing<Slots, Capacity>& ring, std::string_view text) noexcept {
+	const uint64_t index = ring.cursor.fetch_add(1, std::memory_order_acq_rel);
+	auto& slot = ring.slots[static_cast<size_t>(index % Slots)];
+	const size_t limit = Capacity - 48;
+	const int length = static_cast<int>((text.size() < limit) ? text.size() : limit);
+	char line[Capacity];
+	std::snprintf(line, sizeof(line), "[%10.3f] [T%05llu] %.*s", uptime_seconds(), static_cast<unsigned long long>(current_thread_id()), length, text.data());
+	for (char& character : line) {
+		if (character == '\0') {
+			break;
+		}
+		if (character == '\n' || character == '\r') {
+			character = ' ';
+		}
+	}
+	copy_text(slot.text.data(), Capacity, line);
+	slot.sequence.store(index + 1, std::memory_order_release);
+}
+
+template <size_t Slots, size_t Capacity>
+inline size_t ring_write(std::FILE* out, const TextRing<Slots, Capacity>& ring, size_t maximum) noexcept {
+	const uint64_t cursor = ring.cursor.load(std::memory_order_acquire);
+	uint64_t first = (cursor > Slots) ? (cursor - Slots) : 0;
+	if (cursor - first > maximum) {
+		first = cursor - maximum;
+	}
+	size_t written = 0;
+	for (uint64_t index = first; index < cursor; ++index) {
+		const auto& slot = ring.slots[static_cast<size_t>(index % Slots)];
+		if (slot.sequence.load(std::memory_order_acquire) != index + 1) {
+			continue;
+		}
+		std::fprintf(out, "  %s\n", slot.text.data());
+		++written;
+	}
+	return written;
+}
+
+inline void record_command(std::string_view text) noexcept {
+	ring_push(g_registry.commands, text);
+}
+
+inline void record_problem(bool is_error, std::string_view text) noexcept {
+	(is_error ? g_registry.error_counter : g_registry.warning_counter).fetch_add(1, std::memory_order_relaxed);
+	ring_push(g_registry.problems, text);
+}
+
+inline void record_milestone(std::string_view text) noexcept {
+	ring_push(g_registry.milestones, text);
+}
+
 inline void set_phase(AppPhase phase) noexcept {
 	g_registry.phase.store(static_cast<uint32_t>(phase), std::memory_order_release);
+	char text[96];
+	std::snprintf(text, sizeof(text), "application phase changed to %s", app_phase_name(phase));
+	record_milestone(text);
 }
 
 [[nodiscard]] inline AppPhase current_phase() noexcept {
@@ -211,10 +297,24 @@ inline void set_phase(AppPhase phase) noexcept {
 
 inline void count_frame() noexcept {
 	g_registry.frame_counter.fetch_add(1, std::memory_order_relaxed);
+	g_registry.last_frame_ns.store(monotonic_nanoseconds(), std::memory_order_relaxed);
 }
 
 inline void count_command() noexcept {
 	g_registry.command_counter.fetch_add(1, std::memory_order_relaxed);
+}
+
+inline void count_dropped_command() noexcept {
+	g_registry.dropped_command_counter.fetch_add(1, std::memory_order_relaxed);
+}
+
+inline void count_simulation_heartbeat() noexcept {
+	g_registry.simulation_heartbeat.fetch_add(1, std::memory_order_relaxed);
+	g_registry.simulation_heartbeat_ns.store(monotonic_nanoseconds(), std::memory_order_relaxed);
+}
+
+inline void count_render_frame() noexcept {
+	g_registry.render_frame_counter.fetch_add(1, std::memory_order_relaxed);
 }
 
 inline void record_event(std::string_view text) noexcept {
@@ -272,6 +372,20 @@ inline void set_environment(std::string_view key, std::string_view value) noexce
 	copy_text(target->key.data(), kEnvironmentKeyCapacity, key);
 	copy_text(target->value.data(), kEnvironmentValueCapacity, value);
 	target->used.store(true, std::memory_order_release);
+}
+
+inline bool copy_environment_value(std::string_view key, char* destination, size_t capacity) noexcept {
+	if (capacity == 0) {
+		return false;
+	}
+	for (const EnvironmentEntry& entry : g_registry.environment) {
+		if (entry.used.load(std::memory_order_acquire) && key == std::string_view(entry.key.data())) {
+			copy_text(destination, capacity, entry.value.data());
+			return true;
+		}
+	}
+	destination[0] = '\0';
+	return false;
 }
 
 inline void write_environment(std::FILE* out) noexcept {
@@ -335,6 +449,16 @@ inline void set_activity(std::string_view label) noexcept {
 		copy_text(slot->label.data(), kActivityLabelCapacity, label);
 		slot->since_ns.store(monotonic_nanoseconds(), std::memory_order_relaxed);
 	}
+}
+
+inline void register_ui_thread() noexcept {
+	g_registry.ui_thread_id.store(current_thread_id(), std::memory_order_release);
+	set_thread_name("main");
+}
+
+inline void register_simulation_thread() noexcept {
+	g_registry.simulation_thread_id.store(current_thread_id(), std::memory_order_release);
+	set_thread_name("simulation");
 }
 
 class ActivityScope {
@@ -411,6 +535,14 @@ inline void publish_render_snapshot(std::string_view text) noexcept {
 
 inline void publish_startup_snapshot(std::string_view text) noexcept {
 	publish_snapshot(g_registry.startup, text);
+}
+
+inline void publish_vulkan_snapshot(std::string_view text) noexcept {
+	publish_snapshot(g_registry.vulkan, text);
+}
+
+inline void publish_opengl_snapshot(std::string_view text) noexcept {
+	publish_snapshot(g_registry.opengl, text);
 }
 
 inline void write_snapshot(std::FILE* out, const SnapshotBuffer& buffer, const char* empty_message) noexcept {

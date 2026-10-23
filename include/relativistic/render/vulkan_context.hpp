@@ -4,6 +4,7 @@
 #include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include <cstdio>
 #include "relativistic/startup/startup_progress.hpp"
+#include "relativistic/render/vulkan_device_report.hpp"
 #include <vulkan/vulkan.h>
 #include <cstdint>
 #include <cstddef>
@@ -56,8 +57,12 @@ private:
 		instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		instance_info.pApplicationInfo = &app_info;
 
-		if (vkCreateInstance(&instance_info, nullptr, &instance_) != VK_SUCCESS) {
-			Core::log_warning("Vulkan instance creation failed; no GPU compute path will be available.");
+		const VkResult instance_result = vkCreateInstance(&instance_info, nullptr, &instance_);
+		if (instance_result != VK_SUCCESS) {
+			Core::log_warning("Vulkan instance creation failed (VkResult " + std::to_string(static_cast<int>(instance_result)) + "); no GPU compute path will be available.");
+			Core::Diagnostics::set_environment("gpu.instance.error", std::to_string(static_cast<int>(instance_result)));
+			Core::Diagnostics::publish_vulkan_snapshot("  Vulkan instance creation failed with VkResult " + std::to_string(static_cast<int>(instance_result)) + ". The loader or driver may be missing or incompatible.\n");
+			instance_ = VK_NULL_HANDLE;
 			return false;
 		}
 
@@ -132,6 +137,8 @@ private:
 
 		if (physical_device_ == VK_NULL_HANDLE) {
 			Core::log_warning("No Vulkan device satisfies the compute requirements (compute queue, scalar block layout and optional FP64).");
+			Core::Diagnostics::set_environment("gpu.device", "none selected");
+			VulkanDeviceReport::publish(instance_, VK_NULL_HANDLE);
 			return false;
 		}
 
@@ -150,6 +157,8 @@ private:
 			Core::Diagnostics::set_environment("gpu.identity", summary);
 			Core::Diagnostics::set_environment("gpu.max.image.dimension", std::to_string(selected_properties.limits.maxImageDimension2D));
 		}
+
+		VulkanDeviceReport::publish(instance_, physical_device_);
 
 		const float queue_priority = 1.0f;
 		VkDeviceQueueCreateInfo queue_info{};
@@ -174,8 +183,10 @@ private:
 		device_ci.pQueueCreateInfos = &queue_info;
 		device_ci.pEnabledFeatures = &enabled_features;
 
-		if (vkCreateDevice(physical_device_, &device_ci, nullptr, &device_) != VK_SUCCESS) {
-			Core::log_error("Vulkan logical device creation failed for the selected compute device.");
+		const VkResult device_result = vkCreateDevice(physical_device_, &device_ci, nullptr, &device_);
+		if (device_result != VK_SUCCESS) {
+			Core::log_error("Vulkan logical device creation failed for the selected compute device (VkResult " + std::to_string(static_cast<int>(device_result)) + ").");
+			Core::Diagnostics::set_environment("gpu.device.creation.error", std::to_string(static_cast<int>(device_result)));
 			return false;
 		}
 

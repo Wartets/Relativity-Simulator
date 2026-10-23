@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 
 namespace Relativistic::Core {
 
@@ -37,6 +38,9 @@ private:
 	std::FILE* session_file_{nullptr};
 	std::string session_path_{};
 	std::time_t start_wall_{std::time(nullptr)};
+	uint64_t session_bytes_{0};
+	bool truncation_noted_{false};
+	static constexpr uint64_t kMaxSessionBytes = 96ULL * 1024ULL * 1024ULL;
 	std::atomic<EventSink> event_sink_{nullptr};
 	static inline std::atomic<uint32_t> thread_counter_{1};
 
@@ -60,7 +64,19 @@ private:
 		if (const std::tm* local = std::localtime(&wall)) {
 			std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", local);
 		}
-		std::fprintf(session_file_, "[%s] [%9.3fs] [T%02u] [%s] %.*s\n", stamp, uptime, thread, tag, static_cast<int>(message.size()), message.data());
+		if (session_bytes_ >= kMaxSessionBytes && tag[0] == 'T') {
+			return;
+		}
+		const Diagnostics::ActivitySlot* slot = (thread != 0U) ? Diagnostics::current_activity_slot() : nullptr;
+		const char* thread_name = (slot != nullptr && slot->thread_name[0] != '\0') ? slot->thread_name.data() : "-";
+		const int written = std::fprintf(session_file_, "[%s] [%9.3fs] [T%02u:%s] [%s] %.*s\n", stamp, uptime, thread, thread_name, tag, static_cast<int>(message.size()), message.data());
+		if (written > 0) {
+			session_bytes_ += static_cast<uint64_t>(written);
+		}
+		if (session_bytes_ >= kMaxSessionBytes && !truncation_noted_) {
+			truncation_noted_ = true;
+			std::fprintf(session_file_, "[%s] [%9.3fs] [T00:-] [WARN ] Session log size limit reached; trace lines are no longer written.\n", stamp, uptime);
+		}
 		std::fflush(session_file_);
 	}
 
@@ -118,6 +134,8 @@ public:
 		}
 		session_file_ = file;
 		session_path_ = path;
+		session_bytes_ = 0;
+		truncation_noted_ = false;
 		for (const LogEntry& entry : entries_) {
 			write_session_line(tag_for(entry.level), entry.timestamp_seconds, 0U, entry.message);
 		}

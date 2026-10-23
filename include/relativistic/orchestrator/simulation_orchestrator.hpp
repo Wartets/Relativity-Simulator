@@ -452,6 +452,7 @@ private:
 		}
 
 		if (primary_absorbed_any || sources_changed) {
+			Core::Diagnostics::record_milestone(std::string("horizon absorption or merger event (primary absorbed: ") + (primary_absorbed_any ? "yes" : "no") + ", sources changed: " + (sources_changed ? "yes" : "no") + ", central mass now " + std::to_string(params_.mass) + ")");
 			std::vector<Dynamics::PostNewtonianBody> survivors;
 			survivors.reserve(bodies_copy.size());
 			for (auto& b : bodies_copy) {
@@ -569,12 +570,23 @@ public:
 
 	[[nodiscard]] bool enqueue_command(const Command& cmd) noexcept {
 		std::lock_guard<std::mutex> lock(command_producer_mutex_);
-		return command_queue_.try_push(cmd);
+		const bool pushed = command_queue_.try_push(cmd);
+		if (!pushed) {
+			Core::Diagnostics::count_dropped_command();
+			Core::Diagnostics::record_command(std::string("DROPPED (queue full): ") + command_type_name(cmd.type));
+		}
+		return pushed;
 	}
 
 	[[nodiscard]] bool enqueue_command(Command&& cmd) noexcept {
 		std::lock_guard<std::mutex> lock(command_producer_mutex_);
-		return command_queue_.try_push(std::move(cmd));
+		const CommandType dropped_type = cmd.type;
+		const bool pushed = command_queue_.try_push(std::move(cmd));
+		if (!pushed) {
+			Core::Diagnostics::count_dropped_command();
+			Core::Diagnostics::record_command(std::string("DROPPED (queue full): ") + command_type_name(dropped_type));
+		}
+		return pushed;
 	}
 
 	[[nodiscard]] bool poll_result(CommandResult& res) noexcept {
@@ -786,6 +798,12 @@ public:
 			Core::log_warning(std::string("Command rejected: ") + res.message);
 		}
 
+		{
+			char journal[352];
+			std::snprintf(journal, sizeof(journal), "%s param=%u value=%.9g steps=%llu name='%.32s' payload='%.96s' tick=%llu -> %s (%.80s)", command_type_name(cmd.type), static_cast<unsigned>(cmd.param_type), cmd.numeric_value, static_cast<unsigned long long>(cmd.step_count), cmd.custom_param_name, cmd.text_payload, static_cast<unsigned long long>(scheduler_.current_tick()), res.success ? "ok" : "REJECTED", res.message);
+			Core::Diagnostics::record_command(journal);
+		}
+
 		if (res.success && command_marks_custom_performance_preset(cmd)) {
 			params_.performance_preset = CUSTOM_PERFORMANCE_PRESET;
 		}
@@ -940,6 +958,7 @@ public:
 			res.success = false;
 			std::strncpy(res.message, "Failed to open scenario file", sizeof(res.message) - 1);
 			Core::log_error(std::string("Failed to open scenario file: ") + filepath);
+			Core::Diagnostics::set_environment("scenario.last.failure", std::string("cannot open ") + filepath);
 			return;
 		}
 		std::stringstream buffer;
@@ -950,6 +969,7 @@ public:
 			res.success = false;
 			std::strncpy(res.message, "Failed to parse scenario YAML", sizeof(res.message) - 1);
 			Core::log_error(std::string("Failed to parse scenario YAML: ") + filepath);
+			Core::Diagnostics::set_environment("scenario.last.failure", std::string("cannot parse ") + filepath);
 			return;
 		}
 
@@ -959,6 +979,7 @@ public:
 			res.success = false;
 			std::strncpy(res.message, val_res.error_message.c_str(), sizeof(res.message) - 1);
 			Core::log_warning(std::string("Scenario validation failed: ") + val_res.error_message);
+			Core::Diagnostics::set_environment("scenario.last.failure", std::string("validation failed for ") + filepath + ": " + val_res.error_message);
 			return;
 		}
 		active_scenario_name_ = s.scenario_name;
@@ -1063,6 +1084,13 @@ public:
 		state_version_.fetch_add(1, std::memory_order_release);
 		res.success = true;
 		std::strncpy(res.message, "Scenario loaded successfully", sizeof(res.message) - 1);
+		Core::Diagnostics::set_environment("scenario.name", active_scenario_name_);
+		Core::Diagnostics::set_environment("scenario.path", active_scenario_path_);
+		Core::Diagnostics::set_environment("scenario.metric", active_metric_name_);
+		Core::Diagnostics::set_environment("scenario.integrator", active_integrator_name_);
+		Core::Diagnostics::set_environment("scenario.bodies", std::to_string(s.bodies.size()));
+		Core::Diagnostics::set_environment("scenario.last.failure", "none");
+		Core::Diagnostics::record_milestone("scenario loaded: " + active_scenario_name_ + " (" + active_scenario_path_ + ")");
 		Core::log_info("Scenario loaded: " + active_scenario_name_ + " (metric " + active_metric_name_ + ", " + std::to_string(s.bodies.size()) + " bodies, path " + active_scenario_path_ + ")");
 	}
 
@@ -1176,6 +1204,7 @@ public:
 		out << yaml_str;
 		res.success = true;
 		std::strncpy(res.message, "Scenario saved successfully", sizeof(res.message) - 1);
+		Core::Diagnostics::record_milestone(std::string("scenario saved: ") + filepath);
 	}
 
 	void set_physical_param(ParameterType param, double val, const char* custom_name = nullptr) noexcept {

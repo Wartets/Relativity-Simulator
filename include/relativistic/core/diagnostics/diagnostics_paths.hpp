@@ -113,10 +113,19 @@ private:
 		if (entries.size() <= retained) {
 			return;
 		}
-		std::sort(entries.begin(), entries.end());
-		const size_t excess = entries.size() - retained;
+		std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> dated;
+		dated.reserve(entries.size());
+		for (const std::filesystem::path& entry : entries) {
+			const auto modified = std::filesystem::last_write_time(entry, ec);
+			dated.emplace_back(ec ? std::filesystem::file_time_type::min() : modified, entry);
+			ec.clear();
+		}
+		std::sort(dated.begin(), dated.end(), [](const auto& left, const auto& right) {
+			return left.first < right.first;
+		});
+		const size_t excess = dated.size() - retained;
 		for (size_t index = 0; index < excess; ++index) {
-			std::filesystem::remove_all(entries[index], ec);
+			std::filesystem::remove_all(dated[index].second, ec);
 		}
 	}
 };

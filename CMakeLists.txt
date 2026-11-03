@@ -121,9 +121,41 @@ option(ENGINE_ENABLE_DISTRIBUTED "Build Relativistic Engine with distributed clu
 
 if (ENGINE_ENABLE_DISTRIBUTED)
 	target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_DISTRIBUTED_COMPUTE=1)
+	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+	FetchContent_Declare(
+		lz4
+		GIT_REPOSITORY https://github.com/lz4/lz4.git
+		GIT_TAG v1.9.4
+		SOURCE_SUBDIR build/cmake
+		GIT_SHALLOW TRUE
+	)
+	set(LZ4_BUILD_CLI OFF CACHE BOOL "" FORCE)
+	set(LZ4_BUILD_LEGACY_LZ4C OFF CACHE BOOL "" FORCE)
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+	set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+	FetchContent_MakeAvailable(lz4)
+
+	FetchContent_Declare(
+		enet
+		GIT_REPOSITORY https://github.com/lsalzman/enet.git
+		GIT_TAG v1.3.18
+		GIT_SHALLOW TRUE
+	)
+	FetchContent_MakeAvailable(enet)
+
+	target_include_directories(relativistic_core SYSTEM INTERFACE
+		${lz4_SOURCE_DIR}/lib
+		${enet_SOURCE_DIR}/include
+	)
+	target_link_libraries(relativistic_core INTERFACE lz4_static enet)
+
 	target_sources(relativistic_core INTERFACE
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/packet_protocol.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/crypto_channel.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/compression_codecs.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/task_payloads.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/network_transport.cpp
 	)
 endif()
 

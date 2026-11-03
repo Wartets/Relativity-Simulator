@@ -93,9 +93,19 @@ void x25519_mul(uint32_t* out, const uint32_t* a, const uint32_t* b) noexcept {
 		product[i + 1] += product[i] >> 32;
 		product[i] &= 0xFFFFFFFFULL;
 	}
-	product[0] += (product[8] * 38);
-	product[1] += product[0] >> 32;
-	product[0] &= 0xFFFFFFFFULL;
+	uint64_t carry = product[8] * 38;
+	product[0] += carry;
+	for (size_t i = 0; i < 8; ++i) {
+		product[i + 1] += product[i] >> 32;
+		product[i] &= 0xFFFFFFFFULL;
+	}
+	carry = (product[7] >> 31) * 19;
+	product[7] &= 0x7FFFFFFFULL;
+	product[0] += carry;
+	for (size_t i = 0; i < 8; ++i) {
+		product[i + 1] += product[i] >> 32;
+		product[i] &= 0xFFFFFFFFULL;
+	}
 	for (size_t i = 0; i < 8; ++i) {
 		out[i] = static_cast<uint32_t>(product[i]);
 	}
@@ -180,6 +190,19 @@ void x25519_scalarmult(uint8_t* out, const uint8_t* scalar, const uint8_t* point
 	x25519_inv(inv_z2, z2);
 	uint32_t res[8];
 	x25519_mul(res, x2, inv_z2);
+
+	uint32_t res_copy[8];
+	uint64_t carry = 19;
+	for (size_t i = 0; i < 8; ++i) {
+		carry += res[i];
+		res_copy[i] = static_cast<uint32_t>(carry);
+		carry >>= 32;
+	}
+	uint32_t mask = (res_copy[7] >> 31) ? 0xFFFFFFFF : 0x00000000;
+	res_copy[7] &= 0x7FFFFFFF;
+	for (size_t i = 0; i < 8; ++i) {
+		res[i] = (res_copy[i] & mask) | (res[i] & ~mask);
+	}
 
 	for (size_t i = 0; i < 8; ++i) store32_le(out + i * 4, res[i]);
 }
@@ -390,7 +413,7 @@ void CryptoChannel::poly1305_generate_tag(
 	auto process_blocks = [&](std::span<const uint8_t> data) {
 		size_t offset = 0;
 		while (offset < data.size()) {
-			uint8_t block[16] = {0};
+			uint8_t block[17] = {0};
 			const size_t len = std::min<size_t>(16, data.size() - offset);
 			std::memcpy(block, data.data() + offset, len);
 			block[len] = 1;
@@ -399,7 +422,7 @@ void CryptoChannel::poly1305_generate_tag(
 			h1 += (load32_le(block + 3) >> 2) & 0x3FFFFFF;
 			h2 += (load32_le(block + 6) >> 4) & 0x3FFFFFF;
 			h3 += (load32_le(block + 9) >> 6) & 0x3FFFFFF;
-			h4 += (load32_le(block + 12) >> 8) | (block[16] << 16);
+			h4 += (load32_le(block + 12) >> 8) | (static_cast<uint32_t>(block[16]) << 16);
 
 			uint64_t d0 = static_cast<uint64_t>(h0) * r0 + static_cast<uint64_t>(h1) * s4 + static_cast<uint64_t>(h2) * s3 + static_cast<uint64_t>(h3) * s2 + static_cast<uint64_t>(h4) * s1;
 			uint64_t d1 = static_cast<uint64_t>(h0) * r1 + static_cast<uint64_t>(h1) * r0 + static_cast<uint64_t>(h2) * s4 + static_cast<uint64_t>(h3) * s3 + static_cast<uint64_t>(h4) * s2;

@@ -232,6 +232,7 @@ Relativity-Simulator/
 │   │   │   ├── carter_constant.md
 │   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.md
+│   │   │   ├── cluster_crypto_protocol.md
 │   │   │   ├── concurrent_command_injection.md
 │   │   │   ├── covariance_propagation.md
 │   │   │   ├── dark_matter_field.md
@@ -378,6 +379,13 @@ Relativity-Simulator/
 │       │   ├── dark_matter_field.hpp
 │       │   ├── dark_matter_profiles.hpp
 │       │   └── galaxy_model.hpp
+│       │
+│       ├── distributed/
+│       │   ├── compression_codecs.hpp
+│       │   ├── crypto_channel.hpp
+│       │   ├── network_transport.hpp
+│       │   ├── packet_protocol.hpp
+│       │   └── task_payloads.hpp
 │       │
 │       ├── dynamics/
 │       │   ├── pn/
@@ -705,6 +713,15 @@ Relativity-Simulator/
 │   ├── spacetime_spherical_tracer.glsl
 │   └── spacetime_teves_metric.glsl
 │
+├── src/
+│   └── distributed/
+│       ├── compression_codecs.cpp
+│       ├── crypto_channel.cpp
+│       ├── network_transport.cpp
+│       ├── packet_protocol.cpp
+│       └── task_payloads.cpp
+│   
+│
 ├── tests/
 │   ├── support/
 │   │   ├── engine_scenario.hpp
@@ -720,6 +737,7 @@ Relativity-Simulator/
 │   ├── test_carter_constant.cpp
 │   ├── test_christoffel_solver.cpp
 │   ├── test_cie_spectral_pipeline.cpp
+│   ├── test_cluster_crypto_protocol.cpp
 │   ├── test_concurrent_command_injection.cpp
 │   ├── test_covariance_propagation.cpp
 │   ├── test_dark_matter_field.cpp

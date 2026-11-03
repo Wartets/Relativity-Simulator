@@ -33,178 +33,170 @@ void chacha_quarter_round(uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d) no
 	c += d; b ^= c; b = rotl32(b, 7);
 }
 
-void x25519_cswap(uint32_t swap, uint32_t* a, uint32_t* b) noexcept {
-	uint32_t mask = 0 - swap;
-	for (size_t i = 0; i < 8; ++i) {
-		uint32_t dummy = mask & (a[i] ^ b[i]);
-		a[i] ^= dummy;
-		b[i] ^= dummy;
+constexpr size_t kFieldLimbs = 16;
+
+void x25519_carry(int64_t* value) noexcept {
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		value[i] += (int64_t{1} << 16);
+		const int64_t carry = value[i] >> 16;
+		if (i + 1U < kFieldLimbs) {
+			value[i + 1U] += carry - 1;
+		} else {
+			value[0] += 38 * (carry - 1);
+		}
+		value[i] -= carry * (int64_t{1} << 16);
 	}
 }
 
-void x25519_add(uint32_t* out, const uint32_t* a, const uint32_t* b) noexcept {
-	uint64_t carry = 0;
-	for (size_t i = 0; i < 8; ++i) {
-		carry += static_cast<uint64_t>(a[i]) + b[i];
-		out[i] = static_cast<uint32_t>(carry);
-		carry >>= 32;
-	}
-	carry = (carry * 38) + out[0];
-	out[0] = static_cast<uint32_t>(carry);
-	carry >>= 32;
-	for (size_t i = 1; i < 8 && carry > 0; ++i) {
-		carry += out[i];
-		out[i] = static_cast<uint32_t>(carry);
-		carry >>= 32;
+void x25519_select(int64_t* p, int64_t* q, int64_t bit) noexcept {
+	const int64_t mask = ~(bit - 1);
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		const int64_t delta = mask & (p[i] ^ q[i]);
+		p[i] ^= delta;
+		q[i] ^= delta;
 	}
 }
 
-void x25519_sub(uint32_t* out, const uint32_t* a, const uint32_t* b) noexcept {
-	uint64_t borrow = 0;
-	for (size_t i = 0; i < 8; ++i) {
-		borrow = static_cast<uint64_t>(a[i]) - b[i] - ((borrow >> 63) & 1);
-		out[i] = static_cast<uint32_t>(borrow);
+void x25519_pack(uint8_t* out, const int64_t* in) noexcept {
+	int64_t t[kFieldLimbs];
+	int64_t m[kFieldLimbs];
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		t[i] = in[i];
 	}
-	uint64_t carry = static_cast<uint64_t>(out[0]) - (((borrow >> 63) & 1) * 38);
-	out[0] = static_cast<uint32_t>(carry);
-	carry = (carry >> 63) & 1;
-	for (size_t i = 1; i < 8 && carry > 0; ++i) {
-		carry = static_cast<uint64_t>(out[i]) - carry;
-		out[i] = static_cast<uint32_t>(carry);
-		carry = (carry >> 63) & 1;
+	x25519_carry(t);
+	x25519_carry(t);
+	x25519_carry(t);
+	for (int round = 0; round < 2; ++round) {
+		m[0] = t[0] - 0xffed;
+		for (size_t i = 1; i < 15; ++i) {
+			m[i] = t[i] - 0xffff - ((m[i - 1] >> 16) & 1);
+			m[i - 1] &= 0xffff;
+		}
+		m[15] = t[15] - 0x7fff - ((m[14] >> 16) & 1);
+		const int64_t borrow = (m[15] >> 16) & 1;
+		m[14] &= 0xffff;
+		x25519_select(t, m, 1 - borrow);
+	}
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[2 * i] = static_cast<uint8_t>(t[i] & 0xff);
+		out[2 * i + 1] = static_cast<uint8_t>((t[i] >> 8) & 0xff);
 	}
 }
 
-void x25519_mul(uint32_t* out, const uint32_t* a, const uint32_t* b) noexcept {
-	uint64_t product[16] = {0};
-	for (size_t i = 0; i < 8; ++i) {
-		for (size_t j = 0; j < 8; ++j) {
-			product[i + j] += static_cast<uint64_t>(a[i]) * b[j];
+void x25519_unpack(int64_t* out, const uint8_t* in) noexcept {
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[i] = static_cast<int64_t>(in[2 * i]) + (static_cast<int64_t>(in[2 * i + 1]) << 8);
+	}
+	out[15] &= 0x7fff;
+}
+
+void x25519_add(int64_t* out, const int64_t* a, const int64_t* b) noexcept {
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[i] = a[i] + b[i];
+	}
+}
+
+void x25519_sub(int64_t* out, const int64_t* a, const int64_t* b) noexcept {
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[i] = a[i] - b[i];
+	}
+}
+
+void x25519_mul(int64_t* out, const int64_t* a, const int64_t* b) noexcept {
+	int64_t product[2 * kFieldLimbs - 1] = {0};
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		for (size_t j = 0; j < kFieldLimbs; ++j) {
+			product[i + j] += a[i] * b[j];
 		}
 	}
-	for (size_t i = 0; i < 15; ++i) {
-		product[i + 1] += product[i] >> 32;
-		product[i] &= 0xFFFFFFFFULL;
+	for (size_t i = 0; i + 1U < kFieldLimbs; ++i) {
+		product[i] += 38 * product[i + kFieldLimbs];
 	}
-	for (size_t i = 0; i < 8; ++i) {
-		product[i] += product[i + 8] * 38;
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[i] = product[i];
 	}
-	for (size_t i = 0; i < 8; ++i) {
-		product[i + 1] += product[i] >> 32;
-		product[i] &= 0xFFFFFFFFULL;
-	}
-	uint64_t carry = product[8] * 38;
-	product[0] += carry;
-	for (size_t i = 0; i < 8; ++i) {
-		product[i + 1] += product[i] >> 32;
-		product[i] &= 0xFFFFFFFFULL;
-	}
-	carry = (product[7] >> 31) * 19;
-	product[7] &= 0x7FFFFFFFULL;
-	product[0] += carry;
-	for (size_t i = 0; i < 8; ++i) {
-		product[i + 1] += product[i] >> 32;
-		product[i] &= 0xFFFFFFFFULL;
-	}
-	for (size_t i = 0; i < 8; ++i) {
-		out[i] = static_cast<uint32_t>(product[i]);
-	}
+	x25519_carry(out);
+	x25519_carry(out);
 }
 
-void x25519_sqr(uint32_t* out, const uint32_t* a) noexcept {
+void x25519_sqr(int64_t* out, const int64_t* a) noexcept {
 	x25519_mul(out, a, a);
 }
 
-void x25519_inv(uint32_t* out, const uint32_t* a) noexcept {
-	uint32_t t1[8], t2[8], t3[8];
-	x25519_sqr(t1, a);
-	x25519_sqr(t2, t1);
-	x25519_mul(t2, t2, a);
-	x25519_mul(t1, t1, t2);
-	x25519_sqr(t3, t1);
-	x25519_mul(t3, t3, t2);
-	for (int i = 0; i < 4; ++i) x25519_sqr(t3, t3);
-	x25519_mul(t3, t3, t1);
-	for (int i = 0; i < 5; ++i) x25519_sqr(t1, t1);
-	for (int i = 0; i < 5; ++i) x25519_sqr(t3, t3);
-	for (int i = 0; i < 10; ++i) x25519_sqr(t1, t1);
-	for (int i = 0; i < 20; ++i) x25519_sqr(t3, t3);
-	for (int i = 0; i < 10; ++i) x25519_sqr(t1, t1);
-	for (int i = 0; i < 50; ++i) x25519_sqr(t3, t3);
-	for (int i = 0; i < 100; ++i) x25519_sqr(t1, t1);
-	for (int i = 0; i < 50; ++i) x25519_sqr(t3, t3);
-	for (int i = 0; i < 5; ++i) x25519_sqr(t1, t1);
-	x25519_sqr(out, t1);
-	x25519_sqr(out, out);
-	x25519_mul(out, out, a);
+void x25519_inv(int64_t* out, const int64_t* in) noexcept {
+	int64_t c[kFieldLimbs];
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		c[i] = in[i];
+	}
+	for (int exponent_bit = 253; exponent_bit >= 0; --exponent_bit) {
+		x25519_sqr(c, c);
+		if (exponent_bit != 2 && exponent_bit != 4) {
+			x25519_mul(c, c, in);
+		}
+	}
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		out[i] = c[i];
+	}
 }
 
 void x25519_scalarmult(uint8_t* out, const uint8_t* scalar, const uint8_t* point) noexcept {
-	uint8_t e[32];
-	std::memcpy(e, scalar, 32);
-	e[0] &= 248;
-	e[31] &= 127;
-	e[31] |= 64;
+	uint8_t clamped[32];
+	std::memcpy(clamped, scalar, 32);
+	clamped[0] &= 248;
+	clamped[31] = static_cast<uint8_t>((clamped[31] & 127) | 64);
 
-	uint32_t x1[8];
-	for (size_t i = 0; i < 8; ++i) x1[i] = load32_le(point + i * 4);
+	int64_t work[5 * kFieldLimbs] = {0};
+	x25519_unpack(work, point);
 
-	uint32_t x2[8] = {1,0,0,0,0,0,0,0}, z2[8] = {0}, x3[8], z3[8] = {1,0,0,0,0,0,0,0};
-	for (size_t i = 0; i < 8; ++i) x3[i] = x1[i];
+	int64_t a[kFieldLimbs] = {0};
+	int64_t b[kFieldLimbs];
+	int64_t c[kFieldLimbs] = {0};
+	int64_t d[kFieldLimbs] = {0};
+	int64_t e[kFieldLimbs];
+	int64_t f[kFieldLimbs];
+	const int64_t a24[kFieldLimbs] = {0xdb41, 1};
 
-	uint32_t swap = 0;
-	uint32_t a[8], b[8], c[8], d[8], e_temp[8], aa[8], bb[8], da[8], cb[8];
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		b[i] = work[i];
+	}
+	a[0] = 1;
+	d[0] = 1;
 
-	for (int pos = 254; pos >= 0; --pos) {
-		uint32_t b_bit = (e[pos / 8] >> (pos % 8)) & 1;
-		swap ^= b_bit;
-		x25519_cswap(swap, x2, x3);
-		x25519_cswap(swap, z2, z3);
-		swap = b_bit;
-
-		x25519_add(a, x2, z2);
-		x25519_sqr(aa, a);
-		x25519_sub(b, x2, z2);
-		x25519_sqr(bb, b);
-		x25519_sub(e_temp, aa, bb);
-		x25519_add(c, x3, z3);
-		x25519_sub(d, x3, z3);
-		x25519_mul(da, d, a);
-		x25519_mul(cb, c, b);
-		x25519_add(a, da, cb);
-		x25519_sqr(x3, a);
-		x25519_sub(b, da, cb);
-		x25519_sqr(z3, b);
-		x25519_mul(z3, z3, x1);
-		x25519_mul(x2, aa, bb);
-		x25519_add(c, bb, e_temp);
-		x25519_add(c, c, e_temp);
-		x25519_mul(c, c, e_temp);
-		x25519_add(z2, z2, c);
+	for (int position = 254; position >= 0; --position) {
+		const int64_t bit = static_cast<int64_t>((clamped[position >> 3] >> (position & 7)) & 1);
+		x25519_select(a, b, bit);
+		x25519_select(c, d, bit);
+		x25519_add(e, a, c);
+		x25519_sub(a, a, c);
+		x25519_add(c, b, d);
+		x25519_sub(b, b, d);
+		x25519_sqr(d, e);
+		x25519_sqr(f, a);
+		x25519_mul(a, c, a);
+		x25519_mul(c, b, e);
+		x25519_add(e, a, c);
+		x25519_sub(a, a, c);
+		x25519_sqr(b, a);
+		x25519_sub(c, d, f);
+		x25519_mul(a, c, a24);
+		x25519_add(a, a, d);
+		x25519_mul(c, c, a);
+		x25519_mul(a, d, f);
+		x25519_mul(d, b, work);
+		x25519_sqr(b, e);
+		x25519_select(a, b, bit);
+		x25519_select(c, d, bit);
 	}
 
-	x25519_cswap(swap, x2, x3);
-	x25519_cswap(swap, z2, z3);
-
-	uint32_t inv_z2[8];
-	x25519_inv(inv_z2, z2);
-	uint32_t res[8];
-	x25519_mul(res, x2, inv_z2);
-
-	uint32_t res_copy[8];
-	uint64_t carry = 19;
-	for (size_t i = 0; i < 8; ++i) {
-		carry += res[i];
-		res_copy[i] = static_cast<uint32_t>(carry);
-		carry >>= 32;
+	for (size_t i = 0; i < kFieldLimbs; ++i) {
+		work[i + kFieldLimbs] = a[i];
+		work[i + 2 * kFieldLimbs] = c[i];
+		work[i + 3 * kFieldLimbs] = b[i];
+		work[i + 4 * kFieldLimbs] = d[i];
 	}
-	uint32_t mask = (res_copy[7] >> 31) ? 0xFFFFFFFF : 0x00000000;
-	res_copy[7] &= 0x7FFFFFFF;
-	for (size_t i = 0; i < 8; ++i) {
-		res[i] = (res_copy[i] & mask) | (res[i] & ~mask);
-	}
-
-	for (size_t i = 0; i < 8; ++i) store32_le(out + i * 4, res[i]);
+	x25519_inv(work + 2 * kFieldLimbs, work + 2 * kFieldLimbs);
+	x25519_mul(work + kFieldLimbs, work + kFieldLimbs, work + 2 * kFieldLimbs);
+	x25519_pack(out, work + kFieldLimbs);
 }
 
 class InternalSHA256 {
@@ -416,13 +408,13 @@ void CryptoChannel::poly1305_generate_tag(
 			uint8_t block[17] = {0};
 			const size_t len = std::min<size_t>(16, data.size() - offset);
 			std::memcpy(block, data.data() + offset, len);
-			block[len] = 1;
+			block[16] = 1;
 
 			h0 += load32_le(block) & 0x3FFFFFF;
 			h1 += (load32_le(block + 3) >> 2) & 0x3FFFFFF;
 			h2 += (load32_le(block + 6) >> 4) & 0x3FFFFFF;
 			h3 += (load32_le(block + 9) >> 6) & 0x3FFFFFF;
-			h4 += (load32_le(block + 12) >> 8) | (static_cast<uint32_t>(block[16]) << 16);
+			h4 += (load32_le(block + 12) >> 8) | (static_cast<uint32_t>(block[16]) << 24);
 
 			uint64_t d0 = static_cast<uint64_t>(h0) * r0 + static_cast<uint64_t>(h1) * s4 + static_cast<uint64_t>(h2) * s3 + static_cast<uint64_t>(h3) * s2 + static_cast<uint64_t>(h4) * s1;
 			uint64_t d1 = static_cast<uint64_t>(h0) * r1 + static_cast<uint64_t>(h1) * r0 + static_cast<uint64_t>(h2) * s4 + static_cast<uint64_t>(h3) * s3 + static_cast<uint64_t>(h4) * s2;

@@ -1,9 +1,24 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.000
+	VERSION 0.4.2.008
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
+)
+
+set(ENGINE_VERSION_STRING "${PROJECT_VERSION}")
+string(REPLACE "." ";" ENGINE_VERSION_COMPONENTS "${PROJECT_VERSION}")
+list(TRANSFORM ENGINE_VERSION_COMPONENTS TOUPPER)
+list(JOIN ENGINE_VERSION_COMPONENTS "," ENGINE_VERSION_COMMA)
+
+file(MAKE_DIRECTORY
+	"${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/startup"
+)
+
+configure_file(
+	"${CMAKE_CURRENT_SOURCE_DIR}/include/relativistic/startup/application_info.hpp.in"
+	"${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/startup/application_info.hpp"
+	@ONLY
 )
 
 set(CMAKE_CXX_STANDARD 23)
@@ -97,6 +112,7 @@ if (WIN32)
 endif()
 
 include_directories(
+	${CMAKE_CURRENT_BINARY_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/tests
@@ -106,9 +122,9 @@ find_package(Vulkan REQUIRED)
 
 add_library(relativistic_core INTERFACE)
 target_include_directories(relativistic_core INTERFACE
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-	$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests>
 	$<INSTALL_INTERFACE:include>
 )
@@ -156,6 +172,9 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/compression_codecs.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/task_payloads.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/network_transport.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_node.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/discovery_service.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/distribution_scheduler.cpp
 	)
 endif()
 
@@ -566,13 +585,12 @@ if (WIN32)
 
 	if (ENGINE_ICON_FILE AND EXISTS "${ENGINE_ICON_FILE}")
 		set(ENGINE_ICON_RESOURCE_PATH "${ENGINE_ICON_FILE}")
-		set(ENGINE_VERSION_STRING "0.4.2.005")
-		set(ENGINE_VERSION_COMMA "0,4,2,5")
+		configure_file(resources/app.manifest ${CMAKE_CURRENT_BINARY_DIR}/app.manifest @ONLY)
 		configure_file(resources/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
 		list(APPEND ENGINE_CLI_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
 		set_source_files_properties(
 			${CMAKE_CURRENT_BINARY_DIR}/app.rc
-			PROPERTIES OBJECT_DEPENDS "${ENGINE_ICON_FILE};${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
+			PROPERTIES OBJECT_DEPENDS "${ENGINE_ICON_FILE};${CMAKE_CURRENT_BINARY_DIR}/app.manifest"
 		)
 		set(ENGINE_HAS_RESOURCES ON)
 	else()
@@ -583,7 +601,7 @@ endif()
 add_executable(RelativisticEngine ${ENGINE_CLI_SOURCES})
 add_custom_target(engine_cli DEPENDS RelativisticEngine)
 target_link_libraries(RelativisticEngine PRIVATE relativistic_core imgui_lib)
-target_compile_definitions(RelativisticEngine PRIVATE "RELATIVISTIC_VERSION_STRING=\"0.4.2.005\"")
+target_compile_definitions(RelativisticEngine PRIVATE "RELATIVISTIC_VERSION_STRING=\"${ENGINE_VERSION_STRING}\"")
 set_target_properties(RelativisticEngine PROPERTIES OUTPUT_NAME "RelativisticEngine")
 
 if (WIN32)
@@ -633,6 +651,12 @@ install(DIRECTORY include/relativistic
 	FILES_MATCHING PATTERN "*.hpp"
 )
 
+install(
+	FILES "${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/startup/application_info.hpp"
+	DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/relativistic/startup"
+	COMPONENT Development
+)
+
 install(DIRECTORY shaders
 	DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine/shaders
 	COMPONENT RuntimeData
@@ -648,24 +672,25 @@ install(DIRECTORY scenarios
 include(InstallRequiredSystemLibraries)
 
 set(CPACK_PACKAGE_NAME "relativistic-engine")
-set(CPACK_PACKAGE_VENDOR "Relativistic Scientific Computing Team")
+set(CPACK_PACKAGE_VENDOR "Wartets")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-Precision Relativistic Mechanics and Radiative Transfer Engine")
-set(CPACK_PACKAGE_VERSION_MAJOR 1)
-set(CPACK_PACKAGE_VERSION_MINOR 0)
-set(CPACK_PACKAGE_VERSION_PATCH 0)
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 set(CPACK_STRIP_FILES TRUE)
 
 if (WIN32)
 	set(CPACK_GENERATOR "ZIP;NSIS")
-	set(CPACK_NSIS_DISPLAY_NAME "Relativistic Engine 1.0.0")
+	set(CPACK_NSIS_DISPLAY_NAME "Relativistic Engine")
 	set(CPACK_NSIS_PACKAGE_NAME "RelativisticEngine")
 	set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 	set(CPACK_NSIS_MODIFY_PATH ON)
 else()
 	set(CPACK_GENERATOR "TGZ;DEB;RPM")
-	set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Relativistic Engine Maintainers <contact@relativistic-engine.org>")
+	# set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Relativistic Engine Maintainers <contact@relativistic-engine.org>") # no existing maintainer email
 	set(CPACK_DEBIAN_PACKAGE_SECTION "science")
 	set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 	set(CPACK_RPM_PACKAGE_GROUP "Applications/Engineering")

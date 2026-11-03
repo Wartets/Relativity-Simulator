@@ -109,7 +109,7 @@ struct NodeHardwareCapabilities {
 struct alignas(16) PacketEnvelope {
 	static constexpr uint32_t kMagicIdentifier = 0x52454C44;
 	static constexpr uint16_t kProtocolVersion = 1;
-	static constexpr size_t kHeaderSize = 32;
+	static constexpr size_t kHeaderSize = 28;
 	static constexpr size_t kTagSize = 16;
 	static constexpr size_t kEnvelopeSize = 48;
 
@@ -137,6 +137,7 @@ struct alignas(16) PacketEnvelope {
 };
 
 static_assert(sizeof(PacketEnvelope) == 48);
+static_assert(offsetof(PacketEnvelope, authentication_tag) == PacketEnvelope::kHeaderSize);
 
 struct TileWorkAssignment {
 	uint32_t tile_index{0};

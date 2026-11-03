@@ -381,9 +381,13 @@ Relativity-Simulator/
 │       │   └── galaxy_model.hpp
 │       │
 │       ├── distributed/
+│       │   ├── cluster_node.hpp
 │       │   ├── compression_codecs.hpp
 │       │   ├── crypto_channel.hpp
+│       │   ├── discovery_service.hpp
+│       │   ├── distribution_scheduler.hpp
 │       │   ├── network_transport.hpp
+│       │   ├── node_registry.hpp
 │       │   ├── packet_protocol.hpp
 │       │   └── task_payloads.hpp
 │       │
@@ -587,6 +591,7 @@ Relativity-Simulator/
 │       │
 │       ├── startup/
 │       │   ├── application_info.hpp
+│       │   ├── application_info.hpp.in
 │       │   ├── application_resources.h
 │       │   ├── platform_bootstrap.hpp
 │       │   ├── startup_progress.hpp
@@ -715,8 +720,11 @@ Relativity-Simulator/
 │
 ├── src/
 │   └── distributed/
+│       ├── cluster_node.cpp
 │       ├── compression_codecs.cpp
 │       ├── crypto_channel.cpp
+│       ├── discovery_service.cpp
+│       ├── distribution_scheduler.cpp
 │       ├── network_transport.cpp
 │       ├── packet_protocol.cpp
 │       └── task_payloads.cpp

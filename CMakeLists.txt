@@ -117,6 +117,16 @@ target_compile_options(relativistic_core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:${S
 target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_EMBEDDED_SHADERS=1)
 target_link_libraries(relativistic_core INTERFACE Vulkan::Vulkan)
 
+option(ENGINE_ENABLE_DISTRIBUTED "Build Relativistic Engine with distributed cluster compute support" ON)
+
+if (ENGINE_ENABLE_DISTRIBUTED)
+	target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_DISTRIBUTED_COMPUTE=1)
+	target_sources(relativistic_core INTERFACE
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/packet_protocol.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/crypto_channel.cpp
+	)
+endif()
+
 if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 	set(RELATIVISTIC_COMPUTE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp)
 	set(RELATIVISTIC_COMPUTE_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp.spv)

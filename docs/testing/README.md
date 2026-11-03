@@ -58,6 +58,7 @@ Commit refreshed results together with the change that motivated the run.
 | `test_carter_constant` | Carter constant | Metrics and geodesics | [suites/carter_constant.md](suites/carter_constant.md) |
 | `test_christoffel_solver` | Christoffel solver | Tensor and SIMD math | [suites/christoffel_solver.md](suites/christoffel_solver.md) |
 | `test_cie_spectral_pipeline` | CIE spectral pipeline | Rendering and optics | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
+| `test_cluster_crypto_protocol` | Cluster crypto protocol | Distributed cluster | [suites/cluster_crypto_protocol.md](suites/cluster_crypto_protocol.md) |
 | `test_concurrent_command_injection` | Concurrent command injection | Core infrastructure | [suites/concurrent_command_injection.md](suites/concurrent_command_injection.md) |
 | `test_covariance_propagation` | Covariance propagation | Uncertainty quantification | [suites/covariance_propagation.md](suites/covariance_propagation.md) |
 | `test_dark_matter_field` | Dark matter field | Dark matter and N-body | [suites/dark_matter_field.md](suites/dark_matter_field.md) |

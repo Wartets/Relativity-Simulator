@@ -21,6 +21,7 @@ enum class PacketType : uint16_t {
 	CapabilitiesAdvertisement = 0x0020,
 	SynchronizeClock = 0x0030,
 	UpdateConstants = 0x0040,
+	BodyCatalogChunk = 0x0050,
 	TaskAssignment = 0x0100,
 	TaskCancel = 0x0101,
 	TileResultData = 0x0200,
@@ -39,6 +40,7 @@ enum class PacketType : uint16_t {
 		case PacketType::CapabilitiesAdvertisement: return "CapabilitiesAdvertisement";
 		case PacketType::SynchronizeClock: return "SynchronizeClock";
 		case PacketType::UpdateConstants: return "UpdateConstants";
+		case PacketType::BodyCatalogChunk: return "BodyCatalogChunk";
 		case PacketType::TaskAssignment: return "TaskAssignment";
 		case PacketType::TaskCancel: return "TaskCancel";
 		case PacketType::TileResultData: return "TileResultData";

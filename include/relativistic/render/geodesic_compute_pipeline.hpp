@@ -20,7 +20,59 @@
 #include <algorithm>
 #include <limits>
 
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+#include "relativistic/distributed/cluster_orchestrator.hpp"
+#endif
+
+namespace Relativistic::Distributed {
+
+class ClusterOrchestrator;
+
+}
+
 namespace Relativistic::Render {
+
+class DistributedComputeExtension {
+private:
+	Distributed::ClusterOrchestrator* cluster_{nullptr};
+
+public:
+	void bind_cluster(Distributed::ClusterOrchestrator& cluster) noexcept {
+		cluster_ = &cluster;
+	}
+
+	void unbind_cluster() noexcept {
+		cluster_ = nullptr;
+	}
+
+	[[nodiscard]] bool is_cluster_active() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		return cluster_ != nullptr && cluster_->is_cluster_operational();
+#else
+		return false;
+#endif
+	}
+
+	bool dispatch_distributed(
+		const GpuCameraPushConstants& constants,
+		std::span<GpuPixelOutput> framebuffer,
+		std::span<const GpuBodyData> bodies,
+		const std::atomic<bool>* cancel_flag
+	) {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (cluster_ == nullptr || !cluster_->is_cluster_operational()) {
+			return false;
+		}
+		return cluster_->dispatch_distributed(constants, framebuffer, bodies, cancel_flag);
+#else
+		static_cast<void>(constants);
+		static_cast<void>(framebuffer);
+		static_cast<void>(bodies);
+		static_cast<void>(cancel_flag);
+		return false;
+#endif
+	}
+};
 
 struct GeodesicPipelineConfig {
 	uint32_t width{3840};
@@ -89,6 +141,7 @@ private:
 	std::atomic<int> last_render_route_{-1};
 	std::jthread worker_thread_;
 	static constexpr size_t kMaxGpuBackgroundBodies = 512;
+	DistributedComputeExtension cluster_extension_{};
 
 	[[nodiscard]] std::vector<GpuBodyData> guarded_bodies(std::span<const GpuBodyData> bodies) {
 		BodyGuardReport report;
@@ -272,17 +325,24 @@ private:
 			Core::Diagnostics::set_activity("render worker: dispatching frame");
 			RenderDiagnostics::publish(current_job, current_bodies, gpu_background_eligible ? "vulkan compute preferred" : "cpu software", DispatchState::InFlight, 0.0);
 			try {
-				if (gpu_background_eligible) {
-					if (try_gpu_dispatch(current_job, back_buffer_, current_bodies, &cancel_render_) && back_buffer_.size() == req_pixels) {
-						rendered_on_gpu = true;
-					}
+				bool rendered_on_cluster = false;
+				if (cluster_extension_.is_cluster_active()) {
+					rendered_on_cluster = cluster_extension_.dispatch_distributed(current_job, back_buffer_, current_bodies, &cancel_render_);
 				}
 
-				if (!rendered_on_gpu) {
-					if (current_precision == PrecisionMode::NativeFloat64) {
-						SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
-					} else {
-						SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+				if (!rendered_on_cluster) {
+					if (gpu_background_eligible) {
+						if (try_gpu_dispatch(current_job, back_buffer_, current_bodies, &cancel_render_) && back_buffer_.size() == req_pixels) {
+							rendered_on_gpu = true;
+						}
+					}
+
+					if (!rendered_on_gpu) {
+						if (current_precision == PrecisionMode::NativeFloat64) {
+							SoftwareComputeEngine::dispatch_fp64(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+						} else {
+							SoftwareComputeEngine::dispatch_double_single(current_job, back_buffer_, current_bodies, thread_pool_.get(), &cancel_render_, &stage_stats);
+						}
 					}
 				}
 			} catch (const std::exception& ex) {
@@ -480,6 +540,78 @@ public:
 		config_.projection_mode = mode;
 	}
 
+	void bind_cluster(Distributed::ClusterOrchestrator& cluster) noexcept {
+		cluster_extension_.bind_cluster(cluster);
+	}
+
+	void unbind_cluster() noexcept {
+		cluster_extension_.unbind_cluster();
+	}
+
+	[[nodiscard]] bool is_cluster_active() const noexcept {
+		return cluster_extension_.is_cluster_active();
+	}
+
+	[[nodiscard]] DistributedComputeExtension& cluster_extension() noexcept {
+		return cluster_extension_;
+	}
+
+	[[nodiscard]] const DistributedComputeExtension& cluster_extension() const noexcept {
+		return cluster_extension_;
+	}
+
+	[[nodiscard]] static bool gpu_path_supported(const GpuCameraPushConstants& params, size_t body_count) noexcept {
+		if (body_count > 0U && SoftwareComputeEngine::requires_exact_metric_path(params)) {
+			return false;
+		}
+		if (params.precision_mode != static_cast<uint32_t>(PrecisionMode::NativeFloat64)) {
+			return false;
+		}
+		if (!is_metric_gpu_accelerable(params)) {
+			return false;
+		}
+		if (params.interlace_mode != 0U) {
+			return false;
+		}
+		if (body_count > kMaxGpuBackgroundBodies) {
+			return false;
+		}
+		return !(params.jet.enabled > 0.5f && params.jet.emission_model > 0.5f);
+	}
+
+	[[nodiscard]] bool render_tile(
+		const GpuCameraPushConstants& camera_constants,
+		const SoftwareComputeEngine::TileRegion& region,
+		std::span<const GpuBodyData> requested_bodies,
+		std::span<GpuPixelOutput> output,
+		const std::atomic<bool>* cancel = nullptr
+	) {
+		const std::vector<GpuBodyData> guarded_storage = guarded_bodies(requested_bodies);
+		const std::span<const GpuBodyData> bodies(guarded_storage);
+		if (use_gpu_compute_.load(std::memory_order_relaxed) && gpu_executor_ != nullptr && gpu_executor_->is_ready()) {
+			if (gpu_path_supported(camera_constants, bodies.size())) {
+				std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
+				GpuCameraPushConstants tile_params = camera_constants;
+				tile_params.tile_origin_x = region.origin_x;
+				tile_params.tile_origin_y = region.origin_y;
+				tile_params.tile_extent_x = region.width;
+				tile_params.tile_extent_y = region.height;
+				std::vector<GpuBodyGpuLayout> layouts;
+				layouts.reserve(bodies.size());
+				for (const auto& b : bodies) {
+					layouts.push_back(GpuBodyGpuLayout::from(b));
+				}
+				std::vector<GpuPixelOutput> gpu_pixels;
+				if (gpu_executor_->dispatch_tile_and_readback(tile_params, gpu_pixels, layouts)) {
+					const size_t copy_count = std::min(gpu_pixels.size(), output.size());
+					std::copy_n(gpu_pixels.begin(), copy_count, output.begin());
+					return true;
+				}
+			}
+		}
+		return SoftwareComputeEngine::dispatch_tile(camera_constants, region, output, bodies, cancel);
+	}
+
 	[[nodiscard]] const GeodesicPipelineConfig& config() const noexcept {
 		return config_;
 	}
@@ -553,6 +685,11 @@ public:
 
 		try {
 			await_earth_textures(bodies);
+			if (cluster_extension_.is_cluster_active()) {
+				if (cluster_extension_.dispatch_distributed(camera_constants, output, bodies, nullptr)) {
+					return true;
+				}
+			}
 			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
 				if (try_gpu_dispatch(camera_constants, output, bodies) && output.size() == pixel_count) {
 					return true;
@@ -633,20 +770,27 @@ public:
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies;
 			const PrecisionMode active_precision_mode = precision_mode_.load(std::memory_order_relaxed);
 			try {
-				if (gpu_background_eligible) {
-					const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
-					if (front_buffer_.size() >= total_pixels) {
-						if (try_gpu_dispatch(actual_constants, front_buffer_, bodies) && front_buffer_.size() == total_pixels) {
-							rendered_on_gpu = true;
-						}
-					}
+				bool rendered_on_cluster = false;
+				if (cluster_extension_.is_cluster_active()) {
+					rendered_on_cluster = cluster_extension_.dispatch_distributed(actual_constants, front_buffer_, bodies, nullptr);
 				}
 
-				if (!rendered_on_gpu) {
-					if (active_precision_mode == PrecisionMode::NativeFloat64) {
-						SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
-					} else {
-						SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+				if (!rendered_on_cluster) {
+					if (gpu_background_eligible) {
+						const size_t total_pixels = static_cast<size_t>(actual_constants.screen_width) * static_cast<size_t>(actual_constants.screen_height);
+						if (front_buffer_.size() >= total_pixels) {
+							if (try_gpu_dispatch(actual_constants, front_buffer_, bodies) && front_buffer_.size() == total_pixels) {
+								rendered_on_gpu = true;
+							}
+						}
+					}
+
+					if (!rendered_on_gpu) {
+						if (active_precision_mode == PrecisionMode::NativeFloat64) {
+							SoftwareComputeEngine::dispatch_fp64(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+						} else {
+							SoftwareComputeEngine::dispatch_double_single(actual_constants, front_buffer_, bodies, thread_pool_.get(), nullptr, &headless_stage_stats);
+						}
 					}
 				}
 			} catch (const std::exception& ex) {

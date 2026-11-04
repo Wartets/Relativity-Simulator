@@ -42,6 +42,7 @@ private:
 	VkQueue compute_queue_{VK_NULL_HANDLE};
 	VkCommandPool command_pool_{VK_NULL_HANDLE};
 	uint32_t compute_queue_family_index_{0};
+	int preferred_device_index_{-1};
 
 	[[nodiscard]] bool bring_up_vulkan_device(bool prefer_fp64) noexcept {
 		Startup::note("Creating the Vulkan instance (API 1.2)...");
@@ -78,7 +79,11 @@ private:
 		vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
 
 		int best_score = -1;
-		for (VkPhysicalDevice candidate : devices) {
+		for (size_t candidate_index = 0; candidate_index < devices.size(); ++candidate_index) {
+			const VkPhysicalDevice candidate = devices[candidate_index];
+			if (preferred_device_index_ >= 0 && candidate_index != static_cast<size_t>(preferred_device_index_)) {
+				continue;
+			}
 			VkPhysicalDeviceProperties properties{};
 			vkGetPhysicalDeviceProperties(candidate, &properties);
 
@@ -243,6 +248,10 @@ private:
 
 public:
 	VulkanContext() = default;
+
+	void set_preferred_device_index(int device_index) noexcept {
+		preferred_device_index_ = device_index;
+	}
 
 	~VulkanContext() noexcept {
 		shutdown();

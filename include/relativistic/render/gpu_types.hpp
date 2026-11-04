@@ -404,6 +404,11 @@ struct alignas(16) GpuCameraPushConstants {
 	GpuCosmologyProfile cosmology{};
 	std::array<double, 4> observer_boost{0.0, 0.0, 0.0, 0.0};
 
+	uint32_t tile_origin_x{0};
+	uint32_t tile_origin_y{0};
+	uint32_t tile_extent_x{0};
+	uint32_t tile_extent_y{0};
+
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };
 

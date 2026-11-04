@@ -96,20 +96,23 @@ private:
 	bool earth_supported_{false};
 
 	bool ready_{false};
+	bool tile_dispatch_{false};
 	bool device_lost_{false};
 	uint32_t slow_band_warnings_{0};
 
-	[[nodiscard]] static std::optional<std::filesystem::path> find_spirv_path() {
-		static constexpr const char* candidates[] = {
-			"shaders/geodesic_tracer_fp64.comp.spv",
-			"../shaders/geodesic_tracer_fp64.comp.spv",
-			"./shaders/geodesic_tracer_fp64.comp.spv",
-			"../../shaders/geodesic_tracer_fp64.comp.spv"
+	[[nodiscard]] static std::optional<std::filesystem::path> find_named_spirv_path(std::string_view file_name) {
+		static constexpr const char* directories[] = {
+			"shaders",
+			"../shaders",
+			"./shaders",
+			"../../shaders",
+			"../share/relativistic-engine/shaders"
 		};
-		for (const char* candidate : candidates) {
+		for (const char* directory : directories) {
+			const std::filesystem::path candidate = std::filesystem::path(directory) / std::filesystem::path(std::string(file_name));
 			std::error_code ec;
 			if (std::filesystem::exists(candidate, ec)) {
-				return std::filesystem::path(candidate);
+				return candidate;
 			}
 		}
 		return std::nullopt;
@@ -756,6 +759,12 @@ private:
 	}
 
 public:
+	struct ShaderSource {
+		std::string_view file_name{"geodesic_tracer_fp64.comp.spv"};
+		std::span<const uint32_t> embedded{};
+		bool tile_dispatch{false};
+	};
+
 	VulkanComputeExecutor() = default;
 
 	~VulkanComputeExecutor() noexcept {
@@ -766,6 +775,10 @@ public:
 	VulkanComputeExecutor& operator=(const VulkanComputeExecutor&) = delete;
 
 	[[nodiscard]] bool initialize(VulkanContext& context) {
+		return initialize(context, ShaderSource{});
+	}
+
+	[[nodiscard]] bool initialize(VulkanContext& context, const ShaderSource& source) {
 		if (!context.has_compute_device()) {
 			return false;
 		}
@@ -776,12 +789,18 @@ public:
 		command_pool_ = context.command_pool();
 		vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory_properties_);
 
-		Startup::note("Locating the compute shader bytecode (geodesic_tracer_fp64.comp.spv)...");
-		const auto spirv_path = find_spirv_path();
+		Startup::note("Locating the compute shader bytecode (" + std::string(source.file_name) + ")...");
+		std::optional<std::vector<uint32_t>> embedded_bytecode;
+		if (!source.embedded.empty()) {
+			embedded_bytecode = std::vector<uint32_t>(source.embedded.begin(), source.embedded.end());
+		}
+		const auto spirv_path = embedded_bytecode.has_value()
+			? std::optional<std::filesystem::path>(std::filesystem::path{})
+			: find_named_spirv_path(source.file_name);
 		if (!spirv_path.has_value()) {
 			return false;
 		}
-		const auto bytecode = load_spirv_bytecode(*spirv_path);
+		const auto bytecode = embedded_bytecode.has_value() ? embedded_bytecode : load_spirv_bytecode(*spirv_path);
 		if (!bytecode.has_value()) {
 			return false;
 		}
@@ -1017,6 +1036,7 @@ public:
 			write_earth_descriptor(index, earth_placeholder_.view);
 		}
 
+		tile_dispatch_ = source.tile_dispatch;
 		ready_ = true;
 		return true;
 	}
@@ -1134,6 +1154,27 @@ public:
 		return true;
 	}
 
+	[[nodiscard]] bool dispatch_tile_and_readback(
+		const GpuCameraPushConstants& params,
+		std::vector<GpuPixelOutput>& output,
+		std::span<const GpuBodyGpuLayout> bodies
+	) {
+		if (!tile_dispatch_ || !is_ready()) {
+			return false;
+		}
+		if (params.tile_extent_x == 0U || params.tile_extent_y == 0U) {
+			return false;
+		}
+		if (params.tile_origin_x >= params.screen_width || params.tile_origin_y >= params.screen_height) {
+			return false;
+		}
+		const size_t tile_pixels = static_cast<size_t>(params.tile_extent_x) * static_cast<size_t>(params.tile_extent_y);
+		if (output.size() != tile_pixels) {
+			output.resize(tile_pixels);
+		}
+		return dispatch_band(params, output, bodies, 0U);
+	}
+
 	static constexpr VkDeviceSize kMaxBandBytes = 64ULL * 1024ULL * 1024ULL;
 	static constexpr uint32_t kBandRowAlignment = 16U;
 	static constexpr double kBandTargetMs = 120.0;
@@ -1213,7 +1254,12 @@ private:
 			return false;
 		}
 
-		const size_t pixel_count = static_cast<size_t>(params.screen_width) * static_cast<size_t>(params.dispatch_row_count);
+		if (tile_dispatch_ != (params.tile_extent_x != 0U)) {
+			return false;
+		}
+		const size_t pixel_count = tile_dispatch_
+			? static_cast<size_t>(params.tile_extent_x) * static_cast<size_t>(params.tile_extent_y)
+			: static_cast<size_t>(params.screen_width) * static_cast<size_t>(params.dispatch_row_count);
 		if (pixel_count == 0) {
 			return false;
 		}
@@ -1283,8 +1329,8 @@ private:
 		vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, compute_pipeline_);
 		vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout_, 0, 1, &descriptor_set_, 0, nullptr);
 
-		const uint32_t tiles_x = (params.screen_width + 15U) / 16U;
-		const uint32_t tiles_y = (params.dispatch_row_count + 15U) / 16U;
+		const uint32_t tiles_x = ((tile_dispatch_ ? params.tile_extent_x : params.screen_width) + 15U) / 16U;
+		const uint32_t tiles_y = ((tile_dispatch_ ? params.tile_extent_y : params.dispatch_row_count) + 15U) / 16U;
 		vkCmdDispatch(command_buffer_, tiles_x, tiles_y, 1);
 
 		VkBufferMemoryBarrier barrier{};
@@ -1348,7 +1394,7 @@ private:
 			vkInvalidateMappedMemoryRanges(device_, 1, &range);
 		}
 
-		const size_t first_pixel = static_cast<size_t>(params.dispatch_row_offset - row_origin) * static_cast<size_t>(params.screen_width);
+		const size_t first_pixel = tile_dispatch_ ? size_t{0} : static_cast<size_t>(params.dispatch_row_offset - row_origin) * static_cast<size_t>(params.screen_width);
 		if (output.size() < first_pixel + pixel_count) {
 			return false;
 		}

@@ -114,7 +114,7 @@ size_t serialize_render_tile_task(const RenderTileTaskPayload& payload, std::spa
 }
 
 bool deserialize_render_tile_task(std::span<const uint8_t> input, RenderTileTaskPayload& payload) noexcept {
-	if (input.size() != kRenderTileTaskPayloadBytes) {
+	if (input.size() < kRenderTileTaskPayloadBytes) {
 		return false;
 	}
 	const uint8_t* cursor = input.data();

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.008
+	VERSION 0.4.2.009
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -63,6 +63,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 		-frounding-math
 		-fno-math-errno
 	)
+	if (WIN32)
+		list(APPEND STRICT_CXX_FLAGS -Wa,-mbig-obj)
+	endif()
 	if (NOT MSVC)
 		list(APPEND STRICT_CXX_FLAGS -march=native)
 	endif()
@@ -73,7 +76,46 @@ elseif (MSVC)
 		/fp:strict
 		/Zc:__cplusplus
 		/utf-8
+		/bigobj
 	)
+endif()
+
+option(ENABLE_LTO "Enable Link-Time Optimization (LTO / IPO)" OFF)
+option(ENABLE_PGO_GENERATE "Enable Profile-Guided Optimization instrument generation" OFF)
+option(ENABLE_PGO_USE "Enable Profile-Guided Optimization profile utilization" OFF)
+
+if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+	set(ENABLE_LTO OFF CACHE BOOL "Enable Link-Time Optimization (LTO / IPO)" FORCE)
+endif()
+
+if (ENABLE_LTO)
+	include(CheckIPOSupported)
+	check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+	if (ipo_supported)
+		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+		if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+			add_compile_options(-flto=auto)
+			add_link_options(-flto=auto)
+		endif()
+	endif()
+endif()
+
+if (ENABLE_PGO_GENERATE)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		add_compile_options(-fprofile-generate)
+		add_link_options(-fprofile-generate)
+	elseif (MSVC)
+		add_compile_options(/GL)
+		add_link_options(/LTCG:PGINSTRUMENT)
+	endif()
+elseif (ENABLE_PGO_USE)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		add_compile_options(-fprofile-use -fprofile-correction)
+		add_link_options(-fprofile-use)
+	elseif (MSVC)
+		add_compile_options(/GL)
+		add_link_options(/LTCG:PGOPTIMIZE)
+	endif()
 endif()
 
 include(FetchContent)
@@ -148,7 +190,7 @@ target_link_libraries(relativistic_core INTERFACE Vulkan::Vulkan)
 option(ENGINE_ENABLE_DISTRIBUTED "Build Relativistic Engine with distributed cluster compute support" ON)
 
 if (ENGINE_ENABLE_DISTRIBUTED)
-	target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_DISTRIBUTED_COMPUTE=1)
+	target_compile_definitions(relativistic_core INTERFACE RELATIVISTIC_DISTRIBUTED_COMPUTE=1 LZ4_VISIBILITY_ATTRIBUTE=0)
 	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 	FetchContent_Declare(
@@ -164,6 +206,13 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
 	FetchContent_MakeAvailable(lz4)
 
+	if (TARGET lz4_static)
+		target_compile_definitions(lz4_static PUBLIC LZ4_VISIBILITY_ATTRIBUTE=0)
+		if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+			target_compile_options(lz4_static PRIVATE -Wno-attributes)
+		endif()
+	endif()
+
 	FetchContent_Declare(
 		enet
 		GIT_REPOSITORY https://github.com/lsalzman/enet.git
@@ -172,13 +221,7 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	)
 	FetchContent_MakeAvailable(enet)
 
-	target_include_directories(relativistic_core SYSTEM INTERFACE
-		${lz4_SOURCE_DIR}/lib
-		${enet_SOURCE_DIR}/include
-	)
-	target_link_libraries(relativistic_core INTERFACE lz4_static enet)
-
-	target_sources(relativistic_core INTERFACE
+	add_library(relativistic_distributed STATIC
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/packet_protocol.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/crypto_channel.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/compression_codecs.cpp
@@ -187,7 +230,30 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_node.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/discovery_service.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/distribution_scheduler.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/body_catalog.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_orchestrator.cpp
 	)
+	target_include_directories(relativistic_distributed PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests>
+		${lz4_SOURCE_DIR}/lib
+		${enet_SOURCE_DIR}/include
+	)
+	target_compile_features(relativistic_distributed PUBLIC cxx_std_23)
+	target_compile_options(relativistic_distributed PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
+	target_compile_definitions(relativistic_distributed PUBLIC RELATIVISTIC_DISTRIBUTED_COMPUTE=1 LZ4_VISIBILITY_ATTRIBUTE=0)
+	target_link_libraries(relativistic_distributed PUBLIC lz4_static enet Vulkan::Vulkan)
+	if (WIN32)
+		target_link_libraries(relativistic_distributed PUBLIC ws2_32 winmm)
+	endif()
+
+	target_include_directories(relativistic_core SYSTEM INTERFACE
+		${lz4_SOURCE_DIR}/lib
+		${enet_SOURCE_DIR}/include
+	)
+	target_link_libraries(relativistic_core INTERFACE relativistic_distributed)
 endif()
 
 if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
@@ -204,6 +270,22 @@ if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 		VERBATIM
 	)
 	add_custom_target(relativistic_compute_shaders ALL DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SPV} ${RELATIVISTIC_COMPUTE_SHADER_HPP})
+
+	if (ENGINE_ENABLE_DISTRIBUTED)
+		set(RELATIVISTIC_TILE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster_tile_tracer_fp64.comp)
+		set(RELATIVISTIC_TILE_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster_tile_tracer_fp64.comp.spv)
+		set(RELATIVISTIC_TILE_SHADER_HPP ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders/cluster_tile_tracer_fp64.spv.hpp)
+		add_custom_command(
+			OUTPUT ${RELATIVISTIC_TILE_SHADER_SPV} ${RELATIVISTIC_TILE_SHADER_HPP}
+			COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_SPV}
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 --vn cluster_tile_tracer_fp64_spv ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_HPP}
+			DEPENDS ${RELATIVISTIC_TILE_SHADER_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_spherical_tracer.glsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_teves_metric.glsl
+			COMMENT "Compiling cluster_tile_tracer_fp64.comp to SPIR-V and embedded C++ header"
+			VERBATIM
+		)
+		add_custom_target(relativistic_cluster_tile_shaders ALL DEPENDS ${RELATIVISTIC_TILE_SHADER_SPV} ${RELATIVISTIC_TILE_SHADER_HPP})
+	endif()
 endif()
 
 include(CTest)
@@ -548,40 +630,6 @@ add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)
 get_directory_property(RELATIVISTIC_REGISTERED_TESTS TESTS)
 set_tests_properties(${RELATIVISTIC_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR}")
 
-option(ENABLE_LTO "Enable Link-Time Optimization (LTO / IPO)" ON)
-option(ENABLE_PGO_GENERATE "Enable Profile-Guided Optimization instrument generation" OFF)
-option(ENABLE_PGO_USE "Enable Profile-Guided Optimization profile utilization" OFF)
-
-if (ENABLE_LTO)
-	include(CheckIPOSupported)
-	check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
-	if (ipo_supported)
-		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-		if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-			add_compile_options(-flto=auto)
-			add_link_options(-flto=auto)
-		endif()
-	endif()
-endif()
-
-if (ENABLE_PGO_GENERATE)
-	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-		add_compile_options(-fprofile-generate)
-		add_link_options(-fprofile-generate)
-	elseif (MSVC)
-		add_compile_options(/GL)
-		add_link_options(/LTCG:PGINSTRUMENT)
-	endif()
-elseif (ENABLE_PGO_USE)
-	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-		add_compile_options(-fprofile-use -fprofile-correction)
-		add_link_options(-fprofile-use)
-	elseif (MSVC)
-		add_compile_options(/GL)
-		add_link_options(/LTCG:PGOPTIMIZE)
-	endif()
-endif()
-
 set(ENGINE_CLI_SOURCES apps/engine_cli/main.cpp)
 set(ENGINE_HAS_RESOURCES OFF)
 
@@ -617,10 +665,13 @@ target_compile_definitions(RelativisticEngine PRIVATE "RELATIVISTIC_VERSION_STRI
 set_target_properties(RelativisticEngine PROPERTIES OUTPUT_NAME "RelativisticEngine")
 
 if (WIN32)
-	set_target_properties(RelativisticEngine PROPERTIES WIN32_EXECUTABLE ON)
 	target_compile_definitions(RelativisticEngine PRIVATE UNICODE _UNICODE)
-	target_link_libraries(RelativisticEngine PRIVATE dwmapi msimg32 shell32 gdi32 user32)
-	if (MSVC)
+	target_link_libraries(RelativisticEngine PRIVATE dwmapi msimg32 shell32 gdi32 user32 ws2_32 winmm)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(RelativisticEngine PRIVATE -Wa,-mbig-obj)
+	elseif (MSVC)
+		target_compile_options(RelativisticEngine PRIVATE /bigobj)
+		set_target_properties(RelativisticEngine PROPERTIES WIN32_EXECUTABLE ON)
 		target_link_options(RelativisticEngine PRIVATE /ENTRY:mainCRTStartup)
 		if (ENGINE_HAS_RESOURCES)
 			target_link_options(RelativisticEngine PRIVATE /MANIFEST:NO)
@@ -645,12 +696,48 @@ endif()
 add_executable(headless_exporter apps/headless_exporter/main.cpp)
 target_link_libraries(headless_exporter PRIVATE relativistic_core)
 
+if (ENGINE_ENABLE_DISTRIBUTED)
+	set(CLUSTER_WORKER_SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/tile_renderer.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/worker_options.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/worker_service.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/slurm_interface.cpp
+	)
+	add_executable(cluster_worker apps/cluster_worker/main.cpp ${CLUSTER_WORKER_SOURCES})
+
+	add_executable(test_cluster_worker_execution tests/test_cluster_worker_execution.cpp ${CLUSTER_WORKER_SOURCES})
+	target_link_libraries(test_cluster_worker_execution PRIVATE relativistic_core)
+	if (TARGET relativistic_cluster_tile_shaders)
+		add_dependencies(test_cluster_worker_execution relativistic_cluster_tile_shaders)
+		target_compile_definitions(test_cluster_worker_execution PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	add_test(NAME test_cluster_worker_execution COMMAND test_cluster_worker_execution WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+	target_link_libraries(cluster_worker PRIVATE relativistic_core)
+	if (TARGET relativistic_cluster_tile_shaders)
+		add_dependencies(cluster_worker relativistic_cluster_tile_shaders)
+		target_compile_definitions(cluster_worker PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
+		target_link_options(cluster_worker PRIVATE -static -static-libgcc -static-libstdc++)
+	endif()
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(cluster_worker PRIVATE -g1 -fno-omit-frame-pointer)
+	endif()
+endif()
+
 if (TARGET relativistic_compute_shaders)
 	add_dependencies(RelativisticEngine relativistic_compute_shaders)
 	add_dependencies(headless_exporter relativistic_compute_shaders)
 endif()
 
 include(GNUInstallDirs)
+
+if (TARGET cluster_worker)
+	install(TARGETS cluster_worker
+		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+		COMPONENT Application
+	)
+endif()
 
 install(TARGETS RelativisticEngine headless_exporter
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

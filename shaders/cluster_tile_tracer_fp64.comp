@@ -1,0 +1,522 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+struct GpuDiskProfile {
+	float enabled;
+	float inner_radius_scale;
+	float outer_radius_mass_units;
+	float peak_temperature_k;
+	float floor_temperature_k;
+	float temperature_exponent;
+	float zero_torque_strength;
+	float extra_beaming_exponent;
+	float brightness;
+	float color_saturation;
+	float tint_strength;
+	float opacity_scale;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float rotation_speed_scale;
+	float ring_amplitude;
+	float ring_frequency;
+	float ring_sharpness;
+	float spiral_arm_count;
+	float spiral_pitch;
+	float spiral_amplitude;
+	float turbulence_amplitude;
+	float turbulence_scale;
+	float turbulence_octaves;
+	float radial_stretch;
+	float grain_amplitude;
+	float grain_scale;
+	float reference_luminance;
+	float noise_seed;
+	float temperature_normalization;
+	float edge_softness;
+};
+
+struct GpuHydroDiskProfile {
+	uint model;
+	float accretion_rate_scale;
+	float torus_inner_radius;
+	float torus_center_radius;
+	float adiabatic_index;
+	float optical_depth_scale;
+	float sampling_density;
+	uint flags;
+	float specific_angular_momentum;
+	float potential_inner;
+	float max_enthalpy;
+	float inner_bound;
+	float outer_bound;
+	float flux_peak;
+	float rate_factor;
+	float reserved;
+};
+
+struct GpuJetProfile {
+	float enabled;
+	float geometry;
+	float field_line_index;
+	float horizon_field_tesla;
+	float magnetization;
+	float magnetization_index;
+	float angular_velocity_law;
+	float angular_velocity_fraction;
+	float fixed_angular_velocity;
+	float angular_velocity_variation;
+	float toroidal_field_scale;
+	float rotation_coupling;
+	float mass;
+	float spin;
+	float horizon_radius;
+	float horizon_angular_velocity;
+	float inner_radius;
+	float outer_radius;
+	float footpoint_edge;
+	float footpoint_softness;
+	float lorentz_inner;
+	float lorentz_max;
+	float acceleration_radius;
+	float acceleration_index;
+	float doppler_enabled;
+	float redshift_enabled;
+	float emission_model;
+	float power_law_index;
+	float gamma_min;
+	float non_thermal_fraction;
+	float electron_temperature_k;
+	float temperature_index;
+	float observing_frequency_hz;
+	float meters_per_unit;
+	float log_emissivity_constant;
+	float log_absorptivity_constant;
+	float faraday_constant;
+	float polarization_fraction;
+	float polarization_coherence;
+	float absorption_scale;
+	float faraday_scale;
+	float log_reference_intensity;
+	float brightness;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float display_mode;
+	float sampling_density;
+	float max_samples;
+	float reserved;
+};
+
+struct GpuDarkMatterHalo {
+	uint profile;
+	uint flags;
+	float position_x;
+	float position_y;
+	float position_z;
+	float mass_norm;
+	float scale_radius;
+	float shape;
+	float softening;
+	float truncation_radius;
+	float axis_ratio_y;
+	float axis_ratio_z;
+	float basis[9];
+	float lens_scale;
+	float visual_gain;
+	float tint_r;
+	float tint_g;
+	float tint_b;
+	float shape_aux;
+	float reserved0;
+};
+
+struct GpuDarkMatterField {
+	uint halo_count;
+	uint flags;
+	float lensing_strength;
+	float visual_intensity;
+	float step_fraction;
+	float visual_mode;
+	float reserved1;
+	float reserved2;
+	GpuDarkMatterHalo halos[64];
+};
+
+struct GpuCosmologyProfile {
+	uint table_size;
+	float table_log_a_min;
+	float table_log_a_max;
+	float hubble0;
+	float ltb_hubble0;
+	float ltb_void_radius;
+	float ltb_void_width;
+	float ltb_omega_inner;
+	float ltb_omega_outer;
+	float ltb_present_time;
+	float evaporation_rate;
+	float reserved;
+	float log_hubble[192];
+};
+
+struct GpuSurfaceLayer {
+	vec4 color;
+	float opacity;
+	float scale;
+	float contrast;
+	float threshold;
+	float softness;
+	float mask_width;
+	float rotation_factor;
+	float emission;
+	uint pattern;
+	uint blend;
+	uint mask;
+	uint seed;
+	uint enabled;
+	uint octaves;
+	uint reserved0;
+	uint reserved1;
+};
+
+struct GpuBodyGpuLayout {
+	dvec2 position_xy;
+	dvec2 position_zw;
+	dvec2 velocity_xy;
+	dvec2 velocity_zw;
+	dvec2 color_primary_xy;
+	dvec2 color_primary_zw;
+	dvec2 color_secondary_xy;
+	dvec2 color_secondary_zw;
+	dvec2 atmosphere_color_xy;
+	dvec2 atmosphere_color_zw;
+	double radius;
+	double mass;
+	double charge;
+	double temperature;
+	double noise_scale;
+	double noise_roughness;
+	double atmosphere_thickness;
+	double specular_roughness;
+	double emission_intensity;
+	double rotation_speed;
+	double oblateness_ratio;
+	double spin_parameter;
+	uint body_id;
+	uint geometry_model;
+	uint surface_texture_mode;
+	uint atmosphere_mode;
+	uint preset_3d;
+	uint earth_map_variant;
+	double color_tertiary_r;
+	double color_tertiary_g;
+	double color_tertiary_b;
+	double texture_detail_scale;
+	double polar_cap_strength;
+	double ring_system_enabled;
+	double night_side_light_intensity;
+	double spin_axis_x;
+	double spin_axis_y;
+	double spin_axis_z;
+	double spin_axis_reserved;
+	uint surface_layer_count;
+	uint earth_map_quality;
+	float earth_terminator_softness;
+	uint layer_pad2;
+	GpuSurfaceLayer surface_layers[4];
+	GpuDiskProfile disk;
+};
+
+struct GpuPixelOutput {
+	float r;
+	float g;
+	float b;
+	float a;
+	float redshift;
+	float affine_parameter;
+	uint status_flags;
+	uint iterations_used;
+};
+
+layout(std430, binding = 0) uniform CameraUniforms {
+	dvec4 observer_position;
+	dvec4 tetrad_e0;
+	dvec4 tetrad_e1;
+	dvec4 tetrad_e2;
+	dvec4 tetrad_e3;
+	double field_of_view_rad;
+	double metric_mass;
+	double metric_spin;
+	double metric_charge;
+	double speed_of_light;
+	double gravitational_constant;
+	double initial_step_size;
+	double min_step_size;
+	double max_step_size;
+	double horizon_radius;
+	double escape_radius;
+	double cosmological_lambda;
+	double wormhole_throat;
+	double warp_velocity;
+	double camera_exposure;
+	double warp_bubble_radius;
+	double warp_wall_sharpness;
+	double wormhole_tidal_potential;
+	double teves_critical_acceleration;
+	double lod_distance_threshold;
+	double sky_rotation_rad;
+	double sky_hue_shift_rad;
+	double sky_saturation;
+	double sky_star_density;
+	double sky_star_brightness;
+	double sky_nebula_intensity;
+	double sky_grid_opacity;
+	double sky_background_r;
+	double sky_background_g;
+	double sky_background_b;
+	double sky_star_brightness_variation;
+	double sky_star_size_variation;
+	double sky_star_color_variation;
+	double sky_star_temperature_bias;
+	double sky_galaxy_density;
+	double sky_galaxy_brightness;
+	double sky_galaxy_size_scale;
+	double sky_dust_density;
+	double sky_dust_intensity;
+	double sky_dust_scale;
+	double sky_cluster_density;
+	double sky_cluster_brightness;
+	double sky_cluster_size_scale;
+	double space_skip_radius_scale;
+	double pole_guard_precision_scale;
+	double far_field_step_scale;
+	double time;
+	double body_atmosphere_global_intensity;
+	double disk_temperature_scale_k;
+	double disk_temperature_floor_k;
+	double disk_doppler_beaming_exponent;
+	double disk_color_saturation;
+	double step_size_factor;
+	uint screen_width;
+	uint screen_height;
+	uint metric_type;
+	uint precision_mode;
+	uint tonemapping_mode;
+	uint max_integration_steps;
+	uint render_flags;
+	uint projection_mode;
+	uint interlace_mode;
+	uint lod_reduced_steps;
+	uint interlace_phase;
+	uint sky_procedural_seed;
+	uint sky_background_source;
+	uint sky_panorama_id;
+	uint sky_panorama_quality;
+	uint sky_panorama_width;
+	uint sky_panorama_height;
+	uint body_render_lod_pixel_threshold;
+	uint body_render_low_power_mode;
+	uint body_count;
+	uint body_noise_octaves;
+	uint body_render_point_pixel_threshold;
+	uint dispatch_row_offset;
+	uint dispatch_row_count;
+	uint earth_day_width;
+	uint earth_night_width;
+	uint light_source_mode;
+	uint light_attenuation_mode;
+	uint light_source_body_id;
+	uint body_emission_lighting_enabled;
+	uint body_lighting_detail;
+	uint body_shadow_caster_limit;
+	uint body_emission_source_limit;
+	float light_intensity;
+	float light_color_r;
+	float light_color_g;
+	float light_color_b;
+	float light_ambient;
+	float light_terminator_softness;
+	float light_specular_scale;
+	float light_direction_x;
+	float light_direction_y;
+	float light_direction_z;
+	float light_position_x;
+	float light_position_y;
+	float light_position_z;
+	float light_reference_distance;
+	float body_emission_lighting_gain;
+	float body_emission_lighting_reference_distance;
+	GpuDiskProfile primary_disk;
+	GpuHydroDiskProfile hydro_disk;
+	GpuJetProfile jet;
+	GpuDarkMatterField dark_matter;
+	GpuCosmologyProfile cosmology;
+	dvec4 observer_boost;
+	uint tile_origin_x;
+	uint tile_origin_y;
+	uint tile_extent_x;
+	uint tile_extent_y;
+} pc;
+
+layout(std430, binding = 1) buffer OutputPixelBuffer {
+	GpuPixelOutput pixels[];
+};
+
+layout(std430, binding = 2) readonly buffer CelestialBodyBuffer {
+	GpuBodyGpuLayout bodies[];
+};
+
+layout(binding = 3) uniform sampler2D sky_panorama;
+
+layout(std430, binding = 4) buffer PersistentCounterBuffer {
+	uint persistent_counter;
+};
+
+layout(binding = 5) uniform sampler2D earth_day;
+layout(binding = 6) uniform sampler2D earth_night;
+
+const double kPi = 3.14159265358979323846;
+const uint kPixelHorizon = 1u;
+const uint kPixelCelestial = 2u;
+const uint kPixelDisk = 4u;
+
+dvec3 compute_ray_direction(uint px, uint py) {
+	double aspect = double(pc.screen_width) / double(pc.screen_height);
+	double u = (double(px) + 0.5) / double(pc.screen_width) * 2.0 - 1.0;
+	double v = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;
+
+	if (pc.projection_mode == 3u || pc.projection_mode == 7u) {
+		float lon = float(u * kPi);
+		float lat = float(v * (kPi * 0.5));
+		return dvec3(double(cos(lat) * cos(lon)), double(cos(lat) * sin(lon)), double(sin(lat)));
+	}
+
+	double tan_fov = double(tan(float(pc.field_of_view_rad * 0.5)));
+	dvec3 dir = dvec3(1.0, u * aspect * tan_fov, v * tan_fov);
+	return normalize(dir);
+}
+
+vec3 aces_tonemap(vec3 color, float exposure) {
+	vec3 x = color * exp2(exposure);
+	const float a = 2.51f;
+	const float b = 0.03f;
+	const float c = 2.43f;
+	const float d = 0.59f;
+	const float e = 0.14f;
+	return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+}
+
+void main() {
+	uint tile_col = gl_GlobalInvocationID.x;
+	uint tile_row = gl_GlobalInvocationID.y;
+
+	if (tile_col >= pc.tile_extent_x || tile_row >= pc.tile_extent_y) {
+		return;
+	}
+
+	uint px = pc.tile_origin_x + tile_col;
+	uint py = pc.tile_origin_y + tile_row;
+
+	if (px >= pc.screen_width || py >= pc.screen_height) {
+		return;
+	}
+
+	uint out_index = tile_row * pc.tile_extent_x + tile_col;
+
+	dvec3 local_dir = compute_ray_direction(px, py);
+	dvec3 fwd = pc.tetrad_e1.yzw;
+	dvec3 rgt = pc.tetrad_e2.yzw;
+	dvec3 up  = pc.tetrad_e3.yzw;
+	dvec3 world_dir = normalize(local_dir.x * fwd + local_dir.y * rgt + local_dir.z * up);
+
+	double r = max(pc.observer_position.y, pc.horizon_radius * 1.01);
+	double theta = clamp(pc.observer_position.z, 0.001, kPi - 0.001);
+	double phi = pc.observer_position.w;
+
+	double sin_t = double(sin(float(theta)));
+	double cos_t = double(cos(float(theta)));
+	double sin_p = double(sin(float(phi)));
+	double cos_p = double(cos(float(phi)));
+
+	dvec3 er = dvec3(sin_t * cos_p, sin_t * sin_p, cos_t);
+	dvec3 eth = dvec3(cos_t * cos_p, cos_t * sin_p, -sin_t);
+	dvec3 eph = dvec3(-sin_p, cos_p, 0.0);
+
+	double n_r = dot(world_dir, er);
+	double n_th = dot(world_dir, eth);
+	double n_ph = dot(world_dir, eph);
+
+	double rs = 2.0 * max(pc.metric_mass, 1e-6);
+	double rh = pc.horizon_radius;
+	double f_obs = max(1.0 - rs / r, 1e-6);
+	double sqrt_f_obs = sqrt(f_obs);
+
+	double pr = -n_r;
+	double ptheta = -n_th / (r * sqrt_f_obs);
+	double pphi = -n_ph / (r * sin_t * sqrt_f_obs);
+
+	vec3 accumulated_radiance = vec3(0.0f);
+	float throughput = 1.0f;
+	uint status = 0u;
+	uint iters = 0u;
+
+	uint max_steps = pc.max_integration_steps;
+	for (uint step = 0u; step < max_steps && throughput > 0.01f; ++step) {
+		iters = step + 1u;
+
+		if (r <= rh * 1.0001) {
+			status |= kPixelHorizon;
+			throughput = 0.0f;
+			break;
+		}
+
+		if (r >= pc.escape_radius) {
+			status |= kPixelCelestial;
+			break;
+		}
+
+		double r_scale = max(r - rh, 0.02 * pc.metric_mass);
+		double dt = -clamp(pc.step_size_factor * sqrt(r * r_scale), pc.min_step_size, pc.max_step_size);
+
+		double f = 1.0 - rs / r;
+		double dr = f * pr;
+		double dtheta = ptheta;
+		double dphi = pphi;
+
+		double dpr = -(rs / (2.0 * r * r * f)) * pr * pr + r * (ptheta * ptheta + sin_t * sin_t * pphi * pphi);
+		double dptheta = -2.0 / r * pr * ptheta + sin_t * cos_t * pphi * pphi;
+		double dpphi = -2.0 / r * pr * pphi - 2.0 * (cos_t / max(sin_t, 1e-6)) * ptheta * pphi;
+
+		r += dr * dt;
+		theta += dtheta * dt;
+		phi += dphi * dt;
+		pr += dpr * dt;
+		ptheta += dptheta * dt;
+		pphi += dpphi * dt;
+
+		sin_t = double(sin(float(theta)));
+		cos_t = double(cos(float(theta)));
+	}
+
+	if ((status & kPixelHorizon) == 0u) {
+		float u_sky = float((phi + kPi) / (2.0 * kPi));
+		float v_sky = float(theta / kPi);
+		vec3 sky = texture(sky_panorama, vec2(u_sky, v_sky)).rgb;
+		accumulated_radiance += throughput * sky;
+		status |= kPixelCelestial;
+	}
+
+	vec3 mapped = aces_tonemap(accumulated_radiance, float(pc.camera_exposure));
+
+	pixels[out_index].r = mapped.r;
+	pixels[out_index].g = mapped.g;
+	pixels[out_index].b = mapped.b;
+	pixels[out_index].a = 1.0f;
+	pixels[out_index].redshift = 1.0f;
+	pixels[out_index].affine_parameter = float(iters) * 0.05f;
+	pixels[out_index].status_flags = status;
+	pixels[out_index].iterations_used = iters;
+}

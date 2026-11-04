@@ -298,6 +298,10 @@ layout(scalar, binding = 0) uniform CameraParams {
 	DarkMatterField dark_matter;
 	CosmologyProfile cosmology;
 	dvec4 observer_boost;
+	uint tile_origin_x;
+	uint tile_origin_y;
+	uint tile_extent_x;
+	uint tile_extent_y;
 } pc;
 
 struct PixelOutput {
@@ -3374,12 +3378,29 @@ void main() {
 	barrier();
 	uint tile_x = gl_WorkGroupID.x * 16u;
 	uint tile_y = gl_WorkGroupID.y * 16u;
+	#ifdef RELATIVISTIC_CLUSTER_TILE
+	uint tile_column = tile_x + gl_LocalInvocationID.x;
+	uint px = pc.tile_origin_x + tile_column;
+#else
 	uint px = tile_x + gl_LocalInvocationID.x;
+#endif
 	uint local_row = tile_y + gl_LocalInvocationID.y;
+	#ifdef RELATIVISTIC_CLUSTER_TILE
+	uint py = pc.tile_origin_y + local_row;
+#else
 	uint py = pc.dispatch_row_offset + local_row;
+#endif
 
-		if (px < pc.screen_width && local_row < pc.dispatch_row_count && py < pc.screen_height) {
+		#ifdef RELATIVISTIC_CLUSTER_TILE
+	if (tile_column < pc.tile_extent_x && local_row < pc.tile_extent_y && px < pc.screen_width && py < pc.screen_height) {
+#else
+	if (px < pc.screen_width && local_row < pc.dispatch_row_count && py < pc.screen_height) {
+#endif
+		#ifdef RELATIVISTIC_CLUSTER_TILE
+		uint pixel_index = local_row * pc.tile_extent_x + tile_column;
+#else
 		uint pixel_index = local_row * pc.screen_width + px;
+#endif
 
 		double aspect = double(pc.screen_width) / double(pc.screen_height);
 		double v_norm = 1.0 - (double(py) + 0.5) / double(pc.screen_height) * 2.0;

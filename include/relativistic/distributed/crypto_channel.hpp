@@ -56,7 +56,7 @@ public:
 	CryptoChannel() noexcept = default;
 	~CryptoChannel() noexcept = default;
 
-	[[nodiscard]] static CryptoKeyPair generate_node_identity_keys(uint64_t seed_value) noexcept;
+	[[nodiscard]] static CryptoKeyPair generate_node_identity_keys(uint64_t seed_value = 0) noexcept;
 
 	[[nodiscard]] bool perform_handshake_server(
 		std::span<const uint8_t, 32> client_public_key,

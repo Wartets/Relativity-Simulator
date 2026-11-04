@@ -874,6 +874,124 @@ private:
 	}
 
 public:
+	struct TileRegion {
+		uint32_t origin_x{0};
+		uint32_t origin_y{0};
+		uint32_t width{0};
+		uint32_t height{0};
+	};
+
+	[[nodiscard]] static bool dispatch_tile(
+		const GpuCameraPushConstants& params,
+		const TileRegion& region,
+		std::span<GpuPixelOutput> tile_output,
+		std::span<const GpuBodyData> bodies,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		constexpr size_t TILE = 32;
+		const size_t width = params.screen_width;
+		const size_t height = params.screen_height;
+		const size_t tile_pixels = static_cast<size_t>(region.width) * static_cast<size_t>(region.height);
+		if (width == 0 || height == 0 || tile_pixels == 0 || tile_output.size() < tile_pixels) {
+			return false;
+		}
+		if (region.width > TILE || region.height > TILE || (region.origin_x % TILE) != 0 || (region.origin_y % TILE) != 0) {
+			return false;
+		}
+		if (static_cast<size_t>(region.origin_x) + region.width > width || static_cast<size_t>(region.origin_y) + region.height > height) {
+			return false;
+		}
+
+		try {
+			static thread_local std::vector<GpuPixelOutput> strip;
+			static thread_local std::vector<uint8_t> selection;
+			static thread_local std::vector<uint8_t> exclusion;
+			static Core::ThreadPool inline_pool(1);
+
+			const size_t strip_pixels = width * static_cast<size_t>(region.height);
+			if (strip.size() < strip_pixels) {
+				strip.resize(strip_pixels);
+			}
+			for (uint32_t row = 0; row < region.height; ++row) {
+				std::fill_n(strip.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(row) * width + region.origin_x), region.width, GpuPixelOutput{});
+			}
+
+			const size_t tiles_x = (width + TILE - 1) / TILE;
+			const size_t tiles_y = (height + TILE - 1) / TILE;
+			const size_t tile_total = tiles_x * tiles_y;
+			const size_t tile_slot = (region.origin_y / TILE) * tiles_x + (region.origin_x / TILE);
+			selection.assign(tile_total, 0U);
+			selection[tile_slot] = 1U;
+			exclusion.assign(tile_total, 1U);
+			exclusion[tile_slot] = 0U;
+
+			GpuCameraPushConstants window = params;
+			window.dispatch_row_offset = region.origin_y;
+			window.dispatch_row_count = region.height;
+			window.interlace_mode = 0U;
+			window.render_flags &= ~RenderFlags::USE_PER_FRAME_THREADS;
+			GpuCameraPushConstants simd_window = window;
+			simd_window.render_flags |= RenderFlags::USE_TILED_DISTRIBUTION;
+			GpuCameraPushConstants scalar_window = window;
+			scalar_window.render_flags &= ~RenderFlags::USE_TILED_DISTRIBUTION;
+
+			const std::span<GpuPixelOutput> strip_span(strip.data(), strip_pixels);
+			const std::span<const uint8_t> only_selected(selection);
+			const std::span<const uint8_t> all_but_selected(exclusion);
+
+			Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
+
+			const bool heavy = HydroDiskShader::requires_scalar_pipeline(params.hydro_disk)
+				|| params.jet.enabled > 0.5f
+				|| DarkMatter::DarkMatterLensing::is_active(params.dark_matter)
+				|| params.metric_type >= 7U;
+			const bool single_precision = (params.precision_mode == static_cast<uint32_t>(PrecisionMode::DoubleSingleEmulation)) && !heavy;
+			const bool scalar_only = heavy
+				|| (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U
+				|| (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) != 0U
+				|| requires_exact_metric_path(params)
+				|| (!single_precision && Observer::has_observer_boost(params.observer_boost));
+
+			BodyTileCullResult cull;
+			bool body_tile = false;
+			if (!scalar_only && !bodies.empty()) {
+				cull = compute_body_screen_tiles(params, bodies);
+				body_tile = tile_slot < cull.tile_mask.size() && cull.tile_mask[tile_slot] != 0U;
+			}
+
+			if (scalar_only) {
+				if (single_precision) {
+					dispatch_fp32_scalar(scalar_window, strip_span, bodies, &inline_pool, cancel_flag, only_selected);
+				} else {
+					dispatch_fp64_scalar(scalar_window, strip_span, bodies, &inline_pool, cancel_flag, only_selected);
+				}
+			} else if (body_tile) {
+				if (single_precision) {
+					dispatch_fp32_scalar(scalar_window, strip_span, bodies, &inline_pool, cancel_flag, only_selected, cull.tile_offsets, cull.tile_counts, cull.candidate_pool);
+				} else {
+					dispatch_fp64_scalar(scalar_window, strip_span, bodies, &inline_pool, cancel_flag, only_selected, cull.tile_offsets, cull.tile_counts, cull.candidate_pool);
+				}
+			} else {
+				if (single_precision) {
+					dispatch_fp32_simd(simd_window, strip_span, &inline_pool, cancel_flag, all_but_selected);
+				} else {
+					dispatch_fp64_simd(simd_window, strip_span, &inline_pool, cancel_flag, nullptr, all_but_selected);
+				}
+			}
+
+			if (cancel_flag != nullptr && cancel_flag->load(std::memory_order_relaxed)) {
+				return false;
+			}
+			for (uint32_t row = 0; row < region.height; ++row) {
+				const GpuPixelOutput* source = strip.data() + static_cast<size_t>(row) * width + region.origin_x;
+				std::copy_n(source, region.width, tile_output.data() + static_cast<size_t>(row) * region.width);
+			}
+			return true;
+		} catch (...) {
+			return false;
+		}
+	}
+
 	[[nodiscard]] static bool requires_exact_metric_path(const GpuCameraPushConstants& params) noexcept {
 		const double mass_scale = std::max(params.metric_mass, 1e-4);
 		const bool is_spin_family = (params.metric_type == 2U || params.metric_type == 3U || params.metric_type == 5U);

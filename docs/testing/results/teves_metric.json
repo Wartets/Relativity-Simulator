@@ -1,8 +1,8 @@
 {
   "suite": "teves_metric",
   "description": "Verifies the TeVeS spacetime metric: satisfaction of the spacetime concept, geometric invariants in geometrized units, positivity of the connection in SI units, and the circular velocity of the metric against the MOND prediction and the baryonic Tully-Fisher relation.",
-  "generated": "2026-10-19 22:21:20 UTC",
-  "duration_seconds": 0.0012055,
+  "generated": "2026-11-05 10:01:26 UTC",
+  "duration_seconds": 0.0012632,
   "passed": true,
   "checks": [
     {"section": "Geometrized units", "label": "TeVeS: the inverse metric times the metric reproduces the identity", "detail": "value=2.22045e-16 limit=1e-12", "passed": true},

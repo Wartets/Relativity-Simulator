@@ -1,0 +1,18 @@
+{
+  "suite": "test_cluster_worker_execution",
+  "mathematical_equivalence": {
+    "passed": true,
+    "max_radiance_relative_error": 0,
+    "max_redshift_relative_error": 0
+  },
+  "cancellation": {
+    "passed": true,
+    "latency_ms": 1.1002
+  },
+  "stress": {
+    "passed": true,
+    "dispatched": 1000,
+    "completed": 1000,
+    "throughput_mpx_sec": 0.013109
+  }
+}

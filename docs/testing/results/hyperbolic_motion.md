@@ -7,8 +7,8 @@ Verifies the relativistic rocket against the closed-form hyperbolic motion of co
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 56.18 s |
-| Generated | 2026-10-19 22:20:25 UTC |
+| Duration | 50.5 s |
+| Generated | 2026-11-05 09:55:25 UTC |
 
 ## Constant proper acceleration sweep
 

@@ -7,8 +7,8 @@ Verifies the static tensor algebra: closed-form 4x4 metric inversion for Minkows
 | Status | FAILED |
 | Checks | 13 |
 | Failed checks | 1 |
-| Duration | 0.001606 s |
-| Generated | 2026-10-19 22:21:19 UTC |
+| Duration | 0.001139 s |
+| Generated | 2026-11-05 10:01:25 UTC |
 
 ## Metric inversion
 

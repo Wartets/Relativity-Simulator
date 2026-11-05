@@ -7,8 +7,8 @@ Verifies the one-dimensional polynomial chaos expansion: exact mean, variance an
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.0114 s |
-| Generated | 2026-10-19 22:21:00 UTC |
+| Duration | 0.01576 s |
+| Generated | 2026-11-05 09:56:00 UTC |
 
 ## Hermite basis with a Gaussian variable
 

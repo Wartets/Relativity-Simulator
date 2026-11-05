@@ -7,8 +7,8 @@ Verifies that the adaptive integrator preserves the four-velocity normalization:
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 3.323 s |
-| Generated | 2026-10-19 22:20:29 UTC |
+| Duration | 3.365 s |
+| Generated | 2026-11-05 09:55:29 UTC |
 
 ## Circular timelike orbit
 

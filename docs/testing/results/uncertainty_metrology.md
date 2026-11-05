@@ -7,8 +7,8 @@ Verifies the metrology visualizer: a covariance ellipsoid mesh with the requeste
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.0008976 s |
-| Generated | 2026-10-19 22:21:22 UTC |
+| Duration | 0.001272 s |
+| Generated | 2026-11-05 10:01:27 UTC |
 
 ## Covariance ellipsoid
 

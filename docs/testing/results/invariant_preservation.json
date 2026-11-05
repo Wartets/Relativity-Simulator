@@ -1,8 +1,8 @@
 {
   "suite": "invariant_preservation",
   "description": "Verifies that the adaptive integrator preserves the four-velocity normalization: a circular Schwarzschild orbit over fifty thousand steps keeps the invariant residual below 1e-11, and a radial free fall through the horizon in Painleve-Gullstrand coordinates stays below 1e-10.",
-  "generated": "2026-10-19 22:20:29 UTC",
-  "duration_seconds": 3.3225055,
+  "generated": "2026-11-05 09:55:29 UTC",
+  "duration_seconds": 3.3650822,
   "passed": true,
   "checks": [
     {"section": "Circular timelike orbit", "label": "every adaptive step of the circular orbit succeeds", "detail": "", "passed": true},

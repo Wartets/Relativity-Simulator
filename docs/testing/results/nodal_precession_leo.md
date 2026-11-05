@@ -7,8 +7,8 @@ Verifies the secular J2 perturbation of low Earth orbits: the sun-synchronous in
 | Status | PASSED |
 | Checks | 8 |
 | Failed checks | 0 |
-| Duration | 0.9657 s |
-| Generated | 2026-10-19 22:20:51 UTC |
+| Duration | 1.031 s |
+| Generated | 2026-11-05 09:55:50 UTC |
 
 ## Analytical precession formulas
 

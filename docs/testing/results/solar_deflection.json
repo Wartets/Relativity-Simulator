@@ -1,8 +1,8 @@
 {
   "suite": "solar_deflection",
   "description": "Verifies the gravitational deflection of a light ray grazing the solar limb, integrated with the adaptive Dormand-Prince scheme in SI units from -1000 to +1000 solar radii: the deflection agrees with the first-order result 4GM/(c^2 R) within a relative 1e-4 and with the second-order post-Newtonian result within a relative 1e-5, while the null constraint residual stays below 1e-11.",
-  "generated": "2026-10-19 22:21:16 UTC",
-  "duration_seconds": 0.0484508,
+  "generated": "2026-11-05 10:01:22 UTC",
+  "duration_seconds": 0.0453949,
   "passed": true,
   "checks": [
     {"section": "Integration across the solar field", "label": "every adaptive step stays above the minimum step size", "detail": "", "passed": true},

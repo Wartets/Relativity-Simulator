@@ -1,8 +1,8 @@
 {
   "suite": "symplectic_gauss_legendre",
   "description": "Verifies the implicit Gauss-Legendre integrators: exact straight-line propagation in flat spacetime with the fourth-order scheme, and conservation of the normalization, energy and angular momentum of a circular Schwarzschild orbit over 2000 steps with the sixth-order scheme.",
-  "generated": "2026-10-19 22:21:19 UTC",
-  "duration_seconds": 0.4162717,
+  "generated": "2026-11-05 10:01:25 UTC",
+  "duration_seconds": 0.316081,
   "passed": true,
   "checks": [
     {"section": "Flat spacetime", "label": "all one hundred implicit steps converge", "detail": "", "passed": true},

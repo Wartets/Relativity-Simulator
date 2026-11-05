@@ -7,8 +7,8 @@ Verifies observer tetrads and their transport: orthonormality of stationary and 
 | Status | PASSED |
 | Checks | 11 |
 | Failed checks | 0 |
-| Duration | 5.309 s |
-| Generated | 2026-10-19 22:20:58 UTC |
+| Duration | 6.039 s |
+| Generated | 2026-11-05 09:55:57 UTC |
 
 ## Tetrad orthonormality
 

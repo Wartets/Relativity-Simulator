@@ -7,8 +7,8 @@ Verifies the lock-free command path under load: one hundred thousand commands of
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.07687 s |
-| Generated | 2026-10-19 22:16:37 UTC |
+| Duration | 1.065 s |
+| Generated | 2026-11-05 09:51:53 UTC |
 
 ## Concurrent producer and simulation worker
 

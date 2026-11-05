@@ -1,8 +1,8 @@
 {
   "suite": "christoffel_solver",
   "description": "Verifies the finite-difference connection solver at fourth, sixth and eighth order against the analytic connection of Minkowski and Schwarzschild spacetimes: exactness on flat space, lower-index symmetry, error ordering across stencil orders, dispatch to the analytic connection and the numerical wrapper, without dynamic allocation.",
-  "generated": "2026-10-19 22:16:36 UTC",
-  "duration_seconds": 0.0030122,
+  "generated": "2026-11-05 09:50:33 UTC",
+  "duration_seconds": 0.0032181,
   "passed": false,
   "checks": [
     {"section": "Flat spacetime", "label": "the fourth-order connection of Minkowski vanishes", "detail": "value=0 limit=1e-15", "passed": true},

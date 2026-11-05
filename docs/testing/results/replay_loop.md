@@ -7,8 +7,8 @@ Verifies deterministic record and replay: a geodesic bundle is evolved for ten t
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 1.214 s |
-| Generated | 2026-10-19 22:21:06 UTC |
+| Duration | 1.118 s |
+| Generated | 2026-11-05 09:56:06 UTC |
 
 ## Recording
 

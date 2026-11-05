@@ -7,8 +7,8 @@ Verifies the Fishbone-Moncrief torus: the enthalpy and density at the pressure m
 | Status | PASSED |
 | Checks | 13 |
 | Failed checks | 0 |
-| Duration | 0.001953 s |
-| Generated | 2026-10-19 22:19:23 UTC |
+| Duration | 0.001434 s |
+| Generated | 2026-11-05 09:54:29 UTC |
 
 ## Equilibrium and cusp
 

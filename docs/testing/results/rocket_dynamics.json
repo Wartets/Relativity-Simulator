@@ -1,8 +1,8 @@
 {
   "suite": "rocket_dynamics",
   "description": "Verifies the relativistic rocket in flat spacetime: constant proper acceleration against the closed-form hyperbolic solution in proper-time flow, the coordinate-time flow mode, and an exact quarter-turn rotation that preserves the orthonormality of the tetrad.",
-  "generated": "2026-10-19 22:21:09 UTC",
-  "duration_seconds": 2.7651202,
+  "generated": "2026-11-05 09:56:09 UTC",
+  "duration_seconds": 2.8796897,
   "passed": true,
   "checks": [
     {"section": "Proper-time flow", "label": "the coordinate time equals sinh(a tau) / a", "detail": "actual=1.81343020392 expected=1.81343020392 abs_error=3.262e-13 tolerance=1e-07", "passed": true},

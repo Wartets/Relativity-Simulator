@@ -7,8 +7,8 @@ Verifies every camera navigation mode of the engine: mode catalogue and command-
 | Status | PASSED |
 | Checks | 56 |
 | Failed checks | 0 |
-| Duration | 0.005744 s |
-| Generated | 2026-10-19 22:16:31 UTC |
+| Duration | 0.00706 s |
+| Generated | 2026-11-05 09:50:27 UTC |
 
 ## Navigation mode catalogue
 

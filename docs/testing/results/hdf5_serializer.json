@@ -1,8 +1,8 @@
 {
   "suite": "hdf5_serializer",
   "description": "Verifies the binary container: a metric tensor series and a worldline survive serialization and deserialization with identical dataset names, dimensions, sizes and values.",
-  "generated": "2026-10-19 22:19:27 UTC",
-  "duration_seconds": 0.0026621,
+  "generated": "2026-11-05 09:54:32 UTC",
+  "duration_seconds": 0.0041595,
   "passed": true,
   "checks": [
     {"section": "Serialization", "label": "the container serializes to a non-empty buffer", "detail": "size=19423", "passed": true},

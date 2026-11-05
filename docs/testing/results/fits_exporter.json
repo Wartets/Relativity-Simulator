@@ -1,8 +1,8 @@
 {
   "suite": "fits_exporter",
   "description": "Verifies the FITS exporter: logical records of 2880 bytes, mandatory keywords and WCS object name of a two-dimensional image, and the three-dimensional axis keywords of a spectral cube.",
-  "generated": "2026-10-19 22:19:24 UTC",
-  "duration_seconds": 0.0066309,
+  "generated": "2026-11-05 09:54:29 UTC",
+  "duration_seconds": 0.006714,
   "passed": true,
   "checks": [
     {"section": "Two-dimensional image", "label": "the image export is not empty", "detail": "", "passed": true},

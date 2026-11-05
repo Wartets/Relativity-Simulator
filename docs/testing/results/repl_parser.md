@@ -7,8 +7,8 @@ Verifies the terminal command parser: flow commands, argument validation, every 
 | Status | PASSED |
 | Checks | 52 |
 | Failed checks | 0 |
-| Duration | 0.002791 s |
-| Generated | 2026-10-19 22:21:04 UTC |
+| Duration | 0.002266 s |
+| Generated | 2026-11-05 09:56:04 UTC |
 
 ## Simulation flow commands
 

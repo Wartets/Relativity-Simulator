@@ -7,8 +7,8 @@ Verifies the spectral colour pipeline: the CIE 1931 colour matching functions at
 | Status | PASSED |
 | Checks | 9 |
 | Failed checks | 0 |
-| Duration | 0.001727 s |
-| Generated | 2026-10-19 22:16:36 UTC |
+| Duration | 0.002057 s |
+| Generated | 2026-11-05 09:50:33 UTC |
 
 ## Colour matching functions
 

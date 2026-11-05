@@ -1,8 +1,8 @@
 {
   "suite": "cie_spectral_pipeline",
   "description": "Verifies the spectral colour pipeline: the CIE 1931 colour matching functions at characteristic wavelengths, the conversion of a solar blackbody spectrum to positive linear sRGB, and the bounds and monotonicity of the logarithmic and ACES tone mapping operators.",
-  "generated": "2026-10-19 22:16:36 UTC",
-  "duration_seconds": 0.0017272,
+  "generated": "2026-11-05 09:50:33 UTC",
+  "duration_seconds": 0.0020573,
   "passed": true,
   "checks": [
     {"section": "Colour matching functions", "label": "the luminosity function peaks near 1 at 555 nm", "detail": "y_bar=0.998039", "passed": true},

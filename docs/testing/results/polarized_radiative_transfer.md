@@ -7,8 +7,8 @@ Verifies polarized radiative transfer: Stokes vector invariants and frame rotati
 | Status | PASSED |
 | Checks | 30 |
 | Failed checks | 0 |
-| Duration | 0.02995 s |
-| Generated | 2026-10-19 22:20:59 UTC |
+| Duration | 0.08689 s |
+| Generated | 2026-11-05 09:56:00 UTC |
 
 ## Stokes vector
 

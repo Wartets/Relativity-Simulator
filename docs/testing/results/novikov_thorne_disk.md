@@ -7,8 +7,8 @@ Verifies the Novikov-Thorne thin disk: the ISCO radius for Schwarzschild, progra
 | Status | PASSED |
 | Checks | 11 |
 | Failed checks | 0 |
-| Duration | 0.3331 s |
-| Generated | 2026-10-19 22:20:52 UTC |
+| Duration | 0.3134 s |
+| Generated | 2026-11-05 09:55:51 UTC |
 
 ## Innermost stable circular orbit
 

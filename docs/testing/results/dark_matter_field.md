@@ -7,8 +7,8 @@ Verifies the dark matter field of the renderer and the N-body coupling: enclosed
 | Status | FAILED |
 | Checks | 37 |
 | Failed checks | 2 |
-| Duration | 0.002344 s |
-| Generated | 2026-10-19 22:19:17 UTC |
+| Duration | 0.002908 s |
+| Generated | 2026-11-05 09:54:22 UTC |
 
 ## Profile mathematics
 

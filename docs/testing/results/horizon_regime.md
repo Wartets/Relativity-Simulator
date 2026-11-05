@@ -7,8 +7,8 @@ Verifies the horizon regime analysis: constraint detection per metric, Kerr, Ker
 | Status | PASSED |
 | Checks | 30 |
 | Failed checks | 0 |
-| Duration | 0.001663 s |
-| Generated | 2026-10-19 22:19:28 UTC |
+| Duration | 0.001539 s |
+| Generated | 2026-11-05 09:54:34 UTC |
 
 ## Constraint set parsing
 

@@ -1,8 +1,8 @@
 {
   "suite": "polynomial_chaos",
   "description": "Verifies the one-dimensional polynomial chaos expansion: exact mean, variance and standard deviation of a linear function of a Gaussian variable on the Hermite basis, the mean of a quadratic function of a uniform variable on the Legendre basis, and the median extracted from sampled quantiles.",
-  "generated": "2026-10-19 22:21:00 UTC",
-  "duration_seconds": 0.0113975,
+  "generated": "2026-11-05 09:56:00 UTC",
+  "duration_seconds": 0.0157585,
   "passed": true,
   "checks": [
     {"section": "Hermite basis with a Gaussian variable", "label": "the mean of 3 + 2 xi equals 3", "detail": "actual=3 expected=3 abs_error=1.332e-15 tolerance=1e-10", "passed": true},

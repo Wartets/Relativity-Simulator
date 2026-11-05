@@ -7,8 +7,8 @@ Verifies the ephemeris primitives: calendar to Julian date conversion at J2000 a
 | Status | PASSED |
 | Checks | 7 |
 | Failed checks | 0 |
-| Duration | 0.001181 s |
-| Generated | 2026-10-19 22:19:22 UTC |
+| Duration | 0.0009703 s |
+| Generated | 2026-11-05 09:54:28 UTC |
 
 ## Epoch conversion
 

@@ -1,8 +1,8 @@
 {
   "suite": "barnes_hut_octree",
   "description": "Verifies the Barnes-Hut octree on a deterministic Gaussian cloud of 300 softened particles: the tree contains more nodes than particles, the quadrupole-corrected accelerations of twenty particles agree with direct summation within 5 percent of the acceleration magnitude, and ten leapfrog steps keep every particle finite.",
-  "generated": "2026-10-19 22:15:08 UTC",
-  "duration_seconds": 0.1902594,
+  "generated": "2026-11-05 09:49:07 UTC",
+  "duration_seconds": 0.1701512,
   "passed": true,
   "checks": [
     {"section": "Tree construction", "label": "the octree holds more nodes than particles", "detail": "nodes=447", "passed": true},

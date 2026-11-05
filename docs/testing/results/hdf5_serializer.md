@@ -7,8 +7,8 @@ Verifies the binary container: a metric tensor series and a worldline survive se
 | Status | PASSED |
 | Checks | 9 |
 | Failed checks | 0 |
-| Duration | 0.002662 s |
-| Generated | 2026-10-19 22:19:27 UTC |
+| Duration | 0.00416 s |
+| Generated | 2026-11-05 09:54:32 UTC |
 
 ## Serialization
 

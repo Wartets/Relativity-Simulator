@@ -7,8 +7,8 @@ Verifies the perihelion advance of a Mercury-like orbit (a = 1000 r_s, e = 0.205
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 17.47 s |
-| Generated | 2026-10-19 22:20:50 UTC |
+| Duration | 17.12 s |
+| Generated | 2026-11-05 09:55:49 UTC |
 
 ## Exact precession
 

@@ -1,8 +1,8 @@
 {
   "suite": "f_r_chameleon",
   "description": "Verifies the Hu-Sawicki chameleon model: the scalaron mass grows with the ambient density, the Earth is thin-shell screened so that its effective coupling equals Newtonian gravity, and an unscreened low-density cloud feels the enhanced coupling of 4/3.",
-  "generated": "2026-10-19 22:19:23 UTC",
-  "duration_seconds": 0.0011181,
+  "generated": "2026-11-05 09:54:28 UTC",
+  "duration_seconds": 0.0009523,
   "passed": true,
   "checks": [
     {"section": "Scalaron mass", "label": "the scalaron is more than a million times heavier in the dense environment", "detail": "", "passed": true},

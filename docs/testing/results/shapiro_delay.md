@@ -7,8 +7,8 @@ Verifies the Shapiro time delay of a radio signal grazing a Schwarzschild mass b
 | Status | PASSED |
 | Checks | 3 |
 | Failed checks | 0 |
-| Duration | 4.437 s |
-| Generated | 2026-10-19 22:21:16 UTC |
+| Duration | 4.197 s |
+| Generated | 2026-11-05 10:01:21 UTC |
 
 ## Geodesic integration
 

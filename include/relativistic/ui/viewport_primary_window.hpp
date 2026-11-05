@@ -2084,7 +2084,20 @@ private:
 			} else {
 				std::snprintf(buf, sizeof(buf), "GPU Path: %s", tel.used_gpu_path ? "Active" : "Idle");
 			}
-			push_block(HudElementId::GpuComputeStatusReadout, {HudTextLine{buf}});
+			std::vector<HudTextLine> gpu_status_lines{HudTextLine{buf}};
+			if (pipeline_.cluster_extension().is_cluster_bound()) {
+				char cluster_buf[176];
+				const auto& cluster_frame = tel.cluster;
+				if (style.display_mode == HudDisplayMode::Compact) {
+					std::snprintf(cluster_buf, sizeof(cluster_buf), "Cluster: %u workers", pipeline_.cluster_extension().workers_active());
+				} else if (style.display_mode == HudDisplayMode::Extended) {
+					std::snprintf(cluster_buf, sizeof(cluster_buf), "Cluster: %s | %u workers | Remote %u | Local %u | Reclaimed %u | Frame %.1f ms | Decode %.2f ms | RTT %.2f ms | %.2f MiB", tel.used_cluster_path ? "Active" : "Idle", pipeline_.cluster_extension().workers_active(), cluster_frame.tiles_remote, cluster_frame.tiles_local, cluster_frame.tiles_reclaimed, cluster_frame.frame_ms, cluster_frame.decode_ms, cluster_frame.round_trip_mean_ms, static_cast<double>(cluster_frame.bytes_received) / (1024.0 * 1024.0));
+				} else {
+					std::snprintf(cluster_buf, sizeof(cluster_buf), "Cluster: %s | %u workers | Remote %u / Local %u tiles", tel.used_cluster_path ? "Active" : "Idle", pipeline_.cluster_extension().workers_active(), cluster_frame.tiles_remote, cluster_frame.tiles_local);
+				}
+				gpu_status_lines.push_back(HudTextLine{cluster_buf});
+			}
+			push_block(HudElementId::GpuComputeStatusReadout, std::move(gpu_status_lines));
 		}
 
 		{

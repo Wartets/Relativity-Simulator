@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.009
+	VERSION 0.4.2.010
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -232,6 +232,7 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/distribution_scheduler.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/body_catalog.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_orchestrator.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_master_service.cpp
 	)
 	target_include_directories(relativistic_distributed PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
@@ -272,14 +273,14 @@ if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 	add_custom_target(relativistic_compute_shaders ALL DEPENDS ${RELATIVISTIC_COMPUTE_SHADER_SPV} ${RELATIVISTIC_COMPUTE_SHADER_HPP})
 
 	if (ENGINE_ENABLE_DISTRIBUTED)
-		set(RELATIVISTIC_TILE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster_tile_tracer_fp64.comp)
+		set(RELATIVISTIC_TILE_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geodesic_tracer_fp64.comp)
 		set(RELATIVISTIC_TILE_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/cluster_tile_tracer_fp64.comp.spv)
 		set(RELATIVISTIC_TILE_SHADER_HPP ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders/cluster_tile_tracer_fp64.spv.hpp)
 		add_custom_command(
 			OUTPUT ${RELATIVISTIC_TILE_SHADER_SPV} ${RELATIVISTIC_TILE_SHADER_HPP}
 			COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders
-			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_SPV}
-			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 --vn cluster_tile_tracer_fp64_spv ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_HPP}
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 -DRELATIVISTIC_CLUSTER_TILE ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_SPV}
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 -DRELATIVISTIC_CLUSTER_TILE --vn cluster_tile_tracer_fp64_spv ${RELATIVISTIC_TILE_SHADER_SRC} -o ${RELATIVISTIC_TILE_SHADER_HPP}
 			DEPENDS ${RELATIVISTIC_TILE_SHADER_SRC} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_spherical_tracer.glsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/spacetime_teves_metric.glsl
 			COMMENT "Compiling cluster_tile_tracer_fp64.comp to SPIR-V and embedded C++ header"
 			VERBATIM
@@ -728,6 +729,11 @@ endif()
 if (TARGET relativistic_compute_shaders)
 	add_dependencies(RelativisticEngine relativistic_compute_shaders)
 	add_dependencies(headless_exporter relativistic_compute_shaders)
+endif()
+
+if (TARGET relativistic_cluster_tile_shaders)
+	add_dependencies(RelativisticEngine relativistic_cluster_tile_shaders)
+	target_compile_definitions(RelativisticEngine PRIVATE RELATIVISTIC_PIPELINE_TILE_SPIRV=1)
 endif()
 
 include(GNUInstallDirs)

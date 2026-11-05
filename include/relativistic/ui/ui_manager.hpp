@@ -31,6 +31,9 @@
 #include "relativistic/core/system_console.hpp"
 #include "relativistic/startup/startup_progress.hpp"
 #include "relativistic/dynamics/bulk_body_actions.hpp"
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+#include "relativistic/distributed/cluster_master_service.hpp"
+#endif
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -86,6 +89,9 @@ private:
 	LogConsoleWindow log_console_window_;
 	std::unique_ptr<SecondaryViewportManager> secondary_viewport_manager_;
 	bool secondary_viewport_manager_panel_open_{false};
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+	std::unique_ptr<Distributed::ClusterMasterService> cluster_master_;
+#endif
 
 	bool glfw_initialized_{false};
 	bool imgui_context_created_{false};
@@ -206,6 +212,19 @@ public:
 		Core::Diagnostics::set_environment("render.gpu.compute.available", viewport_window_->pipeline_ref().gpu_compute_available() ? "yes" : "no");
 		Core::Diagnostics::set_environment("render.precision", (viewport_window_->pipeline_ref().config().precision == Render::PrecisionMode::NativeFloat64) ? "native float64" : "double-single emulation");
 		Core::Diagnostics::record_milestone("render backend ready");
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		{
+			Render::GeodesicComputePipeline* cluster_pipeline = &viewport_window_->pipeline_ref();
+			cluster_master_ = std::make_unique<Distributed::ClusterMasterService>(
+				[cluster_pipeline](Distributed::ClusterOrchestrator& orchestrator) { cluster_pipeline->bind_cluster(orchestrator); },
+				[cluster_pipeline]() { cluster_pipeline->unbind_cluster(); }
+			);
+			if (!cluster_master_->start()) {
+				Core::log_warning("The cluster master service could not start: " + cluster_master_->last_error());
+			}
+			Core::Diagnostics::set_environment("cluster.master.operational", cluster_master_->is_operational() ? "yes" : "no");
+		}
+#endif
 		report_startup(Startup::StartupStage::Interface, 0.05f, "Building interface", "Creating the capture studio...");
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
@@ -352,6 +371,20 @@ public:
 		} catch (...) {
 			Core::log_error("Quick screenshot failed with an unknown error.");
 		}
+	}
+
+	void reload_cluster_configuration() noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (!cluster_master_) {
+			return;
+		}
+		if (!cluster_master_->restart()) {
+			Core::log_warning("The cluster master service could not restart: " + cluster_master_->last_error());
+		}
+		if (viewport_window_) {
+			viewport_window_->request_rerender();
+		}
+#endif
 	}
 
 	void toggle_capture_studio() noexcept {
@@ -642,6 +675,9 @@ public:
 
 	void shutdown() noexcept {
 		Core::Diagnostics::record_milestone("interface shutdown started");
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		cluster_master_.reset();
+#endif
 		capture_studio_window_.reset();
 		viewport_window_.reset();
 		scenario_window_.reset();
@@ -1100,6 +1136,9 @@ private:
 				}
 				if (ImGui::MenuItem("Export VTK Horizons")) {
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_trigger_export("vtk")));
+				}
+				if (ImGui::MenuItem("Reload Cluster Configuration")) {
+					reload_cluster_configuration();
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Exit", "Alt+F4")) {

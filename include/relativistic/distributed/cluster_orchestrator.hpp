@@ -3,6 +3,7 @@
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/distributed/cluster_config.hpp"
 #include "relativistic/distributed/cluster_node.hpp"
+#include "relativistic/distributed/cluster_telemetry.hpp"
 #include "relativistic/distributed/node_registry.hpp"
 #include "relativistic/distributed/distribution_scheduler.hpp"
 #include "relativistic/distributed/network_transport.hpp"
@@ -10,31 +11,48 @@
 #include "relativistic/distributed/body_catalog.hpp"
 #include "relativistic/distributed/task_payloads.hpp"
 #include "relativistic/distributed/packet_protocol.hpp"
+#include "relativistic/distributed/session_protocol.hpp"
 #include "relativistic/distributed/crypto_channel.hpp"
 #include "relativistic/core/thread_pool.hpp"
-#include <vector>
-#include <span>
-#include <memory>
-#include <mutex>
 #include <atomic>
 #include <chrono>
-#include <unordered_map>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace Relativistic::Distributed {
 
-struct ConnectedWorkerNode {
-	uint32_t node_identifier{0};
-	NodeState state{NodeState::Disconnected};
-	NodeHardwareCapabilities hardware{};
-	CryptoChannel security_channel{};
-	double moving_average_rtt_seconds{0.005};
-	double variance_rtt_seconds{0.0001};
-	double execution_throughput_rays_per_second{1.0e6};
-	uint64_t frames_served_count{0};
-	uint64_t assigned_tiles_mask{0};
-	std::chrono::steady_clock::time_point last_heartbeat_timestamp{};
+enum class DispatchProfile : uint8_t {
+	Interactive = 0,
+	Offline = 1
 };
+
+struct FrameWindow {
+	std::span<Render::GpuPixelOutput> pixels{};
+	uint32_t width{0};
+	uint32_t height{0};
+	uint32_t first_row{0};
+	uint32_t row_count{0};
+
+	[[nodiscard]] bool store_tile(const TileGeometry& geometry, std::span<const Render::GpuPixelOutput> tile_pixels) const noexcept;
+};
+
+using TileCompletionSink = std::function<void(uint32_t, std::span<const Render::GpuPixelOutput>)>;
+
+using LocalTileRenderer = std::function<bool(
+	const Render::GpuCameraPushConstants&,
+	std::span<const uint32_t>,
+	std::span<const Render::GpuBodyData>,
+	const TileCompletionSink&,
+	const std::atomic<bool>*
+)>;
 
 class ClusterOrchestrator {
 private:
@@ -43,60 +61,96 @@ private:
 		uint32_t node_id{0};
 		bool authenticated{false};
 		bool handshaking{false};
+		bool initiated{false};
 		CryptoKeyPair identity{};
 		CryptoChannel security_channel{};
 		uint32_t session_identifier{0};
 		uint32_t transmit_sequence{0};
+		uint32_t integrity_failures{0};
+		std::atomic<bool> rekey_required{false};
 		std::mutex send_mutex{};
-		std::chrono::steady_clock::time_point last_ping{};
+		ClusterTimePoint created{};
+		ClusterTimePoint last_ping{};
 		double last_ping_timestamp{0.0};
 	};
 
 	ClusterConfiguration config_{};
 	NodeRegistry registry_{};
-	DistributionScheduler scheduler_{};
+	DistributionScheduler scheduler_;
 	NetworkTransport transport_{};
 	DiscoveryService discovery_{};
-	BodyCatalogStore catalog_store_{};
 
-	std::vector<ConnectedWorkerNode> workers_{};
-	mutable std::mutex workers_mutex_{};
-	std::unordered_map<uint32_t, std::shared_ptr<MasterPeerSession>> sessions_by_peer_{};
-	std::unordered_map<uint32_t, std::shared_ptr<MasterPeerSession>> sessions_by_node_{};
-
+	uint32_t local_abi_signature_{0};
+	std::atomic<bool> route_interactive_{true};
+	std::atomic<bool> route_offline_{true};
 	std::atomic<bool> cluster_active_{false};
 	std::atomic<uint64_t> global_frame_index_{0};
-	uint32_t local_abi_signature_{0};
+
+	mutable std::mutex pump_mutex_{};
+	std::mutex dispatch_mutex_{};
+	mutable std::mutex renderer_mutex_{};
+	mutable std::mutex telemetry_mutex_{};
+	mutable std::mutex error_mutex_{};
+
+	std::unordered_map<uint32_t, std::shared_ptr<MasterPeerSession>> sessions_by_peer_{};
+	std::unordered_map<uint32_t, std::shared_ptr<MasterPeerSession>> sessions_by_node_{};
+	std::map<uint64_t, DiscoveredPeer> discovered_peers_{};
+	std::unordered_map<uint32_t, ClusterTimePoint> reconnect_after_{};
+	std::vector<uint32_t> reclaimed_by_node_loss_{};
+	std::vector<ClusterTimePoint> tile_dispatch_time_{};
+	ClusterTimePoint next_maintenance_{};
+
+	const FrameWindow* active_window_{nullptr};
+	uint64_t active_frame_{0};
 	uint32_t last_broadcast_catalog_frame_{0xFFFFFFFFU};
+	DispatchProfile applied_profile_{DispatchProfile::Interactive};
 
-	std::vector<TileWorkAssignment> pending_tasks_{};
-	std::vector<uint8_t> tile_completed_table_{};
+	uint64_t instance_identifier_{0};
+	NodeHardwareCapabilities local_capabilities_{};
+	ThroughputEstimator local_throughput_{};
+	LocalTileRenderer local_renderer_{};
 
-	void ping_heartbeats_unlocked(std::chrono::steady_clock::time_point current_time) noexcept;
-	void detect_timeouts_and_reclaim_tasks(std::chrono::steady_clock::time_point current_time) noexcept;
+	uint64_t frame_bytes_received_{0};
+	double frame_decode_seconds_{0.0};
+	double frame_local_seconds_{0.0};
+	ClusterFrameTelemetry telemetry_{};
+	std::string last_error_{};
 
-	void process_network_events(
-		uint64_t current_frame_index,
-		std::span<Render::GpuPixelOutput> destination_framebuffer,
-		size_t screen_width,
-		size_t screen_height
-	) noexcept;
+	std::jthread pump_thread_{};
 
-	bool send_encrypted_packet(
-		MasterPeerSession& session,
-		PacketType type,
-		uint64_t frame_index,
-		std::span<const uint8_t> payload,
-		TransportChannel channel
-	);
+	void set_error(const std::string& message);
+	void reseed_local_throughput() noexcept;
+	[[nodiscard]] LoadBalancerParameters make_profile_parameters(DispatchProfile profile) const noexcept;
 
-	bool send_plain_packet(
-		MasterPeerSession& session,
-		PacketType type,
-		std::span<const uint8_t> payload
-	);
+	void pump_loop(std::stop_token stop) noexcept;
+	void service_unlocked(ClusterTimePoint now);
+	void process_network_events() noexcept;
+	void on_peer_connected(uint32_t peer_id);
+	void on_peer_disconnected(uint32_t peer_id);
+	void on_packet_received(const TransportEvent& event, std::span<const uint8_t> wire, std::span<uint8_t> plain);
+	void handle_handshake_packet(const std::shared_ptr<MasterPeerSession>& session, const PacketEnvelope& envelope, std::span<const uint8_t> cipher);
+	void handle_authenticated_packet(const std::shared_ptr<MasterPeerSession>& session, const PacketEnvelope& envelope, std::span<const uint8_t> plain);
+	void ping_heartbeats(ClusterTimePoint now) noexcept;
+	void detect_timeouts(ClusterTimePoint now) noexcept;
+	void maintain_connections(ClusterTimePoint now);
+	void ensure_connection(const ClusterNodeDescriptor& descriptor, ClusterTimePoint now);
+	void close_session(MasterPeerSession& session, DisconnectReason reason) noexcept;
 
+	bool send_encrypted_packet(MasterPeerSession& session, PacketType type, uint64_t frame_index, std::span<const uint8_t> payload, TransportChannel channel);
+	bool send_plain_packet(MasterPeerSession& session, PacketType type, std::span<const uint8_t> payload);
 	void broadcast_bodies_if_needed(uint32_t frame_index, std::span<const Render::GpuBodyData> bodies);
+	void cancel_remote_frame(uint64_t frame_index);
+	void send_remote_tasks(uint64_t frame_index, const Render::GpuCameraPushConstants& constants, bool bodies_empty, ClusterTimePoint now, std::vector<uint32_t>& undispatched);
+
+	bool run_local_batch(
+		const Render::GpuCameraPushConstants& constants,
+		std::span<const uint32_t> tiles,
+		std::span<const Render::GpuBodyData> bodies,
+		const FrameWindow& window,
+		uint64_t frame_index,
+		const LocalTileRenderer& renderer,
+		const std::atomic<bool>* cancel_flag
+	);
 
 public:
 	explicit ClusterOrchestrator(const ClusterConfiguration& configuration) noexcept;
@@ -108,21 +162,14 @@ public:
 	bool start() noexcept;
 	void shutdown() noexcept;
 
-	void register_worker_node(const ConnectedWorkerNode& worker);
-	void unregister_worker_node(uint32_t node_id);
+	void set_local_tile_renderer(LocalTileRenderer renderer);
+	void clear_local_tile_renderer() noexcept;
+	void set_local_gpu_info(const LocalGpuInfo& info) noexcept;
 
-	void prepare_frame_workload(
-		uint64_t frame_index,
-		uint32_t total_tiles,
-		std::span<const uint8_t> tile_importance_mask
-	);
-
-	[[nodiscard]] size_t fetch_remote_tile_results(
-		uint64_t current_frame_index,
-		std::span<Render::GpuPixelOutput> destination_framebuffer,
-		size_t screen_width,
-		size_t screen_height
-	) noexcept;
+	void set_interactive_routing(bool enabled) noexcept { route_interactive_.store(enabled, std::memory_order_relaxed); }
+	void set_offline_routing(bool enabled) noexcept { route_offline_.store(enabled, std::memory_order_relaxed); }
+	[[nodiscard]] bool interactive_routing_enabled() const noexcept { return route_interactive_.load(std::memory_order_relaxed); }
+	[[nodiscard]] bool offline_routing_enabled() const noexcept { return route_offline_.load(std::memory_order_relaxed); }
 
 	[[nodiscard]] bool is_cluster_operational() const noexcept {
 		return cluster_active_.load(std::memory_order_relaxed);
@@ -148,10 +195,36 @@ public:
 		return scheduler_;
 	}
 
+	[[nodiscard]] uint32_t workers_active() const;
+	[[nodiscard]] ClusterFrameTelemetry last_frame_telemetry() const;
+	[[nodiscard]] std::string last_error() const;
+
+	bool prepare_frame_workload(
+		uint64_t frame_index,
+		uint32_t total_tiles,
+		std::span<const uint8_t> tile_importance_mask
+	);
+
+	bool dispatch_frame(
+		const Render::GpuCameraPushConstants& constants,
+		const FrameWindow& window,
+		std::span<const Render::GpuBodyData> bodies,
+		DispatchProfile profile,
+		const std::atomic<bool>* cancel_flag
+	);
+
 	bool dispatch_distributed(
 		const Render::GpuCameraPushConstants& constants,
 		std::span<Render::GpuPixelOutput> framebuffer,
 		std::span<const Render::GpuBodyData> bodies,
+		const std::atomic<bool>* cancel_flag
+	);
+
+	static bool render_tiles_software(
+		const Render::GpuCameraPushConstants& constants,
+		std::span<const uint32_t> tiles,
+		std::span<const Render::GpuBodyData> bodies,
+		const TileCompletionSink& sink,
 		const std::atomic<bool>* cancel_flag
 	);
 };

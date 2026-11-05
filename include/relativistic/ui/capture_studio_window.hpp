@@ -506,6 +506,32 @@ private:
 		render_target_editor(settings_.screenshot_target, format, "ScreenshotTarget");
 	}
 
+	void render_cluster_section(bool realtime) {
+		using namespace CaptureWidgets;
+		auto& extension = viewport_.pipeline_ref().cluster_extension();
+		if (!extension.is_cluster_bound()) {
+			return;
+		}
+		section_header("Cluster Rendering");
+		bool offline_routing = extension.offline_routing_enabled();
+		ImGui::BeginDisabled(realtime);
+		if (ImGui::Checkbox("Distribute Offline Frames To Workers", &offline_routing)) {
+			extension.set_offline_routing(offline_routing);
+		}
+		ImGui::EndDisabled();
+		render_setting_tooltip("Sends the frames and bands of deterministic captures to the connected cluster workers. Real-time recording always follows the live viewport routing.");
+		const auto frame = extension.last_frame_telemetry();
+		if (begin_stat_table("##ClusterStats", 3)) {
+			stat_cell("Workers", std::to_string(extension.workers_active()));
+			stat_cell("Remote Tiles", std::to_string(frame.tiles_remote));
+			stat_cell("Local Tiles", std::to_string(frame.tiles_local));
+			stat_cell("Reclaimed Tiles", std::to_string(frame.tiles_reclaimed), frame.tiles_reclaimed > 0U ? kWarningColor : kMutedColor);
+			stat_cell("Last Frame", format_number(frame.frame_ms, 1) + " ms", kMutedColor);
+			stat_cell("Received", format_bytes(frame.bytes_received), kMutedColor);
+			end_stat_table();
+		}
+	}
+
 	void render_sequence_tab() {
 		using namespace CaptureWidgets;
 		using namespace CaptureStudioDetail;
@@ -515,6 +541,7 @@ private:
 		enum_combo("Mode", video.mode, kCaptureModeNames);
 		render_setting_tooltip("Deterministic renders every frame offline at the requested quality while the world is advanced under full control. Real-Time records what the viewport currently shows.");
 		const bool realtime = video.mode == IO::SequenceCaptureMode::RealTime;
+		render_cluster_section(realtime);
 
 		section_header("Camera Control");
 		if (script_usable()) {

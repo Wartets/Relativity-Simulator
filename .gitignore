@@ -72,6 +72,7 @@ vcpkg_installed/
 # Config files
 imgui.ini
 config
+*.env
 
 # Other files and directories
 todo.md

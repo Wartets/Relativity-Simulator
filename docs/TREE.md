@@ -8,6 +8,9 @@ Relativity-Simulator/
 │   
 │
 ├── apps/
+│   ├── cluster_worker/
+│   │   └── main.cpp
+│   │
 │   ├── engine_cli/
 │   │   └── main.cpp
 │   │
@@ -233,6 +236,7 @@ Relativity-Simulator/
 │   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.md
 │   │   │   ├── cluster_crypto_protocol.md
+│   │   │   ├── cluster_worker_execution.md
 │   │   │   ├── concurrent_command_injection.md
 │   │   │   ├── covariance_propagation.md
 │   │   │   ├── dark_matter_field.md
@@ -381,7 +385,12 @@ Relativity-Simulator/
 │       │   └── galaxy_model.hpp
 │       │
 │       ├── distributed/
+│       │   ├── body_catalog.hpp
+│       │   ├── cluster_config.hpp
+│       │   ├── cluster_master_service.hpp
 │       │   ├── cluster_node.hpp
+│       │   ├── cluster_orchestrator.hpp
+│       │   ├── cluster_telemetry.hpp
 │       │   ├── compression_codecs.hpp
 │       │   ├── crypto_channel.hpp
 │       │   ├── discovery_service.hpp
@@ -389,7 +398,12 @@ Relativity-Simulator/
 │       │   ├── network_transport.hpp
 │       │   ├── node_registry.hpp
 │       │   ├── packet_protocol.hpp
-│       │   └── task_payloads.hpp
+│       │   ├── session_protocol.hpp
+│       │   ├── slurm_interface.hpp
+│       │   ├── task_payloads.hpp
+│       │   ├── tile_renderer.hpp
+│       │   ├── worker_options.hpp
+│       │   └── worker_service.hpp
 │       │
 │       ├── dynamics/
 │       │   ├── pn/
@@ -712,6 +726,7 @@ Relativity-Simulator/
 │   └── tidal_disruption_fragmentation.yaml
 │
 ├── shaders/
+│   ├── cluster_tile_tracer_fp64.comp
 │   ├── geodesic_tracer_ds.comp
 │   ├── geodesic_tracer_fp64.comp
 │   ├── monte_carlo_shadow.comp
@@ -720,14 +735,21 @@ Relativity-Simulator/
 │
 ├── src/
 │   └── distributed/
+│       ├── body_catalog.cpp
+│       ├── cluster_master_service.cpp
 │       ├── cluster_node.cpp
+│       ├── cluster_orchestrator.cpp
 │       ├── compression_codecs.cpp
 │       ├── crypto_channel.cpp
 │       ├── discovery_service.cpp
 │       ├── distribution_scheduler.cpp
 │       ├── network_transport.cpp
 │       ├── packet_protocol.cpp
-│       └── task_payloads.cpp
+│       ├── slurm_interface.cpp
+│       ├── task_payloads.cpp
+│       ├── tile_renderer.cpp
+│       ├── worker_options.cpp
+│       └── worker_service.cpp
 │   
 │
 ├── tests/
@@ -746,6 +768,7 @@ Relativity-Simulator/
 │   ├── test_christoffel_solver.cpp
 │   ├── test_cie_spectral_pipeline.cpp
 │   ├── test_cluster_crypto_protocol.cpp
+│   ├── test_cluster_worker_execution.cpp
 │   ├── test_concurrent_command_injection.cpp
 │   ├── test_covariance_propagation.cpp
 │   ├── test_dark_matter_field.cpp

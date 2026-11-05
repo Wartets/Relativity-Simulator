@@ -20,8 +20,13 @@
 #include <algorithm>
 #include <limits>
 
+#include "relativistic/distributed/cluster_telemetry.hpp"
+
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 #include "relativistic/distributed/cluster_orchestrator.hpp"
+#if defined(RELATIVISTIC_PIPELINE_TILE_SPIRV)
+#include "relativistic/shaders/cluster_tile_tracer_fp64.spv.hpp"
+#endif
 #endif
 
 namespace Relativistic::Distributed {
@@ -34,20 +39,70 @@ namespace Relativistic::Render {
 
 class DistributedComputeExtension {
 private:
-	Distributed::ClusterOrchestrator* cluster_{nullptr};
+	std::atomic<Distributed::ClusterOrchestrator*> cluster_{nullptr};
 
 public:
 	void bind_cluster(Distributed::ClusterOrchestrator& cluster) noexcept {
-		cluster_ = &cluster;
+		cluster_.store(&cluster, std::memory_order_release);
 	}
 
 	void unbind_cluster() noexcept {
-		cluster_ = nullptr;
+		cluster_.store(nullptr, std::memory_order_release);
+	}
+
+	[[nodiscard]] bool is_cluster_bound() const noexcept {
+		return cluster_.load(std::memory_order_acquire) != nullptr;
+	}
+
+	[[nodiscard]] bool offline_routing_enabled() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->offline_routing_enabled();
+#else
+		return false;
+#endif
+	}
+
+	void set_offline_routing(bool enabled) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->set_offline_routing(enabled);
+		}
+#else
+		static_cast<void>(enabled);
+#endif
+	}
+
+	[[nodiscard]] uint32_t workers_active() const {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return (cluster != nullptr) ? cluster->workers_active() : 0U;
+#else
+		return 0U;
+#endif
+	}
+
+	[[nodiscard]] Distributed::ClusterFrameTelemetry last_frame_telemetry() const {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return (cluster != nullptr) ? cluster->last_frame_telemetry() : Distributed::ClusterFrameTelemetry{};
+#else
+		return Distributed::ClusterFrameTelemetry{};
+#endif
+	}
+
+	void detach_local_renderer() noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->clear_local_tile_renderer();
+		}
+#endif
 	}
 
 	[[nodiscard]] bool is_cluster_active() const noexcept {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
-		return cluster_ != nullptr && cluster_->is_cluster_operational();
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->is_cluster_operational();
 #else
 		return false;
 #endif
@@ -60,13 +115,40 @@ public:
 		const std::atomic<bool>* cancel_flag
 	) {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
-		if (cluster_ == nullptr || !cluster_->is_cluster_operational()) {
+		auto* cluster = cluster_.load(std::memory_order_acquire);
+		if (cluster == nullptr) {
 			return false;
 		}
-		return cluster_->dispatch_distributed(constants, framebuffer, bodies, cancel_flag);
+		return cluster->dispatch_distributed(constants, framebuffer, bodies, cancel_flag);
 #else
 		static_cast<void>(constants);
 		static_cast<void>(framebuffer);
+		static_cast<void>(bodies);
+		static_cast<void>(cancel_flag);
+		return false;
+#endif
+	}
+
+	bool dispatch_capture(
+		const GpuCameraPushConstants& constants,
+		std::span<GpuPixelOutput> pixels,
+		uint32_t first_row,
+		uint32_t row_count,
+		std::span<const GpuBodyData> bodies,
+		const std::atomic<bool>* cancel_flag
+	) {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		auto* cluster = cluster_.load(std::memory_order_acquire);
+		if (cluster == nullptr) {
+			return false;
+		}
+		const Distributed::FrameWindow window{pixels, constants.screen_width, constants.screen_height, first_row, row_count};
+		return cluster->dispatch_frame(constants, window, bodies, Distributed::DispatchProfile::Offline, cancel_flag);
+#else
+		static_cast<void>(constants);
+		static_cast<void>(pixels);
+		static_cast<void>(first_row);
+		static_cast<void>(row_count);
 		static_cast<void>(bodies);
 		static_cast<void>(cancel_flag);
 		return false;
@@ -109,6 +191,8 @@ struct PipelineExecutionTelemetry {
 	double pixel_classification_ms{0.0};
 	uint64_t body_tile_count{0};
 	uint64_t body_tile_total_count{0};
+	bool used_cluster_path{false};
+	Distributed::ClusterFrameTelemetry cluster{};
 };
 
 class GeodesicComputePipeline {
@@ -133,6 +217,7 @@ private:
 	std::vector<GpuBodyData> pending_bodies_{};
 	std::unique_ptr<Core::ThreadPool, void(*)(Core::ThreadPool*)> thread_pool_{nullptr, [](Core::ThreadPool*) noexcept {}};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
+	std::unique_ptr<VulkanComputeExecutor> tile_executor_{};
 	std::atomic<bool> use_gpu_compute_{false};
 	std::mutex gpu_mutex_;
 	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
@@ -322,12 +407,14 @@ private:
 			SoftwareComputeEngine::RenderStageStats stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && current_bodies.size() <= kMaxGpuBackgroundBodies;
 			bool dispatch_failed = false;
+			bool rendered_on_cluster_path = false;
 			Core::Diagnostics::set_activity("render worker: dispatching frame");
 			RenderDiagnostics::publish(current_job, current_bodies, gpu_background_eligible ? "vulkan compute preferred" : "cpu software", DispatchState::InFlight, 0.0);
 			try {
 				bool rendered_on_cluster = false;
 				if (cluster_extension_.is_cluster_active()) {
 					rendered_on_cluster = cluster_extension_.dispatch_distributed(current_job, back_buffer_, current_bodies, &cancel_render_);
+					rendered_on_cluster_path = rendered_on_cluster;
 				}
 
 				if (!rendered_on_cluster) {
@@ -460,6 +547,8 @@ private:
 				telemetry_.body_tile_count = stage_stats.body_tile_count.load(std::memory_order_relaxed);
 				telemetry_.body_tile_total_count = stage_stats.total_tile_count.load(std::memory_order_relaxed);
 				telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !current_bodies.empty();
+				telemetry_.used_cluster_path = rendered_on_cluster_path;
+				telemetry_.cluster = cluster_extension_.last_frame_telemetry();
 				telemetry_.bodies_sent_this_frame = static_cast<uint32_t>(current_bodies.size());
 				telemetry_.bodies_total_enabled_this_frame = pending_total_enabled_bodies_.load(std::memory_order_relaxed);
 				Core::Diagnostics::count_render_frame();
@@ -522,6 +611,10 @@ public:
 		is_running_.store(false, std::memory_order_release);
 		cancel_render_.store(true, std::memory_order_release);
 		cv_.notify_all();
+		worker_thread_.request_stop();
+		if (worker_thread_.joinable()) {
+			worker_thread_.join();
+		}
 	}
 
 	void resize(uint32_t width, uint32_t height) {
@@ -540,11 +633,157 @@ public:
 		config_.projection_mode = mode;
 	}
 
+	private:
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+	static constexpr size_t kMinimumGpuTileRun = 3;
+
+	void ensure_tile_executor() noexcept {
+		if (tile_executor_ != nullptr || !context_.has_compute_device()) {
+			return;
+		}
+		try {
+			auto candidate = std::make_unique<VulkanComputeExecutor>();
+			VulkanComputeExecutor::ShaderSource source{};
+			source.file_name = "cluster_tile_tracer_fp64.comp.spv";
+#if defined(RELATIVISTIC_PIPELINE_TILE_SPIRV)
+			source.embedded = std::span<const uint32_t>(::cluster_tile_tracer_fp64_spv);
+#endif
+			source.tile_dispatch = true;
+			if (candidate->initialize(context_, source)) {
+				tile_executor_ = std::move(candidate);
+			} else {
+				Core::log_warning("The GPU tile pipeline could not be initialized; local cluster tiles will run on the CPU.");
+			}
+		} catch (const std::exception& ex) {
+			Core::log_error(std::string("GPU tile pipeline initialization failed: ") + ex.what());
+			tile_executor_.reset();
+		} catch (...) {
+			tile_executor_.reset();
+		}
+	}
+
+	[[nodiscard]] bool render_gpu_tile_run(
+		const GpuCameraPushConstants& constants,
+		std::span<const uint32_t> run,
+		std::span<const GpuBodyGpuLayout> layouts,
+		const Distributed::TileCompletionSink& sink,
+		const std::atomic<bool>* cancel
+	) noexcept {
+		if (run.empty()) {
+			return true;
+		}
+		try {
+			std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
+			if ((cancel != nullptr && cancel->load(std::memory_order_relaxed)) || tile_executor_ == nullptr || !tile_executor_->is_ready()) {
+				return false;
+			}
+			const uint32_t columns = Distributed::tile_grid_columns(constants.screen_width);
+			const uint32_t edge = Distributed::kTileEdgePixels;
+			GpuCameraPushConstants params = constants;
+			params.interlace_mode = 0U;
+			params.interlace_phase = 0U;
+			params.dispatch_row_offset = 0U;
+			params.dispatch_row_count = 0U;
+			params.tile_origin_x = (run.front() % columns) * edge;
+			params.tile_origin_y = (run.front() / columns) * edge;
+			params.tile_extent_x = static_cast<uint32_t>(std::min<size_t>(run.size() * static_cast<size_t>(edge), static_cast<size_t>(constants.screen_width - params.tile_origin_x)));
+			params.tile_extent_y = std::min(edge, constants.screen_height - params.tile_origin_y);
+
+			thread_local std::vector<GpuPixelOutput> rectangle;
+			if (!tile_executor_->dispatch_tile_and_readback(params, rectangle, layouts)) {
+				return false;
+			}
+			thread_local std::array<GpuPixelOutput, Distributed::kTilePixelCapacity> tile_pixels;
+			for (const uint32_t tile : run) {
+				const auto geometry = Distributed::resolve_tile_geometry(tile, constants.screen_width, constants.screen_height);
+				if (!geometry.has_value()) {
+					return false;
+				}
+				const uint32_t column_offset = geometry->origin_x - params.tile_origin_x;
+				for (uint32_t row = 0; row < geometry->height; ++row) {
+					std::copy_n(rectangle.data() + static_cast<size_t>(row) * static_cast<size_t>(params.tile_extent_x) + column_offset, geometry->width, tile_pixels.data() + static_cast<size_t>(row) * static_cast<size_t>(geometry->width));
+				}
+				sink(tile, std::span<const GpuPixelOutput>(tile_pixels.data(), geometry->pixel_count()));
+			}
+			return true;
+		} catch (...) {
+			return false;
+		}
+	}
+
+	[[nodiscard]] bool render_cluster_tiles(
+		const GpuCameraPushConstants& constants,
+		std::span<const uint32_t> tiles,
+		std::span<const GpuBodyData> bodies,
+		const Distributed::TileCompletionSink& sink,
+		const std::atomic<bool>* cancel
+	) {
+		std::vector<uint32_t> sorted(tiles.begin(), tiles.end());
+		std::sort(sorted.begin(), sorted.end());
+		std::vector<uint32_t> software;
+		const bool gpu_ready = use_gpu_compute_.load(std::memory_order_relaxed)
+			&& tile_executor_ != nullptr
+			&& tile_executor_->is_ready()
+			&& gpu_path_supported(constants, bodies.size());
+		if (!gpu_ready) {
+			return Distributed::ClusterOrchestrator::render_tiles_software(constants, sorted, bodies, sink, cancel);
+		}
+		std::vector<GpuBodyGpuLayout> layouts;
+		layouts.reserve(bodies.size());
+		for (const auto& body : bodies) {
+			if (std::isfinite(body.position[0]) && std::isfinite(body.position[1]) && std::isfinite(body.position[2]) && std::isfinite(body.radius) && std::isfinite(body.mass)) {
+				layouts.push_back(GpuBodyGpuLayout::from(body));
+			}
+		}
+		const uint32_t columns = Distributed::tile_grid_columns(constants.screen_width);
+		size_t index = 0;
+		while (index < sorted.size()) {
+			size_t end = index + 1;
+			while (end < sorted.size() && sorted[end] == sorted[end - 1] + 1U && (sorted[end] % columns) != 0U) {
+				++end;
+			}
+			const std::span<const uint32_t> run(sorted.data() + index, end - index);
+			if (run.size() < kMinimumGpuTileRun || !render_gpu_tile_run(constants, run, layouts, sink, cancel)) {
+				software.insert(software.end(), run.begin(), run.end());
+			}
+			index = end;
+		}
+		return Distributed::ClusterOrchestrator::render_tiles_software(constants, software, bodies, sink, cancel);
+	}
+#endif
+
+public:
 	void bind_cluster(Distributed::ClusterOrchestrator& cluster) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		ensure_tile_executor();
+		Distributed::LocalGpuInfo info{};
+		if (tile_executor_ != nullptr && tile_executor_->is_ready()) {
+			const VulkanDeviceInfo& device = context_.device_info();
+			info.has_vulkan_compute = true;
+			info.has_fp64_support = context_.supports_fp64();
+			info.vulkan_api_version = device.api_version;
+			info.vendor_id = device.vendor_id;
+			info.device_id = device.device_id;
+		}
+		cluster.set_local_gpu_info(info);
+		try {
+			cluster.set_local_tile_renderer([this](
+				const GpuCameraPushConstants& constants,
+				std::span<const uint32_t> tiles,
+				std::span<const GpuBodyData> bodies,
+				const Distributed::TileCompletionSink& sink,
+				const std::atomic<bool>* cancel
+			) {
+				return render_cluster_tiles(constants, tiles, bodies, sink, cancel);
+			});
+		} catch (...) {
+		}
+#endif
 		cluster_extension_.bind_cluster(cluster);
 	}
 
 	void unbind_cluster() noexcept {
+		cluster_extension_.detach_local_renderer();
 		cluster_extension_.unbind_cluster();
 	}
 
@@ -588,10 +827,19 @@ public:
 	) {
 		const std::vector<GpuBodyData> guarded_storage = guarded_bodies(requested_bodies);
 		const std::span<const GpuBodyData> bodies(guarded_storage);
-		if (use_gpu_compute_.load(std::memory_order_relaxed) && gpu_executor_ != nullptr && gpu_executor_->is_ready()) {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (use_gpu_compute_.load(std::memory_order_relaxed)) {
+			ensure_tile_executor();
+		}
+#endif
+		if (use_gpu_compute_.load(std::memory_order_relaxed) && tile_executor_ != nullptr && tile_executor_->is_ready()) {
 			if (gpu_path_supported(camera_constants, bodies.size())) {
 				std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
 				GpuCameraPushConstants tile_params = camera_constants;
+				tile_params.interlace_mode = 0U;
+				tile_params.interlace_phase = 0U;
+				tile_params.dispatch_row_offset = 0U;
+				tile_params.dispatch_row_count = 0U;
 				tile_params.tile_origin_x = region.origin_x;
 				tile_params.tile_origin_y = region.origin_y;
 				tile_params.tile_extent_x = region.width;
@@ -602,7 +850,7 @@ public:
 					layouts.push_back(GpuBodyGpuLayout::from(b));
 				}
 				std::vector<GpuPixelOutput> gpu_pixels;
-				if (gpu_executor_->dispatch_tile_and_readback(tile_params, gpu_pixels, layouts)) {
+				if (tile_executor_->dispatch_tile_and_readback(tile_params, gpu_pixels, layouts)) {
 					const size_t copy_count = std::min(gpu_pixels.size(), output.size());
 					std::copy_n(gpu_pixels.begin(), copy_count, output.begin());
 					return true;
@@ -686,7 +934,7 @@ public:
 		try {
 			await_earth_textures(bodies);
 			if (cluster_extension_.is_cluster_active()) {
-				if (cluster_extension_.dispatch_distributed(camera_constants, output, bodies, nullptr)) {
+				if (cluster_extension_.dispatch_capture(camera_constants, output, 0U, camera_constants.screen_height, bodies, nullptr)) {
 					return true;
 				}
 			}
@@ -736,6 +984,12 @@ public:
 
 		try {
 			await_earth_textures(bodies);
+			if (cluster_extension_.is_cluster_active() && cluster_extension_.dispatch_capture(band_constants, output, first_row, rows, bodies, cancel)) {
+				return true;
+			}
+			if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
+				return false;
+			}
 			if (use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies) {
 				if (try_gpu_dispatch(band_constants, output, bodies, cancel) && output.size() == pixel_count) {
 					return true;

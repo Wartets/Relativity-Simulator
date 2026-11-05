@@ -129,6 +129,17 @@ struct UserSettings {
 	double interaction_collision_stiffness_scale{1.0e-9};
 	double interaction_collision_position_correction_factor{0.2};
 	bool interaction_fragmentation_tidal_stress_enabled{false};
+	bool cluster_enabled{false};
+	uint32_t cluster_node_role{1};
+	uint32_t cluster_listen_port{42425};
+	bool cluster_discovery_multicast_enabled{true};
+	bool cluster_dynamic_load_balancing{true};
+	double cluster_latency_penalty_alpha{1.0};
+	bool cluster_work_stealing_enabled{true};
+	uint32_t cluster_tile_timeout_ms{120};
+	uint32_t cluster_compression_mode{2};
+	bool cluster_require_encryption{true};
+	std::string cluster_shared_token_hex{};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "user_settings.cfg";
@@ -266,6 +277,17 @@ struct UserSettings {
 		result.interaction_collision_stiffness_scale = get_dbl("interaction_collision_stiffness_scale", result.interaction_collision_stiffness_scale);
 		result.interaction_collision_position_correction_factor = get_dbl("interaction_collision_position_correction_factor", result.interaction_collision_position_correction_factor);
 		result.interaction_fragmentation_tidal_stress_enabled = get_bool("interaction_fragmentation_tidal_stress_enabled", result.interaction_fragmentation_tidal_stress_enabled);
+		result.cluster_enabled = get_bool("cluster_enabled", result.cluster_enabled);
+		result.cluster_node_role = get_u32("cluster_node_role", result.cluster_node_role);
+		result.cluster_listen_port = get_u32("cluster_listen_port", result.cluster_listen_port);
+		result.cluster_discovery_multicast_enabled = get_bool("cluster_discovery_multicast_enabled", result.cluster_discovery_multicast_enabled);
+		result.cluster_dynamic_load_balancing = get_bool("cluster_dynamic_load_balancing", result.cluster_dynamic_load_balancing);
+		result.cluster_latency_penalty_alpha = get_dbl("cluster_latency_penalty_alpha", result.cluster_latency_penalty_alpha);
+		result.cluster_work_stealing_enabled = get_bool("cluster_work_stealing_enabled", result.cluster_work_stealing_enabled);
+		result.cluster_tile_timeout_ms = get_u32("cluster_tile_timeout_ms", result.cluster_tile_timeout_ms);
+		result.cluster_compression_mode = get_u32("cluster_compression_mode", result.cluster_compression_mode);
+		result.cluster_require_encryption = get_bool("cluster_require_encryption", result.cluster_require_encryption);
+		result.cluster_shared_token_hex = get_str("cluster_shared_token_hex", result.cluster_shared_token_hex);
 
 		result.body_manager_sort_mode = get_u32("body_manager_sort_mode", result.body_manager_sort_mode);
 		result.body_manager_sort_descending = get_bool("body_manager_sort_descending", result.body_manager_sort_descending);
@@ -508,6 +530,17 @@ struct UserSettings {
 		out << "interaction_collision_stiffness_scale=" << interaction_collision_stiffness_scale << "\n";
 		out << "interaction_collision_position_correction_factor=" << interaction_collision_position_correction_factor << "\n";
 		out << "interaction_fragmentation_tidal_stress_enabled=" << (interaction_fragmentation_tidal_stress_enabled ? 1 : 0) << "\n";
+		out << "cluster_enabled=" << (cluster_enabled ? 1 : 0) << "\n";
+		out << "cluster_node_role=" << cluster_node_role << "\n";
+		out << "cluster_listen_port=" << cluster_listen_port << "\n";
+		out << "cluster_discovery_multicast_enabled=" << (cluster_discovery_multicast_enabled ? 1 : 0) << "\n";
+		out << "cluster_dynamic_load_balancing=" << (cluster_dynamic_load_balancing ? 1 : 0) << "\n";
+		out << "cluster_latency_penalty_alpha=" << cluster_latency_penalty_alpha << "\n";
+		out << "cluster_work_stealing_enabled=" << (cluster_work_stealing_enabled ? 1 : 0) << "\n";
+		out << "cluster_tile_timeout_ms=" << cluster_tile_timeout_ms << "\n";
+		out << "cluster_compression_mode=" << cluster_compression_mode << "\n";
+		out << "cluster_require_encryption=" << (cluster_require_encryption ? 1 : 0) << "\n";
+		out << "cluster_shared_token_hex=" << cluster_shared_token_hex << "\n";
 		out << "body_manager_sort_mode=" << body_manager_sort_mode << "\n";
 		out << "body_manager_sort_descending=" << (body_manager_sort_descending ? 1 : 0) << "\n";
 		out << "body_manager_search_filter=" << body_manager_search_filter << "\n";

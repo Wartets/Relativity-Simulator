@@ -637,6 +637,10 @@ void ClusterOrchestrator::handle_authenticated_packet(const std::shared_ptr<Mast
 			}
 			break;
 		}
+		case PacketType::SimulationSubStepData:
+		case PacketType::MonteCarloBatchData:
+			handle_compute_result(session, envelope.type, plain);
+			break;
 		case PacketType::TileResultData: {
 			thread_local std::array<Render::GpuPixelOutput, kTilePixelCapacity> tile_pixels;
 			const auto decode_start = std::chrono::steady_clock::now();
@@ -672,6 +676,413 @@ void ClusterOrchestrator::handle_authenticated_packet(const std::shared_ptr<Mast
 		default:
 			break;
 	}
+}
+
+namespace {
+
+[[nodiscard]] int64_t to_nanoseconds(ClusterTimePoint point) noexcept {
+	return std::chrono::duration_cast<std::chrono::nanoseconds>(point.time_since_epoch()).count();
+}
+
+template <typename Value>
+[[nodiscard]] std::vector<uint8_t> to_byte_vector(const Value& value) {
+	const auto view = bytes_of(value);
+	return std::vector<uint8_t>(view.begin(), view.end());
+}
+
+}
+
+bool ClusterOrchestrator::complete_compute_unit(ComputeJobState& job, uint32_t unit, std::span<const uint8_t> body, bool remote) {
+	job.active_applies.fetch_add(1U);
+	struct ApplyRelease {
+		std::atomic<uint32_t>& counter;
+		~ApplyRelease() { counter.fetch_sub(1U); }
+	} release{job.active_applies};
+	if (job.closed.load() || unit >= job.unit_count) {
+		return false;
+	}
+	if (job.status[unit].exchange(2U) == 2U) {
+		return false;
+	}
+	bool applied = false;
+	try {
+		applied = job.apply_result(unit, body);
+	} catch (...) {
+		applied = false;
+	}
+	if (!applied && remote) {
+		job.deadline_ns[unit].store(0);
+		job.status[unit].store(1U);
+		return false;
+	}
+	if (!applied) {
+		job.failed.store(true);
+	}
+	job.completed.fetch_add(1U);
+	return true;
+}
+
+void ClusterOrchestrator::handle_compute_result(const std::shared_ptr<MasterPeerSession>& session, PacketType type, std::span<const uint8_t> plain) {
+	if (plain.size() < sizeof(ComputeMessageHeader)) {
+		return;
+	}
+	ComputeMessageHeader header{};
+	std::memcpy(&header, plain.data(), sizeof(header));
+	if (header.kind != static_cast<uint32_t>(ComputeMessageKind::BlockResult)) {
+		return;
+	}
+	std::shared_ptr<ComputeJobState> job;
+	{
+		std::lock_guard<std::mutex> lock(compute_mutex_);
+		job = active_compute_;
+	}
+	if (job == nullptr || job->job_id != header.job_id || job->packet_type != type || header.unit_index >= job->unit_count) {
+		return;
+	}
+	if (job->owner[header.unit_index] != session->node_id) {
+		return;
+	}
+	const ClusterTimePoint now = ClusterClock::now();
+	registry_.visit(session->node_id, [now](ClusterNode& node) { node.record_heartbeat(now); });
+	static_cast<void>(complete_compute_unit(*job, header.unit_index, plain.subspan(sizeof(header)), true));
+}
+
+void ClusterOrchestrator::execute_compute_units_locally(ComputeJobState& job, const ComputeJobSpec& spec, std::span<const uint32_t> units, const std::atomic<bool>* cancel_flag) {
+	if (units.empty()) {
+		return;
+	}
+	std::atomic<size_t> cursor{0};
+	const auto worker = [&]() noexcept {
+		for (;;) {
+			const size_t index = cursor.fetch_add(1U, std::memory_order_relaxed);
+			if (index >= units.size() || (cancel_flag != nullptr && cancel_flag->load(std::memory_order_relaxed))) {
+				return;
+			}
+			const uint32_t unit = units[index];
+			if (job.status[unit].load() == 2U) {
+				continue;
+			}
+			try {
+				const std::vector<uint8_t> body = spec.execute_local(unit, job.job_id);
+				static_cast<void>(complete_compute_unit(job, unit, body, false));
+			} catch (...) {
+				job.failed.store(true);
+				if (job.status[unit].exchange(2U) != 2U) {
+					job.completed.fetch_add(1U);
+				}
+			}
+		}
+	};
+	const size_t thread_total = std::min<size_t>(units.size(), std::max<size_t>(1U, std::thread::hardware_concurrency()));
+	std::vector<std::jthread> threads;
+	threads.reserve(thread_total);
+	for (size_t t = 1; t < thread_total; ++t) {
+		threads.emplace_back(worker);
+	}
+	worker();
+}
+
+bool ClusterOrchestrator::send_nbody_state(MasterPeerSession& session, uint32_t job_id, std::span<const NBodyBodyState> bodies) {
+	thread_local std::vector<uint8_t> buffer;
+	const auto total = static_cast<uint32_t>(bodies.size());
+	for (uint32_t first = 0; first < total; first += kNBodyBodiesPerChunk) {
+		const uint32_t count = std::min(kNBodyBodiesPerChunk, total - first);
+		NBodyStateChunkHeader header{};
+		header.base = ComputeMessageHeader{static_cast<uint32_t>(ComputeMessageKind::StateChunk), job_id, 0U, 0U};
+		header.total_bodies = total;
+		header.first_index = first;
+		header.chunk_bodies = count;
+		buffer.resize(sizeof(header) + static_cast<size_t>(count) * sizeof(NBodyBodyState));
+		std::memcpy(buffer.data(), &header, sizeof(header));
+		std::memcpy(buffer.data() + sizeof(header), bodies.data() + first, static_cast<size_t>(count) * sizeof(NBodyBodyState));
+		if (!send_encrypted_packet(session, PacketType::SimulationSubStepData, job_id, buffer, TransportChannel::Control)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool ClusterOrchestrator::run_compute_job(const ComputeJobSpec& spec, const std::atomic<bool>* cancel_flag) {
+	if (spec.unit_count == 0U) {
+		return true;
+	}
+	const auto cancelled = [cancel_flag]() noexcept {
+		return cancel_flag != nullptr && cancel_flag->load(std::memory_order_relaxed);
+	};
+	const uint32_t unit_total = spec.unit_count;
+	auto job = std::make_shared<ComputeJobState>();
+	job->job_id = next_compute_job_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+	job->packet_type = spec.packet_type;
+	job->unit_count = unit_total;
+	job->status = std::make_unique<std::atomic<uint8_t>[]>(unit_total);
+	job->deadline_ns = std::make_unique<std::atomic<int64_t>[]>(unit_total);
+	job->owner.assign(unit_total, kLocalNodeIdentifier);
+	job->apply_result = spec.apply_result;
+
+	const auto finish = [&job]() {
+		job->closed.store(true);
+		while (job->active_applies.load() != 0U) {
+			std::this_thread::yield();
+		}
+		return job->completed.load() == job->unit_count && !job->failed.load();
+	};
+
+	std::vector<uint32_t> local_units;
+	local_units.reserve(unit_total);
+
+	bool remote = spec.allow_remote && is_cluster_operational() && registry_.schedulable_count() > 0U;
+	std::unique_lock<std::mutex> run_lock(compute_run_mutex_, std::defer_lock);
+	if (remote) {
+		run_lock.lock();
+		remote = is_cluster_operational();
+	}
+	if (!remote) {
+		for (uint32_t unit = 0; unit < unit_total; ++unit) {
+			local_units.push_back(unit);
+		}
+		execute_compute_units_locally(*job, spec, local_units, cancel_flag);
+		return finish();
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(compute_mutex_);
+		active_compute_ = job;
+	}
+	const auto release_active = [this]() {
+		std::lock_guard<std::mutex> lock(compute_mutex_);
+		active_compute_.reset();
+	};
+
+	{
+		std::lock_guard<std::mutex> pump_lock(pump_mutex_);
+		const ClusterTimePoint now = ClusterClock::now();
+		std::vector<NodeCapacityInput> capacities;
+		registry_.collect_capacity_inputs(capacities);
+		NodeCapacityInput local{};
+		local.node_id = kLocalNodeIdentifier;
+		local.is_local = true;
+		local.eligible = true;
+		local.static_weight = 1.0;
+		local.seconds_per_kilo_ray = local_throughput_.seconds_per_kilo_ray();
+		capacities.push_back(local);
+		const size_t slot_total = capacities.size();
+		const size_t local_slot = slot_total - 1U;
+		std::vector<double> shares(slot_total, 0.0);
+		std::vector<uint32_t> quotas(slot_total, 0U);
+		const bool balanced = is_cluster_operational()
+			&& compute_capacity_shares(capacities, config_.performance.latency_penalty_alpha, config_.performance.dynamic_load_balancing, shares)
+			&& compute_tile_quotas(shares, unit_total, local_slot, quotas);
+		if (!balanced) {
+			std::fill(quotas.begin(), quotas.end(), 0U);
+			quotas[local_slot] = unit_total;
+		}
+
+		uint32_t cursor = 0;
+		for (size_t slot = 0; slot < slot_total; ++slot) {
+			const uint32_t count = quotas[slot];
+			if (count == 0U) {
+				continue;
+			}
+			const uint32_t node_id = capacities[slot].node_id;
+			const auto session_it = (slot == local_slot) ? sessions_by_node_.end() : sessions_by_node_.find(node_id);
+			const bool reachable = session_it != sessions_by_node_.end() && session_it->second->authenticated
+				&& (!spec.prepare_session || spec.prepare_session(*session_it->second, job->job_id));
+			if (!reachable) {
+				for (uint32_t k = 0; k < count; ++k) {
+					local_units.push_back(cursor++);
+				}
+				continue;
+			}
+			MasterPeerSession& session = *session_it->second;
+			double margin = 0.0;
+			registry_.visit(node_id, [&margin](ClusterNode& node) { margin = node.dispatch_timing().deadline_margin_seconds; });
+			const ClusterTimePoint deadline = now + std::chrono::duration_cast<ClusterClock::duration>(std::chrono::duration<double>(spec.unit_timeout_seconds + margin));
+			for (uint32_t k = 0; k < count; ++k) {
+				const uint32_t unit = cursor++;
+				const std::vector<uint8_t> task = spec.build_task(unit, job->job_id);
+				if (task.empty() || !send_encrypted_packet(session, spec.packet_type, job->job_id, task, TransportChannel::Control)) {
+					local_units.push_back(unit);
+					continue;
+				}
+				job->owner[unit] = node_id;
+				job->deadline_ns[unit].store(to_nanoseconds(deadline));
+				job->status[unit].store(1U);
+			}
+		}
+	}
+
+	execute_compute_units_locally(*job, spec, local_units, cancel_flag);
+
+	std::vector<uint32_t> reclaimed;
+	while (job->completed.load() < unit_total && !cancelled()) {
+		const ClusterTimePoint now = ClusterClock::now();
+		const int64_t now_ns = to_nanoseconds(now);
+		reclaimed.clear();
+		for (uint32_t unit = 0; unit < unit_total; ++unit) {
+			uint8_t expected = 1U;
+			if (job->deadline_ns[unit].load() <= now_ns && job->status[unit].compare_exchange_strong(expected, 0U)) {
+				reclaimed.push_back(unit);
+				registry_.visit(job->owner[unit], [now](ClusterNode& node) { node.register_deadline_miss(now); });
+			}
+		}
+		if (reclaimed.empty()) {
+			std::this_thread::sleep_for(kWaitInterval);
+			continue;
+		}
+		execute_compute_units_locally(*job, spec, reclaimed, cancel_flag);
+	}
+
+	release_active();
+	return finish();
+}
+
+bool ClusterOrchestrator::evaluate_nbody_accelerations(
+	std::span<const NBodyBodyState> bodies,
+	const NBodyEvaluationOptions& options,
+	std::span<NBodyRowResult> output,
+	const std::atomic<bool>* cancel_flag
+) {
+	const size_t count = bodies.size();
+	if (count == 0U || count > kNBodyMaximumBodies || output.size() != count || !(options.speed_of_light > 0.0) || !std::isfinite(options.gravitational_constant)) {
+		return false;
+	}
+	const uint32_t rows_per_unit = std::clamp<uint32_t>(options.rows_per_unit, 1U, kNBodyMaximumRowsPerUnit);
+	const auto total = static_cast<uint32_t>(count);
+	const uint32_t unit_total = (total + rows_per_unit - 1U) / rows_per_unit;
+	const double timeout = 0.25 + static_cast<double>(rows_per_unit) * static_cast<double>(count) * 2.0e-7;
+	const double gravitational_constant = options.gravitational_constant;
+	const double speed_of_light = options.speed_of_light;
+
+	std::vector<NBodyBodyState> state(bodies.begin(), bodies.end());
+	for (NBodyBodyState& body : state) {
+		std::fill(std::begin(body.acceleration), std::end(body.acceleration), 0.0);
+		body.potential = 0.0;
+	}
+
+	const auto run_phase = [&](uint32_t phase, std::span<NBodyRowResult> destination) -> bool {
+		const std::span<const NBodyBodyState> snapshot(state);
+		const auto first_of = [rows_per_unit](uint32_t unit) noexcept { return unit * rows_per_unit; };
+		const auto rows_of = [rows_per_unit, total](uint32_t unit) noexcept { return std::min(rows_per_unit, total - unit * rows_per_unit); };
+
+		ComputeJobSpec spec{};
+		spec.packet_type = PacketType::SimulationSubStepData;
+		spec.unit_count = unit_total;
+		spec.unit_timeout_seconds = timeout;
+		spec.prepare_session = [this, snapshot](MasterPeerSession& session, uint32_t job_id) {
+			return send_nbody_state(session, job_id, snapshot);
+		};
+		spec.build_task = [=](uint32_t unit, uint32_t job_id) {
+			NBodyBlockTask task{};
+			task.base = ComputeMessageHeader{static_cast<uint32_t>(ComputeMessageKind::BlockTask), job_id, unit, 0U};
+			task.first_row = first_of(unit);
+			task.row_count = rows_of(unit);
+			task.total_bodies = total;
+			task.phase = phase;
+			task.gravitational_constant = gravitational_constant;
+			task.speed_of_light = speed_of_light;
+			return to_byte_vector(task);
+		};
+		spec.execute_local = [=](uint32_t unit, uint32_t) {
+			const uint32_t rows = rows_of(unit);
+			std::vector<NBodyRowResult> results(rows);
+			evaluate_nbody_rows(snapshot, first_of(unit), rows, phase, gravitational_constant, speed_of_light, results);
+			std::vector<uint8_t> body(static_cast<size_t>(rows) * sizeof(NBodyRowResult));
+			std::memcpy(body.data(), results.data(), body.size());
+			return body;
+		};
+		spec.apply_result = [=](uint32_t unit, std::span<const uint8_t> body) -> bool {
+			const uint32_t rows = rows_of(unit);
+			if (body.size() != static_cast<size_t>(rows) * sizeof(NBodyRowResult)) {
+				return false;
+			}
+			std::vector<NBodyRowResult> parsed(rows);
+			std::memcpy(parsed.data(), body.data(), body.size());
+			for (const NBodyRowResult& row : parsed) {
+				if (!std::isfinite(row.acceleration[0]) || !std::isfinite(row.acceleration[1]) || !std::isfinite(row.acceleration[2]) || !std::isfinite(row.potential)) {
+					return false;
+				}
+			}
+			std::copy(parsed.begin(), parsed.end(), destination.begin() + first_of(unit));
+			return true;
+		};
+		return run_compute_job(spec, cancel_flag);
+	};
+
+	if (!run_phase(kNBodyPhaseNewtonian, output)) {
+		return false;
+	}
+	if (!options.post_newtonian) {
+		return true;
+	}
+	for (size_t i = 0; i < count; ++i) {
+		std::copy(std::begin(output[i].acceleration), std::end(output[i].acceleration), std::begin(state[i].acceleration));
+		state[i].potential = output[i].potential;
+	}
+	std::vector<NBodyRowResult> corrected(count);
+	if (!run_phase(kNBodyPhasePostNewtonian, corrected)) {
+		return false;
+	}
+	std::copy(corrected.begin(), corrected.end(), output.begin());
+	return true;
+}
+
+bool ClusterOrchestrator::run_geodesic_ensemble(
+	const GeodesicEnsembleSpec& spec,
+	uint32_t samples_per_unit,
+	GeodesicEnsemblePartial& result,
+	const std::atomic<bool>* cancel_flag
+) {
+	result = GeodesicEnsemblePartial{};
+	if (!validate_ensemble_spec(spec) || samples_per_unit == 0U) {
+		return false;
+	}
+	const uint32_t unit_samples = std::min(samples_per_unit, kEnsembleMaximumSamplesPerUnit);
+	const uint64_t units = (spec.total_samples + unit_samples - 1U) / unit_samples;
+	if (units == 0U || units > (1ULL << 20U)) {
+		return false;
+	}
+	const uint64_t total = spec.total_samples;
+	std::vector<GeodesicEnsemblePartial> partials(static_cast<size_t>(units));
+	const auto count_of = [total, unit_samples](uint32_t unit) noexcept {
+		const uint64_t first = static_cast<uint64_t>(unit) * unit_samples;
+		return static_cast<uint32_t>(std::min<uint64_t>(unit_samples, total - first));
+	};
+
+	ComputeJobSpec job{};
+	job.packet_type = PacketType::MonteCarloBatchData;
+	job.unit_count = static_cast<uint32_t>(units);
+	job.unit_timeout_seconds = 0.5 + static_cast<double>(unit_samples) * static_cast<double>(spec.max_steps) * 4.0e-7;
+	job.build_task = [spec, unit_samples, count_of](uint32_t unit, uint32_t job_id) {
+		GeodesicEnsembleTask task{};
+		task.base = ComputeMessageHeader{static_cast<uint32_t>(ComputeMessageKind::BlockTask), job_id, unit, 0U};
+		task.spec = spec;
+		task.first_sample = static_cast<uint64_t>(unit) * unit_samples;
+		task.sample_count = count_of(unit);
+		return to_byte_vector(task);
+	};
+	job.execute_local = [spec, unit_samples, count_of](uint32_t unit, uint32_t) {
+		return to_byte_vector(integrate_geodesic_ensemble(spec, static_cast<uint64_t>(unit) * unit_samples, count_of(unit)));
+	};
+	job.apply_result = [&partials, count_of](uint32_t unit, std::span<const uint8_t> body) -> bool {
+		if (body.size() != sizeof(GeodesicEnsemblePartial)) {
+			return false;
+		}
+		GeodesicEnsemblePartial parsed{};
+		std::memcpy(&parsed, body.data(), sizeof(parsed));
+		const bool finite = std::isfinite(parsed.mean_minimum_radius) && std::isfinite(parsed.m2_minimum_radius) && std::isfinite(parsed.mean_steps) && std::isfinite(parsed.m2_steps);
+		if (!finite || parsed.samples != count_of(unit) || parsed.absorbed + parsed.escaped + parsed.saturated != parsed.samples) {
+			return false;
+		}
+		partials[unit] = parsed;
+		return true;
+	};
+	if (!run_compute_job(job, cancel_flag)) {
+		return false;
+	}
+	for (const GeodesicEnsemblePartial& partial : partials) {
+		merge_ensemble_partials(result, partial);
+	}
+	return result.samples == total;
 }
 
 bool ClusterOrchestrator::prepare_frame_workload(

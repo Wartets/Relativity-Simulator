@@ -8,6 +8,7 @@
 #include "relativistic/dynamics/interaction_config.hpp"
 #include "relativistic/dynamics/interaction_solver.hpp"
 #include "relativistic/dark_matter/dark_matter_field.hpp"
+#include <functional>
 #include <vector>
 #include <array>
 #include <cmath>
@@ -35,6 +36,12 @@ private:
 	uint32_t next_body_id_{1};
 	mutable std::recursive_mutex bodies_mutex_{};
 
+public:
+	using AccelerationEvaluator = std::function<bool(std::span<const PostNewtonianBody>, const PNOrderConfig&, std::span<PostNewtonianAccelerations>)>;
+
+private:
+	AccelerationEvaluator acceleration_evaluator_{};
+
 	[[nodiscard]] bool id_in_use(uint32_t id) const noexcept {
 		return std::any_of(bodies_.begin(), bodies_.end(), [id](const PostNewtonianBody& b) { return b.id == id; });
 	}
@@ -61,6 +68,7 @@ public:
 		central_body_stationary_ = other.central_body_stationary_;
 		central_body_ = other.central_body_;
 		next_body_id_ = other.next_body_id_;
+		acceleration_evaluator_ = other.acceleration_evaluator_;
 	}
 
 	PostNewtonianSystem(PostNewtonianSystem&& other) noexcept {
@@ -76,6 +84,7 @@ public:
 		central_body_stationary_ = other.central_body_stationary_;
 		central_body_ = std::move(other.central_body_);
 		next_body_id_ = other.next_body_id_;
+		acceleration_evaluator_ = std::move(other.acceleration_evaluator_);
 	}
 
 	PostNewtonianSystem& operator=(const PostNewtonianSystem& other) {
@@ -94,6 +103,7 @@ public:
 			central_body_stationary_ = other.central_body_stationary_;
 			central_body_ = other.central_body_;
 			next_body_id_ = other.next_body_id_;
+			acceleration_evaluator_ = other.acceleration_evaluator_;
 		}
 		return *this;
 	}
@@ -114,6 +124,7 @@ public:
 			central_body_stationary_ = other.central_body_stationary_;
 			central_body_ = std::move(other.central_body_);
 			next_body_id_ = other.next_body_id_;
+			acceleration_evaluator_ = std::move(other.acceleration_evaluator_);
 		}
 		return *this;
 	}
@@ -178,6 +189,21 @@ public:
 
 	void set_central_body_stationary(bool stationary) noexcept {
 		central_body_stationary_ = stationary;
+	}
+
+	void set_acceleration_evaluator(AccelerationEvaluator evaluator) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		acceleration_evaluator_ = std::move(evaluator);
+	}
+
+	void clear_acceleration_evaluator() noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		acceleration_evaluator_ = nullptr;
+	}
+
+	[[nodiscard]] bool has_acceleration_evaluator() const noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		return static_cast<bool>(acceleration_evaluator_);
 	}
 
 	[[nodiscard]] std::span<const PostNewtonianBody> bodies() const noexcept {
@@ -317,7 +343,15 @@ public:
 			if (accelerations_buffer_.size() != n) {
 				accelerations_buffer_.resize(n);
 			}
-			if (n >= 2) {
+			bool evaluated_by_hook = false;
+			if (acceleration_evaluator_ && n >= 2 && !config_.enable_2pn && !config_.enable_2_5pn && !config_.enable_3pn && !config_.enable_3_5pn && !config_.enable_spin_orbit && !config_.enable_spin_spin && !config_.enable_spherical_harmonics) {
+				evaluated_by_hook = acceleration_evaluator_(active_bodies, config_, accelerations_buffer_);
+			}
+			if (evaluated_by_hook) {
+				for (size_t i = 0; i < n; ++i) {
+					bodies_[active_indices[i]].acceleration = accelerations_buffer_[i].a_total;
+				}
+			} else if (n >= 2) {
 				PostNewtonianSolver::compute_nbody_accelerations(active_bodies, config_, accelerations_buffer_);
 				for (size_t i = 0; i < n; ++i) {
 					bodies_[active_indices[i]].acceleration = accelerations_buffer_[i].a_total;

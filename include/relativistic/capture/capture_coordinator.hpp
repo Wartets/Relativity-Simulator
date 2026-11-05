@@ -358,6 +358,23 @@ private:
 		return result;
 	}
 
+	uint64_t last_cluster_frame_recorded_{std::numeric_limits<uint64_t>::max()};
+
+	void record_cluster_stages() noexcept {
+		const auto& extension = pipeline_.cluster_extension();
+		if (!extension.is_cluster_active()) {
+			return;
+		}
+		const auto frame = extension.last_frame_telemetry();
+		if (!frame.offline || frame.frame_index == last_cluster_frame_recorded_) {
+			return;
+		}
+		last_cluster_frame_recorded_ = frame.frame_index;
+		auto& profiler = orchestrator_.profiler();
+		profiler.record_stage_duration(Orchestrator::ProfilerTaskStage::ClusterNetworkDispatch, frame.dispatch_ms);
+		profiler.record_stage_duration(Orchestrator::ProfilerTaskStage::ClusterTileDecompress, frame.decode_ms);
+	}
+
 	[[nodiscard]] bool render_frame_job(const FrameJob& job) {
 		const std::atomic<bool>* cancel = progress_.cancel_flag();
 		const auto fail = [this](const std::string& message) {
@@ -390,7 +407,11 @@ private:
 			const bool with_bodies = (constants.render_flags & Render::RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U;
 			const std::span<const Render::GpuBodyData> bodies = with_bodies ? std::span<const Render::GpuBodyData>(sample.bodies) : std::span<const Render::GpuBodyData>{};
 			constants.body_count = static_cast<uint32_t>(bodies.size());
-			return pipeline_.render_capture_band(constants, bodies, first_row, rows, destination, cancel);
+			const bool rendered = pipeline_.render_capture_band(constants, bodies, first_row, rows, destination, cancel);
+			if (rendered) {
+				record_cluster_stages();
+			}
+			return rendered;
 		};
 
 		uint32_t bands_done = 0;

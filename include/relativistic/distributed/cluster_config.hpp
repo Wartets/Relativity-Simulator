@@ -53,6 +53,31 @@ struct ClusterSecurityConfig {
 	bool has_shared_token{false};
 	bool allow_unauthenticated_lan{false};
 	bool sanitize_remote_data{true};
+
+	bool apply_token_hex(std::string_view hex) noexcept {
+		if (hex.size() != 64U) {
+			return false;
+		}
+		auto parse_nibble = [](char c) noexcept -> int {
+			if (c >= '0' && c <= '9') return c - '0';
+			if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+			if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+			return -1;
+		};
+		std::array<uint8_t, 32> parsed{};
+		for (size_t i = 0; i < 32; ++i) {
+			const int hi = parse_nibble(hex[2 * i]);
+			const int lo = parse_nibble(hex[2 * i + 1]);
+			if (hi < 0 || lo < 0) {
+				return false;
+			}
+			parsed[i] = static_cast<uint8_t>((hi << 4) | lo);
+		}
+		cluster_shared_token = parsed;
+		cluster_shared_token_hex = std::string(hex);
+		has_shared_token = true;
+		return true;
+	}
 };
 
 struct ClusterTaskRoutingConfig {
@@ -110,28 +135,7 @@ struct ClusterConfiguration {
 	}
 
 	bool apply_token_hex(std::string_view hex) noexcept {
-		if (hex.size() != 64U) {
-			return false;
-		}
-		auto parse_nibble = [](char c) noexcept -> int {
-			if (c >= '0' && c <= '9') return c - '0';
-			if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-			if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-			return -1;
-		};
-		std::array<uint8_t, 32> parsed{};
-		for (size_t i = 0; i < 32; ++i) {
-			const int hi = parse_nibble(hex[2 * i]);
-			const int lo = parse_nibble(hex[2 * i + 1]);
-			if (hi < 0 || lo < 0) {
-				return false;
-			}
-			parsed[i] = static_cast<uint8_t>((hi << 4) | lo);
-		}
-		security.cluster_shared_token = parsed;
-		security.cluster_shared_token_hex = std::string(hex);
-		security.has_shared_token = true;
-		return true;
+		return security.apply_token_hex(hex);
 	}
 
 	bool load_from_file(const std::string& path) {

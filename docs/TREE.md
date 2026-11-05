@@ -82,6 +82,8 @@ Relativity-Simulator/
 │   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.json
 │   │   │   ├── cie_spectral_pipeline.md
+│   │   │   ├── cluster_worker_execution.json
+│   │   │   ├── cluster_worker_execution.md
 │   │   │   ├── concurrent_command_injection.json
 │   │   │   ├── concurrent_command_injection.md
 │   │   │   ├── covariance_propagation.json
@@ -392,9 +394,12 @@ Relativity-Simulator/
 │       │   ├── cluster_orchestrator.hpp
 │       │   ├── cluster_telemetry.hpp
 │       │   ├── compression_codecs.hpp
+│       │   ├── compute_kernels.hpp
+│       │   ├── compute_payloads.hpp
 │       │   ├── crypto_channel.hpp
 │       │   ├── discovery_service.hpp
 │       │   ├── distribution_scheduler.hpp
+│       │   ├── gpu_nbody_executor.hpp
 │       │   ├── network_transport.hpp
 │       │   ├── node_registry.hpp
 │       │   ├── packet_protocol.hpp
@@ -634,6 +639,7 @@ Relativity-Simulator/
 │       │   ├── camera_control_config.hpp
 │       │   ├── capture_studio_window.hpp
 │       │   ├── capture_widgets.hpp
+│       │   ├── cluster_panel.hpp
 │       │   ├── compatibility_notes.hpp
 │       │   ├── constants_window.hpp
 │       │   ├── control_panel_window.hpp
@@ -730,6 +736,7 @@ Relativity-Simulator/
 │   ├── geodesic_tracer_ds.comp
 │   ├── geodesic_tracer_fp64.comp
 │   ├── monte_carlo_shadow.comp
+│   ├── nbody_accel_fp64.comp
 │   ├── spacetime_spherical_tracer.glsl
 │   └── spacetime_teves_metric.glsl
 │
@@ -740,9 +747,11 @@ Relativity-Simulator/
 │       ├── cluster_node.cpp
 │       ├── cluster_orchestrator.cpp
 │       ├── compression_codecs.cpp
+│       ├── compute_kernels.cpp
 │       ├── crypto_channel.cpp
 │       ├── discovery_service.cpp
 │       ├── distribution_scheduler.cpp
+│       ├── gpu_nbody_executor.cpp
 │       ├── network_transport.cpp
 │       ├── packet_protocol.cpp
 │       ├── slurm_interface.cpp

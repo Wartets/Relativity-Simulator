@@ -17,6 +17,7 @@
 #include "relativistic/ui/jet_magnetosphere_editor.hpp"
 #include "relativistic/ui/dark_matter_panel.hpp"
 #include "relativistic/ui/cosmology_panel.hpp"
+#include "relativistic/ui/cluster_panel.hpp"
 #include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/ui/multi_row_tab_bar.hpp"
 #include "relativistic/ui/horizon_zone_strip.hpp"
@@ -125,6 +126,7 @@ private:
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 	DarkMatterPanel dark_matter_panel_{};
 	CosmologyPanel cosmology_panel_{};
+	ClusterPanel cluster_panel_{};
 	MultiRowTabBar tab_bar_{};
 	int active_tab_{0};
 
@@ -138,6 +140,12 @@ public:
 	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
 		render_pipeline_ = &pipeline;
 	}
+
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+	void attach_cluster_controls(ClusterPanel::ReloadHandler reload, ClusterPanel::StatusProvider status) {
+		cluster_panel_.attach(std::move(reload), std::move(status));
+	}
+#endif
 
 	[[nodiscard]] bool& open_state() noexcept {
 		return is_open_;
@@ -408,6 +416,12 @@ private:
 			.set_compact("UNIT")
 			.set_row(1);
 
+		tab_bar_.add_tab(13, "Cluster & Distribution", "Distributed rendering topology, workers, load balancing, compression and security.")
+			.set_medium("Cluster & Dist.")
+			.set_short("Cluster")
+			.set_compact("CLU")
+			.set_row(1);
+
 		tab_bar_.add_tab(12, "Cosmology & Evaporation", "Void models, dark energy expansion histories, Hawking radiation and Unruh detector response.")
 			.set_medium("Cosmology & Evap.")
 			.set_short("Cosmology")
@@ -442,6 +456,7 @@ private:
 			case 10: render_body_3d_render_tab(); break;
 			case 11: render_units_tab(); break;
 			case 12: render_cosmology_tab(); break;
+			case 13: cluster_panel_.render(); break;
 			default: break;
 		}
 	}

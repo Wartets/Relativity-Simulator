@@ -1,5 +1,6 @@
 #include "relativistic/distributed/cluster_master_service.hpp"
 #include "relativistic/core/engine_log.hpp"
+#include "relativistic/distributed/slurm_interface.hpp"
 #include <cstdlib>
 
 namespace Relativistic::Distributed {
@@ -64,6 +65,12 @@ bool ClusterMasterService::start() noexcept {
 		if (!loaded.security.has_shared_token) {
 			if (const char* token = std::getenv(kTokenEnvironmentVariable)) {
 				static_cast<void>(loaded.apply_token_hex(token));
+			}
+		}
+		if (SlurmInterface::is_running_under_slurm() && SlurmInterface::get_slurm_rank() == 0U && SlurmInterface::get_slurm_world_size() > 1U) {
+			std::string slurm_error;
+			if (!SlurmInterface::populate_master_configuration(loaded, slurm_error)) {
+				Core::log_warning("The Slurm allocation could not be used for the cluster: " + slurm_error);
 			}
 		}
 		if (loaded.cluster.node_role == ClusterNodeRole::Standalone || loaded.cluster.node_role == ClusterNodeRole::Worker) {

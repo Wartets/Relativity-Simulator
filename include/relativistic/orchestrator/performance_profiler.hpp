@@ -57,6 +57,8 @@ enum class ProfilerTaskStage : uint32_t {
 	NBodyIntegration = 30,
 	NBodyInteractions = 31,
 	HorizonAbsorption = 32,
+	ClusterNetworkDispatch = 33,
+	ClusterTileDecompress = 34,
 	Count
 };
 
@@ -95,6 +97,8 @@ enum class ProfilerTaskStage : uint32_t {
 		case ProfilerTaskStage::NBodyIntegration: return "N-Body Integration";
 		case ProfilerTaskStage::NBodyInteractions: return "N-Body Interactions";
 		case ProfilerTaskStage::HorizonAbsorption: return "Horizon Absorption";
+		case ProfilerTaskStage::ClusterNetworkDispatch: return "Cluster Network Dispatch";
+		case ProfilerTaskStage::ClusterTileDecompress: return "Cluster Tile Decompression";
 		default: return "Unknown Stage";
 	}
 }
@@ -122,6 +126,8 @@ enum class ProfilerStageDomain : uint32_t {
 		case ProfilerTaskStage::GpuDispatchExecution:
 		case ProfilerTaskStage::CpuDispatchExecution:
 		case ProfilerTaskStage::RenderBufferPreparation:
+		case ProfilerTaskStage::ClusterNetworkDispatch:
+		case ProfilerTaskStage::ClusterTileDecompress:
 		case ProfilerTaskStage::PixelClassification:
 			return ProfilerTaskStage::RenderDispatch;
 		case ProfilerTaskStage::GpuBodyLayoutBuild:
@@ -218,6 +224,8 @@ enum class ProfilerStageDomain : uint32_t {
 		case ProfilerTaskStage::NBodyIntegration: return "Time spent in the post-Newtonian integrator sub-steps.";
 		case ProfilerTaskStage::NBodyInteractions: return "Time spent solving electromagnetic, thermal, collision and fragmentation interactions.";
 		case ProfilerTaskStage::HorizonAbsorption: return "Time spent resolving horizon absorption and black hole merging.";
+		case ProfilerTaskStage::ClusterNetworkDispatch: return "Time the cluster master spent serializing, encrypting and sending tile tasks to remote workers.";
+		case ProfilerTaskStage::ClusterTileDecompress: return "Time the cluster master spent decrypting, decompressing and sanitizing tile results from remote workers.";
 		default: return "";
 	}
 }
@@ -241,6 +249,8 @@ enum class ProfilerStageDomain : uint32_t {
 		case ProfilerTaskStage::PixelClassification: return "Lower the Internal Render Scale to reduce the per-frame pixel count.";
 		case ProfilerTaskStage::NBodyIntegration: return "Reduce the body count or select the symplectic integrator.";
 		case ProfilerTaskStage::NBodyInteractions: return "Disable interaction models that are not required.";
+		case ProfilerTaskStage::ClusterNetworkDispatch: return "Use the raw or LZ4 compression mode on fast links or reduce the number of workers on slow links.";
+		case ProfilerTaskStage::ClusterTileDecompress: return "Switch to the raw compression mode on gigabit links to remove the decoding cost.";
 		default: return "";
 	}
 }

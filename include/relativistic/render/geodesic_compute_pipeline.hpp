@@ -129,6 +129,34 @@ public:
 #endif
 	}
 
+	#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+	[[nodiscard]] bool evaluate_nbody_accelerations(
+		std::span<const Distributed::NBodyBodyState> bodies,
+		const Distributed::NBodyEvaluationOptions& options,
+		std::span<Distributed::NBodyRowResult> output,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) {
+		auto* cluster = cluster_.load(std::memory_order_acquire);
+		if (cluster != nullptr) {
+			return cluster->evaluate_nbody_accelerations(bodies, options, output, cancel_flag);
+		}
+		return Distributed::evaluate_nbody_accelerations_local(bodies, options, output);
+	}
+
+	[[nodiscard]] bool run_geodesic_ensemble(
+		const Distributed::GeodesicEnsembleSpec& spec,
+		uint32_t samples_per_unit,
+		Distributed::GeodesicEnsemblePartial& result,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) {
+		auto* cluster = cluster_.load(std::memory_order_acquire);
+		if (cluster != nullptr) {
+			return cluster->run_geodesic_ensemble(spec, samples_per_unit, result, cancel_flag);
+		}
+		return Distributed::run_geodesic_ensemble_local(spec, samples_per_unit, result);
+	}
+#endif
+
 	bool dispatch_capture(
 		const GpuCameraPushConstants& constants,
 		std::span<GpuPixelOutput> pixels,

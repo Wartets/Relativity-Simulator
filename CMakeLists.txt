@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.010
+	VERSION 0.4.2.011
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -233,6 +233,8 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/body_catalog.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_orchestrator.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_master_service.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/compute_kernels.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/slurm_interface.cpp
 	)
 	target_include_directories(relativistic_distributed PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
@@ -246,6 +248,9 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	target_compile_options(relativistic_distributed PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
 	target_compile_definitions(relativistic_distributed PUBLIC RELATIVISTIC_DISTRIBUTED_COMPUTE=1 LZ4_VISIBILITY_ATTRIBUTE=0)
 	target_link_libraries(relativistic_distributed PUBLIC lz4_static enet Vulkan::Vulkan)
+	if (TARGET relativistic_nbody_shaders)
+		add_dependencies(relativistic_distributed relativistic_nbody_shaders)
+	endif()
 	if (WIN32)
 		target_link_libraries(relativistic_distributed PUBLIC ws2_32 winmm)
 	endif()
@@ -286,6 +291,20 @@ if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 			VERBATIM
 		)
 		add_custom_target(relativistic_cluster_tile_shaders ALL DEPENDS ${RELATIVISTIC_TILE_SHADER_SPV} ${RELATIVISTIC_TILE_SHADER_HPP})
+
+		set(RELATIVISTIC_NBODY_SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nbody_accel_fp64.comp)
+		set(RELATIVISTIC_NBODY_SHADER_SPV ${CMAKE_CURRENT_SOURCE_DIR}/shaders/nbody_accel_fp64.comp.spv)
+		set(RELATIVISTIC_NBODY_SHADER_HPP ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders/nbody_accel_fp64.spv.hpp)
+		add_custom_command(
+			OUTPUT ${RELATIVISTIC_NBODY_SHADER_SPV} ${RELATIVISTIC_NBODY_SHADER_HPP}
+			COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/include/relativistic/shaders
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 ${RELATIVISTIC_NBODY_SHADER_SRC} -o ${RELATIVISTIC_NBODY_SHADER_SPV}
+			COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V --target-env vulkan1.2 --vn nbody_accel_fp64_spv ${RELATIVISTIC_NBODY_SHADER_SRC} -o ${RELATIVISTIC_NBODY_SHADER_HPP}
+			DEPENDS ${RELATIVISTIC_NBODY_SHADER_SRC}
+			COMMENT "Compiling nbody_accel_fp64.comp to SPIR-V and embedded C++ header"
+			VERBATIM
+		)
+		add_custom_target(relativistic_nbody_shaders ALL DEPENDS ${RELATIVISTIC_NBODY_SHADER_SPV} ${RELATIVISTIC_NBODY_SHADER_HPP})
 	endif()
 endif()
 
@@ -702,7 +721,6 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/tile_renderer.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/worker_options.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/worker_service.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/slurm_interface.cpp
 	)
 	add_executable(cluster_worker apps/cluster_worker/main.cpp ${CLUSTER_WORKER_SOURCES})
 

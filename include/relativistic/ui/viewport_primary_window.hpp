@@ -1207,6 +1207,10 @@ public:
 				orchestrator_.profiler().record_stage_duration(tel.used_gpu_path ? Orchestrator::ProfilerTaskStage::GpuDispatchExecution : Orchestrator::ProfilerTaskStage::CpuDispatchExecution, tel.execution_time_ms);
 				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::AdaptiveTilePrepassSky, tel.tile_prepass_skip_ms);
 				orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::PixelClassification, tel.pixel_classification_ms);
+				if (tel.used_cluster_path) {
+					orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::ClusterNetworkDispatch, tel.cluster.dispatch_ms);
+					orchestrator_.profiler().record_stage_duration(Orchestrator::ProfilerTaskStage::ClusterTileDecompress, tel.cluster.decode_ms);
+				}
 				orchestrator_.profiler().record_frame(frame_input);
 			}
 

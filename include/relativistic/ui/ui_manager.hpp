@@ -223,6 +223,57 @@ public:
 				Core::log_warning("The cluster master service could not start: " + cluster_master_->last_error());
 			}
 			Core::Diagnostics::set_environment("cluster.master.operational", cluster_master_->is_operational() ? "yes" : "no");
+			control_panel_window_.attach_cluster_controls(
+				[this]() { reload_cluster_configuration(); },
+				[this]() { return cluster_master_ ? cluster_master_->status() : Distributed::ClusterStatus{}; }
+			);
+			orchestrator_.nbody_system().set_acceleration_evaluator([this](
+				std::span<const Dynamics::PostNewtonianBody> bodies,
+				const Dynamics::PNOrderConfig& config,
+				std::span<Dynamics::PostNewtonianAccelerations> out_accelerations
+			) -> bool {
+				if (!viewport_window_ || !viewport_window_->pipeline_ref().cluster_extension().is_cluster_active()) {
+					return false;
+				}
+				const size_t count = bodies.size();
+				if (count < 2U || out_accelerations.size() < count) {
+					return false;
+				}
+				std::vector<Distributed::NBodyBodyState> states(count);
+				for (size_t i = 0; i < count; ++i) {
+					states[i].position[0] = bodies[i].position[0];
+					states[i].position[1] = bodies[i].position[1];
+					states[i].position[2] = bodies[i].position[2];
+					states[i].velocity[0] = bodies[i].velocity[0];
+					states[i].velocity[1] = bodies[i].velocity[1];
+					states[i].velocity[2] = bodies[i].velocity[2];
+					states[i].mass = bodies[i].mass;
+					states[i].acceleration[0] = bodies[i].acceleration[0];
+					states[i].acceleration[1] = bodies[i].acceleration[1];
+					states[i].acceleration[2] = bodies[i].acceleration[2];
+					states[i].potential = 0.0;
+				}
+				Distributed::NBodyEvaluationOptions options{};
+				options.gravitational_constant = config.gravitational_constant;
+				options.speed_of_light = config.speed_of_light;
+				options.post_newtonian = config.enable_1pn;
+				options.rows_per_unit = 256U;
+
+				std::vector<Distributed::NBodyRowResult> results(count);
+				if (!viewport_window_->pipeline_ref().cluster_extension().evaluate_nbody_accelerations(states, options, results)) {
+					return false;
+				}
+				for (size_t i = 0; i < count; ++i) {
+					out_accelerations[i] = Dynamics::PostNewtonianAccelerations{};
+					out_accelerations[i].a_total = {results[i].acceleration[0], results[i].acceleration[1], results[i].acceleration[2]};
+					if (config.enable_1pn) {
+						out_accelerations[i].a_1pn = out_accelerations[i].a_total;
+					} else {
+						out_accelerations[i].a_newton = out_accelerations[i].a_total;
+					}
+				}
+				return true;
+			});
 		}
 #endif
 		report_startup(Startup::StartupStage::Interface, 0.05f, "Building interface", "Creating the capture studio...");
@@ -470,6 +521,12 @@ public:
 			user_settings_.interaction_collision_stiffness_scale = ic.collisions.contact_stiffness_scale;
 			user_settings_.interaction_collision_position_correction_factor = ic.collisions.position_correction_factor;
 			user_settings_.interaction_fragmentation_tidal_stress_enabled = ic.fragmentation.enable_tidal_stress;
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (cluster_master_) {
+			const auto status = cluster_master_->status();
+			user_settings_.cluster_enabled = status.configured;
+		}
+#endif
 		}
 
 		for (auto& slot : user_settings_.secondary_views) {

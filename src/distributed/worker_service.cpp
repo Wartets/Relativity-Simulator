@@ -5,6 +5,7 @@
 #include "relativistic/distributed/body_catalog.hpp"
 #include "relativistic/distributed/cluster_node.hpp"
 #include "relativistic/distributed/compression_codecs.hpp"
+#include "relativistic/distributed/compute_kernels.hpp"
 #include "relativistic/distributed/crypto_channel.hpp"
 #include "relativistic/distributed/discovery_service.hpp"
 #include "relativistic/distributed/network_transport.hpp"
@@ -93,6 +94,7 @@ struct PeerSession {
 	ClusterTimePoint established_at{};
 	ClusterTimePoint last_heartbeat_sent;
 	BodyCatalogStore catalogs{};
+	NBodyStateStore nbody_states{};
 	std::vector<WaitingJob> waiting{};
 };
 
@@ -448,6 +450,87 @@ struct ClusterWorkerService::Impl {
 		}
 	}
 
+	void execute_compute_task(const std::shared_ptr<PeerSession>& owner, PacketType type, const std::vector<uint8_t>& payload, const std::shared_ptr<const std::vector<NBodyBodyState>>& state) {
+		if (!owner->open.load(std::memory_order_acquire)) {
+			return;
+		}
+		std::vector<uint8_t> reply;
+		uint32_t job_id = 0;
+		if (type == PacketType::SimulationSubStepData) {
+			if (payload.size() != sizeof(NBodyBlockTask) || state == nullptr) {
+				return;
+			}
+			NBodyBlockTask task{};
+			std::memcpy(&task, payload.data(), sizeof(task));
+			const size_t body_total = state->size();
+			if (task.total_bodies != body_total || task.row_count == 0U || task.row_count > kNBodyMaximumRowsPerUnit || task.first_row >= body_total || task.phase > kNBodyPhasePostNewtonian) {
+				return;
+			}
+			const auto rows = static_cast<uint32_t>(std::min<size_t>(task.row_count, body_total - task.first_row));
+			std::vector<NBodyRowResult> results(rows);
+			evaluate_nbody_rows(*state, task.first_row, rows, task.phase, task.gravitational_constant, task.speed_of_light, results);
+			job_id = task.base.job_id;
+			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
+			reply.resize(sizeof(header) + static_cast<size_t>(rows) * sizeof(NBodyRowResult));
+			std::memcpy(reply.data(), &header, sizeof(header));
+			std::memcpy(reply.data() + sizeof(header), results.data(), static_cast<size_t>(rows) * sizeof(NBodyRowResult));
+		} else if (type == PacketType::MonteCarloBatchData) {
+			if (payload.size() != sizeof(GeodesicEnsembleTask)) {
+				return;
+			}
+			GeodesicEnsembleTask task{};
+			std::memcpy(&task, payload.data(), sizeof(task));
+			if (!validate_ensemble_spec(task.spec) || task.sample_count == 0U || task.sample_count > kEnsembleMaximumSamplesPerUnit || task.first_sample + task.sample_count > task.spec.total_samples) {
+				return;
+			}
+			const GeodesicEnsemblePartial partial = integrate_geodesic_ensemble(task.spec, task.first_sample, task.sample_count);
+			job_id = task.base.job_id;
+			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
+			reply.resize(sizeof(header) + sizeof(partial));
+			std::memcpy(reply.data(), &header, sizeof(header));
+			std::memcpy(reply.data() + sizeof(header), &partial, sizeof(partial));
+		} else {
+			return;
+		}
+		if (send_encrypted(*owner, type, job_id, reply, TransportChannel::Control)) {
+			tiles_completed.fetch_add(0, std::memory_order_relaxed);
+		}
+	}
+
+	void handle_compute_packet(PeerSession& session, PacketType type, std::span<const uint8_t> payload) {
+		if (payload.size() < sizeof(ComputeMessageHeader)) {
+			return;
+		}
+		ComputeMessageHeader header{};
+		std::memcpy(&header, payload.data(), sizeof(header));
+		if (header.kind == static_cast<uint32_t>(ComputeMessageKind::StateChunk) && type == PacketType::SimulationSubStepData) {
+			uint32_t completed = 0;
+			if (session.nbody_states.ingest(payload, completed) == NBodyStateStore::IngestResult::Invalid) {
+				close_session(session, DisconnectReason::ProtocolViolation);
+			}
+			return;
+		}
+		if (header.kind != static_cast<uint32_t>(ComputeMessageKind::BlockTask) || pool == nullptr) {
+			return;
+		}
+		const auto it = sessions.find(session.peer_id);
+		if (it == sessions.end()) {
+			return;
+		}
+		std::shared_ptr<PeerSession> owner = it->second;
+		std::shared_ptr<const std::vector<NBodyBodyState>> state;
+		if (type == PacketType::SimulationSubStepData) {
+			state = session.nbody_states.find(header.job_id);
+			if (state == nullptr) {
+				return;
+			}
+		}
+		std::vector<uint8_t> copy(payload.begin(), payload.end());
+		pool->enqueue([this, owner, type, state, copy]() {
+			execute_compute_task(owner, type, copy, state);
+		});
+	}
+
 	void handle_control_packet(PeerSession& session, PacketType type, uint64_t frame_index, std::span<const uint8_t> payload, ClusterTimePoint now) {
 		switch (type) {
 			case PacketType::HeartbeatPing: {
@@ -479,6 +562,10 @@ struct ClusterWorkerService::Impl {
 				}
 				break;
 			}
+			case PacketType::SimulationSubStepData:
+			case PacketType::MonteCarloBatchData:
+				handle_compute_packet(session, type, payload);
+				break;
 			case PacketType::TaskCancel: {
 				if (payload.size() == sizeof(TaskCancelPayload)) {
 					TaskCancelPayload cancel{};

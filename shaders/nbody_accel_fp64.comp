@@ -1,0 +1,91 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct NBodyBodyState {
+	dvec3 position;
+	dvec3 velocity;
+	double mass;
+	dvec3 acceleration;
+	double potential;
+};
+
+struct NBodyRowResult {
+	dvec3 acceleration;
+	double potential;
+};
+
+layout(scalar, binding = 0) uniform Parameters {
+	uint total_bodies;
+	uint first_row;
+	uint row_count;
+	uint phase;
+	double gravitational_constant;
+	double speed_of_light;
+} u_params;
+
+layout(scalar, binding = 1) readonly buffer InputBodies {
+	NBodyBodyState bodies[];
+};
+
+layout(scalar, binding = 2) writeonly buffer OutputResults {
+	NBodyRowResult results[];
+};
+
+void main() {
+	uint local_row = gl_GlobalInvocationID.x;
+	if (local_row >= u_params.row_count) {
+		return;
+	}
+	uint i = u_params.first_row + local_row;
+	if (i >= u_params.total_bodies) {
+		return;
+	}
+
+	dvec3 pi = bodies[i].position;
+	dvec3 vi = bodies[i].velocity;
+	double vi2 = dot(vi, vi);
+	double c = u_params.speed_of_light;
+	double inv_c2 = (c > 0.0) ? (1.0 / (c * c)) : 0.0;
+	double g = u_params.gravitational_constant;
+
+	dvec3 a_accum = dvec3(0.0);
+	double pot_accum = 0.0;
+
+	for (uint j = 0u; j < u_params.total_bodies; ++j) {
+		if (j == i) {
+			continue;
+		}
+		dvec3 pj = bodies[j].position;
+		dvec3 r_ij = pi - pj;
+		double r2 = dot(r_ij, r_ij);
+		if (!(r2 > 1.0e-300)) {
+			continue;
+		}
+		double inv_r = 1.0 / sqrt(r2);
+		double inv_r3 = inv_r / r2;
+		double gm = g * bodies[j].mass;
+
+		if (u_params.phase == 0u) {
+			a_accum -= (gm * inv_r3) * r_ij;
+			pot_accum += gm * inv_r;
+		} else {
+			dvec3 vj = bodies[j].velocity;
+			double vj2 = dot(vj, vj);
+			double vi_dot_vj = dot(vi, vj);
+			double proj = dot(r_ij, vj) * inv_r;
+			double a_dot_r = dot(r_ij, bodies[j].acceleration);
+			double bracket = 1.0 + inv_c2 * (-4.0 * bodies[i].potential - bodies[j].potential + vi2 + 2.0 * vj2 - 4.0 * vi_dot_vj - 1.5 * proj * proj - 0.5 * a_dot_r);
+			double radial = -gm * inv_r3 * bracket;
+			dvec3 combined = 4.0 * vi - 3.0 * vj;
+			double long_scale = gm * inv_r3 * inv_c2 * dot(r_ij, combined);
+			double coupling = 3.5 * inv_c2 * gm * inv_r;
+			a_accum += radial * r_ij + long_scale * (vi - vj) + coupling * bodies[j].acceleration;
+		}
+	}
+
+	results[local_row].acceleration = a_accum;
+	results[local_row].potential = (u_params.phase == 0u) ? pot_accum : bodies[i].potential;
+}

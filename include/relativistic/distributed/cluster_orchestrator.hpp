@@ -9,6 +9,8 @@
 #include "relativistic/distributed/network_transport.hpp"
 #include "relativistic/distributed/discovery_service.hpp"
 #include "relativistic/distributed/body_catalog.hpp"
+#include "relativistic/distributed/compute_kernels.hpp"
+#include "relativistic/distributed/compute_payloads.hpp"
 #include "relativistic/distributed/task_payloads.hpp"
 #include "relativistic/distributed/packet_protocol.hpp"
 #include "relativistic/distributed/session_protocol.hpp"
@@ -74,6 +76,31 @@ private:
 		double last_ping_timestamp{0.0};
 	};
 
+	struct ComputeJobState {
+		uint32_t job_id{0};
+		PacketType packet_type{PacketType::SimulationSubStepData};
+		uint32_t unit_count{0};
+		std::unique_ptr<std::atomic<uint8_t>[]> status{};
+		std::unique_ptr<std::atomic<int64_t>[]> deadline_ns{};
+		std::vector<uint32_t> owner{};
+		std::atomic<uint32_t> completed{0};
+		std::atomic<uint32_t> active_applies{0};
+		std::atomic<bool> closed{false};
+		std::atomic<bool> failed{false};
+		std::function<bool(uint32_t, std::span<const uint8_t>)> apply_result{};
+	};
+
+	struct ComputeJobSpec {
+		PacketType packet_type{PacketType::SimulationSubStepData};
+		uint32_t unit_count{0};
+		double unit_timeout_seconds{0.1};
+		bool allow_remote{true};
+		std::function<bool(MasterPeerSession&, uint32_t)> prepare_session{};
+		std::function<std::vector<uint8_t>(uint32_t, uint32_t)> build_task{};
+		std::function<std::vector<uint8_t>(uint32_t, uint32_t)> execute_local{};
+		std::function<bool(uint32_t, std::span<const uint8_t>)> apply_result{};
+	};
+
 	ClusterConfiguration config_{};
 	NodeRegistry registry_{};
 	DistributionScheduler scheduler_;
@@ -85,6 +112,10 @@ private:
 	std::atomic<bool> route_offline_{true};
 	std::atomic<bool> cluster_active_{false};
 	std::atomic<uint64_t> global_frame_index_{0};
+	std::atomic<uint32_t> next_compute_job_{0};
+	std::mutex compute_mutex_{};
+	std::mutex compute_run_mutex_{};
+	std::shared_ptr<ComputeJobState> active_compute_{};
 
 	mutable std::mutex pump_mutex_{};
 	std::mutex dispatch_mutex_{};
@@ -141,6 +172,12 @@ private:
 	void broadcast_bodies_if_needed(uint32_t frame_index, std::span<const Render::GpuBodyData> bodies);
 	void cancel_remote_frame(uint64_t frame_index);
 	void send_remote_tasks(uint64_t frame_index, const Render::GpuCameraPushConstants& constants, bool bodies_empty, ClusterTimePoint now, std::vector<uint32_t>& undispatched);
+
+	bool run_compute_job(const ComputeJobSpec& spec, const std::atomic<bool>* cancel_flag);
+	void execute_compute_units_locally(ComputeJobState& job, const ComputeJobSpec& spec, std::span<const uint32_t> units, const std::atomic<bool>* cancel_flag);
+	bool complete_compute_unit(ComputeJobState& job, uint32_t unit, std::span<const uint8_t> body, bool remote);
+	void handle_compute_result(const std::shared_ptr<MasterPeerSession>& session, PacketType type, std::span<const uint8_t> plain);
+	bool send_nbody_state(MasterPeerSession& session, uint32_t job_id, std::span<const NBodyBodyState> bodies);
 
 	bool run_local_batch(
 		const Render::GpuCameraPushConstants& constants,
@@ -217,6 +254,20 @@ public:
 		const Render::GpuCameraPushConstants& constants,
 		std::span<Render::GpuPixelOutput> framebuffer,
 		std::span<const Render::GpuBodyData> bodies,
+		const std::atomic<bool>* cancel_flag
+	);
+
+	[[nodiscard]] bool evaluate_nbody_accelerations(
+		std::span<const NBodyBodyState> bodies,
+		const NBodyEvaluationOptions& options,
+		std::span<NBodyRowResult> output,
+		const std::atomic<bool>* cancel_flag
+	);
+
+	[[nodiscard]] bool run_geodesic_ensemble(
+		const GeodesicEnsembleSpec& spec,
+		uint32_t samples_per_unit,
+		GeodesicEnsemblePartial& result,
 		const std::atomic<bool>* cancel_flag
 	);
 

@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstdio>
 #include <string_view>
+#include <vector>
 
 namespace Relativistic::Distributed {
 
@@ -80,6 +82,205 @@ std::string SlurmInterface::get_master_node_address() noexcept {
 		return {};
 	}
 	return parse_nodelist_head(nodes);
+}
+
+namespace {
+
+[[nodiscard]] std::vector<std::string> split_top_level(std::string_view text) {
+	std::vector<std::string> tokens;
+	std::string current;
+	int depth = 0;
+	for (const char c : text) {
+		if (c == '[') {
+			++depth;
+		} else if (c == ']' && depth > 0) {
+			--depth;
+		}
+		if (c == ',' && depth == 0) {
+			if (!current.empty()) {
+				tokens.push_back(current);
+			}
+			current.clear();
+			continue;
+		}
+		current.push_back(c);
+	}
+	if (!current.empty()) {
+		tokens.push_back(current);
+	}
+	return tokens;
+}
+
+void expand_bracket_token(std::string_view token, std::vector<std::string>& output) {
+	const size_t open = token.find('[');
+	if (open == std::string_view::npos) {
+		output.emplace_back(token);
+		return;
+	}
+	const size_t close = token.find(']', open);
+	if (close == std::string_view::npos) {
+		return;
+	}
+	const std::string prefix(token.substr(0, open));
+	const std::string suffix(token.substr(close + 1U));
+	const std::string_view inside = token.substr(open + 1U, close - open - 1U);
+	size_t begin = 0;
+	while (begin <= inside.size()) {
+		size_t end = inside.find(',', begin);
+		if (end == std::string_view::npos) {
+			end = inside.size();
+		}
+		const std::string_view item = inside.substr(begin, end - begin);
+		begin = end + 1U;
+		if (item.empty()) {
+			continue;
+		}
+		const size_t dash = item.find('-');
+		if (dash == std::string_view::npos) {
+			output.push_back(prefix + std::string(item) + suffix);
+			continue;
+		}
+		const std::string low(item.substr(0, dash));
+		const std::string high(item.substr(dash + 1U));
+		const unsigned long long first = std::strtoull(low.c_str(), nullptr, 10);
+		const unsigned long long last = std::strtoull(high.c_str(), nullptr, 10);
+		if (last < first || last - first > 65535ULL) {
+			continue;
+		}
+		for (unsigned long long value = first; value <= last; ++value) {
+			std::string digits = std::to_string(value);
+			if (digits.size() < low.size()) {
+				digits.insert(0, low.size() - digits.size(), '0');
+			}
+			output.push_back(prefix + digits + suffix);
+		}
+	}
+}
+
+[[nodiscard]] std::vector<std::string> query_scontrol_hostnames(const std::string& list) {
+	std::vector<std::string> hosts;
+#if !defined(_WIN32)
+	if (list.empty() || list.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[],-_.") != std::string::npos) {
+		return hosts;
+	}
+	const std::string command = "scontrol show hostnames '" + list + "' 2>/dev/null";
+	FILE* pipe = popen(command.c_str(), "r");
+	if (pipe == nullptr) {
+		return hosts;
+	}
+	char line[256];
+	while (std::fgets(line, sizeof(line), pipe) != nullptr) {
+		std::string host = clean_trim(line);
+		if (!host.empty()) {
+			hosts.push_back(std::move(host));
+		}
+	}
+	pclose(pipe);
+#else
+	static_cast<void>(list);
+#endif
+	return hosts;
+}
+
+}
+
+std::vector<std::string> SlurmInterface::expand_node_list(std::string_view node_list) {
+	const std::string text = clean_trim(node_list);
+	std::vector<std::string> hosts = query_scontrol_hostnames(text);
+	if (!hosts.empty()) {
+		return hosts;
+	}
+	for (const std::string& token : split_top_level(text)) {
+		expand_bracket_token(token, hosts);
+	}
+	return hosts;
+}
+
+std::vector<uint32_t> SlurmInterface::parse_tasks_per_node(std::string_view text, size_t host_count) {
+	std::vector<uint32_t> counts;
+	for (const std::string& token : split_top_level(text)) {
+		const unsigned long value = std::max(std::strtoul(token.c_str(), nullptr, 10), 1UL);
+		unsigned long repeat = 1;
+		const size_t paren = token.find('(');
+		if (paren != std::string::npos) {
+			const size_t marker = token.find('x', paren);
+			if (marker != std::string::npos) {
+				repeat = std::clamp(std::strtoul(token.c_str() + marker + 1U, nullptr, 10), 1UL, 65536UL);
+			}
+		}
+		for (unsigned long r = 0; r < repeat; ++r) {
+			counts.push_back(static_cast<uint32_t>(value));
+		}
+	}
+	if (counts.size() != host_count) {
+		counts.assign(host_count, counts.empty() ? 1U : counts.front());
+	}
+	return counts;
+}
+
+std::optional<SlurmAllocation> SlurmInterface::read_allocation() {
+	if (!is_running_under_slurm()) {
+		return std::nullopt;
+	}
+	SlurmAllocation allocation;
+	allocation.rank = get_slurm_rank();
+	allocation.task_count = get_slurm_world_size();
+	if (const char* job = check_environment({"SLURM_JOB_ID"})) {
+		allocation.job_id = job;
+	}
+	const char* nodes = check_environment({"SLURM_STEP_NODELIST", "SLURM_JOB_NODELIST", "SLURM_NODELIST"});
+	if (nodes == nullptr) {
+		return allocation;
+	}
+	allocation.hosts = expand_node_list(nodes);
+	const char* layout = check_environment({"SLURM_STEP_TASKS_PER_NODE", "SLURM_TASKS_PER_NODE"});
+	allocation.tasks_per_host = parse_tasks_per_node((layout != nullptr) ? std::string_view(layout) : std::string_view{}, allocation.hosts.size());
+	return allocation;
+}
+
+bool SlurmInterface::populate_master_configuration(ClusterConfiguration& configuration, std::string& error) {
+	const std::optional<SlurmAllocation> allocation = read_allocation();
+	if (!allocation.has_value() || allocation->rank != 0U) {
+		error = "The master configuration can only be derived on rank 0 of a Slurm allocation";
+		return false;
+	}
+	if (allocation->hosts.empty()) {
+		error = "The Slurm node list could not be expanded";
+		return false;
+	}
+	const uint32_t base_port = configuration.cluster.listen_port;
+	size_t added = 0;
+	for (size_t host_index = 0; host_index < allocation->hosts.size(); ++host_index) {
+		const uint32_t tasks = allocation->tasks_per_host[host_index];
+		for (uint32_t local_id = 0; local_id < tasks; ++local_id) {
+			if (host_index == 0U && local_id == 0U) {
+				continue;
+			}
+			const uint32_t port = base_port + 1U + local_id;
+			if (port > 65535U) {
+				error = "A derived Slurm worker port exceeds the valid port range";
+				return added > 0U;
+			}
+			const std::string& host = allocation->hosts[host_index];
+			const bool known = std::any_of(configuration.static_nodes.begin(), configuration.static_nodes.end(), [&host, port](const ClusterNodeDescriptor& node) {
+				return node.endpoint.host == host && node.endpoint.port == port;
+			});
+			if (known) {
+				continue;
+			}
+			ClusterNodeDescriptor descriptor{};
+			descriptor.name = "slurm-" + host + "-" + std::to_string(local_id);
+			descriptor.endpoint = TransportEndpoint{host, static_cast<uint16_t>(port)};
+			descriptor.static_weight = 1.0;
+			descriptor.enabled = true;
+			configuration.static_nodes.push_back(std::move(descriptor));
+			++added;
+		}
+	}
+	if (added > 0U) {
+		configuration.cluster.enabled = true;
+	}
+	return added > 0U;
 }
 
 bool SlurmInterface::initialize_from_environment(WorkerOptions& options, std::string& error) noexcept {

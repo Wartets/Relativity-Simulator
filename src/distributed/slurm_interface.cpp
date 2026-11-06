@@ -85,6 +85,17 @@ std::string SlurmInterface::get_master_node_address() noexcept {
 	return parse_nodelist_head(nodes);
 }
 
+std::optional<std::array<uint8_t, 32>> SlurmInterface::get_job_token() noexcept {
+	const char* job_id = check_environment({"SLURM_JOB_ID"});
+	if (job_id == nullptr || job_id[0] == '\0') {
+		return std::nullopt;
+	}
+	const std::string seed_string = "RELATIVISTIC_SLURM_JOB_TOKEN:" + std::string(job_id);
+	Core::SHA256 hasher;
+	hasher.update(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(seed_string.data()), seed_string.size()));
+	return hasher.finalize();
+}
+
 namespace {
 
 [[nodiscard]] std::vector<std::string> split_top_level(std::string_view text) {
@@ -278,6 +289,12 @@ bool SlurmInterface::populate_master_configuration(ClusterConfiguration& configu
 			++added;
 		}
 	}
+	if (!configuration.security.has_shared_token) {
+		if (const auto token = get_job_token()) {
+			configuration.security.cluster_shared_token = *token;
+			configuration.security.has_shared_token = true;
+		}
+	}
 	if (added > 0U) {
 		configuration.cluster.enabled = true;
 	}
@@ -300,12 +317,8 @@ bool SlurmInterface::initialize_from_environment(WorkerOptions& options, std::st
 	}
 
 	if (!options.has_auth_token) {
-		const char* job_id = check_environment({"SLURM_JOB_ID"});
-		if (job_id != nullptr && job_id[0] != '\0') {
-			const std::string seed_string = "RELATIVISTIC_SLURM_JOB_TOKEN:" + std::string(job_id);
-			Core::SHA256 hasher;
-			hasher.update(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(seed_string.data()), seed_string.size()));
-			options.auth_token = hasher.finalize();
+		if (const auto token = get_job_token()) {
+			options.auth_token = *token;
 			options.has_auth_token = true;
 		}
 	}

@@ -27,6 +27,7 @@ public:
 	[[nodiscard]] static uint32_t get_slurm_rank() noexcept;
 	[[nodiscard]] static uint32_t get_slurm_world_size() noexcept;
 	[[nodiscard]] static std::string get_master_node_address() noexcept;
+	[[nodiscard]] static std::optional<std::array<uint8_t, 32>> get_job_token() noexcept;
 
 	[[nodiscard]] static std::vector<std::string> expand_node_list(std::string_view node_list);
 	[[nodiscard]] static std::vector<uint32_t> parse_tasks_per_node(std::string_view text, size_t host_count);

@@ -85,13 +85,13 @@ int main(int argc, char** argv) {
 			) -> bool {
 				for (uint32_t tile : tiles) {
 					if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) return false;
-					RenderTileTaskPayload task{};
-					task.camera_constants = constants;
-					task.header.tile_index = tile;
 					const auto geom = resolve_tile_geometry(tile, constants.screen_width, constants.screen_height);
 					if (!geom.has_value()) continue;
-					task.header.tile_width = static_cast<uint16_t>(geom->width);
-					task.header.tile_height = static_cast<uint16_t>(geom->height);
+					const auto header = make_render_tile_task_header(tile, constants.screen_width, constants.screen_height, 0U, 0U, TileCompressionMode::DirectRaw);
+					if (!header.has_value()) continue;
+					RenderTileTaskPayload task{};
+					task.camera_constants = constants;
+					task.header = *header;
 					std::vector<Relativistic::Render::GpuPixelOutput> pixels(geom->pixel_count());
 					auto outcome = renderer_ptr->render(task, bodies, pixels, cancel);
 					if (outcome.completed) {

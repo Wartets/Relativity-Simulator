@@ -56,6 +56,44 @@ public:
 		return cluster_.load(std::memory_order_acquire) != nullptr;
 	}
 
+	[[nodiscard]] bool interactive_routing_enabled() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->interactive_routing_enabled();
+#else
+		return false;
+#endif
+	}
+
+	void set_interactive_routing(bool enabled) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->set_interactive_routing(enabled);
+		}
+#else
+		static_cast<void>(enabled);
+#endif
+	}
+
+	[[nodiscard]] bool exact_metrics_routing_enabled() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->exact_metrics_routing_enabled();
+#else
+		return false;
+#endif
+	}
+
+	void set_exact_metrics_routing(bool enabled) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->set_exact_metrics_routing(enabled);
+		}
+#else
+		static_cast<void>(enabled);
+#endif
+	}
+
 	[[nodiscard]] bool offline_routing_enabled() const noexcept {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		const auto* cluster = cluster_.load(std::memory_order_acquire);
@@ -208,6 +246,45 @@ public:
 			return cluster->evaluate_stochastic_pce_quadrature(spec, points_per_unit, results, cancel_flag);
 		}
 		return Distributed::run_stochastic_pce_quadrature_local(spec, points_per_unit, results);
+	}
+#else
+	[[nodiscard]] bool evaluate_nbody_accelerations(
+		std::span<const void*> bodies,
+		const void* options,
+		std::span<void*> output,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		static_cast<void>(bodies);
+		static_cast<void>(options);
+		static_cast<void>(output);
+		static_cast<void>(cancel_flag);
+		return false;
+	}
+
+	[[nodiscard]] bool run_geodesic_ensemble(
+		const void* spec,
+		uint32_t samples_per_unit,
+		void* result,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		static_cast<void>(spec);
+		static_cast<void>(samples_per_unit);
+		static_cast<void>(result);
+		static_cast<void>(cancel_flag);
+		return false;
+	}
+
+	[[nodiscard]] bool evaluate_stochastic_pce_quadrature(
+		const void* spec,
+		uint32_t points_per_unit,
+		std::span<void*> results,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) noexcept {
+		static_cast<void>(spec);
+		static_cast<void>(points_per_unit);
+		static_cast<void>(results);
+		static_cast<void>(cancel_flag);
+		return false;
 	}
 #endif
 
@@ -1127,12 +1204,12 @@ public:
 			}
 
 			bool rendered_on_gpu = false;
+			bool rendered_on_cluster = false;
 			bool bodies_patched_on_top = false;
 			SoftwareComputeEngine::RenderStageStats headless_stage_stats{};
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies;
 			const PrecisionMode active_precision_mode = precision_mode_.load(std::memory_order_relaxed);
 			try {
-				bool rendered_on_cluster = false;
 				if (cluster_extension_.is_cluster_active()) {
 					rendered_on_cluster = cluster_extension_.dispatch_distributed(actual_constants, front_buffer_, bodies, nullptr);
 				}
@@ -1183,6 +1260,8 @@ public:
 			telemetry_.used_gpu_path = rendered_on_gpu;
 			telemetry_.bodies_patched_over_gpu_background = bodies_patched_on_top;
 			telemetry_.bodies_rendered_on_gpu = rendered_on_gpu && !bodies.empty();
+			telemetry_.used_cluster_path = rendered_on_cluster;
+			telemetry_.cluster = cluster_extension_.last_frame_telemetry();
 			telemetry_.bodies_sent_this_frame = static_cast<uint32_t>(bodies.size());
 			telemetry_.bodies_total_enabled_this_frame = total_enabled_bodies;
 			telemetry_.tile_prepass_skip_ms = static_cast<double>(headless_stage_stats.tile_prepass_skip_ns.load(std::memory_order_relaxed)) / 1.0e6;

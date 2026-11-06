@@ -85,7 +85,8 @@ ClusterOrchestrator::ClusterOrchestrator(const ClusterConfiguration& configurati
 	  route_interactive_(config_.task_routing.route_interactive_viewport),
 	  route_offline_(config_.task_routing.route_capture_studio),
 	  route_monte_carlo_(config_.task_routing.route_monte_carlo_ensembles),
-	  route_nbody_(config_.task_routing.route_nbody_interactions) {
+	  route_nbody_(config_.task_routing.route_nbody_interactions),
+	  route_exact_metrics_(config_.task_routing.route_exact_spacetime_metrics) {
 	local_capabilities_ = detect_local_hardware_capabilities(LocalGpuInfo{});
 	reseed_local_throughput();
 }
@@ -1357,6 +1358,9 @@ bool ClusterOrchestrator::dispatch_frame(
 	}
 	const bool offline = profile == DispatchProfile::Offline;
 	if (!(offline ? route_offline_.load(std::memory_order_relaxed) : route_interactive_.load(std::memory_order_relaxed))) {
+		return false;
+	}
+	if (Render::SoftwareComputeEngine::requires_exact_metric_path(constants) && !route_exact_metrics_.load(std::memory_order_relaxed)) {
 		return false;
 	}
 	const uint32_t width = constants.screen_width;

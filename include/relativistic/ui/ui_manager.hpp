@@ -222,6 +222,11 @@ public:
 			if (!cluster_master_->start()) {
 				Core::log_warning("The cluster master service could not start: " + cluster_master_->last_error());
 			}
+			cluster_pipeline->cluster_extension().set_interactive_routing(user_settings_.cluster_route_interactive_viewport);
+			cluster_pipeline->cluster_extension().set_offline_routing(user_settings_.cluster_route_capture_studio);
+			cluster_pipeline->cluster_extension().set_nbody_routing(user_settings_.cluster_route_nbody_interactions);
+			cluster_pipeline->cluster_extension().set_monte_carlo_routing(user_settings_.cluster_route_monte_carlo_ensembles);
+			cluster_pipeline->cluster_extension().set_exact_metrics_routing(user_settings_.cluster_route_exact_spacetime_metrics);
 			Core::Diagnostics::set_environment("cluster.master.operational", cluster_master_->is_operational() ? "yes" : "no");
 			control_panel_window_.attach_cluster_controls(
 				[this]() { reload_cluster_configuration(); },
@@ -530,9 +535,11 @@ public:
 			user_settings_.cluster_enabled = status.configured;
 			if (viewport_window_) {
 				const auto& ext = viewport_window_->pipeline_ref().cluster_extension();
+				user_settings_.cluster_route_interactive_viewport = ext.interactive_routing_enabled();
 				user_settings_.cluster_route_capture_studio = ext.offline_routing_enabled();
 				user_settings_.cluster_route_nbody_interactions = ext.nbody_routing_enabled();
 				user_settings_.cluster_route_monte_carlo_ensembles = ext.monte_carlo_routing_enabled();
+				user_settings_.cluster_route_exact_spacetime_metrics = ext.exact_metrics_routing_enabled();
 			}
 		}
 #endif

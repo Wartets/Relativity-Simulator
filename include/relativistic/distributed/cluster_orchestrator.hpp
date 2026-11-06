@@ -122,6 +122,7 @@ private:
 	std::atomic<bool> route_offline_{true};
 	std::atomic<bool> route_monte_carlo_{true};
 	std::atomic<bool> route_nbody_{false};
+	std::atomic<bool> route_exact_metrics_{true};
 	std::atomic<bool> cluster_active_{false};
 	std::atomic<uint64_t> global_frame_index_{0};
 	std::atomic<uint32_t> next_compute_job_{0};
@@ -222,11 +223,13 @@ public:
 	void set_offline_routing(bool enabled) noexcept { route_offline_.store(enabled, std::memory_order_relaxed); }
 	void set_monte_carlo_routing(bool enabled) noexcept { route_monte_carlo_.store(enabled, std::memory_order_relaxed); }
 	void set_nbody_routing(bool enabled) noexcept { route_nbody_.store(enabled, std::memory_order_relaxed); }
+	void set_exact_metrics_routing(bool enabled) noexcept { route_exact_metrics_.store(enabled, std::memory_order_relaxed); }
 
 	[[nodiscard]] bool interactive_routing_enabled() const noexcept { return route_interactive_.load(std::memory_order_relaxed); }
 	[[nodiscard]] bool offline_routing_enabled() const noexcept { return route_offline_.load(std::memory_order_relaxed); }
 	[[nodiscard]] bool monte_carlo_routing_enabled() const noexcept { return route_monte_carlo_.load(std::memory_order_relaxed); }
 	[[nodiscard]] bool nbody_routing_enabled() const noexcept { return route_nbody_.load(std::memory_order_relaxed); }
+	[[nodiscard]] bool exact_metrics_routing_enabled() const noexcept { return route_exact_metrics_.load(std::memory_order_relaxed); }
 
 	[[nodiscard]] bool is_cluster_operational() const noexcept {
 		return cluster_active_.load(std::memory_order_relaxed);

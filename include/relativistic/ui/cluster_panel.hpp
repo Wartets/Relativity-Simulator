@@ -202,6 +202,11 @@ private:
 			dirty_ = true;
 		}
 		render_setting_tooltip("Creates a random 256-bit token. Give the same token to every worker.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Copy Token")) {
+			ImGui::SetClipboardText(token_text_.c_str());
+		}
+		render_setting_tooltip("Copies the authentication token string to the system clipboard.");
 		dirty_ |= edit_text("Certificate Path", security.tls_certificate_path);
 		dirty_ |= edit_text("Private Key Path", security.tls_private_key_path);
 		dirty_ |= edit_text("CA Chain Path", security.tls_ca_chain_path);

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.012
+	VERSION 0.4.2.013
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -39,6 +39,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if (WIN32)
 	enable_language(RC)
+	set(CMAKE_C_USE_RESPONSE_FILE_FOR_OBJECTS 1)
+	set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_OBJECTS 1)
+	file(REMOVE
+		"${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/RelativisticEngine.dir/objects.a"
+		"${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/RelativisticEngine.dir/apps/engine_cli/main.cpp.obj"
+	)
 endif()
 
 option(ENGINE_PORTABLE_EXE "Build engine_cli as a self-contained Windows executable" OFF)
@@ -249,9 +255,6 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	target_compile_options(relativistic_distributed PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${STRICT_CXX_FLAGS}>)
 	target_compile_definitions(relativistic_distributed PUBLIC RELATIVISTIC_DISTRIBUTED_COMPUTE=1 LZ4_VISIBILITY_ATTRIBUTE=0)
 	target_link_libraries(relativistic_distributed PUBLIC lz4_static enet Vulkan::Vulkan)
-	if (TARGET relativistic_nbody_shaders)
-		add_dependencies(relativistic_distributed relativistic_nbody_shaders)
-	endif()
 	if (WIN32)
 		target_link_libraries(relativistic_distributed PUBLIC ws2_32 winmm)
 	endif()
@@ -306,6 +309,7 @@ if (Vulkan_GLSLANG_VALIDATOR_EXECUTABLE)
 			VERBATIM
 		)
 		add_custom_target(relativistic_nbody_shaders ALL DEPENDS ${RELATIVISTIC_NBODY_SHADER_SPV} ${RELATIVISTIC_NBODY_SHADER_HPP})
+		add_dependencies(relativistic_distributed relativistic_cluster_tile_shaders relativistic_nbody_shaders)
 	endif()
 endif()
 
@@ -756,7 +760,14 @@ endif()
 
 if (TARGET relativistic_cluster_tile_shaders)
 	add_dependencies(RelativisticEngine relativistic_cluster_tile_shaders)
+	add_dependencies(headless_exporter relativistic_cluster_tile_shaders)
 	target_compile_definitions(RelativisticEngine PRIVATE RELATIVISTIC_PIPELINE_TILE_SPIRV=1)
+endif()
+
+if (TARGET relativistic_nbody_shaders)
+	add_dependencies(RelativisticEngine relativistic_nbody_shaders)
+	add_dependencies(headless_exporter relativistic_nbody_shaders)
+	target_compile_definitions(RelativisticEngine PRIVATE RELATIVISTIC_PIPELINE_NBODY_SPIRV=1)
 endif()
 
 include(GNUInstallDirs)

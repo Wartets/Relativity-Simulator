@@ -2,6 +2,7 @@
 #include "relativistic/core/engine_log.hpp"
 #include "relativistic/distributed/slurm_interface.hpp"
 #include <cstdlib>
+#include <random>
 
 namespace Relativistic::Distributed {
 
@@ -61,6 +62,19 @@ bool ClusterMasterService::start() noexcept {
 				Core::log_warning(last_error_);
 				return false;
 			}
+		} else {
+			std::random_device device;
+			static constexpr char digits[] = "0123456789abcdef";
+			std::string token_hex;
+			token_hex.reserve(64);
+			for (size_t i = 0; i < 32; ++i) {
+				const auto value = static_cast<uint8_t>(device() & 0xFFU);
+				token_hex.push_back(digits[value >> 4U]);
+				token_hex.push_back(digits[value & 0x0FU]);
+			}
+			static_cast<void>(loaded.apply_token_hex(token_hex));
+			std::filesystem::create_directories(path.parent_path(), ec);
+			static_cast<void>(loaded.save_to_file(path.string()));
 		}
 		if (!loaded.security.has_shared_token) {
 			if (const char* token = std::getenv(kTokenEnvironmentVariable)) {

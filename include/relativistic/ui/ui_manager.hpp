@@ -742,6 +742,7 @@ public:
 	void shutdown() noexcept {
 		Core::Diagnostics::record_milestone("interface shutdown started");
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		orchestrator_.nbody_system().clear_acceleration_evaluator();
 		cluster_master_.reset();
 #endif
 		capture_studio_window_.reset();

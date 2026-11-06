@@ -481,34 +481,35 @@ struct ClusterWorkerService::Impl {
 			std::memcpy(reply.data(), &header, sizeof(header));
 			std::memcpy(reply.data() + sizeof(header), results.data(), static_cast<size_t>(rows) * sizeof(NBodyRowResult));
 		} else if (type == PacketType::MonteCarloBatchData) {
-			if (payload.size() != sizeof(GeodesicEnsembleTask)) {
+			if (payload.size() == sizeof(GeodesicEnsembleTask)) {
+				GeodesicEnsembleTask task{};
+				std::memcpy(&task, payload.data(), sizeof(task));
+				if (!validate_ensemble_spec(task.spec) || task.sample_count == 0U || task.sample_count > kEnsembleMaximumSamplesPerUnit || task.first_sample + task.sample_count > task.spec.total_samples) {
+					return;
+				}
+				const GeodesicEnsemblePartial partial = integrate_geodesic_ensemble(task.spec, task.first_sample, task.sample_count);
+				job_id = task.base.job_id;
+				const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
+				reply.resize(sizeof(header) + sizeof(partial));
+				std::memcpy(reply.data(), &header, sizeof(header));
+				std::memcpy(reply.data() + sizeof(header), &partial, sizeof(partial));
+			} else if (payload.size() == sizeof(StochasticQuadratureTask)) {
+				StochasticQuadratureTask task{};
+				std::memcpy(&task, payload.data(), sizeof(task));
+				if (!validate_stochastic_spec(task.spec) || task.point_count == 0U) {
+					return;
+				}
+				std::vector<StochasticQuadratureResult> results(task.point_count);
+				evaluate_stochastic_quadrature_range(task.spec, task.first_point, task.point_count, results);
+				job_id = task.base.job_id;
+				const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
+				const size_t byte_len = results.size() * sizeof(StochasticQuadratureResult);
+				reply.resize(sizeof(header) + byte_len);
+				std::memcpy(reply.data(), &header, sizeof(header));
+				std::memcpy(reply.data() + sizeof(header), results.data(), byte_len);
+			} else {
 				return;
 			}
-			GeodesicEnsembleTask task{};
-			std::memcpy(&task, payload.data(), sizeof(task));
-			if (!validate_ensemble_spec(task.spec) || task.sample_count == 0U || task.sample_count > kEnsembleMaximumSamplesPerUnit || task.first_sample + task.sample_count > task.spec.total_samples) {
-				return;
-			}
-			const GeodesicEnsemblePartial partial = integrate_geodesic_ensemble(task.spec, task.first_sample, task.sample_count);
-			job_id = task.base.job_id;
-			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
-			reply.resize(sizeof(header) + sizeof(partial));
-			std::memcpy(reply.data(), &header, sizeof(header));
-			std::memcpy(reply.data() + sizeof(header), &partial, sizeof(partial));
-		} else if (type == PacketType::MonteCarloBatchData && payload.size() == sizeof(StochasticQuadratureTask)) {
-			StochasticQuadratureTask task{};
-			std::memcpy(&task, payload.data(), sizeof(task));
-			if (!validate_stochastic_spec(task.spec) || task.point_count == 0U) {
-				return;
-			}
-			std::vector<StochasticQuadratureResult> results(task.point_count);
-			evaluate_stochastic_quadrature_range(task.spec, task.first_point, task.point_count, results);
-			job_id = task.base.job_id;
-			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
-			const size_t byte_len = results.size() * sizeof(StochasticQuadratureResult);
-			reply.resize(sizeof(header) + byte_len);
-			std::memcpy(reply.data(), &header, sizeof(header));
-			std::memcpy(reply.data() + sizeof(header), results.data(), byte_len);
 		} else {
 			return;
 		}

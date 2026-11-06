@@ -1,4 +1,5 @@
 #include "relativistic/distributed/slurm_interface.hpp"
+#include "relativistic/core/sha256.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -296,6 +297,17 @@ bool SlurmInterface::initialize_from_environment(WorkerOptions& options, std::st
 
 	if (options.node_name.empty()) {
 		options.node_name = "slurm-rank-" + std::to_string(rank);
+	}
+
+	if (!options.has_auth_token) {
+		const char* job_id = check_environment({"SLURM_JOB_ID"});
+		if (job_id != nullptr && job_id[0] != '\0') {
+			const std::string seed_string = "RELATIVISTIC_SLURM_JOB_TOKEN:" + std::string(job_id);
+			Core::SHA256 hasher;
+			hasher.update(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(seed_string.data()), seed_string.size()));
+			options.auth_token = hasher.finalize();
+			options.has_auth_token = true;
+		}
 	}
 
 	const uint16_t base_port = options.listen_port;

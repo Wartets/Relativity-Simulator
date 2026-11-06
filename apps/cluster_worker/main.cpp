@@ -3,6 +3,8 @@
 #include "relativistic/distributed/cluster_config.hpp"
 #include "relativistic/distributed/cluster_orchestrator.hpp"
 #include "relativistic/distributed/slurm_interface.hpp"
+#include "relativistic/distributed/tile_renderer.hpp"
+#include "relativistic/render/gpu_types.hpp"
 #include "relativistic/core/engine_log.hpp"
 #include <atomic>
 #include <chrono>
@@ -64,8 +66,52 @@ int main(int argc, char** argv) {
 			config.security.has_shared_token = true;
 		}
 		std::string slurm_err;
-		SlurmInterface::populate_master_configuration(config, slurm_err);
+		static_cast<void>(SlurmInterface::populate_master_configuration(config, slurm_err));
 		ClusterOrchestrator master(config);
+		TileRendererConfiguration tile_config{};
+		tile_config.backend = options.backend;
+		tile_config.vulkan_device = options.vulkan_device;
+		tile_config.embedded_shader = options.embedded_tile_shader;
+		auto local_renderer = std::make_unique<TileRenderer>(tile_config);
+		if (local_renderer->initialize()) {
+			master.set_local_gpu_info(local_renderer->gpu_info());
+			auto* renderer_ptr = local_renderer.get();
+			master.set_local_tile_renderer([renderer_ptr](
+				const Relativistic::Render::GpuCameraPushConstants& constants,
+				std::span<const uint32_t> tiles,
+				std::span<const Relativistic::Render::GpuBodyData> bodies,
+				const TileCompletionSink& sink,
+				const std::atomic<bool>* cancel
+			) -> bool {
+				for (uint32_t tile : tiles) {
+					if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) return false;
+					RenderTileTaskPayload task{};
+					task.camera_constants = constants;
+					task.header.tile_index = tile;
+					const auto geom = resolve_tile_geometry(tile, constants.screen_width, constants.screen_height);
+					if (!geom.has_value()) continue;
+					task.header.tile_width = static_cast<uint16_t>(geom->width);
+					task.header.tile_height = static_cast<uint16_t>(geom->height);
+					std::vector<Relativistic::Render::GpuPixelOutput> pixels(geom->pixel_count());
+					auto outcome = renderer_ptr->render(task, bodies, pixels, cancel);
+					if (outcome.completed) {
+						sink(tile, pixels);
+					}
+				}
+				return true;
+			});
+			master.set_local_nbody_evaluator([renderer_ptr](
+				std::span<const NBodyBodyState> bodies,
+				uint32_t first_row,
+				uint32_t row_count,
+				uint32_t phase,
+				double g,
+				double c,
+				std::span<NBodyRowResult> output
+			) -> bool {
+				return renderer_ptr->evaluate_nbody_rows(bodies, first_row, row_count, phase, g, c, output);
+			});
+		}
 		if (!master.start()) {
 			std::cerr << "Fatal: Failed to start cluster master on rank 0: " << master.last_error() << "\n";
 			return 1;

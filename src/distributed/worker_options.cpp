@@ -1,6 +1,7 @@
 #include "relativistic/distributed/worker_options.hpp"
 #include "relativistic/distributed/slurm_interface.hpp"
 #include <algorithm>
+#include <filesystem>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -224,6 +225,13 @@ bool parse_worker_options(int argument_count, const char* const* arguments, Work
 			} else if (i + 1U < tokens.size()) {
 				options.cluster_config_path = tokens[i + 1U];
 			}
+		}
+	}
+
+	if (options.cluster_config_path.empty()) {
+		std::error_code ec;
+		if (std::filesystem::exists("config/distributed_cluster.cfg", ec)) {
+			options.cluster_config_path = "config/distributed_cluster.cfg";
 		}
 	}
 

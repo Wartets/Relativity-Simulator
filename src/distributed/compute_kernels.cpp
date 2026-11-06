@@ -383,4 +383,105 @@ void NBodyStateStore::clear() noexcept {
 	published_.clear();
 }
 
+bool validate_stochastic_spec(const StochasticEvaluationSpec& spec) noexcept {
+	if (spec.total_quadrature_points == 0U || spec.dimension == 0U || spec.dimension > 4U) {
+		return false;
+	}
+	if (!std::isfinite(spec.integration_step) || !(spec.integration_step > 0.0) || spec.max_steps == 0U || spec.max_steps > kEnsembleMaximumSteps) {
+		return false;
+	}
+	for (size_t i = 0; i < spec.dimension; ++i) {
+		if (!std::isfinite(spec.parameter_means[i]) || !std::isfinite(spec.parameter_sigmas[i]) || spec.parameter_sigmas[i] < 0.0) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void evaluate_stochastic_quadrature_range(
+	const StochasticEvaluationSpec& spec,
+	uint32_t first_point,
+	uint32_t point_count,
+	std::span<StochasticQuadratureResult> output
+) noexcept {
+	const size_t run = std::min<size_t>(point_count, output.size());
+	for (size_t i = 0; i < run; ++i) {
+		const uint32_t point = first_point + static_cast<uint32_t>(i);
+		StochasticQuadratureResult result{};
+		result.point_index = point;
+		const double mass = std::max(spec.parameter_means[0] + spec.parameter_sigmas[0] * (static_cast<double>(point % 17U) - 8.0) * 0.125, 1.0e-4);
+		const double horizon = 2.0 * mass;
+		const double observer_radius = 50.0 * mass;
+		const double factor = std::max(1.0 - horizon / observer_radius, 1.0e-6);
+		const double angle = 0.15 + (static_cast<double>(point) / static_cast<double>(std::max(spec.total_quadrature_points, 1U))) * 0.05;
+		Core::SphericalNullState<double> state{
+			observer_radius, std::numbers::pi_v<double> * 0.5, 0.0,
+			-std::cos(angle), 0.0, -std::sin(angle) / (observer_radius * std::sqrt(factor))
+		};
+		double min_r = observer_radius;
+		uint32_t status = 0U;
+		for (uint32_t step = 0; step < spec.max_steps; ++step) {
+			if (state.r <= horizon * 1.0001) {
+				status = 1U;
+				break;
+			}
+			if (state.r >= 200.0 * mass) {
+				status = 2U;
+				break;
+			}
+			const double scale = std::max(state.r - horizon, 0.02 * mass);
+			const double dt = -std::clamp(spec.integration_step * std::sqrt(state.r * scale), 0.001, 2.0);
+			Core::step_schwarzschild_null_rk4<double>(state, dt, horizon);
+			if (state.r < min_r) {
+				min_r = state.r;
+			}
+		}
+		result.response_value = (status == 2U) ? (observer_radius / min_r) : 0.0;
+		result.secondary_value = min_r;
+		result.status = status;
+		output[i] = result;
+	}
+}
+
+bool run_stochastic_pce_quadrature_local(
+	const StochasticEvaluationSpec& spec,
+	uint32_t points_per_unit,
+	std::span<StochasticQuadratureResult> results
+) {
+	if (!validate_stochastic_spec(spec) || points_per_unit == 0U || results.size() < spec.total_quadrature_points) {
+		return false;
+	}
+	const uint32_t total = spec.total_quadrature_points;
+	const uint32_t unit_count = (total + points_per_unit - 1U) / points_per_unit;
+	const size_t hardware_threads = std::max<size_t>(1U, std::thread::hardware_concurrency());
+
+	if (unit_count > 1 && hardware_threads > 1) {
+		std::atomic<size_t> cursor{0};
+		const auto worker = [&]() noexcept {
+			for (;;) {
+				const size_t u = cursor.fetch_add(1U, std::memory_order_relaxed);
+				if (u >= unit_count) {
+					return;
+				}
+				const auto first = static_cast<uint32_t>(u * points_per_unit);
+				const auto count = std::min(points_per_unit, total - first);
+				evaluate_stochastic_quadrature_range(spec, first, count, results.subspan(first, count));
+			}
+		};
+		const size_t thread_total = std::min<size_t>(static_cast<size_t>(unit_count), hardware_threads);
+		std::vector<std::jthread> threads;
+		threads.reserve(thread_total - 1);
+		for (size_t t = 1; t < thread_total; ++t) {
+			threads.emplace_back(worker);
+		}
+		worker();
+	} else {
+		for (uint32_t first = 0; first < total; first += points_per_unit) {
+			const uint32_t count = std::min(points_per_unit, total - first);
+			evaluate_stochastic_quadrature_range(spec, first, count, results.subspan(first, count));
+		}
+	}
+	return true;
+}
+
 }

@@ -83,7 +83,9 @@ ClusterOrchestrator::ClusterOrchestrator(const ClusterConfiguration& configurati
 	  scheduler_(config_.make_load_balancer_parameters()),
 	  local_abi_signature_(local_engine_abi_signature()),
 	  route_interactive_(config_.task_routing.route_interactive_viewport),
-	  route_offline_(config_.task_routing.route_capture_studio) {
+	  route_offline_(config_.task_routing.route_capture_studio),
+	  route_monte_carlo_(config_.task_routing.route_monte_carlo_ensembles),
+	  route_nbody_(config_.task_routing.route_nbody_interactions) {
 	local_capabilities_ = detect_local_hardware_capabilities(LocalGpuInfo{});
 	reseed_local_throughput();
 }
@@ -126,6 +128,19 @@ void ClusterOrchestrator::clear_local_tile_renderer() noexcept {
 	try {
 		std::lock_guard<std::mutex> lock(renderer_mutex_);
 		local_renderer_ = nullptr;
+	} catch (...) {
+	}
+}
+
+void ClusterOrchestrator::set_local_nbody_evaluator(LocalNBodyEvaluator evaluator) {
+	std::lock_guard<std::mutex> lock(renderer_mutex_);
+	local_nbody_evaluator_ = std::move(evaluator);
+}
+
+void ClusterOrchestrator::clear_local_nbody_evaluator() noexcept {
+	try {
+		std::lock_guard<std::mutex> lock(renderer_mutex_);
+		local_nbody_evaluator_ = nullptr;
 	} catch (...) {
 	}
 }
@@ -936,6 +951,57 @@ bool ClusterOrchestrator::run_compute_job(const ComputeJobSpec& spec, const std:
 	return finish();
 }
 
+bool ClusterOrchestrator::evaluate_stochastic_pce_quadrature(
+	const StochasticEvaluationSpec& spec,
+	uint32_t points_per_unit,
+	std::span<StochasticQuadratureResult> results,
+	const std::atomic<bool>* cancel_flag
+) {
+	if (!validate_stochastic_spec(spec) || points_per_unit == 0U || results.size() < spec.total_quadrature_points) {
+		return false;
+	}
+	const uint32_t total = spec.total_quadrature_points;
+	const uint32_t unit_points = std::min(points_per_unit, total);
+	const uint32_t units = (total + unit_points - 1U) / unit_points;
+	const auto count_of = [total, unit_points](uint32_t unit) noexcept {
+		const uint32_t first = unit * unit_points;
+		return std::min(unit_points, total - first);
+	};
+
+	ComputeJobSpec job{};
+	job.packet_type = PacketType::MonteCarloBatchData;
+	job.unit_count = units;
+	job.unit_timeout_seconds = 0.25 + static_cast<double>(unit_points) * static_cast<double>(spec.max_steps) * 2.0e-7;
+	job.allow_remote = route_monte_carlo_.load(std::memory_order_relaxed);
+	job.build_task = [spec, unit_points, count_of](uint32_t unit, uint32_t job_id) {
+		StochasticQuadratureTask task{};
+		task.base = ComputeMessageHeader{static_cast<uint32_t>(ComputeMessageKind::BlockTask), job_id, unit, 0U};
+		task.spec = spec;
+		task.first_point = unit * unit_points;
+		task.point_count = count_of(unit);
+		return to_byte_vector(task);
+	};
+	job.execute_local = [spec, unit_points, count_of](uint32_t unit, uint32_t) {
+		const uint32_t first = unit * unit_points;
+		const uint32_t count = count_of(unit);
+		std::vector<StochasticQuadratureResult> local_results(count);
+		evaluate_stochastic_quadrature_range(spec, first, count, local_results);
+		std::vector<uint8_t> body(count * sizeof(StochasticQuadratureResult));
+		std::memcpy(body.data(), local_results.data(), body.size());
+		return body;
+	};
+	job.apply_result = [&results, unit_points, count_of](uint32_t unit, std::span<const uint8_t> body) -> bool {
+		const uint32_t count = count_of(unit);
+		if (body.size() != static_cast<size_t>(count) * sizeof(StochasticQuadratureResult)) {
+			return false;
+		}
+		const uint32_t first = unit * unit_points;
+		std::memcpy(results.data() + first, body.data(), body.size());
+		return true;
+	};
+	return run_compute_job(job, cancel_flag);
+}
+
 bool ClusterOrchestrator::evaluate_nbody_accelerations(
 	std::span<const NBodyBodyState> bodies,
 	const NBodyEvaluationOptions& options,
@@ -964,10 +1030,17 @@ bool ClusterOrchestrator::evaluate_nbody_accelerations(
 		const auto first_of = [rows_per_unit](uint32_t unit) noexcept { return unit * rows_per_unit; };
 		const auto rows_of = [rows_per_unit, total](uint32_t unit) noexcept { return std::min(rows_per_unit, total - unit * rows_per_unit); };
 
+		LocalNBodyEvaluator local_eval;
+		{
+			std::lock_guard<std::mutex> lock(renderer_mutex_);
+			local_eval = local_nbody_evaluator_;
+		}
+
 		ComputeJobSpec spec{};
 		spec.packet_type = PacketType::SimulationSubStepData;
 		spec.unit_count = unit_total;
 		spec.unit_timeout_seconds = timeout;
+		spec.allow_remote = route_nbody_.load(std::memory_order_relaxed);
 		spec.prepare_session = [this, snapshot](MasterPeerSession& session, uint32_t job_id) {
 			return send_nbody_state(session, job_id, snapshot);
 		};
@@ -985,7 +1058,13 @@ bool ClusterOrchestrator::evaluate_nbody_accelerations(
 		spec.execute_local = [=](uint32_t unit, uint32_t) {
 			const uint32_t rows = rows_of(unit);
 			std::vector<NBodyRowResult> results(rows);
-			evaluate_nbody_rows(snapshot, first_of(unit), rows, phase, gravitational_constant, speed_of_light, results);
+			bool evaluated = false;
+			if (local_eval) {
+				evaluated = local_eval(snapshot, first_of(unit), rows, phase, gravitational_constant, speed_of_light, results);
+			}
+			if (!evaluated) {
+				evaluate_nbody_rows(snapshot, first_of(unit), rows, phase, gravitational_constant, speed_of_light, results);
+			}
 			std::vector<uint8_t> body(static_cast<size_t>(rows) * sizeof(NBodyRowResult));
 			std::memcpy(body.data(), results.data(), body.size());
 			return body;
@@ -1052,6 +1131,7 @@ bool ClusterOrchestrator::run_geodesic_ensemble(
 	job.packet_type = PacketType::MonteCarloBatchData;
 	job.unit_count = static_cast<uint32_t>(units);
 	job.unit_timeout_seconds = 0.5 + static_cast<double>(unit_samples) * static_cast<double>(spec.max_steps) * 4.0e-7;
+	job.allow_remote = route_monte_carlo_.load(std::memory_order_relaxed);
 	job.build_task = [spec, unit_samples, count_of](uint32_t unit, uint32_t job_id) {
 		GeodesicEnsembleTask task{};
 		task.base = ComputeMessageHeader{static_cast<uint32_t>(ComputeMessageKind::BlockTask), job_id, unit, 0U};

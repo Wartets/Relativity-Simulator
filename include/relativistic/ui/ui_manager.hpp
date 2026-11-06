@@ -232,11 +232,14 @@ public:
 				const Dynamics::PNOrderConfig& config,
 				std::span<Dynamics::PostNewtonianAccelerations> out_accelerations
 			) -> bool {
-				if (!viewport_window_ || !viewport_window_->pipeline_ref().cluster_extension().is_cluster_active()) {
+				if (!viewport_window_) {
 					return false;
 				}
 				const size_t count = bodies.size();
 				if (count < 2U || out_accelerations.size() < count) {
+					return false;
+				}
+				if (count < 64U && !viewport_window_->pipeline_ref().cluster_extension().is_cluster_active()) {
 					return false;
 				}
 				std::vector<Distributed::NBodyBodyState> states(count);
@@ -525,6 +528,12 @@ public:
 		if (cluster_master_) {
 			const auto status = cluster_master_->status();
 			user_settings_.cluster_enabled = status.configured;
+			if (viewport_window_) {
+				const auto& ext = viewport_window_->pipeline_ref().cluster_extension();
+				user_settings_.cluster_route_capture_studio = ext.offline_routing_enabled();
+				user_settings_.cluster_route_nbody_interactions = ext.nbody_routing_enabled();
+				user_settings_.cluster_route_monte_carlo_ensembles = ext.monte_carlo_routing_enabled();
+			}
 		}
 #endif
 		}

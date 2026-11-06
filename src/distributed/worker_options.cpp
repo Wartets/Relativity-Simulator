@@ -1,4 +1,5 @@
 #include "relativistic/distributed/worker_options.hpp"
+#include "relativistic/distributed/slurm_interface.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -200,86 +201,6 @@ constexpr const char* kTokenEnvironmentVariable = "RELATIVISTIC_CLUSTER_TOKEN";
 	}
 	return true;
 }
-
-[[nodiscard]] std::string first_slurm_host(std::string_view list) {
-	const std::string text = trimmed(list);
-	const size_t bracket = text.find('[');
-	const size_t comma = text.find(',');
-	if (bracket == std::string::npos || (comma != std::string::npos && comma < bracket)) {
-		return text.substr(0, comma);
-	}
-	const std::string prefix = text.substr(0, bracket);
-	const size_t close = text.find(']', bracket);
-	const size_t inside_length = ((close == std::string::npos) ? text.size() : close) - bracket - 1U;
-	const std::string inside = text.substr(bracket + 1U, inside_length);
-	const std::string first_range = inside.substr(0, inside.find(','));
-	return prefix + first_range.substr(0, first_range.find('-'));
-}
-
-[[nodiscard]] const char* first_environment(std::initializer_list<const char*> names) {
-	for (const char* name : names) {
-		const char* value = std::getenv(name);
-		if (value != nullptr && value[0] != '\0') {
-			return value;
-		}
-	}
-	return nullptr;
-}
-
-[[nodiscard]] bool apply_slurm_environment(WorkerOptions& options, std::string& error) {
-	const char* rank_text = std::getenv("SLURM_PROCID");
-	if (rank_text == nullptr) {
-		error = "The Slurm mode requires the SLURM_PROCID environment variable";
-		return false;
-	}
-	uint64_t rank = 0;
-	if (!parse_unsigned(rank_text, 0xFFFFFFFFU, rank)) {
-		error = "SLURM_PROCID is not a valid rank";
-		return false;
-	}
-	uint64_t task_count = 1;
-	if (const char* tasks_text = std::getenv("SLURM_NTASKS")) {
-		if (!parse_unsigned(tasks_text, 0xFFFFFFFFU, task_count) || task_count == 0U) {
-			error = "SLURM_NTASKS is not a valid task count";
-			return false;
-		}
-	}
-	uint64_t local_index = 0;
-	if (const char* local_text = std::getenv("SLURM_LOCALID")) {
-		if (!parse_unsigned(local_text, 0xFFFFU, local_index)) {
-			error = "SLURM_LOCALID is not a valid index";
-			return false;
-		}
-	}
-	options.slurm_rank = static_cast<uint32_t>(rank);
-	options.slurm_task_count = static_cast<uint32_t>(task_count);
-	if (options.node_name.empty()) {
-		options.node_name = "slurm-rank-" + std::to_string(rank);
-	}
-
-	const uint16_t base_port = options.listen_port;
-	if (rank == 0U) {
-		options.master_host.clear();
-		return true;
-	}
-	const uint64_t worker_port = static_cast<uint64_t>(base_port) + 1U + local_index;
-	if (worker_port > 65535U) {
-		error = "The derived Slurm worker port exceeds the valid port range";
-		return false;
-	}
-	options.listen_port = static_cast<uint16_t>(worker_port);
-	if (!options.has_master()) {
-		const char* nodes = first_environment({"SLURM_STEP_NODELIST", "SLURM_JOB_NODELIST", "SLURM_NODELIST"});
-		if (nodes == nullptr) {
-			error = "The Slurm mode could not determine the master host from the node list";
-			return false;
-		}
-		options.master_host = first_slurm_host(nodes);
-		options.master_port = base_port;
-	}
-	return !options.master_host.empty();
-}
-
 }
 
 bool parse_worker_options(int argument_count, const char* const* arguments, WorkerOptions& options, std::string& error) {
@@ -482,8 +403,10 @@ bool parse_worker_options(int argument_count, const char* const* arguments, Work
 	if (options.show_help || options.show_version) {
 		return true;
 	}
-	if (options.slurm_mode && !apply_slurm_environment(options, error)) {
-		return false;
+	if (options.slurm_mode || SlurmInterface::is_running_under_slurm()) {
+		if (!SlurmInterface::initialize_from_environment(options, error)) {
+			return false;
+		}
 	}
 	if (!options.has_auth_token) {
 		error = "A cluster token is required (--auth-token, --auth-token-file, the configuration file or " + std::string(kTokenEnvironmentVariable) + ")";

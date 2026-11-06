@@ -111,9 +111,41 @@ static_assert(sizeof(NBodyBlockTask) == 48);
 static_assert(sizeof(GeodesicEnsembleSpec) == 88);
 static_assert(sizeof(GeodesicEnsembleTask) == 120);
 static_assert(sizeof(GeodesicEnsemblePartial) == 120);
+struct StochasticEvaluationSpec {
+	uint32_t dimension{1};
+	uint32_t polynomial_order{3};
+	uint32_t total_quadrature_points{0};
+	uint32_t evaluation_mode{0};
+	double parameter_means[4]{1.0, 0.0, 0.0, 0.0};
+	double parameter_sigmas[4]{0.1, 0.0, 0.0, 0.0};
+	double integration_step{0.05};
+	uint32_t max_steps{2048};
+	uint32_t reserved{0};
+};
+
+struct StochasticQuadratureTask {
+	ComputeMessageHeader base{};
+	StochasticEvaluationSpec spec{};
+	uint32_t first_point{0};
+	uint32_t point_count{0};
+	uint32_t reserved{0};
+};
+
+struct StochasticQuadratureResult {
+	uint32_t point_index{0};
+	uint32_t status{0};
+	double response_value{0.0};
+	double secondary_value{0.0};
+};
+
+static_assert(sizeof(StochasticEvaluationSpec) == 96);
+static_assert(sizeof(StochasticQuadratureTask) == 128);
+static_assert(sizeof(StochasticQuadratureResult) == 24);
 static_assert(DistributedPayload<NBodyBodyState>);
 static_assert(DistributedPayload<NBodyBlockTask>);
 static_assert(DistributedPayload<GeodesicEnsembleTask>);
 static_assert(DistributedPayload<GeodesicEnsemblePartial>);
+static_assert(DistributedPayload<StochasticQuadratureTask>);
+static_assert(DistributedPayload<StochasticQuadratureResult>);
 
 }

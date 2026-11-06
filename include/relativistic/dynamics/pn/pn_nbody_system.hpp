@@ -344,12 +344,55 @@ public:
 				accelerations_buffer_.resize(n);
 			}
 			bool evaluated_by_hook = false;
-			if (acceleration_evaluator_ && n >= 2 && !config_.enable_2pn && !config_.enable_2_5pn && !config_.enable_3pn && !config_.enable_3_5pn && !config_.enable_spin_orbit && !config_.enable_spin_spin && !config_.enable_spherical_harmonics) {
+			if (acceleration_evaluator_ && n >= 2) {
 				evaluated_by_hook = acceleration_evaluator_(active_bodies, config_, accelerations_buffer_);
 			}
 			if (evaluated_by_hook) {
 				for (size_t i = 0; i < n; ++i) {
 					bodies_[active_indices[i]].acceleration = accelerations_buffer_[i].a_total;
+				}
+				if (config_.enable_spherical_harmonics) {
+					const double g = config_.gravitational_constant;
+					for (size_t i = 0; i < n; ++i) {
+						for (size_t j = 0; j < n; ++j) {
+							if (i == j) continue;
+							const auto& bj = active_bodies[j];
+							if (bj.j2 == 0.0 && bj.j3 == 0.0 && bj.j4 == 0.0) continue;
+							const double dx = active_bodies[i].position[0] - bj.position[0];
+							const double dy = active_bodies[i].position[1] - bj.position[1];
+							const double dz = active_bodies[i].position[2] - bj.position[2];
+							const double r2 = dx * dx + dy * dy + dz * dz;
+							if (r2 <= 0.0) continue;
+							const double r = std::sqrt(r2);
+							const double r_ref = bj.reference_radius;
+							const double r_ref_over_r = r_ref / r;
+							const double r_ref_over_r2 = r_ref_over_r * r_ref_over_r;
+							const double gm_j = g * bj.mass;
+							const double sin_phi = dz / r;
+							const double sin_phi2 = sin_phi * sin_phi;
+							if (bj.j2 != 0.0) {
+								const double factor_j2 = 1.5 * gm_j * bj.j2 * (r_ref * r_ref) / (r2 * r2);
+								const double term_radial = 1.0 - 5.0 * sin_phi2;
+								bodies_[active_indices[i]].acceleration[0] += factor_j2 * dx * term_radial / r;
+								bodies_[active_indices[i]].acceleration[1] += factor_j2 * dy * term_radial / r;
+								bodies_[active_indices[i]].acceleration[2] += factor_j2 * (dz * term_radial / r + 2.0 * sin_phi);
+							}
+							if (bj.j3 != 0.0) {
+								const double factor_j3 = 0.5 * gm_j * bj.j3 * (r_ref * r_ref * r_ref) / (r2 * r2 * r);
+								const double term_radial_j3 = 5.0 * sin_phi * (7.0 * sin_phi2 - 3.0);
+								bodies_[active_indices[i]].acceleration[0] += factor_j3 * dx * (5.0 * sin_phi - 35.0 / 3.0 * sin_phi2 * sin_phi) / r;
+								bodies_[active_indices[i]].acceleration[1] += factor_j3 * dy * (5.0 * sin_phi - 35.0 / 3.0 * sin_phi2 * sin_phi) / r;
+								bodies_[active_indices[i]].acceleration[2] += factor_j3 * (term_radial_j3 * sin_phi + 3.0 - 15.0 * sin_phi2);
+							}
+							if (bj.j4 != 0.0) {
+								const double factor_j4 = (5.0 / 8.0) * gm_j * bj.j4 * (r_ref_over_r2 * r_ref_over_r2) * (gm_j / r2);
+								const double term_radial_j4 = 3.0 - 30.0 * sin_phi2 + 35.0 * sin_phi2 * sin_phi2;
+								bodies_[active_indices[i]].acceleration[0] += factor_j4 * dx * term_radial_j4 / r;
+								bodies_[active_indices[i]].acceleration[1] += factor_j4 * dy * term_radial_j4 / r;
+								bodies_[active_indices[i]].acceleration[2] += factor_j4 * (dz * term_radial_j4 / r + 4.0 * sin_phi * (3.0 - 7.0 * sin_phi2));
+							}
+						}
+					}
 				}
 			} else if (n >= 2) {
 				PostNewtonianSolver::compute_nbody_accelerations(active_bodies, config_, accelerations_buffer_);

@@ -56,6 +56,16 @@ using LocalTileRenderer = std::function<bool(
 	const std::atomic<bool>*
 )>;
 
+using LocalNBodyEvaluator = std::function<bool(
+	std::span<const NBodyBodyState>,
+	uint32_t,
+	uint32_t,
+	uint32_t,
+	double,
+	double,
+	std::span<NBodyRowResult>
+)>;
+
 class ClusterOrchestrator {
 private:
 	struct MasterPeerSession {
@@ -110,6 +120,8 @@ private:
 	uint32_t local_abi_signature_{0};
 	std::atomic<bool> route_interactive_{true};
 	std::atomic<bool> route_offline_{true};
+	std::atomic<bool> route_monte_carlo_{true};
+	std::atomic<bool> route_nbody_{false};
 	std::atomic<bool> cluster_active_{false};
 	std::atomic<uint64_t> global_frame_index_{0};
 	std::atomic<uint32_t> next_compute_job_{0};
@@ -140,6 +152,7 @@ private:
 	NodeHardwareCapabilities local_capabilities_{};
 	ThroughputEstimator local_throughput_{};
 	LocalTileRenderer local_renderer_{};
+	LocalNBodyEvaluator local_nbody_evaluator_{};
 
 	uint64_t frame_bytes_received_{0};
 	double frame_decode_seconds_{0.0};
@@ -201,12 +214,19 @@ public:
 
 	void set_local_tile_renderer(LocalTileRenderer renderer);
 	void clear_local_tile_renderer() noexcept;
+	void set_local_nbody_evaluator(LocalNBodyEvaluator evaluator);
+	void clear_local_nbody_evaluator() noexcept;
 	void set_local_gpu_info(const LocalGpuInfo& info) noexcept;
 
 	void set_interactive_routing(bool enabled) noexcept { route_interactive_.store(enabled, std::memory_order_relaxed); }
 	void set_offline_routing(bool enabled) noexcept { route_offline_.store(enabled, std::memory_order_relaxed); }
+	void set_monte_carlo_routing(bool enabled) noexcept { route_monte_carlo_.store(enabled, std::memory_order_relaxed); }
+	void set_nbody_routing(bool enabled) noexcept { route_nbody_.store(enabled, std::memory_order_relaxed); }
+
 	[[nodiscard]] bool interactive_routing_enabled() const noexcept { return route_interactive_.load(std::memory_order_relaxed); }
 	[[nodiscard]] bool offline_routing_enabled() const noexcept { return route_offline_.load(std::memory_order_relaxed); }
+	[[nodiscard]] bool monte_carlo_routing_enabled() const noexcept { return route_monte_carlo_.load(std::memory_order_relaxed); }
+	[[nodiscard]] bool nbody_routing_enabled() const noexcept { return route_nbody_.load(std::memory_order_relaxed); }
 
 	[[nodiscard]] bool is_cluster_operational() const noexcept {
 		return cluster_active_.load(std::memory_order_relaxed);
@@ -268,6 +288,13 @@ public:
 		const GeodesicEnsembleSpec& spec,
 		uint32_t samples_per_unit,
 		GeodesicEnsemblePartial& result,
+		const std::atomic<bool>* cancel_flag
+	);
+
+	[[nodiscard]] bool evaluate_stochastic_pce_quadrature(
+		const StochasticEvaluationSpec& spec,
+		uint32_t points_per_unit,
+		std::span<StochasticQuadratureResult> results,
 		const std::atomic<bool>* cancel_flag
 	);
 

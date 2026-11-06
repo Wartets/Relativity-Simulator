@@ -3,6 +3,8 @@
 #include "relativistic/distributed/cluster_node.hpp"
 #include "relativistic/distributed/task_payloads.hpp"
 #include "relativistic/distributed/worker_options.hpp"
+#include "relativistic/distributed/compute_payloads.hpp"
+#include "relativistic/distributed/gpu_nbody_executor.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include <atomic>
 #include <cstddef>
@@ -41,6 +43,7 @@ private:
 	TileRendererConfiguration configuration_;
 	std::unique_ptr<Render::VulkanContext> context_;
 	std::unique_ptr<Render::VulkanComputeExecutor> executor_;
+	std::unique_ptr<GpuNBodyExecutor> nbody_executor_{};
 	std::atomic<bool> gpu_ready_{false};
 	std::mutex gpu_mutex_;
 	std::vector<Render::GpuBodyGpuLayout> gpu_layouts_;
@@ -77,6 +80,16 @@ public:
 		std::span<const Render::GpuBodyData> bodies,
 		std::span<Render::GpuPixelOutput> pixels,
 		const std::atomic<bool>* cancel
+	) noexcept;
+
+	[[nodiscard]] bool evaluate_nbody_rows(
+		std::span<const NBodyBodyState> bodies,
+		uint32_t first_row,
+		uint32_t row_count,
+		uint32_t phase,
+		double gravitational_constant,
+		double speed_of_light,
+		std::span<NBodyRowResult> output
 	) noexcept;
 };
 

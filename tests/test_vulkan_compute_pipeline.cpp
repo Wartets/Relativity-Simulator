@@ -125,5 +125,6 @@ int main() {
 	suite.measure("azimuth_error", azimuth_error, "rad");
 	suite.check_at_most(radial_error, 1e-8, "the double-single radius matches native double precision within a relative 1e-8");
 	suite.check_at_most(azimuth_error, 1e-8, "the double-single azimuth matches native double precision within 1e-8 rad");
+
 	return suite.finish();
 }

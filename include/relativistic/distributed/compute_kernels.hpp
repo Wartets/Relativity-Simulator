@@ -44,6 +44,21 @@ void merge_ensemble_partials(GeodesicEnsemblePartial& accumulator, const Geodesi
 	GeodesicEnsemblePartial& result
 );
 
+[[nodiscard]] bool validate_stochastic_spec(const StochasticEvaluationSpec& spec) noexcept;
+
+void evaluate_stochastic_quadrature_range(
+	const StochasticEvaluationSpec& spec,
+	uint32_t first_point,
+	uint32_t point_count,
+	std::span<StochasticQuadratureResult> output
+) noexcept;
+
+[[nodiscard]] bool run_stochastic_pce_quadrature_local(
+	const StochasticEvaluationSpec& spec,
+	uint32_t points_per_unit,
+	std::span<StochasticQuadratureResult> results
+);
+
 class NBodyStateStore {
 public:
 	using SharedState = std::shared_ptr<const std::vector<NBodyBodyState>>;

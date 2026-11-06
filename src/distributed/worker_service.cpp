@@ -468,7 +468,13 @@ struct ClusterWorkerService::Impl {
 			}
 			const auto rows = static_cast<uint32_t>(std::min<size_t>(task.row_count, body_total - task.first_row));
 			std::vector<NBodyRowResult> results(rows);
-			evaluate_nbody_rows(*state, task.first_row, rows, task.phase, task.gravitational_constant, task.speed_of_light, results);
+			bool evaluated = false;
+			if (renderer != nullptr) {
+				evaluated = renderer->evaluate_nbody_rows(*state, task.first_row, rows, task.phase, task.gravitational_constant, task.speed_of_light, results);
+			}
+			if (!evaluated) {
+				evaluate_nbody_rows(*state, task.first_row, rows, task.phase, task.gravitational_constant, task.speed_of_light, results);
+			}
 			job_id = task.base.job_id;
 			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
 			reply.resize(sizeof(header) + static_cast<size_t>(rows) * sizeof(NBodyRowResult));
@@ -489,6 +495,20 @@ struct ClusterWorkerService::Impl {
 			reply.resize(sizeof(header) + sizeof(partial));
 			std::memcpy(reply.data(), &header, sizeof(header));
 			std::memcpy(reply.data() + sizeof(header), &partial, sizeof(partial));
+		} else if (type == PacketType::MonteCarloBatchData && payload.size() == sizeof(StochasticQuadratureTask)) {
+			StochasticQuadratureTask task{};
+			std::memcpy(&task, payload.data(), sizeof(task));
+			if (!validate_stochastic_spec(task.spec) || task.point_count == 0U) {
+				return;
+			}
+			std::vector<StochasticQuadratureResult> results(task.point_count);
+			evaluate_stochastic_quadrature_range(task.spec, task.first_point, task.point_count, results);
+			job_id = task.base.job_id;
+			const ComputeMessageHeader header{static_cast<uint32_t>(ComputeMessageKind::BlockResult), job_id, task.base.unit_index, 0U};
+			const size_t byte_len = results.size() * sizeof(StochasticQuadratureResult);
+			reply.resize(sizeof(header) + byte_len);
+			std::memcpy(reply.data(), &header, sizeof(header));
+			std::memcpy(reply.data() + sizeof(header), results.data(), byte_len);
 		} else {
 			return;
 		}

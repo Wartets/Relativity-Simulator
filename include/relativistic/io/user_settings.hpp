@@ -140,6 +140,11 @@ struct UserSettings {
 	uint32_t cluster_compression_mode{2};
 	bool cluster_require_encryption{true};
 	std::string cluster_shared_token_hex{};
+	bool cluster_route_interactive_viewport{true};
+	bool cluster_route_capture_studio{true};
+	bool cluster_route_monte_carlo_ensembles{true};
+	bool cluster_route_nbody_interactions{false};
+	bool cluster_route_exact_spacetime_metrics{true};
 
 	[[nodiscard]] static std::filesystem::path settings_file_path() {
 		return std::filesystem::path("config") / "user_settings.cfg";
@@ -288,6 +293,11 @@ struct UserSettings {
 		result.cluster_compression_mode = get_u32("cluster_compression_mode", result.cluster_compression_mode);
 		result.cluster_require_encryption = get_bool("cluster_require_encryption", result.cluster_require_encryption);
 		result.cluster_shared_token_hex = get_str("cluster_shared_token_hex", result.cluster_shared_token_hex);
+		result.cluster_route_interactive_viewport = get_bool("cluster_route_interactive_viewport", result.cluster_route_interactive_viewport);
+		result.cluster_route_capture_studio = get_bool("cluster_route_capture_studio", result.cluster_route_capture_studio);
+		result.cluster_route_monte_carlo_ensembles = get_bool("cluster_route_monte_carlo_ensembles", result.cluster_route_monte_carlo_ensembles);
+		result.cluster_route_nbody_interactions = get_bool("cluster_route_nbody_interactions", result.cluster_route_nbody_interactions);
+		result.cluster_route_exact_spacetime_metrics = get_bool("cluster_route_exact_spacetime_metrics", result.cluster_route_exact_spacetime_metrics);
 
 		result.body_manager_sort_mode = get_u32("body_manager_sort_mode", result.body_manager_sort_mode);
 		result.body_manager_sort_descending = get_bool("body_manager_sort_descending", result.body_manager_sort_descending);
@@ -541,6 +551,11 @@ struct UserSettings {
 		out << "cluster_compression_mode=" << cluster_compression_mode << "\n";
 		out << "cluster_require_encryption=" << (cluster_require_encryption ? 1 : 0) << "\n";
 		out << "cluster_shared_token_hex=" << cluster_shared_token_hex << "\n";
+		out << "cluster_route_interactive_viewport=" << (cluster_route_interactive_viewport ? 1 : 0) << "\n";
+		out << "cluster_route_capture_studio=" << (cluster_route_capture_studio ? 1 : 0) << "\n";
+		out << "cluster_route_monte_carlo_ensembles=" << (cluster_route_monte_carlo_ensembles ? 1 : 0) << "\n";
+		out << "cluster_route_nbody_interactions=" << (cluster_route_nbody_interactions ? 1 : 0) << "\n";
+		out << "cluster_route_exact_spacetime_metrics=" << (cluster_route_exact_spacetime_metrics ? 1 : 0) << "\n";
 		out << "body_manager_sort_mode=" << body_manager_sort_mode << "\n";
 		out << "body_manager_sort_descending=" << (body_manager_sort_descending ? 1 : 0) << "\n";
 		out << "body_manager_search_filter=" << body_manager_search_filter << "\n";

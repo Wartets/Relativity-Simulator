@@ -24,6 +24,7 @@
 
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 #include "relativistic/distributed/cluster_orchestrator.hpp"
+#include "relativistic/distributed/gpu_nbody_executor.hpp"
 #if defined(RELATIVISTIC_PIPELINE_TILE_SPIRV)
 #include "relativistic/shaders/cluster_tile_tracer_fp64.spv.hpp"
 #endif
@@ -32,6 +33,7 @@
 namespace Relativistic::Distributed {
 
 class ClusterOrchestrator;
+class GpuNBodyExecutor;
 
 }
 
@@ -73,6 +75,44 @@ public:
 #endif
 	}
 
+	[[nodiscard]] bool nbody_routing_enabled() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->nbody_routing_enabled();
+#else
+		return false;
+#endif
+	}
+
+	void set_nbody_routing(bool enabled) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->set_nbody_routing(enabled);
+		}
+#else
+		static_cast<void>(enabled);
+#endif
+	}
+
+	[[nodiscard]] bool monte_carlo_routing_enabled() const noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		const auto* cluster = cluster_.load(std::memory_order_acquire);
+		return cluster != nullptr && cluster->monte_carlo_routing_enabled();
+#else
+		return false;
+#endif
+	}
+
+	void set_monte_carlo_routing(bool enabled) noexcept {
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
+			cluster->set_monte_carlo_routing(enabled);
+		}
+#else
+		static_cast<void>(enabled);
+#endif
+	}
+
 	[[nodiscard]] uint32_t workers_active() const {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		const auto* cluster = cluster_.load(std::memory_order_acquire);
@@ -95,6 +135,7 @@ public:
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		if (auto* cluster = cluster_.load(std::memory_order_acquire)) {
 			cluster->clear_local_tile_renderer();
+			cluster->clear_local_nbody_evaluator();
 		}
 #endif
 	}
@@ -154,6 +195,19 @@ public:
 			return cluster->run_geodesic_ensemble(spec, samples_per_unit, result, cancel_flag);
 		}
 		return Distributed::run_geodesic_ensemble_local(spec, samples_per_unit, result);
+	}
+
+	[[nodiscard]] bool evaluate_stochastic_pce_quadrature(
+		const Distributed::StochasticEvaluationSpec& spec,
+		uint32_t points_per_unit,
+		std::span<Distributed::StochasticQuadratureResult> results,
+		const std::atomic<bool>* cancel_flag = nullptr
+	) {
+		auto* cluster = cluster_.load(std::memory_order_acquire);
+		if (cluster != nullptr) {
+			return cluster->evaluate_stochastic_pce_quadrature(spec, points_per_unit, results, cancel_flag);
+		}
+		return Distributed::run_stochastic_pce_quadrature_local(spec, points_per_unit, results);
 	}
 #endif
 
@@ -246,6 +300,9 @@ private:
 	std::unique_ptr<Core::ThreadPool, void(*)(Core::ThreadPool*)> thread_pool_{nullptr, [](Core::ThreadPool*) noexcept {}};
 	std::unique_ptr<VulkanComputeExecutor> gpu_executor_{};
 	std::unique_ptr<VulkanComputeExecutor> tile_executor_{};
+#if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
+	std::unique_ptr<Distributed::GpuNBodyExecutor> nbody_executor_{};
+#endif
 	std::atomic<bool> use_gpu_compute_{false};
 	std::mutex gpu_mutex_;
 	std::atomic<PrecisionMode> precision_mode_{PrecisionMode::NativeFloat64};
@@ -784,6 +841,12 @@ public:
 	void bind_cluster(Distributed::ClusterOrchestrator& cluster) noexcept {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		ensure_tile_executor();
+		if (nbody_executor_ == nullptr && context_.has_compute_device()) {
+			auto nbody = std::make_unique<Distributed::GpuNBodyExecutor>();
+			if (nbody->initialize(context_)) {
+				nbody_executor_ = std::move(nbody);
+			}
+		}
 		Distributed::LocalGpuInfo info{};
 		if (tile_executor_ != nullptr && tile_executor_->is_ready()) {
 			const VulkanDeviceInfo& device = context_.device_info();
@@ -803,6 +866,23 @@ public:
 				const std::atomic<bool>* cancel
 			) {
 				return render_cluster_tiles(constants, tiles, bodies, sink, cancel);
+			});
+			cluster.set_local_nbody_evaluator([this](
+				std::span<const Distributed::NBodyBodyState> bodies,
+				uint32_t first_row,
+				uint32_t row_count,
+				uint32_t phase,
+				double gravitational_constant,
+				double speed_of_light,
+				std::span<Distributed::NBodyRowResult> output
+			) -> bool {
+				if (use_gpu_compute_.load(std::memory_order_relaxed)) {
+					std::lock_guard<std::mutex> gpu_lock(gpu_mutex_);
+					if (nbody_executor_ != nullptr && nbody_executor_->is_ready()) {
+						return nbody_executor_->evaluate(bodies, first_row, row_count, phase, gravitational_constant, speed_of_light, output);
+					}
+				}
+				return false;
 			});
 		} catch (...) {
 		}

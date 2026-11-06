@@ -13,6 +13,7 @@ TileRenderer::TileRenderer(const TileRendererConfiguration& configuration)
 
 TileRenderer::~TileRenderer() {
 	std::lock_guard<std::mutex> lock(gpu_mutex_);
+	nbody_executor_.reset();
 	executor_.reset();
 	context_.reset();
 }
@@ -38,11 +39,16 @@ bool TileRenderer::initialize() {
 			Core::log_warning("The tile compute pipeline could not be initialized; tiles will run on the CPU.");
 			return true;
 		}
+		auto nbody_executor = std::make_unique<GpuNBodyExecutor>();
+		if (nbody_executor->initialize(*context)) {
+			nbody_executor_ = std::move(nbody_executor);
+		}
 		context_ = std::move(context);
 		executor_ = std::move(executor);
 		gpu_ready_.store(true, std::memory_order_release);
 	} catch (const std::exception& ex) {
 		Core::log_error(std::string("Tile renderer GPU initialization failed, continuing on the CPU: ") + ex.what());
+		nbody_executor_.reset();
 		executor_.reset();
 		context_.reset();
 		gpu_ready_.store(false, std::memory_order_release);
@@ -173,6 +179,25 @@ TileRenderOutcome TileRenderer::render(
 		outcome.completed = false;
 	}
 	return outcome;
+}
+
+bool TileRenderer::evaluate_nbody_rows(
+	std::span<const NBodyBodyState> bodies,
+	uint32_t first_row,
+	uint32_t row_count,
+	uint32_t phase,
+	double gravitational_constant,
+	double speed_of_light,
+	std::span<NBodyRowResult> output
+) noexcept {
+	if (!gpu_available() || configuration_.backend == WorkerBackend::Cpu) {
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(gpu_mutex_);
+	if (nbody_executor_ == nullptr || !nbody_executor_->is_ready()) {
+		return false;
+	}
+	return nbody_executor_->evaluate(bodies, first_row, row_count, phase, gravitational_constant, speed_of_light, output);
 }
 
 }

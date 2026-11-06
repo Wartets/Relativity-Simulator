@@ -1,9 +1,14 @@
 #include "relativistic/distributed/worker_options.hpp"
 #include "relativistic/distributed/worker_service.hpp"
+#include "relativistic/distributed/cluster_config.hpp"
+#include "relativistic/distributed/cluster_orchestrator.hpp"
+#include "relativistic/distributed/slurm_interface.hpp"
 #include "relativistic/core/engine_log.hpp"
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <iostream>
+#include <thread>
 
 #ifdef RELATIVISTIC_EMBEDDED_TILE_SPIRV
 #include "relativistic/shaders/cluster_tile_tracer_fp64.spv.hpp"
@@ -45,6 +50,34 @@ int main(int argc, char** argv) {
 
 	std::signal(SIGINT, handle_signal);
 	std::signal(SIGTERM, handle_signal);
+
+	if (options.slurm_mode && options.slurm_rank == 0U) {
+		ClusterConfiguration config{};
+		if (!options.cluster_config_path.empty()) {
+			config.load_from_file(options.cluster_config_path);
+		}
+		config.cluster.enabled = true;
+		config.cluster.node_role = ClusterNodeRole::Master;
+		config.cluster.listen_port = options.listen_port;
+		if (options.has_auth_token) {
+			config.security.cluster_shared_token = options.auth_token;
+			config.security.has_shared_token = true;
+		}
+		std::string slurm_err;
+		SlurmInterface::populate_master_configuration(config, slurm_err);
+		ClusterOrchestrator master(config);
+		if (!master.start()) {
+			std::cerr << "Fatal: Failed to start cluster master on rank 0: " << master.last_error() << "\n";
+			return 1;
+		}
+		std::cout << "Relativistic Engine Cluster Master operational on Slurm rank 0.\n";
+		while (!global_stop_flag.load(std::memory_order_relaxed)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		}
+		master.shutdown();
+		std::cout << "\nCluster Master stopped gracefully.\n";
+		return 0;
+	}
 
 	ClusterWorkerService worker(options);
 	worker.bind_stop_flag(&global_stop_flag);

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.011
+	VERSION 0.4.2.012
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -234,6 +234,7 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_orchestrator.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/cluster_master_service.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/compute_kernels.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/gpu_nbody_executor.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/slurm_interface.cpp
 	)
 	target_include_directories(relativistic_distributed PUBLIC
@@ -735,6 +736,10 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	if (TARGET relativistic_cluster_tile_shaders)
 		add_dependencies(cluster_worker relativistic_cluster_tile_shaders)
 		target_compile_definitions(cluster_worker PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	if (TARGET relativistic_nbody_shaders)
+		add_dependencies(cluster_worker relativistic_nbody_shaders)
+		target_compile_definitions(cluster_worker PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
 	endif()
 	if (WIN32 AND MINGW AND ENGINE_PORTABLE_EXE)
 		target_link_options(cluster_worker PRIVATE -static -static-libgcc -static-libstdc++)

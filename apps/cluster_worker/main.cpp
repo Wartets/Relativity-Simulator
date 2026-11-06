@@ -136,6 +136,15 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
+	std::cout << "Relativistic Engine Cluster Worker operational.\n"
+	          << "  Node name:      " << (options.node_name.empty() ? "(default)" : options.node_name) << "\n"
+	          << "  Cluster name:   " << options.cluster_name << "\n"
+	          << "  Threads:        " << (options.thread_count == 0U ? std::thread::hardware_concurrency() : options.thread_count) << "\n"
+	          << "  Backend:        " << (options.backend == WorkerBackend::Gpu ? "GPU" : (options.backend == WorkerBackend::Cpu ? "CPU" : "Auto")) << "\n"
+	          << "  Listening port: " << (options.listen_enabled ? std::to_string(options.listen_port) : "Disabled") << "\n"
+	          << "  Master target:  " << (options.has_master() ? (options.master_host + ":" + std::to_string(options.master_port)) : "Listening for inbound master connections") << "\n"
+	          << "  Discovery:      " << (options.discovery_enabled ? "Enabled" : "Disabled") << "\n\n";
+
 	worker.run();
 
 	const WorkerStatistics stats = worker.statistics();

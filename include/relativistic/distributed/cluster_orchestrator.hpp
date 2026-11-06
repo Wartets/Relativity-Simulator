@@ -258,6 +258,9 @@ public:
 	[[nodiscard]] uint32_t workers_active() const;
 	[[nodiscard]] ClusterFrameTelemetry last_frame_telemetry() const;
 	[[nodiscard]] std::string last_error() const;
+	[[nodiscard]] std::vector<NodeSnapshot> node_snapshots() const;
+	[[nodiscard]] std::vector<DiscoveredPeer> discovered_peers() const;
+	bool ping_node(uint32_t node_id) noexcept;
 
 	bool prepare_frame_workload(
 		uint64_t frame_index,

@@ -230,7 +230,8 @@ public:
 			Core::Diagnostics::set_environment("cluster.master.operational", cluster_master_->is_operational() ? "yes" : "no");
 			control_panel_window_.attach_cluster_controls(
 				[this]() { reload_cluster_configuration(); },
-				[this]() { return cluster_master_ ? cluster_master_->status() : Distributed::ClusterStatus{}; }
+				[this]() { return cluster_master_ ? cluster_master_->status() : Distributed::ClusterStatus{}; },
+				[this](uint32_t node_id) { return cluster_master_ ? cluster_master_->ping_node(node_id) : false; }
 			);
 			orchestrator_.nbody_system().set_acceleration_evaluator([this](
 				std::span<const Dynamics::PostNewtonianBody> bodies,

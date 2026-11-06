@@ -17,6 +17,7 @@ struct ClusterStatus {
 	bool operational{false};
 	std::string error{};
 	std::vector<NodeSnapshot> nodes{};
+	std::vector<DiscoveredPeer> discovered{};
 	ClusterFrameTelemetry last_frame{};
 	SchedulerStatistics scheduler{};
 };
@@ -25,6 +26,7 @@ class ClusterMasterService {
 public:
 	using AttachHandler = std::function<void(ClusterOrchestrator&)>;
 	using DetachHandler = std::function<void()>;
+	using PingHandler = std::function<bool(uint32_t)>;
 
 private:
 	AttachHandler attach_{};
@@ -48,6 +50,7 @@ public:
 	bool start() noexcept;
 	void stop() noexcept;
 	bool restart() noexcept;
+	bool ping_node(uint32_t node_id) noexcept;
 
 	[[nodiscard]] bool is_operational() const noexcept;
 	[[nodiscard]] std::string last_error() const;

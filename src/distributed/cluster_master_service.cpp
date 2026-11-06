@@ -125,6 +125,11 @@ std::string ClusterMasterService::last_error() const {
 	return last_error_;
 }
 
+bool ClusterMasterService::ping_node(uint32_t node_id) noexcept {
+	std::lock_guard<std::mutex> lock(mutex_);
+	return (orchestrator_ != nullptr) ? orchestrator_->ping_node(node_id) : false;
+}
+
 ClusterStatus ClusterMasterService::status() const {
 	std::lock_guard<std::mutex> lock(mutex_);
 	ClusterStatus result{};
@@ -132,7 +137,8 @@ ClusterStatus ClusterMasterService::status() const {
 	result.error = last_error_;
 	if (orchestrator_ != nullptr) {
 		result.operational = orchestrator_->is_cluster_operational();
-		result.nodes = orchestrator_->registry().snapshots();
+		result.nodes = orchestrator_->node_snapshots();
+		result.discovered = orchestrator_->discovered_peers();
 		result.last_frame = orchestrator_->last_frame_telemetry();
 		result.scheduler = orchestrator_->scheduler().statistics();
 	}

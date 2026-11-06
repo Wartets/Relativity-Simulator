@@ -318,6 +318,9 @@ struct NodeSnapshot {
 	uint64_t deadline_misses{0};
 	uint64_t late_results{0};
 	uint64_t frames_served{0};
+	uint64_t bytes_transferred{0};
+	double capacity_share{0.0};
+	PeerStatistics transport_stats{};
 };
 
 class ClusterNode {

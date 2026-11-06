@@ -774,10 +774,12 @@ struct ClusterWorkerService::Impl {
 							session.phase = SessionPhase::Established;
 							session.established_at = now;
 							sessions_accepted.fetch_add(1, std::memory_order_relaxed);
+							Core::log_info("[Worker] Master authenticated on inbound peer " + std::to_string(session.peer_id) + ".");
 						} else if (session.phase == SessionPhase::ClientAwaitAcknowledgement && (envelope.type == PacketType::NodeAuthResponse || envelope.type == PacketType::CapabilitiesAdvertisement)) {
 							session.phase = SessionPhase::Established;
 							session.established_at = now;
 							sessions_accepted.fetch_add(1, std::memory_order_relaxed);
+							Core::log_info("[Worker] Successfully connected and authenticated with master (peer " + std::to_string(session.peer_id) + "). Ready for compute tasks.");
 							static_cast<void>(send_encrypted(session, PacketType::CapabilitiesAdvertisement, 0U, bytes_of(hardware), TransportChannel::Control));
 						}
 						if (session.phase == SessionPhase::Established) {

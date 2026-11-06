@@ -17,6 +17,9 @@ struct ClusterFrameTelemetry {
 	double decode_ms{0.0};
 	double frame_ms{0.0};
 	double round_trip_mean_ms{0.0};
+	uint32_t compression_ratio_percent{100};
+	double effective_bandwidth_mbps{0.0};
+	double speedup_factor{1.0};
 	bool complete{false};
 	bool offline{false};
 };

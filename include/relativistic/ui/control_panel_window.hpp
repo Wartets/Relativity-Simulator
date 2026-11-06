@@ -142,8 +142,8 @@ public:
 	}
 
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
-	void attach_cluster_controls(ClusterPanel::ReloadHandler reload, ClusterPanel::StatusProvider status) {
-		cluster_panel_.attach(std::move(reload), std::move(status));
+	void attach_cluster_controls(ClusterPanel::ReloadHandler reload, ClusterPanel::StatusProvider status, ClusterPanel::PingHandler ping) {
+		cluster_panel_.attach(std::move(reload), std::move(status), std::move(ping));
 	}
 #endif
 

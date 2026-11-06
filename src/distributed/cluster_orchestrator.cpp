@@ -164,6 +164,50 @@ ClusterFrameTelemetry ClusterOrchestrator::last_frame_telemetry() const {
 	return telemetry_;
 }
 
+std::vector<NodeSnapshot> ClusterOrchestrator::node_snapshots() const {
+	std::vector<NodeSnapshot> snapshots;
+	try {
+		snapshots = registry_.snapshots();
+		for (NodeSnapshot& snapshot : snapshots) {
+			if (snapshot.peer_id != kInvalidPeerId) {
+				snapshot.transport_stats = transport_.peer_statistics(snapshot.peer_id);
+			}
+		}
+	} catch (...) {
+	}
+	return snapshots;
+}
+
+std::vector<DiscoveredPeer> ClusterOrchestrator::discovered_peers() const {
+	std::vector<DiscoveredPeer> result;
+	try {
+		std::lock_guard<std::mutex> lock(pump_mutex_);
+		result.reserve(discovered_peers_.size());
+		for (const auto& [id, peer] : discovered_peers_) {
+			result.push_back(peer);
+		}
+	} catch (...) {
+	}
+	return result;
+}
+
+bool ClusterOrchestrator::ping_node(uint32_t node_id) noexcept {
+	try {
+		std::lock_guard<std::mutex> lock(pump_mutex_);
+		const auto it = sessions_by_node_.find(node_id);
+		if (it == sessions_by_node_.end() || !it->second->authenticated) {
+			return false;
+		}
+		const ClusterTimePoint now = ClusterClock::now();
+		it->second->last_ping = now;
+		it->second->last_ping_timestamp = to_seconds(now);
+		const double timestamp = it->second->last_ping_timestamp;
+		return send_encrypted_packet(*it->second, PacketType::HeartbeatPing, 0U, bytes_of(timestamp), TransportChannel::Control);
+	} catch (...) {
+		return false;
+	}
+}
+
 bool ClusterOrchestrator::start() noexcept {
 	if (!config_.cluster.enabled) {
 		cluster_active_.store(false, std::memory_order_relaxed);
@@ -363,6 +407,9 @@ void ClusterOrchestrator::detect_timeouts(ClusterTimePoint now) noexcept {
 	registry_.enforce_timeouts(now, config_.cluster.node_timeout_ms, expired_nodes);
 	std::vector<ReclaimedTile> reclaimed;
 	for (const uint32_t node_id : expired_nodes) {
+		std::string expired_name;
+		registry_.visit(node_id, [&expired_name](const ClusterNode& n) { expired_name = n.descriptor().name; });
+		Core::log_warning("[Cluster] Node '" + expired_name + "' (ID " + std::to_string(node_id) + ") timed out after " + std::to_string(config_.cluster.node_timeout_ms) + " ms without heartbeat; reclaiming tasks locally.");
 		scheduler_.reclaim_node(node_id, reclaimed);
 		const auto it = sessions_by_node_.find(node_id);
 		if (it != sessions_by_node_.end()) {
@@ -633,6 +680,7 @@ void ClusterOrchestrator::handle_authenticated_packet(const std::shared_ptr<Mast
 			}
 			HandshakeVerdict verdict = HandshakeVerdict::Accepted;
 			const NodeHardwareCapabilities local = local_capabilities_;
+			std::string accepted_name;
 			registry_.visit(session->node_id, [&](ClusterNode& node) {
 				if (node.state() != NodeState::Unauthenticated) {
 					return;
@@ -646,10 +694,14 @@ void ClusterOrchestrator::handle_authenticated_packet(const std::shared_ptr<Mast
 				if (verdict == HandshakeVerdict::Accepted) {
 					static_cast<void>(node.transition_to(NodeState::Synchronized, now));
 					static_cast<void>(node.mark_ready(now));
+					accepted_name = node.descriptor().name;
 				}
 			});
 			if (verdict != HandshakeVerdict::Accepted) {
+				Core::log_warning("[Cluster] Handshake rejected for peer " + std::to_string(session->peer_id) + ": " + handshake_verdict_name(verdict));
 				close_session(*session, (verdict == HandshakeVerdict::AbiMismatch) ? DisconnectReason::AbiMismatch : DisconnectReason::InvalidCapabilities);
+			} else {
+				Core::log_info("[Cluster] Node '" + accepted_name + "' (peer " + std::to_string(session->peer_id) + ") authenticated and ready: " + std::to_string(remote.logical_cores) + " threads, " + (remote.has_vulkan_compute ? (remote.has_fp64_support ? "Vulkan FP64 GPU" : "Vulkan FP32 GPU") : "CPU only") + ", weight " + std::to_string(remote.relative_performance_weight));
 			}
 			break;
 		}
@@ -1548,8 +1600,21 @@ bool ClusterOrchestrator::dispatch_frame(
 	telemetry.decode_ms = decode_seconds * 1.0e3;
 	telemetry.frame_ms = seconds_between(frame_start, ClusterClock::now()) * 1.0e3;
 	telemetry.round_trip_mean_ms = round_trip_mean_ms;
+	const uint64_t raw_uncompressed = static_cast<uint64_t>(telemetry.tiles_remote) * (32ULL * 32ULL * sizeof(Render::GpuPixelOutput));
+	telemetry.compression_ratio_percent = (raw_uncompressed > 0ULL && bytes_received > 0ULL)
+		? static_cast<uint32_t>((static_cast<double>(bytes_received) / static_cast<double>(raw_uncompressed)) * 100.0)
+		: 100U;
+	telemetry.effective_bandwidth_mbps = (telemetry.frame_ms > 0.0)
+		? (static_cast<double>(bytes_received) * 8.0 / (telemetry.frame_ms * 1.0e-3)) / 1.0e6
+		: 0.0;
+	telemetry.speedup_factor = (telemetry.frame_ms > 0.0 && local_seconds > 0.0)
+		? std::max(local_seconds / (telemetry.frame_ms * 1.0e-3), 0.1)
+		: 1.0;
 	telemetry.complete = complete;
 	telemetry.offline = offline;
+	if (reclaimed_count > 0U) {
+		Core::log_trace("[Cluster] Frame " + std::to_string(frame_index) + ": Reclaimed " + std::to_string(reclaimed_count) + " timed-out or lost tile(s) to local thread pool.");
+	}
 	{
 		std::lock_guard<std::mutex> lock(telemetry_mutex_);
 		telemetry_ = telemetry;

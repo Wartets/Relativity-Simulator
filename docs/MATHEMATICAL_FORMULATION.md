@@ -383,3 +383,77 @@ A segment transition of duration $T_k$ blends the previous end pose $X_{\text{pr
 For $N$ temporal samples per frame, shutter fraction $\varphi$ and frame interval $\Delta t_f$, the sample times are $t_s = t_f + \left(\frac{s + 0.5}{N} - 0.5\right)\varphi \, \Delta t_f$. With supersampling factor $k$ and fade factor $\Phi$, each output channel is
 $$c_{\text{out}} = \text{enc}\left(\frac{\Phi}{k^2 N} \sum_{s=1}^{N} \sum_{i=1}^{k^2} \text{dec}(c_{s,i})\right)$$
 where $\text{dec}$ and $\text{enc}$ are the sRGB decoding and encoding functions, implemented with lookup tables of 4096 and 16384 entries. The fade factors are $\min\left(\frac{i + 1}{n_{\text{in}} + 1}, \frac{m}{n_{\text{out}} + 1}\right)$ for frame index $i$ and $m$ remaining frames.
+
+---
+
+## 10. Distributed Scheduling, Load Balancing & Reduction Mathematics
+
+The mathematical formulations of this section govern the cluster scheduler (`DistributionScheduler`), the telemetry estimators (`LatencyEstimator`, `ThroughputEstimator`), and the parallel reduction kernels (`compute_kernels.cpp`).
+
+### 10.1. Latency-Damped Capacity Share Formulation
+
+For a cluster of $M$ active nodes where each node $i \in \{1, \dots, M\}$ possesses a user-configured static weight $\omega_i > 0$, an exponential moving average ray execution rate $\overline{\Delta t_{\text{exec}, i}}$ (in seconds per $10^3$ rays), and a measured round-trip time $\text{RTT}_i$, the normalized capacity share $\Omega_i(t)$ is:
+
+$$\Omega_i(t) = \frac{\omega_i \cdot \left(\overline{\Delta t_{\text{exec}, i}}\right)^{-1} \cdot \Pi(\text{RTT}_i, \alpha)}{\sum_{j=1}^M \omega_j \cdot \left(\overline{\Delta t_{\text{exec}, j}}\right)^{-1} \cdot \Pi(\text{RTT}_j, \alpha)}$$
+
+where the latency damping function $\Pi(\text{RTT}, \alpha)$ is parameterized by the reference latency $\text{RTT}_0 = 1.0 \times 10^{-3}\,\text{s}$ and damping exponent $\alpha \ge 0$:
+
+$$\Pi(\text{RTT}, \alpha) = \left( \max\left(\frac{\text{RTT}}{\text{RTT}_0}, 1\right) \right)^{-\alpha}$$
+
+For the local host ($i = \text{local}$), $\text{RTT}_{\text{local}} = 0 \implies \Pi(0, \alpha) = 1.0$.
+
+### 10.2. Tile Quota Allocation and Remainder Conservation
+
+For $N_{\text{active}}$ active non-culled screen tiles, initial integer tile quotas $K_i$ are assigned via the floor operator:
+
+$$K_i = \left\lfloor \Omega_i(t) \cdot N_{\text{active}} \right\rfloor$$
+
+To preserve total work conservation ($\sum_{i=1}^M K_i = N_{\text{active}}$), the allocation deficit is accumulated onto the local node:
+
+$$K_{\text{local}} \leftarrow K_{\text{local}} + \left( N_{\text{active}} - \sum_{i=1}^M K_i \right)$$
+
+### 10.3. Dynamic Work-Stealing Deadline Threshold
+
+The execution deadline $t_{\text{deadline}, i}$ for a tile assigned to node $i$ is evaluated from the dispatch epoch $t_{\text{dispatch}}$:
+
+$$t_{\text{deadline}, i} = t_{\text{dispatch}} + \text{clamp}\left( \overline{\text{RTT}}_i + 3.5 \sigma_{\text{RTT}, i} + t_{\text{compute}, i}, \; t_{\min}, \; t_{\max} \right)$$
+
+where the estimated tile integration duration is:
+
+$$t_{\text{compute}, i} = N_{\text{pixels}} \cdot 10^{-3} \cdot \overline{\Delta t_{\text{exec}, i}} \cdot \frac{C_{\text{tile}}}{C_{\text{nominal}}}$$
+
+with $C_{\text{tile}} \in [1, 255]$ denoting the importance-weighted cost factor ($C_{\text{nominal}} = 128$), $t_{\min} = 4.0\times 10^{-3}\,\text{s}$, and $t_{\max} = 1.2\times 10^{-1}\,\text{s}$ (extended to $30.0\,\text{s}$ in offline capture mode).
+
+### 10.4. Network Statistical Estimators (RFC 6298 Filter)
+
+The running round-trip time mean $\overline{\text{RTT}}_k$ and variance $\sigma^2_{\text{RTT}, k}$ update upon each ping-pong sample $\text{RTT}_k$ using gain coefficient $\beta = 0.125$:
+
+$$\overline{\text{RTT}}_k = (1 - \beta) \overline{\text{RTT}}_{k-1} + \beta \text{RTT}_k$$
+
+$$\sigma^2_{\text{RTT}, k} = (1 - \beta) \left( \sigma^2_{\text{RTT}, k-1} + \beta (\text{RTT}_k - \overline{\text{RTT}}_{k-1})^2 \right)$$
+
+### 10.5. Parallel Moment Reduction for Stochastic Ensembles (Chan-Golub-LeVeque Algorithm)
+
+When combining two partial Monte Carlo geodesic ensemble records $A$ and $B$ containing sample counts $n_A, n_B$, sample means $\mu_A, \mu_B$, and sum-of-squared differences $M_{2, A}, M_{2, B}$:
+
+$$n_{A \cup B} = n_A + n_B$$
+
+$$\delta = \mu_B - \mu_A$$
+
+$$\mu_{A \cup B} = \mu_A + \delta \frac{n_B}{n_{A \cup B}}$$
+
+$$M_{2, A \cup B} = M_{2, A} + M_{2, B} + \delta^2 \frac{n_A n_B}{n_{A \cup B}}$$
+
+Population variance is extracted as $\sigma^2 = M_{2} / n$.
+
+### 10.6. Post-Newtonian Parallel Row Decomposition
+
+For an $N$-body system, the pairwise post-Newtonian acceleration sum $\mathbf{a}_i = \sum_{j \neq i} \mathbf{a}_{ij}$ is decomposed into row blocks of size $B$:
+
+$$\text{Block}_k = \{ i \in \mathbb{N} \mid k \cdot B \le i < \min((k + 1)B, N) \}$$
+
+Worker nodes evaluate partial row acceleration vectors in parallel:
+
+$$\mathbf{a}_i^{(k)} = \sum_{j=0, j \neq i}^{N-1} \mathbf{a}_{ij}, \quad \forall i \in \text{Block}_k$$
+
+The orchestrator concatenates block vectors without intermediate communication dependencies.

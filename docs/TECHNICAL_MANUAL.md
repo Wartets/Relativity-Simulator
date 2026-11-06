@@ -175,3 +175,19 @@ The metric identifiers are those of `Render::MetricId` (`include/relativistic/re
 - `schematic_view_config.hpp`: `SchematicViewConfig` with object display styles (point, fixed-radius sphere, parameter-driven sphere; opaque, translucent, wireframe, shaded and gradient styles; 10 color coding modes), per-body style overrides, vector styles for velocity, total force, spin and rotation axis, trails, orbit predictions and off-screen indicators.
 - `capture_widgets.hpp`: form scope, flow layout, property grids, statistic tables, splitters and `edit_easing`.
 - `BodyManagerWindow`: 9 body templates (`kBodyTemplateSpecs`), 6 creation archetypes (`kCreationArchetypes`), and the tabs Body Catalog, Create Body, Spacetime Sources, System Dynamics and Interactions. Body editor sections are Identity, Physical State, Multipoles, Material, and Surface (base surface, atmosphere and lighting, texture layers).
+
+### 2.13. Distributed Computing & Cluster Engine
+
+The distributed subsystem (`include/relativistic/distributed/`) provides network-distributed compute offloading across homogeneous or heterogeneous machines:
+
+- `ClusterOrchestrator` (`cluster_orchestrator.hpp`): Manages peer lifecycle sessions, coordinates workload scheduling, streams catalog changes, dispatches frame tiles, and reclaims stalled units.
+- `DistributionScheduler` (`distribution_scheduler.hpp`): Implements normalized capacity allocations $\Omega_i(t)$, tile quota assignment $K_i$, speculative work stealing, and frame completion detection.
+- `NetworkTransport` (`network_transport.hpp`): High-throughput transport abstraction wrapping ENet/UDP. Channel 0 handles reliable sequenced control traffic; Channel 1 handles unsequenced unreliable-fragmented tile payloads up to $256\,\text{KiB}$.
+- `CryptoChannel` (`crypto_channel.hpp`): Zero-allocation authenticated encryption layer. Implements X25519 ECDH key agreement, HKDF-SHA256 derivation, ChaCha20 symmetric stream cipher, and Poly1305 MAC verification with a 64-packet sliding replay window.
+- `TileCodec` & `TileSanitizer` (`compression_codecs.hpp`): Tile compression codecs (`DirectRaw`, `QoiHdrRle`, `Lz4Block`). `TileSanitizer` executes AVX2/Neon vector passes validating IEEE 754 floating-point finiteness and clamping radiant flux.
+- `DiscoveryService` (`discovery_service.hpp`): Decentralized peer discovery executing UDP multicast beacons (`239.255.77.88:42424`) with CRC32 checksum verification and cluster tag derivation.
+- `NodeRegistry` (`node_registry.hpp`): Thread-safe registry tracking active nodes, peer bindings, hardware profiles, RTT latencies, and watchdog timers.
+- `BodyCatalogStore` & `NBodyStateStore` (`body_catalog.hpp`, `compute_kernels.hpp`): Chunked binary streaming stores assembling large body collections and N-body states across MTU-bounded datagrams.
+- `TileRenderer` & `ClusterWorkerService` (`tile_renderer.hpp`, `worker_service.hpp`): Execution engine on worker nodes driving `VulkanComputeExecutor` with dedicated SPIR-V shader `cluster_tile_tracer_fp64.comp` or CPU multi-threading.
+- `GpuNBodyExecutor` (`gpu_nbody_executor.hpp`): GPU-accelerated post-Newtonian acceleration evaluator executing `nbody_accel_fp64.comp` in 64-bit precision.
+- `SlurmInterface` (`slurm_interface.hpp`): Integration layer reading `SLURM_JOB_ID`, `SLURM_PROCID`, `SLURM_NTASKS`, and nodelists to auto-configure MPI cluster topologies.

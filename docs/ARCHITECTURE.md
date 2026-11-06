@@ -7,6 +7,7 @@ The Relativistic Engine is an ISO C++23 simulation and visualization framework f
 - Simulation Runtime & State Orchestrator: A synchronous deterministic state machine driven by a [fixed logical time-step scheduler](#31-deterministic-simulation-scheduler), communicating with external control layers via [lock-free SPSC queues](#32-asynchronous-lock-free-command-queue).
 - Render & Compute Pipeline: Hardware-accelerated GPU compute pipelines ([Vulkan compute](#29-render-pipeline)) and multithreaded SIMD software compute engines ([SoftwareComputeEngine](TECHNICAL_MANUAL.md#29-rendering-back-ends)) performing [backward null geodesic raytracing](MATHEMATICAL_FORMULATION.md#8-image-formation-in-the-renderer), [polarized radiative transfer](MATHEMATICAL_FORMULATION.md#6-polarized-radiative-transfer), and [spectral reduction](DESCRIPTION.md#93-continuous-spectral-pipeline--cie-1931-integration).
 - Presentation, Instrumentation & Workspace Layer: An interactive multi-window graphical user interface with docking workspaces ([UI Architecture](#52-graphical-multi-window-workspace-ui-architecture)), real-time telemetry dashboards ([Telemetry & Diagnostics](TECHNICAL_MANUAL.md#28-orchestration-scheduling--user-interface)), spectrographs, and a non-blocking [master command-line interpreter (REPL)](#51-master-terminal-loop-repl).
+- Distributed Compute & Heterogeneous Cluster Layer: A decoupled network execution extension ([Section 2.14](#214-distributed-compute-subsystem--heterogeneous-cluster-architecture)) providing authenticated, latency-weighted parallel dispatch across network worker instances.
 
 ### Fundamental Design Paradigms
 
@@ -88,7 +89,7 @@ Every spacetime implementation satisfies the `SpacetimeMetric` concept (`include
 
 **`GeodesicComputePipeline`** (`include/relativistic/render/geodesic_compute_pipeline.hpp`) owns a front and a back framebuffer of `GpuPixelOutput`. In windowed mode a worker thread renders the most recent pending request (`GpuCameraPushConstants` and body list); a request arriving while a frame is rendering raises a cancellation flag, so superseded frames are abandoned. In headless mode `dispatch` renders synchronously. After each frame the pipeline classifies pixels (horizon absorbed, celestial escape, accretion disk hit, step saturated), computes iteration statistics and records tile statistics of the adaptive sky prepass.
 
-**Path selection.** The Vulkan path is attempted when GPU compute is enabled and the executor is ready, and all of the following hold:
+**Path selection.** When the distributed compute extension is bound and operational (`is_cluster_active`), frame rendering delegates eligible tile workloads across connected worker nodes via `dispatch_distributed`. In standalone mode, or when uncompleted tiles are reclaimed via work stealing, the Vulkan path is attempted when GPU compute is enabled and the executor is ready, and all of the following hold:
 
 - The body count does not exceed 512.
 - The precision mode is native FP64.
@@ -177,6 +178,17 @@ $$Q_0 = \sqrt{\frac{K_e}{K_{e,SI}}\frac{M_0 L_0^3}{T_0^2}}, \quad K_0 = \frac{k_
 
 Derived simulation quantities include the reduced Planck constant $h / 2\pi$, the Stefan-Boltzmann constant $2\pi^5 k_B^4 / (15 h^3 c^2)$, the vacuum permittivity $1 / (4\pi K_e)$, the vacuum permeability $4\pi K_e / c^2$, the magnetic coupling $K_e / c^2$ and astronomical quantities (solar mass, astronomical unit, Earth and Jupiter masses, parsec, light year, particle masses, solar Schwarzschild radius, Thomson cross section, Wien constant) divided by the corresponding scale. The Constants window accepts unit-aware expressions checked against the expected dimension (`Units::ExpressionEvaluator::evaluate_expect_dimension`).
 
+### 2.14. Distributed Compute Subsystem & Heterogeneous Cluster Architecture
+
+The distributed compute subsystem extends the execution capabilities of the engine without modifying its single-node determinism or introducing heap allocations in inner computational loops:
+- Offline Autonomy: Network sockets and worker threads remain uninstantiated when `cluster.enabled = 0`. Local execution performance on Vulkan FP64 or CPU SIMD remains identical to non-distributed builds.
+- Cluster Node Roles: Instances operate as `ClusterMaster` (interactive host or headless batch coordinator), `ComputeWorker` (autonomous lightweight worker `cluster_worker` without graphical dependencies), `HybridNode` (co-evaluating local and remote partitions), or `Standalone` (isolated single-machine execution).
+- Worker Lifecycle State Machine: Remote nodes progress through seven finite states: `Unauthenticated`, `Handshaking`, `Synchronized`, `Ready`, `Computing`, `Stalled`, and `Disconnected`. Stalled nodes automatically trigger work-stealing reclamation.
+- Transport Dual-Channel Multiplexing: The transport layer utilizes ENet/UDP over two logical channels: Channel 0 for sequenced reliable control (handshakes, clock synchronizations, catalog chunks, cancellations), and Channel 1 for unsequenced, unreliable-fragmented tile payloads.
+- Cryptographic Channel (`CryptoChannel`): All communications enforce AEAD encapsulation using X25519 Diffie-Hellman key exchange, HKDF-SHA256 key derivation, and ChaCha20-Poly1305 authenticated symmetric encryption with 64-packet anti-replay sliding windows.
+- Compression Pipeline: Three selectable compression modes: `DirectRaw` ($0\,\mu\text{s}$ CPU overhead for 10GbE LAN), `QoiHdrRle` (FP16 radiance quantization with run-length encoding for state masks), and `Lz4Block` (byte-shuffled block compression delivering $> 3.5\,\text{GB/s}$ decompression throughput).
+- Data Sanitization: All remotely computed `GpuPixelOutput` payloads undergo explicit SIMD vector scanning guarding against NaNs, infinities, and unphysical negative radiances, clamping radiant flux to $[0.0, 1.0 \times 10^8]\,\text{W/m}^2/\text{sr}$.
+
 ---
 
 ## 3. Concurrency, Execution Pipeline & Scheduling
@@ -227,6 +239,13 @@ Command application, including the `Reset` semantics, is described in [CLI_REFER
 `ScenarioLocator` (`include/relativistic/io/scenario_locator.hpp`) resolves files and the scenario directory relative to the working directory and up to four parent levels (`kMaxAncestorDepth`). A requested path is tried as given, then prefixed by up to four `..` components, then, when its parent directory is named `scenarios`, against the located scenario directory. `portable_path` stores paths inside the scenario directory in the form `scenarios/<file>`.
 
 At startup `UiManager::queue_startup_scenario` loads the configured `default_scenario_path` when `load_scenario_on_startup` is set. If the file cannot be resolved, parsed or validated, the built-in `scenarios/schwarzschild_accretion.yaml` is loaded instead and becomes the stored startup path; when it is also unavailable, the simulation starts empty. The Scenario Manager scans the directory for `.yaml` and `.yml` files, marks files that fail parsing or validation as incompatible, protects the built-in startup file from deletion, and saves new presets under collision-free file and scenario names (`<stem>_<n>.yaml` and `<name> (<n>)`).
+
+### 3.6. Distributed Workload Scheduling & Work Stealing
+
+`DistributionScheduler` (`include/relativistic/distributed/distribution_scheduler.hpp`) partitions visual frames, post-Newtonian N-body systems, and stochastic ensembles:
+- Tile Grid Partitioning: High-resolution viewports are partitioned into $32 \times 32$ pixel work units. Pre-pass culling identifies pure far-field sky tiles, which are evaluated analytically on the local host to prevent redundant network transmissions.
+- Dynamic Latency-Weighted Allocation: Normalized capacity shares $\Omega_i(t)$ are calculated per frame from static node weights $\omega_i$, rolling average ray integration throughputs $\overline{\Delta t_{\text{exec}, i}}$, and round-trip latencies $\text{RTT}_i$.
+- Work Stealing & Fault Recovery: Every dispatched task carries an individual dynamic timeout deadline $t_{\text{expire}} = t_{\text{dispatch}} + \overline{\text{RTT}}_i + 3.5 \cdot \sigma_{\text{RTT}, i} + t_{\text{compute}, i}$. Expired tiles are reclaimed and executed immediately on the local thread pool (`Core::global_render_thread_pool()`), preventing display stalls if a worker fails or experiences network jitter. Late-arriving results are discarded without state corruption.
 
 ---
 

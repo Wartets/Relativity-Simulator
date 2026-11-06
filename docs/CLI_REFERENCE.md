@@ -2,9 +2,10 @@
 
 ## 1. Executable Binaries
 
-The engine provides two standalone executables:
+The engine provides three standalone executables:
 1. `engine_cli`: Master simulation host containing the non-blocking command interpreter & the graphical multi-window instrumentation workspace.
 2. `headless_exporter`: Non-interactive batch processor for cluster execution, parameter sweeps, & validation benchmarks.
+3. `cluster_worker`: Lightweight headless compute node daemon for network cluster rendering and parallel physical evaluations.
 
 ---
 
@@ -238,7 +239,7 @@ The following actions are available in the Keybind Settings window. Each action 
 
 | Menu | Content |
 | :--- | :--- |
-| File | Capture Studio, quick screenshot with the current Capture Studio settings, snapshot scenario save (`scenarios/snapshot.yaml`), export entries (`fits`, `hdf5`, `vtk`), exit. |
+| File | Capture Studio, quick screenshot with the current Capture Studio settings, snapshot scenario save (`scenarios/snapshot.yaml`), export entries (`fits`, `hdf5`, `vtk`), reload cluster configuration, exit. |
 | Simulation | Pause/resume, single step, reset, camera mode cycle, snap to equatorial position (`r = 50`), snap to ISCO. |
 | Capture | Capture Studio tab shortcuts (Screenshot, Sequence, Motion Script, Data Recording, Video Encoding), quick screenshot, start sequence, finish sequence, cancel capture. |
 | Window Layouts | Multi-Window Detached, Docked Workspace, Viewport Fullscreen Focus, multi-window viewport separation toggle. |
@@ -291,4 +292,86 @@ The `headless_exporter` binary (`apps/headless_exporter/main.cpp`) processes dec
 
 ```bash
 ./headless_exporter --scenario scenarios/solar_system_mercury.yaml --output-dir ./data --steps 100000 --dt 50.0 --format hdf5
+```
+
+---
+
+## 5. Cluster Compute Worker (`cluster_worker`)
+
+The `cluster_worker` binary (`apps/cluster_worker/main.cpp`) is an autonomous, lightweight compute daemon designed for distributed cluster rendering, HPC batch nodes, and cloud GPU instances without GLFW, OpenGL, or graphical window dependencies.
+
+### 5.1. Command Line Syntax
+
+```bash
+./cluster_worker [OPTIONS]
+```
+
+### 5.2. Command Line Arguments
+
+| Option | Argument | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `--master-address` | `<host:port>` | Target cluster master endpoint to connect to (retried automatically). | None (listen-only) |
+| `--auth-token` | `<hex64>` | 64-character hexadecimal pre-shared symmetric authentication token. | None |
+| `--auth-token-file`| `<path>` | Path to a text file containing the 64-character token on its first line. | None |
+| `--listen-port` | `<port>` | Inbound UDP port accepting master connection requests. | `42425` |
+| `--listen-interface`| `<addr>` | IPv4 address to bind the inbound transport socket. | `0.0.0.0` |
+| `--no-listen` | None | Disables the inbound listening socket (outbound master connection only). | Listening enabled |
+| `--threads` | `<N>` | Number of CPU worker threads allocated to the software render thread pool. | Hardware concurrency |
+| `--vulkan-device` | `<idx|auto>` | Selects the physical GPU device index or `auto` for highest-scoring device. | `auto` |
+| `--backend` | `<auto|gpu|cpu>` | Tile compute backend: `gpu` requires Vulkan FP64; `cpu` forces SIMD/scalar. | `auto` |
+| `--weight` | `<float>` | Static performance weight advertised to the master load balancer ($> 0.0$). | Auto-detected |
+| `--name` | `<text>` | Human-readable node identifier tag sent during the handshake. | Hostname |
+| `--cluster-name` | `<text>` | Cluster namespace identifier matching master discovery beacons. | `Relativistic_Alpha_Mesh` |
+| `--no-discovery` | None | Disables UDP multicast presence announcements and responses. | Discovery enabled |
+| `--discovery-group`| `<addr>` | Multicast group IPv4 address for discovery beacons. | `239.255.77.88` |
+| `--discovery-port` | `<port>` | Multicast destination port for discovery beacons. | `42424` |
+| `--discovery-interface` | `<addr>` | Local interface address used for multicast beacon traffic. | Auto-assigned |
+| `--reconnect-interval-ms` | `<ms>` | Delay between master connection attempts in milliseconds. | `2000` |
+| `--cluster-config` | `<path>` | Path to a `distributed_cluster.cfg` configuration file to load settings. | `config/distributed_cluster.cfg` |
+| `--slurm-mode` | None | Enables automatic detection of Slurm MPI ranks, hosts, and task ports. | Disabled |
+| `--headless` | None | Accepted for batch script compatibility (always operates headlessly). | Always headless |
+| `--version` | None | Prints engine version string and exits. | None |
+| `--help`, `-h` | None | Prints CLI argument syntax and exits. | None |
+
+### 5.3. Environment Variables
+
+- `RELATIVISTIC_CLUSTER_TOKEN`: Specifies the 64-character hexadecimal pre-shared cluster secret if `--auth-token` is omitted.
+- `SLURM_JOB_ID`, `SLURM_PROCID`, `SLURM_NTASKS`, `SLURM_STEP_NODELIST`: Detected automatically when running under the Slurm workload manager or with `--slurm-mode`.
+
+### 5.4. Execution Examples
+
+#### 1. Standalone Worker on Local Subnet (Discovered Automatically)
+
+```bash
+./cluster_worker --auth-token "a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234" --backend auto
+```
+
+#### 2. Cloud GPU Instance (Colab / Dedicated VPS) Connecting Directly to Master
+
+```bash
+./cluster_worker \
+  --master-address 198.51.100.24:42425 \
+  --auth-token "a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234" \
+  --no-listen \
+  --no-discovery \
+  --vulkan-device auto \
+  --weight 3.0
+```
+
+#### 3. Slurm HPC Cluster Multi-Node Batch Submission
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=relativistic_worker
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=32
+#SBATCH --time=04:00:00
+
+export RELATIVISTIC_CLUSTER_TOKEN="a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234"
+
+srun ./cluster_worker \
+  --slurm-mode \
+  --threads 32 \
+  --backend auto
 ```

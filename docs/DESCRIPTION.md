@@ -4,9 +4,10 @@
 
 The engine is a scientific computing and interactive simulation software for Special Relativity, General Relativity, and alternative gravitational models. The platform implements analytical metrics, post-Newtonian dynamics, relativistic hydrodynamics, and polarized radiative transfer derived from standard relativistic physics formulations.
 
-The platform operates across two complementary runtime paradigms:
+The platform operates across three complementary runtime paradigms:
 - Real-Time Interactive Exploration Mode: A low-latency, interactive 3D navigation environment with direct 6-DOF controls, enabling an observer to traverse complex spacetimes, modify physical parameters dynamically, & observe relativistic optical effects, kinematic transformations, & geodesic trajectories in real time.
 - High-Fidelity Batch / Headless Generation Mode: An automated computation pipeline executing intensive simulation sweeps, high-density raytracing, multi-body orbital evolutions, gravitational wave strain extractions, & spectral cube generation without requiring an active graphical context.
+- Distributed & Heterogeneous Cluster Compute Execution: A decoupled network computation extension distributing screen tile ray-tracing, post-Newtonian acceleration reductions, Monte Carlo geodesic ensembles, and polynomial chaos quadratures across clusters (LAN multicast discovery, cloud workers, and Slurm HPC allocations) while maintaining zero-overhead offline autonomy.
 
 The architectural foundation relies on modularity: spacetimes, numerical integrators, equations of state, radiative transfer models, observer kinematics, & uncertainty quantification engines are interchangeable components adhering to uniform concepts. All computational paths prioritize performance through shared-memory multithreading, explicit SIMD register vectorization, persistent memory arenas, & GPU compute pipelines.
 
@@ -31,6 +32,7 @@ The engine provides configuration flexibility across all layers of the physical 
 - Gravitational Theories: General Relativity, Modified Newtonian Dynamics (MOND), Tensor-Vector-Scalar gravity (TeVeS), scalar-tensor $f(R)$ Chameleon models, and non-baryonic dark matter halo profiles ([Section 5.3](#53-dark-matter-halos--alternative-gravitational-theories)).
 - Physical Constants & Units: SI, Planck or custom base constants ($c$, $G$, $h$, $k_B$, $N_A$, $K_e$, $K_{cd}$) with the derived scale factors between simulation units and SI units ([ARCHITECTURE.md Section 2.13](ARCHITECTURE.md#213-physical-constants-engine)), and display units selectable independently for 19 physical quantities ([TECHNICAL_MANUAL.md Section 2.11](TECHNICAL_MANUAL.md#211-constants-units-and-expressions)).
 - Body Interactions: Electromagnetic, collision, thermodynamic, fragmentation and annihilation interactions between N-body bodies ([Section 5.4](#54-body-interactions--spacetime-source-bodies)).
+- Computational Distribution Topology: Operation across standalone local hardware (Vulkan FP64 GPU or SIMD multi-threaded CPU), cluster master nodes with work stealing, dedicated headless worker nodes (`cluster_worker`), or hybrid participatory nodes ([ARCHITECTURE.md Section 2.14](ARCHITECTURE.md#214-distributed-compute-subsystem--heterogeneous-cluster-architecture)).
 
 ---
 

@@ -12,8 +12,8 @@ Primary references:
 - [Technical Architecture](docs/ARCHITECTURE.md): subsystem structure, scheduling, concurrency, precision model.
 - [Technical Manual](docs/TECHNICAL_MANUAL.md): component-level implementation and engineering constraints.
 - [Mathematical Formulation](docs/MATHEMATICAL_FORMULATION.md): equations, metrics, transport formalisms, PN terms.
-- [File Formats & I/O](docs/FILE_FORMATS.md): YAML schema, FITS/HDF5/VTK formats, SPICE/HORIZONS ingestion.
-- [CLI & REPL Reference](docs/CLI_REFERENCE.md): interactive commands and headless exporter options.
+- [File Formats & I/O](docs/FILE_FORMATS.md): YAML schema, FITS/HDF5/VTK formats, SPICE/HORIZONS ingestion, cluster configuration.
+- [CLI & REPL Reference](docs/CLI_REFERENCE.md): interactive commands, headless exporter options, cluster worker daemon.
 - [Testing Guide](docs/testing/README.md): test suite structure, writing rules, and validation targets.
 - [Documentation Index](docs/INDEX.md): index of the documentation set.
 - [Source Tree](docs/TREE.md): repository layout.
@@ -47,7 +47,7 @@ Primary references:
   - [Bulk body actions](docs/TECHNICAL_MANUAL.md#24-post-newtonian-multi-body-subsystem) (velocity and spin assignment, grid snapping, scattering, mass equalization, parameter equalization, culling; [Keybinds](docs/CLI_REFERENCE.md#34-additional-rebindable-actions)).
 
 - **Gravimetry and Large-Scale Gravity**
-  - [Spherical harmonic gravity expansions](docs/DESCRIPTION.md#52-spherical-harmonics--high-degree-geodesy) up to degree and order 32 ($J_n$, $C_{nm}$, $S_{nm}$); [Architecture](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry)).
+  - [Spherical harmonic gravity expansions](docs/DESCRIPTION.md#52-spherical-harmonics--high-degree-geodesy) up to degree and order 32 ($J_n$, $C_{nm}$, $S_{nm}$ [Architecture](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry)).
   - [Analytical orbital precession](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry) and [tidal Love number perturbations](docs/ARCHITECTURE.md#24-post-newtonian-dynamics--gravimetry).
   - Dark matter modules: [NFW, Einasto, Burkert, and Hernquist profiles](docs/DESCRIPTION.md#53-dark-matter-halos--alternative-gravitational-theories), [Barnes–Hut octree acceleration](docs/DESCRIPTION.md#53-dark-matter-halos--alternative-gravitational-theories), [MOND, TeVeS, and \(f(R)\) Chameleon models](docs/ARCHITECTURE.md#25-dark-matter--modified-gravity).
 
@@ -69,6 +69,18 @@ Primary references:
   - [Procedural starfield or equirectangular panorama sky](docs/TECHNICAL_MANUAL.md#29-rendering-back-ends), [four HDR tone mapping operators, and CPU color grading](docs/MATHEMATICAL_FORMULATION.md#83-tone-mapping-and-color-grading).
   - [Schematic projection overlay](docs/ARCHITECTURE.md#212-schematic-view-and-hud) with first-order light deflection ([Mathematical Formulation](docs/MATHEMATICAL_FORMULATION.md#85-schematic-overlay-deflection)) and [up to eight secondary observer viewports](docs/TECHNICAL_MANUAL.md#28-orchestration-scheduling--user-interface).
   - Still frame and sequence image streaming in [ten output formats](docs/FILE_FORMATS.md#6-image-output-formats) ([Capture Subsystem](docs/ARCHITECTURE.md#210-capture-subsystem)).
+
+- **Distributed Computing and Heterogeneous Cluster Engine**
+  - [Cluster topology and operational roles](docs/ARCHITECTURE.md#214-distributed-compute-subsystem--heterogeneous-cluster-architecture): master orchestrator, autonomous worker daemon (`cluster_worker`), hybrid participatory nodes, and isolated offline standalone mode.
+  - [Zero-overhead offline autonomy](docs/ARCHITECTURE.md#214-distributed-compute-subsystem--heterogeneous-cluster-architecture): complete decoupling ensuring zero network allocations, sockets, or thread overhead when `cluster.enabled = 0`.
+  - [Dynamic latency-damped load balancing](docs/MATHEMATICAL_FORMULATION.md#101-latency-damped-capacity-share-formulation) allocating tile quotas proportionally to measured throughput and $(\text{RTT})^{-\alpha}$ latency penalties.
+  - [Fault-tolerant dynamic work stealing](docs/MATHEMATICAL_FORMULATION.md#103-dynamic-work-stealing-deadline-threshold) reclaiming stalled remote tiles onto the local thread pool upon deadline expiration without frame drops.
+  - [Cryptographic transport channel](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine): X25519 ECDH key agreement, HKDF-SHA256 derivation, and ChaCha20-Poly1305 AEAD authenticated encryption with a 64-packet anti-replay sliding window.
+  - [Adaptive tile compression codecs](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine): DirectRaw for local 10GbE LAN, QOI HDR with FP16 radiance and RLE, and LZ4 block compression with SIMD channel-shuffling delivering $> 3.5\,\text{GB/s}$ decompression throughput.
+  - [SIMD radiance data sanitization](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine) guarding against IEEE 754 NaNs, infinities, and unphysical negative fluxes.
+  - [Distributed task routing](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine): $32 \times 32$ ray-traced screen tiles with pre-pass culling, row-partitioned post-Newtonian N-body accelerations, Monte Carlo geodesic bundle ensembles, and polynomial chaos stochastic quadratures.
+  - [UDP multicast auto-discovery](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine) on `239.255.77.88:42424` and [HPC Slurm cluster integration](docs/CLI_REFERENCE.md#5-cluster-compute-worker-cluster_worker) with automatic MPI rank and nodelist detection.
+  - [Dedicated SPIR-V compute shaders](docs/TECHNICAL_MANUAL.md#213-distributed-computing--cluster-engine): `cluster_tile_tracer_fp64.comp` and `nbody_accel_fp64.comp`.
 
 - **Deterministic Runtime and Reproducibility**
   - [Synchronous input event journal primitive](docs/DESCRIPTION.md#112-synchronous-command-journal--replay) (`EventJournal`), decoupled from the command queue.
@@ -128,7 +140,8 @@ The visual renders and trajectory sequences below were recorded and generated us
 - CMake 3.25+.
 - OpenGL and GLFW (via CMake FetchContent).
 - Vulkan headers and loader (the compute context includes `vulkan/vulkan.h`); when no compute-capable device is present at run time, the CPU renderer is used.
-- `glslangValidator` (optional): used by CMake to compile the compute shader.
+- `glslangValidator` (optional): used by CMake to compile the primary geodesic tracer, cluster tile tracer, and N-body acceleration compute shaders to SPIR-V.
+- Network and compression libraries (via CMake FetchContent when `ENGINE_ENABLE_DISTRIBUTED=ON`, enabled by default): ENet and LZ4.
 - `ffmpeg` (optional, run time): video assembly in the Capture Studio.
 
 ### Standard Build (Release with LTO)
@@ -182,6 +195,16 @@ Available interactive commands (`warp`, `step`, `set mass`, `status`, etc.) are 
 ./build/headless_exporter --scenario scenarios/kerr_accretion_disk.yaml --output-dir ./output --width 3840 --height 2160
 ```
 Command-line options are documented in [Headless Batch Exporter](docs/CLI_REFERENCE.md#4-headless-batch-exporter-headless_exporter), declarative scenario definitions in [Declarative Scenario Definition](docs/FILE_FORMATS.md#1-declarative-scenario-definition-yaml), and validation targets in [Verification Criteria & Benchmark Protocols](docs/DESCRIPTION.md#12-verification-criteria--benchmark-protocols).
+
+### Cluster Worker Daemon Execution
+```bash
+# Start an autonomous worker listening on LAN (auto-discovered by running masters)
+./build/cluster_worker --auth-token "a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234" --backend auto
+
+# Start an outbound worker targeting a remote master host (cloud instance / Colab)
+./build/cluster_worker --master-address 198.51.100.24:42425 --auth-token "a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234" --no-listen --no-discovery
+```
+Worker options, Slurm HPC submission scripts, and configuration schemas are documented in [Cluster Compute Worker](docs/CLI_REFERENCE.md#5-cluster-compute-worker-cluster_worker) and [Cluster Configuration File](docs/FILE_FORMATS.md#103-configdistributed_clustercfg).
 
 ---
 

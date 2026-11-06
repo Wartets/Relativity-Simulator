@@ -476,6 +476,7 @@ Written by `UserSettings::save` (`include/relativistic/io/user_settings.hpp`), f
 | `kb_<i>_primary`, `kb_<i>_secondary`, `kb_<i>_mode` | Key bindings of action `i` |
 | `hud_master_enabled`, `hud_el_<i>_<field>` | HUD master switch and per-element `enabled`, `anchor`, `offset_x`, `offset_y`, `scale`, `color_r`, `color_g`, `color_b`, `color_a`, `show_background`, `background_opacity` |
 | `secview_<i>_<field>` | Secondary viewport state (active, open, name, radius, theta, phi, fov_deg, exposure, tonemapping_mode, projection_mode, max_steps, resolution_scale, follow_primary, follow_offset_theta, follow_offset_phi); up to 8 views |
+| `cluster_enabled`, `cluster_node_role`, `cluster_listen_port`, `cluster_discovery_multicast_enabled`, `cluster_dynamic_load_balancing`, `cluster_latency_penalty_alpha`, `cluster_work_stealing_enabled`, `cluster_tile_timeout_ms`, `cluster_compression_mode`, `cluster_require_encryption`, `cluster_shared_token_hex`, `cluster_route_*` | Distributed cluster subsystem configuration and task routing matrix |
 
 The following state is not persisted: HUD display mode, label, layout, nudge, priority, precision, refresh interval and color rules, HUD auto-arrangement and toolbar button visibility, the schematic view configuration, the camera free-fly yaw, pitch and roll speeds, the zoom configuration and the free-fly pitch/roll movement option.
 
@@ -492,3 +493,98 @@ Written by `PerformanceProfiler::save_to_disk` (`include/relativistic/orchestrat
 | `ft_mean`, `ft_median`, `ft_min`, `ft_max`, `ft_std`, `ft_p95`, `ft_p99` | Frame time statistics in milliseconds |
 | `fps_mean`, `fps_min`, `fps_max` | Frame rate statistics |
 | `avg_iterations`, `gpu_ratio`, `horizon_ratio`, `celestial_ratio`, `disk_ratio`, `sample_count`, `duration` | Mean ray iterations, GPU path frame ratio, ray classification ratios, sample count and capture duration in seconds |
+
+### 10.3. `config/distributed_cluster.cfg`
+
+Written and read by `ClusterConfiguration` (`include/relativistic/distributed/cluster_config.hpp`), format version 1. Configuration file governing network clustering, node topologies, cryptographic authentication, and load balancing parameters.
+
+```ini
+format_version=1
+
+[cluster]
+enabled=1
+node_role=1
+cluster_name=Relativistic_Alpha_Mesh
+listen_interface=0.0.0.0
+listen_port=42425
+discovery_multicast_enabled=1
+discovery_multicast_group=239.255.77.88
+discovery_multicast_port=42424
+heartbeat_interval_ms=500
+node_timeout_ms=2500
+
+[performance]
+dynamic_load_balancing=1
+latency_penalty_alpha=1.0000000000000000
+work_stealing_enabled=1
+tile_timeout_ms=120
+max_inflight_frames=2
+compression_mode=2
+lz4_acceleration_level=1
+auto_benchmark_nodes=1
+
+[security]
+require_encryption=1
+cipher_suite=1
+tls_certificate_path=config/certs/node.crt
+tls_private_key_path=config/certs/node.key
+tls_ca_chain_path=config/certs/ca_authority.crt
+cluster_shared_token=a8f5c2d3e9b14708215649fbcde71024385960abcedf1234567890abcdef1234
+allow_unauthenticated_lan=0
+sanitize_remote_data=1
+
+[task_routing]
+route_interactive_viewport=1
+route_capture_studio=1
+route_monte_carlo_ensembles=1
+route_nbody_interactions=0
+route_exact_spacetime_metrics=1
+
+[node_1]
+enabled=1
+name=Local_Workstation_GPU
+address=127.0.0.1
+port=42425
+static_weight=2.0000000000000000
+preferred_device=0
+prefer_fp64=1
+```
+
+#### Detailed Configuration Parameters
+
+| Section | Key | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `cluster` | `enabled` | Boolean (`0`/`1`) | Master switch for the distributed compute subsystem. When set to `0`, no sockets, threads, or memory allocations occur. |
+| `cluster` | `node_role` | Integer (`0`-`3`) | Operational role: `0`: Standalone, `1`: Master (orchestrator), `2`: Worker (compute node), `3`: Hybrid (participating master). |
+| `cluster` | `cluster_name` | String | Cluster namespace tag. Discovery beacons from mismatched namespaces are ignored. |
+| `cluster` | `listen_interface` | String | Local IPv4 address to bind the listening UDP socket (`0.0.0.0` binds all interfaces). |
+| `cluster` | `listen_port` | Integer (`1024`-`65535`) | Listening port for inbound peer control and task datagrams (default `42425`). |
+| `cluster` | `discovery_multicast_enabled` | Boolean (`0`/`1`) | Enables periodic UDP multicast presence beacons. |
+| `cluster` | `discovery_multicast_group` | String | IPv4 Class D multicast group address (default `239.255.77.88`). |
+| `cluster` | `discovery_multicast_port` | Integer (`1024`-`65535`) | Multicast destination port (default `42424`). |
+| `cluster` | `heartbeat_interval_ms` | Integer (`50`-`5000`) | Period between heartbeat ping datagrams in milliseconds. |
+| `cluster` | `node_timeout_ms` | Integer (`500`-`60000`) | Inactivity threshold before a silent node transitions to `Disconnected`. |
+| `performance` | `dynamic_load_balancing` | Boolean (`0`/`1`) | Automatically scales tile quotas proportionally to measured throughput and latency. |
+| `performance` | `latency_penalty_alpha` | Float (`0.0`-`4.0`) | Damping exponent $\alpha$ penalizing high-latency nodes via $(\text{RTT})^{-\alpha}$. |
+| `performance` | `work_stealing_enabled` | Boolean (`0`/`1`) | Speculatively reclaims and executes expired remote tiles locally without stalling the frame. |
+| `performance` | `tile_timeout_ms` | Integer (`4`-`5000`) | Upper bound on tile return deadlines before work-stealing triggers. |
+| `performance` | `max_inflight_frames` | Integer (`1`-`4`) | Maximum number of concurrent pipelined frames dispatched to saturate network bandwidth. |
+| `performance` | `compression_mode` | Integer (`0`-`2`) | Tile compression codec: `0`: DirectRaw, `1`: QoiHdrRle, `2`: Lz4Block. |
+| `performance` | `lz4_acceleration_level`| Integer (`1`-`16`) | Compression speed factor for the LZ4 block codec. |
+| `performance` | `auto_benchmark_nodes` | Boolean (`0`/`1`) | Evaluates node throughput on standard ray bundles during initial handshake. |
+| `security` | `require_encryption` | Boolean (`0`/`1`) | Enforces authenticated ChaCha20-Poly1305 encryption on all packet envelopes. |
+| `security` | `cipher_suite` | Integer (`0`-`1`) | `0`: Plaintext (closed LAN), `1`: ChaCha20-Poly1305 AEAD. |
+| `security` | `cluster_shared_token` | Hex String (64 chars) | Pre-shared 256-bit symmetric cluster secret for forward-secret key exchange. |
+| `security` | `allow_unauthenticated_lan` | Boolean (`0`/`1`) | Allows unauthenticated peers on local subnets when encryption is disabled. |
+| `security` | `sanitize_remote_data` | Boolean (`0`/`1`) | SIMD vector validation checking IEEE 754 finiteness and clamping radiance values. |
+| `task_routing` | `route_interactive_viewport` | Boolean (`0`/`1`) | Routes live viewport screen tiles to connected cluster workers. |
+| `task_routing` | `route_capture_studio` | Boolean (`0`/`1`) | Routes capture studio sequence bands and super-sampled frames. |
+| `task_routing` | `route_monte_carlo_ensembles`| Boolean (`0`/`1`) | Routes stochastic geodesic bundle sample batches. |
+| `task_routing` | `route_nbody_interactions` | Boolean (`0`/`1`) | Routes post-Newtonian pairwise acceleration matrix row blocks. |
+| `task_routing` | `route_exact_spacetime_metrics` | Boolean (`0`/`1`) | Routes compute-intensive rotating or charged spacetime geodesics. |
+| `node_N` | `enabled` | Boolean (`0`/`1`) | Activates connection management for this static node entry. |
+| `node_N` | `name` | String | Identifier tag for the node. |
+| `node_N` | `address` | String | IPv4 address or hostname of the remote worker node. |
+| `node_N` | `port` | Integer (`1024`-`65535`) | Port accepting connections on the remote worker node. |
+| `node_N` | `static_weight` | Float ($> 0.0$) | Capacity multiplier weighting the node's quota in the load-balancer formulation. |
+| `node_N` | `prefer_fp64` | Boolean (`0`/`1`) | Requests native FP64 precision from the worker GPU. |

@@ -47,10 +47,10 @@ int main() {
 		std::array<uint8_t, 32> shared_token = {0xAA, 0xBB, 0xCC, 0xDD};
 
 		CryptoChannel channel_tx;
-		channel_tx.perform_handshake_server(bob.public_key, alice.private_key, shared_token);
+		suite.check(channel_tx.perform_handshake_server(bob.public_key, alice.private_key, shared_token), "Transmitter channel handshake succeeds");
 
 		CryptoChannel channel_rx;
-		channel_rx.perform_handshake_client(alice.public_key, bob.private_key, shared_token);
+		suite.check(channel_rx.perform_handshake_client(alice.public_key, bob.private_key, shared_token), "Receiver channel handshake succeeds");
 
 		PacketEnvelope header = make_envelope(PacketType::TaskAssignment, 1, 0, 0, std::span<const uint8_t>{});
 		std::vector<uint8_t> plaintext(65536);
@@ -91,7 +91,7 @@ int main() {
 		std::array<uint8_t, 32> shared_token = {0x11, 0x22, 0x33, 0x44};
 
 		CryptoChannel channel;
-		channel.perform_handshake_server(bob.public_key, alice.private_key, shared_token);
+		suite.check(channel.perform_handshake_server(bob.public_key, alice.private_key, shared_token), "Benchmark channel server handshake succeeds");
 
 		PacketEnvelope header = make_envelope(PacketType::TileResultData, 42, 0, 0, std::span<const uint8_t>{});
 		std::vector<uint8_t> data(32768, 0x42);
@@ -101,7 +101,7 @@ int main() {
 		const auto start = std::chrono::high_resolution_clock::now();
 		const size_t iterations = 20000;
 		for (size_t i = 0; i < iterations; ++i) {
-			channel.encrypt_and_authenticate_packet(header.authenticated_header(), data, out, tag);
+			static_cast<void>(channel.encrypt_and_authenticate_packet(header.authenticated_header(), data, out, tag));
 		}
 		const auto end = std::chrono::high_resolution_clock::now();
 		const double seconds = std::chrono::duration<double>(end - start).count();

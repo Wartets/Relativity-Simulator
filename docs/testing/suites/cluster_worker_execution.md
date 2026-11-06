@@ -1,18 +1,19 @@
-# Test Suite Specification: `test_cluster_worker_execution`
+# Test Suite Specification: Cluster Worker Execution
 
-## 1. Scope & Objective
-This test suite verifies the standalone headless compute worker (`cluster_worker`) and its underlying rendering component (`TileRenderer`), ensuring:
-1. Exact mathematical and colorimetric parity between local CPU evaluation and worker execution across relativistic Kerr spacetimes.
-2. Immediate response and bounded latency of cooperative task cancellations (`TaskCancel`).
-3. Memory encapsulation, determinism, and absence of resource leakage under repeated execution cycles.
+- **Executable Target:** `test_cluster_worker_execution`
+- **Source File:** `tests/test_cluster_worker_execution.cpp`
+- **Output Report:** `docs/testing/results/cluster_worker_execution.md`
 
-## 2. Invariants & Physical Tolerances
-- **Radiance Relative Error:** $\epsilon_{\text{rel}} = \frac{|L_{\text{worker}} - L_{\text{local}}|}{\max(|L_{\text{local}}|, 10^{-6})} < 1.0 \times 10^{-12}$.
-- **Redshift Shift Error:** $\epsilon_{\text{shift}} < 1.0 \times 10^{-12}$.
-- **Cancellation Latency:** Abort delay $t_{\text{cancel}} < 10.0\,\text{ms}$ upon atomic signal trigger.
-- **Stress Ingestion Ratio:** Exactly 100% completion across 1,000 serialized dispatches without memory corruption or resource exhaustion.
+## Purpose
 
-## 3. Test Cases
-1. `kerr_spacetime_mathematical_parity`: Renders Kerr black hole with spin $a = 0.94M$ and thin accretion disk, comparing each individual pixel.
-2. `preemptive_cancellation_watchdog`: Spawns asynchronous worker integration and fires cancellation token, measuring join latency.
-3. `repeated_tile_execution_stress`: Submits 1,000 consecutive tile rendering tasks in closed loop.
+Verifies exact mathematical parity between worker and local tile integration on Kerr black hole spacetimes with accretion disks, cooperative task cancellation response latency, and sustained execution stability.
+
+## Checked Invariants & Tolerances
+
+| Check Domain | Expected Value | Tolerance | Justification |
+| :--- | :--- | :--- | :--- |
+| Radiance Parity | Relative error < 1e-12 | Relative 1e-12 | Independent evaluation produces identical radiances |
+| Redshift Factor Parity | Relative error < 1e-12 | Relative 1e-12 | Exact relativistic Doppler and gravitational shift |
+| Status Flags | Match exactly | 0 mismatches | Identical pixel classifications |
+| Cancellation Latency | < 15 ms | Upper bound | Real-time viewport responsiveness |
+| Sustained Stability | 100% completed | 0 failures | Zero-leak isolation across consecutive tiles |

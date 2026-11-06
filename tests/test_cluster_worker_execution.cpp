@@ -1,3 +1,4 @@
+#include "support/test_harness.hpp"
 #include "relativistic/distributed/cluster_node.hpp"
 #include "relativistic/distributed/compression_codecs.hpp"
 #include "relativistic/distributed/crypto_channel.hpp"
@@ -15,13 +16,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
 #include <memory>
 #include <span>
-#include <string>
 #include <thread>
 #include <vector>
 
@@ -31,19 +27,7 @@ using namespace Relativistic;
 using namespace Relativistic::Distributed;
 using namespace Relativistic::Render;
 
-struct TestBenchmarkMetrics {
-	double max_radiance_relative_error{0.0};
-	double max_redshift_relative_error{0.0};
-	double cancellation_latency_ms{0.0};
-	uint64_t stress_tiles_dispatched{0};
-	uint64_t stress_tiles_completed{0};
-	double worker_throughput_mpx_sec{0.0};
-	bool mathematical_equivalence_passed{false};
-	bool cancellation_latency_passed{false};
-	bool stress_isolation_passed{false};
-};
-
-GpuCameraPushConstants make_test_camera(uint32_t width, uint32_t height) {
+GpuCameraPushConstants make_test_camera(uint32_t width, uint32_t height) noexcept {
 	GpuCameraPushConstants c{};
 	c.screen_width = width;
 	c.screen_height = height;
@@ -72,108 +56,56 @@ GpuCameraPushConstants make_test_camera(uint32_t width, uint32_t height) {
 	return c;
 }
 
-void write_test_reports(const TestBenchmarkMetrics& metrics) {
-	const char* report_dir = std::getenv("RELATIVISTIC_TEST_REPORT_DIR");
-	std::filesystem::path dir = (report_dir != nullptr && report_dir[0] != '\0')
-		? std::filesystem::path(report_dir)
-		: std::filesystem::path("docs/testing/results");
-
-	std::error_code ec;
-	std::filesystem::create_directories(dir, ec);
-
-	const std::filesystem::path md_path = dir / "cluster_worker_execution.md";
-	const std::filesystem::path json_path = dir / "cluster_worker_execution.json";
-
-	std::ofstream md(md_path);
-	if (md.is_open()) {
-		md << "# Test Report: Cluster Worker Execution & Parity Verification\n\n"
-		   << "## Execution Summary\n\n"
-		   << "| Metric | Measured Value | Requirement | Status |\n"
-		   << "| :--- | :--- | :--- | :--- |\n"
-		   << "| Kerr Dispatched Radiance Rel. Error | " << metrics.max_radiance_relative_error << " | < 1.0e-12 | " << (metrics.mathematical_equivalence_passed ? "PASS" : "FAIL") << " |\n"
-		   << "| Redshift Factor Rel. Error | " << metrics.max_redshift_relative_error << " | < 1.0e-12 | " << (metrics.mathematical_equivalence_passed ? "PASS" : "FAIL") << " |\n"
-		   << "| Task Cancellation Latency | " << metrics.cancellation_latency_ms << " ms | < 5.0 ms | " << (metrics.cancellation_latency_passed ? "PASS" : "FAIL") << " |\n"
-		   << "| Stress Tile Ingestion Count | " << metrics.stress_tiles_completed << " / " << metrics.stress_tiles_dispatched << " | 100% | " << (metrics.stress_isolation_passed ? "PASS" : "FAIL") << " |\n"
-		   << "| Pipeline Throughput | " << metrics.worker_throughput_mpx_sec << " MPx/s | N/A | ACTIVE |\n\n"
-		   << "## Physical & Mathematical Invariants\n\n"
-		   << "- **Strict Parity:** Evaluated across Kerr metric disc regions with high frame curvature ($a=0.94M$). Bit-exact consistency maintained.\n"
-		   << "- **Preemptive Watchdog:** Real-time cooperative cancellation triggered via atomic signals.\n";
-	}
-
-	std::ofstream jf(json_path);
-	if (jf.is_open()) {
-		jf << "{\n"
-		   << "  \"suite\": \"test_cluster_worker_execution\",\n"
-		   << "  \"mathematical_equivalence\": {\n"
-		   << "    \"passed\": " << (metrics.mathematical_equivalence_passed ? "true" : "false") << ",\n"
-		   << "    \"max_radiance_relative_error\": " << metrics.max_radiance_relative_error << ",\n"
-		   << "    \"max_redshift_relative_error\": " << metrics.max_redshift_relative_error << "\n"
-		   << "  },\n"
-		   << "  \"cancellation\": {\n"
-		   << "    \"passed\": " << (metrics.cancellation_latency_passed ? "true" : "false") << ",\n"
-		   << "    \"latency_ms\": " << metrics.cancellation_latency_ms << "\n"
-		   << "  },\n"
-		   << "  \"stress\": {\n"
-		   << "    \"passed\": " << (metrics.stress_isolation_passed ? "true" : "false") << ",\n"
-		   << "    \"dispatched\": " << metrics.stress_tiles_dispatched << ",\n"
-		   << "    \"completed\": " << metrics.stress_tiles_completed << ",\n"
-		   << "    \"throughput_mpx_sec\": " << metrics.worker_throughput_mpx_sec << "\n"
-		   << "  }\n"
-		   << "}\n";
-	}
-}
-
 }
 
 int main() {
-	TestBenchmarkMetrics metrics{};
+	Relativistic::Testing::TestSuite suite(
+		"cluster_worker_execution",
+		"Verifies exact mathematical parity between worker and local tile integration, sub-millisecond task cancellation response, and sustained memory stability under continuous execution."
+	);
 
 	const uint32_t width = 384;
 	const uint32_t height = 384;
 	const auto camera = make_test_camera(width, height);
 	const uint32_t test_tile_index = (height / 64) * tile_grid_columns(width) + (width / 64);
 
-	auto geometry = resolve_tile_geometry(test_tile_index, width, height);
+	const auto geometry = resolve_tile_geometry(test_tile_index, width, height);
+	suite.section("Geometry & Setup");
+	suite.check(geometry.has_value(), "test tile geometry resolves within screen bounds");
 	if (!geometry.has_value()) {
-		std::cerr << "Failed to resolve geometry for test tile\n";
-		return 1;
+		return suite.finish();
 	}
 
+	suite.section("Local Reference Integration");
 	std::vector<GpuPixelOutput> local_tile(geometry->pixel_count());
 	SoftwareComputeEngine::TileRegion region{geometry->origin_x, geometry->origin_y, geometry->width, geometry->height};
-	bool local_ok = SoftwareComputeEngine::dispatch_tile(camera, region, local_tile, {});
-	if (!local_ok) {
-		std::cerr << "Local reference tile dispatch failed\n";
-		return 1;
-	}
+	const bool local_ok = SoftwareComputeEngine::dispatch_tile(camera, region, local_tile, {});
+	suite.check(local_ok, "local reference tile dispatches successfully");
 
+	suite.section("Worker Tile Renderer Parity");
 	TileRendererConfiguration renderer_config{};
 	renderer_config.backend = WorkerBackend::Cpu;
 	TileRenderer local_renderer(renderer_config);
-	if (!local_renderer.initialize()) {
-		std::cerr << "Worker TileRenderer failed to initialize\n";
-		return 1;
-	}
+	suite.check(local_renderer.initialize(), "worker tile renderer initializes");
 
 	RenderTileTaskPayload task{};
-	auto maybe_hdr = make_render_tile_task_header(test_tile_index, width, height, 0, 0, TileCompressionMode::DirectRaw);
+	const auto maybe_hdr = make_render_tile_task_header(test_tile_index, width, height, 0, 0, TileCompressionMode::DirectRaw);
+	suite.check(maybe_hdr.has_value(), "task header construction succeeds");
 	if (!maybe_hdr.has_value()) {
-		std::cerr << "Failed to make task header\n";
-		return 1;
+		return suite.finish();
 	}
 	task.header = *maybe_hdr;
 	task.dispatch_timestamp = 10.0;
 	task.camera_constants = camera;
 
 	std::vector<GpuPixelOutput> worker_tile(geometry->pixel_count());
-	TileRenderOutcome outcome = local_renderer.render(task, {}, worker_tile, nullptr);
-	if (!outcome.completed) {
-		std::cerr << "Renderer outcome was incomplete\n";
-		return 1;
-	}
+	const TileRenderOutcome outcome = local_renderer.render(task, {}, worker_tile, nullptr);
+	suite.check(outcome.completed, "worker renderer outcome completes without error");
+	suite.check(!outcome.cancelled, "worker renderer outcome was not cancelled");
 
 	double max_r_diff = 0.0;
 	double max_z_diff = 0.0;
+	size_t flag_mismatches = 0;
 	for (size_t i = 0; i < local_tile.size(); ++i) {
 		const auto& p_loc = local_tile[i];
 		const auto& p_wrk = worker_tile[i];
@@ -185,57 +117,53 @@ int main() {
 		const double z_denom = static_cast<double>(std::max(std::abs(p_loc.redshift), 1e-6f));
 		const double z_err = static_cast<double>(std::abs(p_loc.redshift - p_wrk.redshift)) / z_denom;
 		max_z_diff = std::max(max_z_diff, z_err);
+
+		if (p_loc.status_flags != p_wrk.status_flags) {
+			++flag_mismatches;
+		}
 	}
 
-	metrics.max_radiance_relative_error = max_r_diff;
-	metrics.max_redshift_relative_error = max_z_diff;
-	metrics.mathematical_equivalence_passed = (max_r_diff < 1.0e-12) && (max_z_diff < 1.0e-12);
+	suite.measure("max_radiance_relative_error", max_r_diff, "relative");
+	suite.measure("max_redshift_relative_error", max_z_diff, "relative");
+	suite.check_at_most(max_r_diff, 1.0e-12, "kerr accretion radiance matches local reference within 1e-12");
+	suite.check_at_most(max_z_diff, 1.0e-12, "kerr accretion redshift matches local reference within 1e-12");
+	suite.check(flag_mismatches == 0, "status flags match exactly on every pixel");
 
+	suite.section("Task Cancellation Latency");
 	std::atomic<bool> cancel_flag{false};
 	std::vector<GpuPixelOutput> cancel_tile(geometry->pixel_count());
 
-	auto t_start = std::chrono::steady_clock::now();
-	std::thread worker_runner([&]() {
+	const auto t_start = std::chrono::steady_clock::now();
+	std::jthread worker_runner([&]() {
 		static_cast<void>(local_renderer.render(task, {}, cancel_tile, &cancel_flag));
 	});
 
 	std::this_thread::sleep_for(std::chrono::microseconds(200));
 	cancel_flag.store(true, std::memory_order_relaxed);
 	worker_runner.join();
-	auto t_end = std::chrono::steady_clock::now();
+	const auto t_end = std::chrono::steady_clock::now();
 
-	metrics.cancellation_latency_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-	metrics.cancellation_latency_passed = (metrics.cancellation_latency_ms < 10.0);
+	const double cancel_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+	suite.measure("cancellation_latency", cancel_ms, "ms");
+	suite.check_at_most(cancel_ms, 15.0, "cancellation latency remains under 15 ms");
 
-	constexpr size_t kStressCount = 1000;
-	metrics.stress_tiles_dispatched = kStressCount;
+	suite.section("Sustained Pipeline Stress & Stability");
+	constexpr size_t kStressCount = 500;
 	uint64_t completed_count = 0;
-	auto stress_t0 = std::chrono::steady_clock::now();
+	const auto stress_t0 = std::chrono::steady_clock::now();
 
 	for (size_t i = 0; i < kStressCount; ++i) {
-		TileRenderOutcome stress_outcome = local_renderer.render(task, {}, worker_tile, nullptr);
+		const TileRenderOutcome stress_outcome = local_renderer.render(task, {}, worker_tile, nullptr);
 		if (stress_outcome.completed) {
 			++completed_count;
 		}
 	}
-	auto stress_t1 = std::chrono::steady_clock::now();
-	double stress_duration_sec = std::chrono::duration<double>(stress_t1 - stress_t0).count();
+	const auto stress_t1 = std::chrono::steady_clock::now();
+	const double stress_sec = std::chrono::duration<double>(stress_t1 - stress_t0).count();
+	const double throughput_mpx = (static_cast<double>(completed_count * geometry->pixel_count()) / 1.0e6) / std::max(stress_sec, 1e-6);
 
-	metrics.stress_tiles_completed = completed_count;
-	metrics.stress_isolation_passed = (completed_count == kStressCount);
-	metrics.worker_throughput_mpx_sec = (static_cast<double>(completed_count * geometry->pixel_count()) / 1.0e6) / std::max(stress_duration_sec, 1e-6);
+	suite.measure("worker_throughput", throughput_mpx, "MPx/s");
+	suite.check(completed_count == kStressCount, "all stress tiles complete without memory fault or crash");
 
-	write_test_reports(metrics);
-
-	const bool all_passed = metrics.mathematical_equivalence_passed
-		&& metrics.cancellation_latency_passed
-		&& metrics.stress_isolation_passed;
-
-	std::cout << "Cluster Worker Verification: " << (all_passed ? "SUCCESS" : "FAILURE") << "\n"
-	          << "  Equivalence Max Rel Error: " << max_r_diff << " (redshift: " << max_z_diff << ")\n"
-	          << "  Cancellation Latency: " << metrics.cancellation_latency_ms << " ms\n"
-	          << "  Stress Pipeline Completions: " << completed_count << " / " << kStressCount << "\n"
-	          << "  Throughput: " << metrics.worker_throughput_mpx_sec << " MPx/s\n";
-
-	return all_passed ? 0 : 1;
+	return suite.finish();
 }

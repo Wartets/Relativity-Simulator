@@ -120,6 +120,8 @@ int main(int argc, char** argv) {
 		while (!global_stop_flag.load(std::memory_order_relaxed)) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		}
+		master.clear_local_tile_renderer();
+		master.clear_local_nbody_evaluator();
 		master.shutdown();
 		std::cout << "\nCluster Master stopped gracefully.\n";
 		return 0;

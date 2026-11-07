@@ -1,8 +1,8 @@
 {
   "suite": "dark_matter_field",
   "description": "Verifies the dark matter field of the renderer and the N-body coupling: enclosed mass fractions of every profile, triaxial ellipsoidal geometry, gravitational acceleration and lensing scale, photon deflection and step limit, volumetric emission, settings serialization, anchor resolution, subhalo population generation and presets.",
-  "generated": "2026-11-05 09:54:22 UTC",
-  "duration_seconds": 0.0029083,
+  "generated": "2026-11-06 12:54:26 UTC",
+  "duration_seconds": 0.0029003,
   "passed": false,
   "checks": [
     {"section": "Profile mathematics", "label": "the enclosed mass fraction vanishes at the centre for every profile", "detail": "", "passed": true},

@@ -7,8 +7,8 @@ Verifies the JPL HORIZONS interface: the request URL carries the target, centre 
 | Status | PASSED |
 | Checks | 9 |
 | Failed checks | 0 |
-| Duration | 0.001247 s |
-| Generated | 2026-11-05 09:54:34 UTC |
+| Duration | 0.001189 s |
+| Generated | 2026-11-06 12:54:41 UTC |
 
 ## Query URL
 

@@ -7,8 +7,8 @@ Verifies the 2.5PN radiation reaction of an equal-mass binary: the total energy 
 | Status | PASSED |
 | Checks | 3 |
 | Failed checks | 0 |
-| Duration | 0.1579 s |
-| Generated | 2026-11-05 09:55:59 UTC |
+| Duration | 0.1401 s |
+| Generated | 2026-11-06 12:56:12 UTC |
 
 ## Radiative energy loss
 

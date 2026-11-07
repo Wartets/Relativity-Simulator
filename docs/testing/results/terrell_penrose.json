@@ -1,8 +1,8 @@
 {
   "suite": "terrell_penrose",
   "description": "Verifies the Terrell-Penrose optics: the backward aberration inverts the forward aberration for axis-aligned and oblique velocities, a ray intersects a moving sphere with a positive Doppler factor, and the apparent rotation angle satisfies sin(angle) = beta.",
-  "generated": "2026-11-05 10:01:25 UTC",
-  "duration_seconds": 0.0010101,
+  "generated": "2026-11-06 12:56:32 UTC",
+  "duration_seconds": 0.0008454,
   "passed": true,
   "checks": [
     {"section": "Aberration inversion", "label": "the backward aberration restores a transverse direction for a boost along x", "detail": "value=1.4803e-16 limit=1e-12", "passed": true},

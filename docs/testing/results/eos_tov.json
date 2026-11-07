@@ -1,8 +1,8 @@
 {
   "suite": "eos_tov",
   "description": "Verifies the equations of state and the stellar structure solver: ideal gas, Synge and Mathews relations and limits, the degenerate Fermi gas identities, the tabulated nuclear table round trip, and Tolman-Oppenheimer-Volkoff stars for a white dwarf, a free neutron gas and the SFHo, Shen and LS220 tables.",
-  "generated": "2026-11-05 09:54:28 UTC",
-  "duration_seconds": 3.9710329,
+  "generated": "2026-11-06 12:54:33 UTC",
+  "duration_seconds": 4.3870134,
   "passed": true,
   "checks": [
     {"section": "Ideal gas", "label": "the pressure equals (Gamma - 1) rho eps", "detail": "actual=33.3333333333 expected=33.3333333333 abs_error=0 tolerance=1e-12", "passed": true},

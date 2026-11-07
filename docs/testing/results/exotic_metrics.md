@@ -7,8 +7,8 @@ Verifies the traversable wormhole and the warp bubble: the Morris-Thorne metric 
 | Status | PASSED |
 | Checks | 21 |
 | Failed checks | 0 |
-| Duration | 0.006352 s |
-| Generated | 2026-11-05 09:54:28 UTC |
+| Duration | 0.00657 s |
+| Generated | 2026-11-06 12:54:34 UTC |
 
 ## Morris-Thorne throat
 

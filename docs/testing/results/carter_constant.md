@@ -7,8 +7,8 @@ Verifies the conservation of the Kerr constants of motion along a timelike geode
 | Status | PASSED |
 | Checks | 7 |
 | Failed checks | 0 |
-| Duration | 4.648 s |
-| Generated | 2026-11-05 09:50:33 UTC |
+| Duration | 3.483 s |
+| Generated | 2026-11-06 12:49:05 UTC |
 
 ## Initial conditions
 

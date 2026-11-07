@@ -7,8 +7,8 @@ Verifies the equations of state and the stellar structure solver: ideal gas, Syn
 | Status | PASSED |
 | Checks | 32 |
 | Failed checks | 0 |
-| Duration | 3.971 s |
-| Generated | 2026-11-05 09:54:27 UTC |
+| Duration | 4.387 s |
+| Generated | 2026-11-06 12:54:33 UTC |
 
 ## Ideal gas
 

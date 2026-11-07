@@ -7,8 +7,8 @@ Verifies the VTK PolyData exporter: the polyline document of a geodesic carries 
 | Status | PASSED |
 | Checks | 8 |
 | Failed checks | 0 |
-| Duration | 0.003508 s |
-| Generated | 2026-11-05 10:02:15 UTC |
+| Duration | 0.003962 s |
+| Generated | 2026-11-06 12:57:31 UTC |
 
 ## Geodesic polylines
 

@@ -1,8 +1,8 @@
 {
   "suite": "spherical_harmonics",
   "description": "Verifies the spherical harmonic gravity model: unnormalized associated Legendre functions and their derivative against closed forms, the consistency of the analytic acceleration with the numerical gradient of the potential, and the zonal coefficients of the Earth, Moon and Jupiter models.",
-  "generated": "2026-11-05 10:01:23 UTC",
-  "duration_seconds": 0.0025318,
+  "generated": "2026-11-06 12:56:29 UTC",
+  "duration_seconds": 0.0027503,
   "passed": true,
   "checks": [
     {"section": "Associated Legendre functions", "label": "P00 equals 1", "detail": "actual=1 expected=1 abs_error=0 tolerance=1e-14", "passed": true},

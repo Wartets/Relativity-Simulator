@@ -1,8 +1,8 @@
 {
   "suite": "spectral_shift_beaming",
   "description": "Verifies the spectral shift and beaming relations: the longitudinal and transverse kinematic Doppler factors, the Schwarzschild gravitational redshift between a static emitter and a static observer, the g^3 and g^4 intensity and flux scalings, and the wavelength transformation.",
-  "generated": "2026-11-05 09:50:28 UTC",
-  "duration_seconds": 0.0012069,
+  "generated": "2026-11-06 12:49:01 UTC",
+  "duration_seconds": 0.0007558,
   "passed": true,
   "checks": [
     {"section": "Kinematic Doppler factor", "label": "a head-on source is blueshifted by sqrt((1 + beta) / (1 - beta))", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-12", "passed": true},

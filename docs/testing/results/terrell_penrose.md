@@ -7,8 +7,8 @@ Verifies the Terrell-Penrose optics: the backward aberration inverts the forward
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.00101 s |
-| Generated | 2026-11-05 10:01:25 UTC |
+| Duration | 0.0008454 s |
+| Generated | 2026-11-06 12:56:32 UTC |
 
 ## Aberration inversion
 

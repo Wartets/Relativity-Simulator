@@ -93,7 +93,7 @@ struct MeasurementRecord {
 
 [[nodiscard]] inline std::filesystem::path report_directory() {
 	const char* override_path = std::getenv("RELATIVISTIC_TEST_REPORT_DIR");
-	return std::filesystem::path((override_path != nullptr && override_path[0] != '\0') ? override_path : "test_reports");
+	return std::filesystem::path((override_path != nullptr && override_path[0] != '\0') ? override_path : "docs/testing/results");
 }
 
 class TestSuite {

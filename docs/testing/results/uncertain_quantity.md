@@ -7,8 +7,8 @@ Verifies the uncertain quantity wrapper: nominal value and uncertainty propagati
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.0008894 s |
-| Generated | 2026-11-05 10:01:27 UTC |
+| Duration | 0.00079 s |
+| Generated | 2026-11-06 12:56:34 UTC |
 
 ## Interval-backed quantities
 

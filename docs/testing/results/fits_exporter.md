@@ -7,8 +7,8 @@ Verifies the FITS exporter: logical records of 2880 bytes, mandatory keywords an
 | Status | PASSED |
 | Checks | 12 |
 | Failed checks | 0 |
-| Duration | 0.006714 s |
-| Generated | 2026-11-05 09:54:29 UTC |
+| Duration | 0.005861 s |
+| Generated | 2026-11-06 12:54:35 UTC |
 
 ## Two-dimensional image
 

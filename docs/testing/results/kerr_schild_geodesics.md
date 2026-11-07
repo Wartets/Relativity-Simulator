@@ -7,8 +7,8 @@ Verifies timelike geodesics in horizon-regular Kerr-Schild coordinates: an orbit
 | Status | PASSED |
 | Checks | 6 |
 | Failed checks | 0 |
-| Duration | 1.122 s |
-| Generated | 2026-11-05 09:55:31 UTC |
+| Duration | 1.058 s |
+| Generated | 2026-11-06 12:55:44 UTC |
 
 ## Polar axis crossing
 

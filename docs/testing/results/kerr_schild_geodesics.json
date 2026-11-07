@@ -1,8 +1,8 @@
 {
   "suite": "kerr_schild_geodesics",
   "description": "Verifies timelike geodesics in horizon-regular Kerr-Schild coordinates: an orbit crossing the polar axis stays finite for two thousand adaptive steps, and a radial infall crosses the outer horizon without the integration failing.",
-  "generated": "2026-11-05 09:55:31 UTC",
-  "duration_seconds": 1.1222722,
+  "generated": "2026-11-06 12:55:44 UTC",
+  "duration_seconds": 1.0578432,
   "passed": true,
   "checks": [
     {"section": "Polar axis crossing", "label": "the timelike normalization admits a real temporal velocity near the axis", "detail": "", "passed": true},

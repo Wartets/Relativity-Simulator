@@ -1,8 +1,8 @@
 {
   "suite": "horizon_crossing",
   "description": "Verifies horizon-regular spacetimes and horizon handling: Painleve-Gullstrand and Eddington-Finkelstein metrics and connections stay regular from 0.1 to 10 Schwarzschild radii, a free-falling particle and an ingoing photon cross the horizon with preserved invariants, absorption and continuity boundary modes behave as configured, and rays inside the horizon cannot escape.",
-  "generated": "2026-11-05 09:54:33 UTC",
-  "duration_seconds": 0.0475075,
+  "generated": "2026-11-06 12:54:40 UTC",
+  "duration_seconds": 0.042783,
   "passed": true,
   "checks": [
     {"section": "Painleve-Gullstrand regularity across the horizon", "label": "Painleve-Gullstrand: the Schwarzschild radius equals 2 M in geometric units", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-15", "passed": true},

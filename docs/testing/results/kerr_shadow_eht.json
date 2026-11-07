@@ -1,8 +1,8 @@
 {
   "suite": "kerr_shadow_eht",
   "description": "Verifies the Bardeen shadow of the Kerr metric: the area of the Schwarzschild shadow against pi times 27 M^2, and the overlap ratio of the computed boundary with the analytic curve for spins from 0 to 0.9999 and inclinations of 17 and 90 degrees.",
-  "generated": "2026-11-05 09:55:31 UTC",
-  "duration_seconds": 0.1094669,
+  "generated": "2026-11-06 12:55:44 UTC",
+  "duration_seconds": 0.1036892,
   "passed": true,
   "checks": [
     {"section": "Schwarzschild shadow area", "label": "the shadow area equals 27 pi M^2 within a relative 1e-5", "detail": "actual=84.8228621187 expected=84.8230016469 rel_error=1.645e-06 tolerance=1e-05", "passed": true},

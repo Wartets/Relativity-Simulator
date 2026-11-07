@@ -655,6 +655,63 @@ add_executable(test_ui_multi_window tests/test_ui_multi_window.cpp)
 target_link_libraries(test_ui_multi_window PRIVATE relativistic_core imgui_lib)
 add_test(NAME test_ui_multi_window COMMAND test_ui_multi_window)
 
+if (ENGINE_ENABLE_DISTRIBUTED)
+	add_executable(test_cluster_crypto_protocol tests/test_cluster_crypto_protocol.cpp)
+	target_link_libraries(test_cluster_crypto_protocol PRIVATE relativistic_core)
+	add_test(NAME test_cluster_crypto_protocol COMMAND test_cluster_crypto_protocol)
+
+	add_executable(test_cluster_serialization_codecs tests/test_cluster_serialization_codecs.cpp)
+	target_link_libraries(test_cluster_serialization_codecs PRIVATE relativistic_core)
+	add_test(NAME test_cluster_serialization_codecs COMMAND test_cluster_serialization_codecs)
+
+	add_executable(test_cluster_scheduler_stealing tests/test_cluster_scheduler_stealing.cpp)
+	target_link_libraries(test_cluster_scheduler_stealing PRIVATE relativistic_core)
+	add_test(NAME test_cluster_scheduler_stealing COMMAND test_cluster_scheduler_stealing)
+
+	add_executable(test_cluster_worker_execution tests/test_cluster_worker_execution.cpp)
+	target_link_libraries(test_cluster_worker_execution PRIVATE relativistic_core)
+	if (TARGET relativistic_cluster_tile_shaders)
+		add_dependencies(test_cluster_worker_execution relativistic_cluster_tile_shaders)
+		target_compile_definitions(test_cluster_worker_execution PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	if (TARGET relativistic_nbody_shaders)
+		add_dependencies(test_cluster_worker_execution relativistic_nbody_shaders)
+		target_compile_definitions(test_cluster_worker_execution PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
+	endif()
+	add_test(NAME test_cluster_worker_execution COMMAND test_cluster_worker_execution)
+
+	add_executable(test_distributed_geodesic_pipeline tests/test_distributed_geodesic_pipeline.cpp)
+	target_link_libraries(test_distributed_geodesic_pipeline PRIVATE relativistic_core)
+	if (TARGET relativistic_cluster_tile_shaders)
+		add_dependencies(test_distributed_geodesic_pipeline relativistic_cluster_tile_shaders)
+		target_compile_definitions(test_distributed_geodesic_pipeline PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	if (TARGET relativistic_nbody_shaders)
+		add_dependencies(test_distributed_geodesic_pipeline relativistic_nbody_shaders)
+		target_compile_definitions(test_distributed_geodesic_pipeline PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
+	endif()
+	add_test(NAME test_distributed_geodesic_pipeline COMMAND test_distributed_geodesic_pipeline)
+
+	add_executable(benchmark_cluster_throughput tests/benchmark_cluster_throughput.cpp)
+	target_link_libraries(benchmark_cluster_throughput PRIVATE relativistic_core)
+	if (TARGET relativistic_cluster_tile_shaders)
+		add_dependencies(benchmark_cluster_throughput relativistic_cluster_tile_shaders)
+		target_compile_definitions(benchmark_cluster_throughput PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
+	endif()
+	if (TARGET relativistic_nbody_shaders)
+		add_dependencies(benchmark_cluster_throughput relativistic_nbody_shaders)
+		target_compile_definitions(benchmark_cluster_throughput PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
+	endif()
+	add_test(NAME benchmark_cluster_throughput_quick COMMAND benchmark_cluster_throughput --profile quick)
+
+	add_custom_target(run_cluster_throughput_benchmark
+		COMMAND ${CMAKE_COMMAND} -E env RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR} $<TARGET_FILE:benchmark_cluster_throughput> --profile full
+		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+		DEPENDS benchmark_cluster_throughput
+		USES_TERMINAL
+	)
+endif()
+
 get_directory_property(RELATIVISTIC_REGISTERED_TESTS TESTS)
 set_tests_properties(${RELATIVISTIC_REGISTERED_TESTS} PROPERTIES ENVIRONMENT "RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR}")
 
@@ -741,61 +798,6 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 		target_compile_options(cluster_worker PRIVATE -g1 -fno-omit-frame-pointer)
 	endif()
-
-	add_executable(test_cluster_crypto_protocol tests/test_cluster_crypto_protocol.cpp)
-	target_link_libraries(test_cluster_crypto_protocol PRIVATE relativistic_core)
-	add_test(NAME test_cluster_crypto_protocol COMMAND test_cluster_crypto_protocol WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_executable(test_cluster_serialization_codecs tests/test_cluster_serialization_codecs.cpp)
-	target_link_libraries(test_cluster_serialization_codecs PRIVATE relativistic_core)
-	add_test(NAME test_cluster_serialization_codecs COMMAND test_cluster_serialization_codecs WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_executable(test_cluster_scheduler_stealing tests/test_cluster_scheduler_stealing.cpp)
-	target_link_libraries(test_cluster_scheduler_stealing PRIVATE relativistic_core)
-	add_test(NAME test_cluster_scheduler_stealing COMMAND test_cluster_scheduler_stealing WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_executable(test_cluster_worker_execution tests/test_cluster_worker_execution.cpp)
-	target_link_libraries(test_cluster_worker_execution PRIVATE relativistic_core)
-	if (TARGET relativistic_cluster_tile_shaders)
-		add_dependencies(test_cluster_worker_execution relativistic_cluster_tile_shaders)
-		target_compile_definitions(test_cluster_worker_execution PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
-	endif()
-	if (TARGET relativistic_nbody_shaders)
-		add_dependencies(test_cluster_worker_execution relativistic_nbody_shaders)
-		target_compile_definitions(test_cluster_worker_execution PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
-	endif()
-	add_test(NAME test_cluster_worker_execution COMMAND test_cluster_worker_execution WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_executable(test_distributed_geodesic_pipeline tests/test_distributed_geodesic_pipeline.cpp)
-	target_link_libraries(test_distributed_geodesic_pipeline PRIVATE relativistic_core)
-	if (TARGET relativistic_cluster_tile_shaders)
-		add_dependencies(test_distributed_geodesic_pipeline relativistic_cluster_tile_shaders)
-		target_compile_definitions(test_distributed_geodesic_pipeline PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
-	endif()
-	if (TARGET relativistic_nbody_shaders)
-		add_dependencies(test_distributed_geodesic_pipeline relativistic_nbody_shaders)
-		target_compile_definitions(test_distributed_geodesic_pipeline PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
-	endif()
-	add_test(NAME test_distributed_geodesic_pipeline COMMAND test_distributed_geodesic_pipeline WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_executable(benchmark_cluster_throughput tests/benchmark_cluster_throughput.cpp)
-	target_link_libraries(benchmark_cluster_throughput PRIVATE relativistic_core)
-	if (TARGET relativistic_cluster_tile_shaders)
-		add_dependencies(benchmark_cluster_throughput relativistic_cluster_tile_shaders)
-		target_compile_definitions(benchmark_cluster_throughput PRIVATE RELATIVISTIC_EMBEDDED_TILE_SPIRV=1)
-	endif()
-	if (TARGET relativistic_nbody_shaders)
-		add_dependencies(benchmark_cluster_throughput relativistic_nbody_shaders)
-		target_compile_definitions(benchmark_cluster_throughput PRIVATE RELATIVISTIC_EMBEDDED_NBODY_SPIRV=1)
-	endif()
-	add_test(NAME benchmark_cluster_throughput_quick COMMAND benchmark_cluster_throughput --profile quick WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-	add_custom_target(run_cluster_throughput_benchmark
-		COMMAND ${CMAKE_COMMAND} -E env RELATIVISTIC_TEST_REPORT_DIR=${RELATIVISTIC_TEST_RESULTS_DIR} $<TARGET_FILE:benchmark_cluster_throughput> --profile full
-		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-		DEPENDS benchmark_cluster_throughput
-		USES_TERMINAL
-	)
 endif()
 
 if (TARGET relativistic_compute_shaders)

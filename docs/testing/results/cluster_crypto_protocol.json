@@ -1,0 +1,31 @@
+{
+  "suite": "cluster_crypto_protocol",
+  "description": "Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD sealing, and anti-replay constraints.",
+  "generated": "2026-11-07 17:58:04 UTC",
+  "duration_seconds": 113.598096,
+  "passed": false,
+  "checks": [
+    {"section": "Packet Binary Envelopes", "label": "PacketEnvelope size is exactly 48 bytes (aligned 16 bytes)", "detail": "", "passed": true},
+    {"section": "Packet Binary Envelopes", "label": "Magic identifier is 0x52454C44 (RELD)", "detail": "", "passed": true},
+    {"section": "Packet Binary Envelopes", "label": "Protocol version initialized to 1", "detail": "", "passed": true},
+    {"section": "Packet Binary Envelopes", "label": "Envelope structure validation succeeds on exact size", "detail": "", "passed": true},
+    {"section": "Packet Binary Envelopes", "label": "Envelope structure validation fails on truncated buffer", "detail": "", "passed": true},
+    {"section": "X25519 Diffie-Hellman Key Exchange", "label": "Alice (Server) computes handshake", "detail": "", "passed": true},
+    {"section": "X25519 Diffie-Hellman Key Exchange", "label": "Bob (Client) computes handshake", "detail": "", "passed": true},
+    {"section": "X25519 Diffie-Hellman Key Exchange", "label": "Alice channel marked as established", "detail": "", "passed": true},
+    {"section": "X25519 Diffie-Hellman Key Exchange", "label": "Bob channel marked as established", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Transmitter channel handshake succeeds", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Receiver channel handshake succeeds", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Encryption succeeds on 64KB payload", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Decryption and tag verification succeeds", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Decrypted payload exactly matches original plaintext", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Poly1305 rejects corrupted ciphertext", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Poly1305 rejects AAD modification (header manipulation)", "detail": "", "passed": true},
+    {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Anti-replay window rejects duplicate sequence number", "detail": "", "passed": true},
+    {"section": "Throughput Performance Measurement", "label": "Benchmark channel server handshake succeeds", "detail": "", "passed": true},
+    {"section": "Throughput Performance Measurement", "label": "ChaCha20-Poly1305 throughput is sufficient for real-time operations", "detail": "", "passed": false}
+  ],
+  "measurements": [
+    {"section": "Throughput Performance Measurement", "name": "chacha20_throughput", "value": 5.50919417339, "unit": "MB/s"}
+  ]
+}

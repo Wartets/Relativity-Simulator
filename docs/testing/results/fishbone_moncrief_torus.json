@@ -1,8 +1,8 @@
 {
   "suite": "fishbone_moncrief_torus",
   "description": "Verifies the Fishbone-Moncrief torus: the enthalpy and density at the pressure maximum and at the cusp, the exclusion of the region inside the inner edge, the normalization of the fluid four-velocity, the polytropic and enthalpy relations and the Cartesian evaluation.",
-  "generated": "2026-11-05 09:54:29 UTC",
-  "duration_seconds": 0.0014343,
+  "generated": "2026-11-06 12:54:34 UTC",
+  "duration_seconds": 0.0031587,
   "passed": true,
   "checks": [
     {"section": "Equilibrium and cusp", "label": "the specific angular momentum is positive", "detail": "", "passed": true},

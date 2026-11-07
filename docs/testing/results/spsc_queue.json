@@ -1,8 +1,8 @@
 {
   "suite": "spsc_queue",
   "description": "Verifies the lock-free single-producer single-consumer ring buffer: capacity, ordering, wrap-around and an integrity check over half a million elements transferred between two threads.",
-  "generated": "2026-11-05 10:01:23 UTC",
-  "duration_seconds": 0.1489899,
+  "generated": "2026-11-06 12:56:30 UTC",
+  "duration_seconds": 0.1771834,
   "passed": true,
   "checks": [
     {"section": "Sequential behaviour", "label": "a new queue is empty", "detail": "", "passed": true},

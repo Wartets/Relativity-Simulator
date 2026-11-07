@@ -7,8 +7,8 @@ Verifies horizon-regular spacetimes and horizon handling: Painleve-Gullstrand an
 | Status | PASSED |
 | Checks | 35 |
 | Failed checks | 0 |
-| Duration | 0.04751 s |
-| Generated | 2026-11-05 09:54:33 UTC |
+| Duration | 0.04278 s |
+| Generated | 2026-11-06 12:54:40 UTC |
 
 ## Painleve-Gullstrand regularity across the horizon
 

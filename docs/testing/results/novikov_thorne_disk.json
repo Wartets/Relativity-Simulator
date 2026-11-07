@@ -1,8 +1,8 @@
 {
   "suite": "novikov_thorne_disk",
   "description": "Verifies the Novikov-Thorne thin disk: the ISCO radius for Schwarzschild, prograde and retrograde Kerr holes, the closed-form Page-Thorne function against numerical quadrature, the radiative efficiency, the normalization of the circular four-velocity, and the flux and temperature profile.",
-  "generated": "2026-11-05 09:55:51 UTC",
-  "duration_seconds": 0.3133668,
+  "generated": "2026-11-06 12:56:04 UTC",
+  "duration_seconds": 0.296691,
   "passed": true,
   "checks": [
     {"section": "Innermost stable circular orbit", "label": "the Schwarzschild ISCO equals 6 r_g", "detail": "actual=8860.0181462 expected=8860.0181462 rel_error=0 tolerance=1e-12", "passed": true},

@@ -1,8 +1,8 @@
 {
   "suite": "shapiro_delay",
   "description": "Verifies the Shapiro time delay of a radio signal grazing a Schwarzschild mass between r = 50000 and r = 75000 with closest approach 1000: the coordinate flight time integrated with the sixth-order Gauss-Legendre scheme agrees with an independent Gauss-Legendre quadrature of the exact geodesic equation within a relative 1e-11.",
-  "generated": "2026-11-05 10:01:21 UTC",
-  "duration_seconds": 4.1967889,
+  "generated": "2026-11-06 12:56:28 UTC",
+  "duration_seconds": 3.6357154,
   "passed": true,
   "checks": [
     {"section": "Geodesic integration", "label": "every implicit step converges", "detail": "", "passed": true},

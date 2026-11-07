@@ -7,8 +7,8 @@ Verifies the terminal command path and the interactive camera controller that th
 | Status | PASSED |
 | Checks | 33 |
 | Failed checks | 0 |
-| Duration | 0.00356 s |
-| Generated | 2026-11-05 10:01:27 UTC |
+| Duration | 0.004991 s |
+| Generated | 2026-11-06 12:56:34 UTC |
 
 ## Parameter commands
 

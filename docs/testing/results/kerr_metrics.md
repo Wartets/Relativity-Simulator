@@ -7,8 +7,8 @@ Verifies the Kerr metric in Boyer-Lindquist and Kerr-Schild forms: horizon and e
 | Status | PASSED |
 | Checks | 18 |
 | Failed checks | 0 |
-| Duration | 0.001863 s |
-| Generated | 2026-11-05 09:55:29 UTC |
+| Duration | 0.001592 s |
+| Generated | 2026-11-06 12:55:42 UTC |
 
 ## Boyer-Lindquist horizons and ergosphere
 

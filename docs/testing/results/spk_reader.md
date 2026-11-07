@@ -7,8 +7,8 @@ Verifies the SPICE SPK Chebyshev segment evaluation: the zeroth coefficient is r
 | Status | PASSED |
 | Checks | 8 |
 | Failed checks | 0 |
-| Duration | 0.001089 s |
-| Generated | 2026-11-05 10:01:23 UTC |
+| Duration | 0.001303 s |
+| Generated | 2026-11-06 12:56:30 UTC |
 
 ## Absolute states at the segment midpoint
 

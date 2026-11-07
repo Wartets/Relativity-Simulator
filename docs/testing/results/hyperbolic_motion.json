@@ -1,8 +1,8 @@
 {
   "suite": "hyperbolic_motion",
   "description": "Verifies the relativistic rocket against the closed-form hyperbolic motion of constant proper acceleration in flat spacetime: proper time, velocity, position and Lorentz factor over a grid of accelerations and coordinate times.",
-  "generated": "2026-11-05 09:55:25 UTC",
-  "duration_seconds": 50.5013411,
+  "generated": "2026-11-06 12:55:37 UTC",
+  "duration_seconds": 55.7250763,
   "passed": true,
   "checks": [
     {"section": "Constant proper acceleration sweep", "label": "the proper time matches the hyperbolic solution within 1e-7 over the whole grid", "detail": "value=4.05928e-08 limit=1e-07", "passed": true},

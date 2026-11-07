@@ -7,8 +7,8 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | Status | FAILED |
 | Checks | 68 |
 | Failed checks | 8 |
-| Duration | 0.02353 s |
-| Generated | 2026-11-05 09:56:00 UTC |
+| Duration | 0.02665 s |
+| Generated | 2026-11-06 12:56:13 UTC |
 
 ## Mode catalogue
 

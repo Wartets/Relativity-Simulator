@@ -7,8 +7,8 @@ Verifies the analytic dark matter halo profiles: the NFW density and enclosed ma
 | Status | PASSED |
 | Checks | 12 |
 | Failed checks | 0 |
-| Duration | 0.001106 s |
-| Generated | 2026-11-05 09:54:23 UTC |
+| Duration | 0.001777 s |
+| Generated | 2026-11-06 12:54:27 UTC |
 
 ## Navarro-Frenk-White
 

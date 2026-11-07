@@ -7,8 +7,8 @@ Verifies the spectral shift and beaming relations: the longitudinal and transver
 | Status | PASSED |
 | Checks | 7 |
 | Failed checks | 0 |
-| Duration | 0.001207 s |
-| Generated | 2026-11-05 09:50:28 UTC |
+| Duration | 0.0007558 s |
+| Generated | 2026-11-06 12:49:01 UTC |
 
 ## Kinematic Doppler factor
 

@@ -1,8 +1,8 @@
 {
   "suite": "spk_reader",
   "description": "Verifies the SPICE SPK Chebyshev segment evaluation: the zeroth coefficient is returned at the segment midpoint in SI units, several segments coexist in one kernel, and relative states are computed as the difference of target and centre states.",
-  "generated": "2026-11-05 10:01:23 UTC",
-  "duration_seconds": 0.0010888,
+  "generated": "2026-11-06 12:56:30 UTC",
+  "duration_seconds": 0.0013026,
   "passed": true,
   "checks": [
     {"section": "Absolute states at the segment midpoint", "label": "the Earth segment is found at J2000", "detail": "", "passed": true},

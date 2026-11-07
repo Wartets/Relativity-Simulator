@@ -1,8 +1,8 @@
 {
   "suite": "hermite4_aarseth",
   "description": "Verifies the fourth-order Hermite predictor-corrector with Aarseth step selection on a circular Schwarzschild orbit: one thousand variable steps are recorded, the accumulated step is positive and the orbital radius stays constant.",
-  "generated": "2026-11-05 09:54:33 UTC",
-  "duration_seconds": 0.0640429,
+  "generated": "2026-11-06 12:54:39 UTC",
+  "duration_seconds": 0.0648426,
   "passed": true,
   "checks": [
     {"section": "Circular orbit", "label": "the accumulated proper time is positive", "detail": "", "passed": true},

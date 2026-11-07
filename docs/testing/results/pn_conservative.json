@@ -1,8 +1,8 @@
 {
   "suite": "pn_conservative",
   "description": "Verifies the conservative post-Newtonian dynamics: energy and orbital angular momentum conservation of an equal-mass 1PN binary integrated with the fourth-order Runge-Kutta scheme, and energy conservation of a Newtonian binary integrated with the symplectic Forest-Ruth scheme.",
-  "generated": "2026-11-05 09:55:58 UTC",
-  "duration_seconds": 0.2223119,
+  "generated": "2026-11-06 12:56:11 UTC",
+  "duration_seconds": 0.1837846,
   "passed": true,
   "checks": [
     {"section": "1PN binary with the Runge-Kutta integrator", "label": "the initial total energy is finite", "detail": "value=-0.027398078125", "passed": true},

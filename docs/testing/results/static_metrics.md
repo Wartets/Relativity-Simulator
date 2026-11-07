@@ -7,8 +7,8 @@ Verifies the static and exotic spacetime metrics: metric inversion, symmetry, Lo
 | Status | FAILED |
 | Checks | 89 |
 | Failed checks | 2 |
-| Duration | 0.01329 s |
-| Generated | 2026-11-05 10:01:24 UTC |
+| Duration | 0.009984 s |
+| Generated | 2026-11-06 12:56:31 UTC |
 
 ## Static spherical metrics in geometric units
 

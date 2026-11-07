@@ -7,8 +7,8 @@ Verifies the MOND framework: the Newtonian limit at high acceleration, the deep-
 | Status | PASSED |
 | Checks | 7 |
 | Failed checks | 0 |
-| Duration | 0.001058 s |
-| Generated | 2026-11-05 09:55:49 UTC |
+| Duration | 0.0009097 s |
+| Generated | 2026-11-06 12:56:02 UTC |
 
 ## Acceleration limits
 

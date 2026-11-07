@@ -7,8 +7,8 @@ Verifies the tidal and rotational perturbation models: the lunar tide changes th
 | Status | PASSED |
 | Checks | 6 |
 | Failed checks | 0 |
-| Duration | 0.001192 s |
-| Generated | 2026-11-06 12:56:34 UTC |
+| Duration | 0.001032 s |
+| Generated | 2026-11-07 18:19:48 UTC |
 
 ## Third-body tide
 

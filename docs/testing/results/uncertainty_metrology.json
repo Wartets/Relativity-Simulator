@@ -1,8 +1,8 @@
 {
   "suite": "uncertainty_metrology",
   "description": "Verifies the metrology visualizer: a covariance ellipsoid mesh with the requested tessellation is generated for a diagonal covariance, and a two-dimensional Gaussian heatmap has the requested raster and a populated density grid.",
-  "generated": "2026-11-06 12:56:35 UTC",
-  "duration_seconds": 0.0010247,
+  "generated": "2026-11-07 18:19:49 UTC",
+  "duration_seconds": 0.0009499,
   "passed": true,
   "checks": [
     {"section": "Covariance ellipsoid", "label": "the mesh contains vertices", "detail": "vertices=153", "passed": true},

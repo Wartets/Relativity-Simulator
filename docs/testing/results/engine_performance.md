@@ -7,8 +7,8 @@ Large-scale performance and capability benchmark of the rendering engine. It swe
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 14.72 s |
-| Generated | 2026-11-06 12:47:29 UTC |
+| Duration | 16.5 s |
+| Generated | 2026-11-07 18:10:26 UTC |
 
 ## Notes
 
@@ -40,8 +40,8 @@ Large-scale performance and capability benchmark of the rendering engine. It swe
 | Environment | hardware_threads | 12 | threads |
 | Environment | gpu_available | 1 | boolean |
 | Environment | scenario_count | 16 | cases |
-| Environment | benchmark_wall_time | 13.1802175 | s |
+| Environment | benchmark_wall_time | 15.3232157 | s |
 | CPU and GPU image parity | mean_absolute_rgb_difference_cpu_vs_gpu | 0.00105611965 | linear sRGB units |
-| CPU and GPU image parity | parity_frame_cpu_time | 75.2868 | ms |
-| CPU and GPU image parity | parity_frame_gpu_time | 7.1558 | ms |
+| CPU and GPU image parity | parity_frame_cpu_time | 62.699 | ms |
+| CPU and GPU image parity | parity_frame_gpu_time | 6.4975 | ms |
 

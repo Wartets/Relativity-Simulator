@@ -1,8 +1,8 @@
 {
   "suite": "horizons_parser",
   "description": "Verifies the JPL HORIZONS interface: the request URL carries the target, centre and ephemeris type, and a vector table between the SOE and EOE markers is parsed into SI state vectors.",
-  "generated": "2026-11-06 12:54:41 UTC",
-  "duration_seconds": 0.0011885,
+  "generated": "2026-11-07 18:17:54 UTC",
+  "duration_seconds": 0.0010022,
   "passed": true,
   "checks": [
     {"section": "Query URL", "label": "the URL requests the Earth NAIF identifier 399", "detail": "", "passed": true},

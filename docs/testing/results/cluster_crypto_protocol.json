@@ -1,8 +1,8 @@
 {
   "suite": "cluster_crypto_protocol",
   "description": "Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD sealing, and anti-replay constraints.",
-  "generated": "2026-11-07 17:58:04 UTC",
-  "duration_seconds": 113.598096,
+  "generated": "2026-11-07 18:14:28 UTC",
+  "duration_seconds": 117.137528,
   "passed": false,
   "checks": [
     {"section": "Packet Binary Envelopes", "label": "PacketEnvelope size is exactly 48 bytes (aligned 16 bytes)", "detail": "", "passed": true},
@@ -26,6 +26,6 @@
     {"section": "Throughput Performance Measurement", "label": "ChaCha20-Poly1305 throughput is sufficient for real-time operations", "detail": "", "passed": false}
   ],
   "measurements": [
-    {"section": "Throughput Performance Measurement", "name": "chacha20_throughput", "value": 5.50919417339, "unit": "MB/s"}
+    {"section": "Throughput Performance Measurement", "name": "chacha20_throughput", "value": 5.34562850927, "unit": "MB/s"}
   ]
 }

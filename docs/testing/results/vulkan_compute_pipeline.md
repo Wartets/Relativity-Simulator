@@ -7,8 +7,8 @@ Verifies the headless compute pipeline on a 64 by 64 Schwarzschild frame at r = 
 | Status | FAILED |
 | Checks | 8 |
 | Failed checks | 1 |
-| Duration | 1.463 s |
-| Generated | 2026-11-06 12:57:33 UTC |
+| Duration | 1.505 s |
+| Generated | 2026-11-07 18:20:45 UTC |
 
 ## Notes
 

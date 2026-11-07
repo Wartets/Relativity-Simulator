@@ -1,8 +1,8 @@
 {
   "suite": "tidal_rotational_gravity",
   "description": "Verifies the tidal and rotational perturbation models: the lunar tide changes the Earth C20 coefficient by a small non-zero amount, the direct tidal acceleration of a satellite on the Earth-Moon axis is purely radial, and the rotational flattening reproduces the Earth J2.",
-  "generated": "2026-11-06 12:56:34 UTC",
-  "duration_seconds": 0.0011918,
+  "generated": "2026-11-07 18:19:48 UTC",
+  "duration_seconds": 0.001032,
   "passed": true,
   "checks": [
     {"section": "Third-body tide", "label": "the lunar tide modifies the normalized C20 coefficient", "detail": "", "passed": true},

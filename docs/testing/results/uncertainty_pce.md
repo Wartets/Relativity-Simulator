@@ -7,8 +7,8 @@ Verifies the polynomial chaos propagation of a geodesic with an uncertain angula
 | Status | FAILED |
 | Checks | 7 |
 | Failed checks | 2 |
-| Duration | 54.73 s |
-| Generated | 2026-11-06 12:57:30 UTC |
+| Duration | 52.4 s |
+| Generated | 2026-11-07 18:20:42 UTC |
 
 ## Polynomial chaos propagation
 
@@ -35,7 +35,7 @@ Verifies the polynomial chaos propagation of a geodesic with an uncertain angula
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| PASS | the order-four expansion is at least 400 times faster than the ten-million-sample ensemble | ratio=9317.17 |
+| PASS | the order-four expansion is at least 400 times faster than the ten-million-sample ensemble | ratio=8140.44 |
 
 ## Measurements
 
@@ -47,7 +47,7 @@ Verifies the polynomial chaos propagation of a geodesic with an uncertain angula
 | Statistical agreement | mc_variance | 0 | rad^2 |
 | Statistical agreement | pce_skewness | 0 | dimensionless |
 | Statistical agreement | mc_skewness | 0 | dimensionless |
-| Cost | pce_time | 5.7336 | ms |
-| Cost | monte_carlo_time | 53420.912 | ms |
-| Cost | speedup_ratio | 9317.16757 | dimensionless |
+| Cost | pce_time | 6.2731 | ms |
+| Cost | monte_carlo_time | 51065.778 | ms |
+| Cost | speedup_ratio | 8140.43742 | dimensionless |
 

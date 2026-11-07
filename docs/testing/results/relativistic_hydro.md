@@ -7,8 +7,8 @@ Verifies the relativistic hydrodynamics stack: ideal gas and Synge equations of 
 | Status | PASSED |
 | Checks | 26 |
 | Failed checks | 0 |
-| Duration | 3.212 s |
-| Generated | 2026-11-06 12:56:17 UTC |
+| Duration | 3.094 s |
+| Generated | 2026-11-07 18:19:30 UTC |
 
 ## Equation of state
 

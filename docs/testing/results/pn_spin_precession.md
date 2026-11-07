@@ -7,8 +7,8 @@ Verifies the post-Newtonian spin precession of a binary: both precession angular
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 0.0006701 s |
-| Generated | 2026-11-06 12:56:12 UTC |
+| Duration | 0.001723 s |
+| Generated | 2026-11-07 18:19:25 UTC |
 
 ## Precession direction
 

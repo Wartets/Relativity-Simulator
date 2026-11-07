@@ -1,8 +1,8 @@
 {
   "suite": "cluster_serialization_codecs",
   "description": "Validates lossless and near-lossless tile codecs (DirectRaw, QOI-HDR RLE, LZ4Block), SIMD vector sanitization of corrupted radiances, and binary wire serialization contracts.",
-  "generated": "2026-11-07 17:58:41 UTC",
-  "duration_seconds": 0.7028668,
+  "generated": "2026-11-07 18:14:30 UTC",
+  "duration_seconds": 0.8084781,
   "passed": false,
   "checks": [
     {"section": "DirectRaw Mode Exact Identity", "label": "direct raw compression returns Ok", "detail": "", "passed": true},
@@ -2335,7 +2335,7 @@
     {"section": "Wire Envelope Encoding & Parsing", "label": "truncated buffer fails deserialization gracefully", "detail": "", "passed": true}
   ],
   "measurements": [
-    {"section": "LZ4Block Mode Compression & Throughput", "name": "lz4_decompress_throughput", "value": 94.6542892175, "unit": "MB/s"},
+    {"section": "LZ4Block Mode Compression & Throughput", "name": "lz4_decompress_throughput", "value": 81.4104616481, "unit": "MB/s"},
     {"section": "QOI-HDR RLE Spectral Precision", "name": "qoi_max_relative_error", "value": 0.000471789665073, "unit": "relative"}
   ]
 }

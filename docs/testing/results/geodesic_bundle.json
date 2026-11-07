@@ -1,8 +1,8 @@
 {
   "suite": "geodesic_bundle",
   "description": "Verifies the structure-of-arrays ray bundles and their four-vector algebra: the lane-wise Minkowski product, the Lorentz factor, the relativistic velocity addition, and the evolution of an eight-lane Schwarzschild null bundle, without any dynamic allocation.",
-  "generated": "2026-11-06 12:54:38 UTC",
-  "duration_seconds": 0.0616692,
+  "generated": "2026-11-07 18:17:51 UTC",
+  "duration_seconds": 0.0446749,
   "passed": false,
   "checks": [
     {"section": "Four-vector algebra", "label": "the lane-wise Minkowski product follows -u0 v0 + u.v", "detail": "value=0 limit=1e-15", "passed": true},

@@ -1,18 +1,26 @@
 {
-  "suite": "test_cluster_worker_execution",
-  "mathematical_equivalence": {
-    "passed": true,
-    "max_radiance_relative_error": 0,
-    "max_redshift_relative_error": 0
-  },
-  "cancellation": {
-    "passed": true,
-    "latency_ms": 1.1002
-  },
-  "stress": {
-    "passed": true,
-    "dispatched": 1000,
-    "completed": 1000,
-    "throughput_mpx_sec": 0.013109
-  }
+  "suite": "cluster_worker_execution",
+  "description": "Verifies exact mathematical parity between worker and local tile integration, sub-millisecond task cancellation response, and sustained memory stability under continuous execution.",
+  "generated": "2026-11-07 18:15:16 UTC",
+  "duration_seconds": 42.4840798,
+  "passed": true,
+  "checks": [
+    {"section": "Geometry & Setup", "label": "test tile geometry resolves within screen bounds", "detail": "", "passed": true},
+    {"section": "Local Reference Integration", "label": "local reference tile dispatches successfully", "detail": "", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "worker tile renderer initializes", "detail": "", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "task header construction succeeds", "detail": "", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "worker renderer outcome completes without error", "detail": "", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "worker renderer outcome was not cancelled", "detail": "", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "kerr accretion radiance matches local reference within 1e-12", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "kerr accretion redshift matches local reference within 1e-12", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Worker Tile Renderer Parity", "label": "status flags match exactly on every pixel", "detail": "", "passed": true},
+    {"section": "Task Cancellation Latency", "label": "cancellation latency remains under 15 ms", "detail": "value=2.5853 limit=15", "passed": true},
+    {"section": "Sustained Pipeline Stress & Stability", "label": "all stress tiles complete without memory fault or crash", "detail": "", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Worker Tile Renderer Parity", "name": "max_radiance_relative_error", "value": 0, "unit": "relative"},
+    {"section": "Worker Tile Renderer Parity", "name": "max_redshift_relative_error", "value": 0, "unit": "relative"},
+    {"section": "Task Cancellation Latency", "name": "cancellation_latency", "value": 2.5853, "unit": "ms"},
+    {"section": "Sustained Pipeline Stress & Stability", "name": "worker_throughput", "value": 0.0121374424161, "unit": "MPx/s"}
+  ]
 }

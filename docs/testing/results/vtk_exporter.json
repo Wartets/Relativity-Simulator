@@ -1,8 +1,8 @@
 {
   "suite": "vtk_exporter",
   "description": "Verifies the VTK PolyData exporter: the polyline document of a geodesic carries its point and line counts and the redshift array, and the horizon sphere document carries the expected number of quadrilaterals.",
-  "generated": "2026-11-06 12:57:31 UTC",
-  "duration_seconds": 0.0039621,
+  "generated": "2026-11-07 18:20:43 UTC",
+  "duration_seconds": 0.0033686,
   "passed": true,
   "checks": [
     {"section": "Geodesic polylines", "label": "the geodesic export is not empty", "detail": "", "passed": true},

@@ -1,8 +1,8 @@
 {
   "suite": "ui_multi_window",
   "description": "Verifies the terminal command path and the interactive camera controller that the multi-window interface relies on: parameter, camera, metric, integrator, render and preset commands applied through the REPL, controller speed and sensitivity accessors, scroll zoom, navigation mode switching and the snap helpers.",
-  "generated": "2026-11-06 12:56:34 UTC",
-  "duration_seconds": 0.0049911,
+  "generated": "2026-11-07 18:19:49 UTC",
+  "duration_seconds": 0.0027337,
   "passed": true,
   "checks": [
     {"section": "Parameter commands", "label": "the mass command is accepted", "detail": "", "passed": true},

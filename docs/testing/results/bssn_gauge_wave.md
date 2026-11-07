@@ -7,8 +7,8 @@ Verifies the BSSN evolution on the one-dimensional gauge wave of amplitude 0.1 o
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 68.43 s |
-| Generated | 2026-11-06 12:49:00 UTC |
+| Duration | 91.65 s |
+| Generated | 2026-11-07 18:12:23 UTC |
 
 ## Initial data
 

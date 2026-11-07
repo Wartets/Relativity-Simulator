@@ -7,8 +7,8 @@ Verifies the portable SIMD vector and mask types across element types and widths
 | Status | PASSED |
 | Checks | 26 |
 | Failed checks | 0 |
-| Duration | 0.001763 s |
-| Generated | 2026-11-06 12:56:28 UTC |
+| Duration | 0.001905 s |
+| Generated | 2026-11-07 18:19:43 UTC |
 
 ## Arithmetic and reductions
 

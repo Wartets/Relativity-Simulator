@@ -7,8 +7,8 @@ Verifies the electrovacuum and cosmological metrics: Reissner-Nordstrom and Kerr
 | Status | PASSED |
 | Checks | 35 |
 | Failed checks | 0 |
-| Duration | 0.002818 s |
-| Generated | 2026-11-06 12:57:31 UTC |
+| Duration | 0.005003 s |
+| Generated | 2026-11-07 18:20:43 UTC |
 
 ## Reissner-Nordstrom horizons
 

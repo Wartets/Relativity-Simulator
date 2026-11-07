@@ -7,8 +7,8 @@ Verifies a deterministic collision of two disk-bulge-halo galaxies of 500 partic
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 1.755 s |
-| Generated | 2026-11-06 12:54:37 UTC |
+| Duration | 1.548 s |
+| Generated | 2026-11-07 18:17:51 UTC |
 
 ## Initial conditions
 

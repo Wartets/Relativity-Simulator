@@ -7,8 +7,8 @@ Verifies the zonotope enclosure: bounding box and exact hypervolume of a unit sq
 | Status | PASSED |
 | Checks | 7 |
 | Failed checks | 0 |
-| Duration | 0.01358 s |
-| Generated | 2026-11-06 12:57:34 UTC |
+| Duration | 0.01724 s |
+| Generated | 2026-11-07 18:20:46 UTC |
 
 ## Geometry of a square zonotope
 

@@ -7,8 +7,8 @@ Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD seal
 | Status | FAILED |
 | Checks | 19 |
 | Failed checks | 1 |
-| Duration | 113.6 s |
-| Generated | 2026-11-07 17:58:04 UTC |
+| Duration | 117.1 s |
+| Generated | 2026-11-07 18:14:28 UTC |
 
 ## Packet Binary Envelopes
 
@@ -53,5 +53,5 @@ Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD seal
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| Throughput Performance Measurement | chacha20_throughput | 5.50919417 | MB/s |
+| Throughput Performance Measurement | chacha20_throughput | 5.34562851 | MB/s |
 

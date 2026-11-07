@@ -7,8 +7,8 @@ Validates lossless and near-lossless tile codecs (DirectRaw, QOI-HDR RLE, LZ4Blo
 | Status | FAILED |
 | Checks | 2328 |
 | Failed checks | 1 |
-| Duration | 0.7029 s |
-| Generated | 2026-11-07 17:58:41 UTC |
+| Duration | 0.8085 s |
+| Generated | 2026-11-07 18:14:30 UTC |
 
 ## DirectRaw Mode Exact Identity
 
@@ -2367,6 +2367,6 @@ Validates lossless and near-lossless tile codecs (DirectRaw, QOI-HDR RLE, LZ4Blo
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| LZ4Block Mode Compression & Throughput | lz4_decompress_throughput | 94.6542892 | MB/s |
+| LZ4Block Mode Compression & Throughput | lz4_decompress_throughput | 81.4104616 | MB/s |
 | QOI-HDR RLE Spectral Precision | qoi_max_relative_error | 0.000471789665 | relative |
 

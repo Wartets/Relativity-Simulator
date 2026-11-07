@@ -7,8 +7,8 @@ Verifies the persistent worker pool: worker count, execution of every enqueued t
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 0.004175 s |
-| Generated | 2026-11-06 12:56:33 UTC |
+| Duration | 0.002328 s |
+| Generated | 2026-11-07 18:19:48 UTC |
 
 ## Task execution
 

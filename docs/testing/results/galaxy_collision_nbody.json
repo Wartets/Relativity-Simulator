@@ -1,8 +1,8 @@
 {
   "suite": "galaxy_collision_nbody",
   "description": "Verifies a deterministic collision of two disk-bulge-halo galaxies of 500 particles each evolved for fifteen Barnes-Hut leapfrog steps: the centre of mass drifts by less than 1e19 m and the magnitude of the total angular momentum changes by less than 5 percent.",
-  "generated": "2026-11-06 12:54:37 UTC",
-  "duration_seconds": 1.7546233,
+  "generated": "2026-11-07 18:17:51 UTC",
+  "duration_seconds": 1.5476132,
   "passed": true,
   "checks": [
     {"section": "Initial conditions", "label": "the two galaxies provide 1000 particles", "detail": "count=1000", "passed": true},

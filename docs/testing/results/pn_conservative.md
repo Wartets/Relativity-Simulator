@@ -7,8 +7,8 @@ Verifies the conservative post-Newtonian dynamics: energy and orbital angular mo
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 0.1838 s |
-| Generated | 2026-11-06 12:56:11 UTC |
+| Duration | 0.2728 s |
+| Generated | 2026-11-07 18:19:24 UTC |
 
 ## 1PN binary with the Runge-Kutta integrator
 

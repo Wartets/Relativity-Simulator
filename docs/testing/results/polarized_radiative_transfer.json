@@ -1,8 +1,8 @@
 {
   "suite": "polarized_radiative_transfer",
   "description": "Verifies polarized radiative transfer: Stokes vector invariants and frame rotation, Bessel functions and the Maxwell-Juttner distribution, the polarization degree of power-law synchrotron emission and absorption, thermal bremsstrahlung and its Gaunt factor, the analytic and Runge-Kutta transfer steps, and inverse Compton scattering against the Thomson limit.",
-  "generated": "2026-11-06 12:56:13 UTC",
-  "duration_seconds": 0.0279114,
+  "generated": "2026-11-07 18:19:26 UTC",
+  "duration_seconds": 0.0590343,
   "passed": true,
   "checks": [
     {"section": "Stokes vector", "label": "a fully linearly polarized vector is physically valid", "detail": "", "passed": true},

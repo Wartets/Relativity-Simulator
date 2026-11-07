@@ -7,8 +7,8 @@ Verifies the Hu-Sawicki chameleon model: the scalaron mass grows with the ambien
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.0009232 s |
-| Generated | 2026-11-06 12:54:34 UTC |
+| Duration | 0.001413 s |
+| Generated | 2026-11-07 18:17:47 UTC |
 
 ## Scalaron mass
 

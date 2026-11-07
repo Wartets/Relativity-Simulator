@@ -7,8 +7,8 @@ Verifies the relativistic rocket in flat spacetime: constant proper acceleration
 | Status | PASSED |
 | Checks | 10 |
 | Failed checks | 0 |
-| Duration | 2.65 s |
-| Generated | 2026-11-06 12:56:22 UTC |
+| Duration | 3.082 s |
+| Generated | 2026-11-07 18:19:36 UTC |
 
 ## Proper-time flow
 

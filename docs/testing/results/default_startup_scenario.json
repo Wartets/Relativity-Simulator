@@ -1,8 +1,8 @@
 {
   "suite": "default_startup_scenario",
   "description": "Verifies the startup path: the initial camera pose, the resolution of the built-in startup scenario and the fallback rules for empty, missing and valid configurations, the load through the command queue, and the preservation of the scenario and of its camera pose across a view reset, a full reset and a failed load.",
-  "generated": "2026-11-06 12:54:27 UTC",
-  "duration_seconds": 0.0136634,
+  "generated": "2026-11-07 18:17:41 UTC",
+  "duration_seconds": 0.0260125,
   "passed": false,
   "checks": [
     {"section": "Initial state", "label": "initial camera: the camera is at (-5, 37, -7)", "detail": "", "passed": true},

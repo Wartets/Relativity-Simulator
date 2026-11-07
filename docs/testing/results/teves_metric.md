@@ -7,8 +7,8 @@ Verifies the TeVeS spacetime metric: satisfaction of the spacetime concept, geom
 | Status | PASSED |
 | Checks | 9 |
 | Failed checks | 0 |
-| Duration | 0.001384 s |
-| Generated | 2026-11-06 12:56:33 UTC |
+| Duration | 0.001303 s |
+| Generated | 2026-11-07 18:19:48 UTC |
 
 ## Geometrized units
 

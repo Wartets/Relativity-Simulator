@@ -7,8 +7,8 @@ Verifies the rendered shadow of a Schwarzschild black hole seen from r = 50 M: t
 | Status | FAILED |
 | Checks | 1 |
 | Failed checks | 1 |
-| Duration | 0.9132 s |
-| Generated | 2026-11-06 12:56:24 UTC |
+| Duration | 1.166 s |
+| Generated | 2026-11-07 18:19:39 UTC |
 
 ## Notes
 

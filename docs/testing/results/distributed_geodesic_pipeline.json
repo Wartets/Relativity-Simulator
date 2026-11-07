@@ -1,0 +1,33 @@
+{
+  "suite": "distributed_geodesic_pipeline",
+  "description": "Validates distributed geodesic compute pipeline execution, colorimetric and geometric fidelity of reassembled frames against local reference, resilience under simulated worker failure, and distributed physics/uncertainty evaluation.",
+  "generated": "2026-11-07 18:17:42 UTC",
+  "duration_seconds": 0.3885189,
+  "passed": false,
+  "checks": [
+    {"section": "Pipeline Frame Reassembly & Parity", "label": "orchestrator dispatch frame succeeds", "detail": "", "passed": false},
+    {"section": "Pipeline Frame Reassembly & Parity", "label": "radiance matches local reference within 1e-5 across all pixels", "detail": "value=1 limit=1e-05", "passed": false},
+    {"section": "Pipeline Frame Reassembly & Parity", "label": "pixel status classifications match exactly", "detail": "", "passed": false},
+    {"section": "Pipeline Frame Reassembly & Parity", "label": "horizon absorbed ray count preserved exactly", "detail": "", "passed": false},
+    {"section": "Pipeline Frame Reassembly & Parity", "label": "celestial hit ray count preserved exactly", "detail": "", "passed": false},
+    {"section": "Worker Disconnection Resilience & Work Stealing", "label": "frame completed reliably despite synthetic disruption", "detail": "", "passed": false},
+    {"section": "Worker Disconnection Resilience & Work Stealing", "label": "zero unrendered or missing pixels in reassembled framebuffer", "detail": "", "passed": true},
+    {"section": "Distributed 1PN N-Body Evaluation", "label": "local 1pn nbody evaluation succeeds", "detail": "", "passed": true},
+    {"section": "Distributed 1PN N-Body Evaluation", "label": "orchestrator evaluate nbody accelerations succeeds", "detail": "", "passed": true},
+    {"section": "Distributed 1PN N-Body Evaluation", "label": "nbody 1pn accelerations match local evaluation within 1e-12", "detail": "value=0 limit=1e-12", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "local geodesic ensemble runs successfully", "detail": "", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "orchestrator run geodesic ensemble succeeds", "detail": "", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "sample count preserved exactly", "detail": "", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "absorbed count matches local reference", "detail": "", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "escaped count matches local reference", "detail": "", "passed": true},
+    {"section": "Distributed Geodesic Uncertainty Ensemble", "label": "mean minimum radius matches reference", "detail": "actual=50 expected=50 abs_error=0 tolerance=1e-10", "passed": true},
+    {"section": "Distributed Stochastic PCE Quadrature", "label": "local pce quadrature runs successfully", "detail": "", "passed": true},
+    {"section": "Distributed Stochastic PCE Quadrature", "label": "orchestrator pce quadrature succeeds", "detail": "", "passed": true},
+    {"section": "Distributed Stochastic PCE Quadrature", "label": "pce quadrature points match local evaluation within 1e-10", "detail": "value=0 limit=1e-10", "passed": true}
+  ],
+  "measurements": [
+    {"section": "Pipeline Frame Reassembly & Parity", "name": "max_radiance_absolute_difference", "value": 1, "unit": "radiance"},
+    {"section": "Distributed 1PN N-Body Evaluation", "name": "max_nbody_acceleration_error", "value": 0, "unit": "acceleration"},
+    {"section": "Distributed Stochastic PCE Quadrature", "name": "max_pce_response_error", "value": 0, "unit": "response"}
+  ]
+}

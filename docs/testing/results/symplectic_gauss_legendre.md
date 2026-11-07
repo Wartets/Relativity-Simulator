@@ -7,8 +7,8 @@ Verifies the implicit Gauss-Legendre integrators: exact straight-line propagatio
 | Status | PASSED |
 | Checks | 8 |
 | Failed checks | 0 |
-| Duration | 0.3286 s |
-| Generated | 2026-11-06 12:56:32 UTC |
+| Duration | 0.314 s |
+| Generated | 2026-11-07 18:19:46 UTC |
 
 ## Flat spacetime
 

@@ -7,8 +7,8 @@ Verifies the covariance machinery and the variational geodesic integrator: covar
 | Status | PASSED |
 | Checks | 24 |
 | Failed checks | 0 |
-| Duration | 150.1 s |
-| Generated | 2026-11-06 12:54:26 UTC |
+| Duration | 140.7 s |
+| Generated | 2026-11-07 18:17:39 UTC |
 
 ## Covariance algebra
 

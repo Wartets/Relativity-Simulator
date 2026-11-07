@@ -7,8 +7,8 @@ Verifies the Barnes-Hut octree on a deterministic Gaussian cloud of 300 softened
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 0.1608 s |
-| Generated | 2026-11-06 12:47:51 UTC |
+| Duration | 0.3868 s |
+| Generated | 2026-11-07 18:10:51 UTC |
 
 ## Tree construction
 

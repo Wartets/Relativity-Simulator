@@ -1,8 +1,8 @@
 {
   "suite": "bssn_gauge_wave",
   "description": "Verifies the BSSN evolution on the one-dimensional gauge wave of amplitude 0.1 on a 64 by 4 by 4 grid evolved for one thousand Runge-Kutta steps of 0.25 dx: the Hamiltonian constraint stays finite at every checkpoint, the lapse stays positive, and the constraint norm grows by less than a factor of 100.",
-  "generated": "2026-11-06 12:49:00 UTC",
-  "duration_seconds": 68.4292357,
+  "generated": "2026-11-07 18:12:23 UTC",
+  "duration_seconds": 91.6517995,
   "passed": true,
   "checks": [
     {"section": "Initial data", "label": "the initial Hamiltonian constraint is finite", "detail": "", "passed": true},

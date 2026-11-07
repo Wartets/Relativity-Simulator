@@ -7,8 +7,8 @@ Verifies the structure-of-arrays ray bundles and their four-vector algebra: the 
 | Status | FAILED |
 | Checks | 6 |
 | Failed checks | 1 |
-| Duration | 0.06167 s |
-| Generated | 2026-11-06 12:54:38 UTC |
+| Duration | 0.04467 s |
+| Generated | 2026-11-07 18:17:51 UTC |
 
 ## Four-vector algebra
 

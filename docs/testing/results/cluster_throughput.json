@@ -1,8 +1,8 @@
 {
   "suite": "cluster_throughput",
   "description": "Benchmarks distributed geodesic rendering throughput, parallel scaling efficiency, load balancing, and wire codec performance across simulated cluster topologies.",
-  "generated": "2026-11-07 18:01:35 UTC",
-  "duration_seconds": 9.8822777,
+  "generated": "2026-11-07 18:10:09 UTC",
+  "duration_seconds": 6.8435572,
   "passed": false,
   "checks": [
     {"section": "Correctness & Invariant Validation (Decoupled from Timing)", "label": "all output pixels have finite physical radiances", "detail": "", "passed": true},
@@ -13,11 +13,11 @@
     {"section": "Compression Codec Bandwidth Comparison", "label": "lz4 real-time compression exceeds 300 MB/s", "detail": "", "passed": false}
   ],
   "measurements": [
-    {"section": "Baseline Local Throughput", "name": "baseline_throughput", "value": 0.213836819736, "unit": "MPx/s"},
-    {"section": "Baseline Local Throughput", "name": "baseline_frame_time", "value": 306.476686667, "unit": "ms"},
+    {"section": "Baseline Local Throughput", "name": "baseline_throughput", "value": 0.290649079023, "unit": "MPx/s"},
+    {"section": "Baseline Local Throughput", "name": "baseline_frame_time", "value": 225.481533333, "unit": "ms"},
     {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_throughput", "value": 1638400, "unit": "MPx/s"},
-    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_speedup_factor", "value": 7661917.16667, "unit": "ratio"},
-    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_direct_raw_throughput", "value": 22745.8002154, "unit": "MB/s"},
-    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_lz4_compression_throughput", "value": 100.73404658, "unit": "MB/s"}
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_speedup_factor", "value": 5637038.33333, "unit": "ratio"},
+    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_direct_raw_throughput", "value": 22565.131997, "unit": "MB/s"},
+    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_lz4_compression_throughput", "value": 90.605100583, "unit": "MB/s"}
   ]
 }

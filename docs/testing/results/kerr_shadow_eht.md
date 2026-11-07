@@ -7,8 +7,8 @@ Verifies the Bardeen shadow of the Kerr metric: the area of the Schwarzschild sh
 | Status | PASSED |
 | Checks | 6 |
 | Failed checks | 0 |
-| Duration | 0.1037 s |
-| Generated | 2026-11-06 12:55:44 UTC |
+| Duration | 0.2565 s |
+| Generated | 2026-11-07 18:18:56 UTC |
 
 ## Schwarzschild shadow area
 

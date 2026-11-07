@@ -1,8 +1,8 @@
 {
   "suite": "relativistic_hydro",
   "description": "Verifies the relativistic hydrodynamics stack: ideal gas and Synge equations of state, the conserved to primitive inversion for hydrodynamic, ultra-relativistic and magnetized states, WENO5 and MP5 reconstruction, the HLL, HLLC and HLLD solvers, constrained transport and the relativistic Sod and Balsara 1 shock tubes.",
-  "generated": "2026-11-06 12:56:17 UTC",
-  "duration_seconds": 3.2119003,
+  "generated": "2026-11-07 18:19:30 UTC",
+  "duration_seconds": 3.0944016,
   "passed": true,
   "checks": [
     {"section": "Equation of state", "label": "the ideal gas pressure equals (Gamma - 1) rho eps", "detail": "actual=2 expected=2 abs_error=0 tolerance=1e-12", "passed": true},

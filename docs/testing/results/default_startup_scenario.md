@@ -7,8 +7,8 @@ Verifies the startup path: the initial camera pose, the resolution of the built-
 | Status | FAILED |
 | Checks | 26 |
 | Failed checks | 7 |
-| Duration | 0.01366 s |
-| Generated | 2026-11-06 12:54:27 UTC |
+| Duration | 0.02601 s |
+| Generated | 2026-11-07 18:17:41 UTC |
 
 ## Initial state
 

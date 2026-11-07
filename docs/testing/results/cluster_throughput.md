@@ -7,8 +7,8 @@ Benchmarks distributed geodesic rendering throughput, parallel scaling efficienc
 | Status | FAILED |
 | Checks | 6 |
 | Failed checks | 1 |
-| Duration | 9.882 s |
-| Generated | 2026-11-07 18:01:35 UTC |
+| Duration | 6.844 s |
+| Generated | 2026-11-07 18:10:09 UTC |
 
 ## Correctness & Invariant Validation (Decoupled from Timing)
 
@@ -40,10 +40,10 @@ Benchmarks distributed geodesic rendering throughput, parallel scaling efficienc
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| Baseline Local Throughput | baseline_throughput | 0.21383682 | MPx/s |
-| Baseline Local Throughput | baseline_frame_time | 306.476687 | ms |
+| Baseline Local Throughput | baseline_throughput | 0.290649079 | MPx/s |
+| Baseline Local Throughput | baseline_frame_time | 225.481533 | ms |
 | Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_throughput | 1638400 | MPx/s |
-| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_speedup_factor | 7661917.17 | ratio |
-| Compression Codec Bandwidth Comparison | codec_direct_raw_throughput | 22745.8002 | MB/s |
-| Compression Codec Bandwidth Comparison | codec_lz4_compression_throughput | 100.734047 | MB/s |
+| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_speedup_factor | 5637038.33 | ratio |
+| Compression Codec Bandwidth Comparison | codec_direct_raw_throughput | 22565.132 | MB/s |
+| Compression Codec Bandwidth Comparison | codec_lz4_compression_throughput | 90.6051006 | MB/s |
 

@@ -1,8 +1,8 @@
 {
   "suite": "simd_vec",
   "description": "Verifies the portable SIMD vector and mask types across element types and widths: elementwise arithmetic, fused multiply-add, horizontal reductions, comparison masks, blended selection, mask population counts and the trigonometric helpers.",
-  "generated": "2026-11-06 12:56:28 UTC",
-  "duration_seconds": 0.0017634,
+  "generated": "2026-11-07 18:19:43 UTC",
+  "duration_seconds": 0.0019048,
   "passed": true,
   "checks": [
     {"section": "Arithmetic and reductions", "label": "float x4: addition, subtraction, multiplication, division and fused multiply-add match scalar arithmetic", "detail": "value=0 limit=1e-06", "passed": true},

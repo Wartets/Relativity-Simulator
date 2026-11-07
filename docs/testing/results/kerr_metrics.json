@@ -1,8 +1,8 @@
 {
   "suite": "kerr_metrics",
   "description": "Verifies the Kerr metric in Boyer-Lindquist and Kerr-Schild forms: horizon and ergosphere radii, regime flags, frame dragging, metric inversion, symmetry, signature, the unit determinant of the Kerr-Schild form and the agreement of the analytic connection with eighth-order finite differences.",
-  "generated": "2026-11-06 12:55:42 UTC",
-  "duration_seconds": 0.0015925,
+  "generated": "2026-11-07 18:18:53 UTC",
+  "duration_seconds": 0.0035794,
   "passed": true,
   "checks": [
     {"section": "Boyer-Lindquist horizons and ergosphere", "label": "a / M = 0.8 is classified as sub-extremal", "detail": "", "passed": true},

@@ -1,8 +1,8 @@
 {
   "suite": "uncertainty_pce",
   "description": "Verifies the polynomial chaos propagation of a geodesic with an uncertain angular momentum against a ten-million-sample Monte-Carlo ensemble: the mean and variance of the final azimuth agree, and the order-four expansion is at least 400 times faster than the ensemble.",
-  "generated": "2026-11-06 12:57:30 UTC",
-  "duration_seconds": 54.7335483,
+  "generated": "2026-11-07 18:20:42 UTC",
+  "duration_seconds": 52.4021116,
   "passed": false,
   "checks": [
     {"section": "Polynomial chaos propagation", "label": "the expansion mean of the final azimuth is finite", "detail": "value=0", "passed": true},
@@ -11,7 +11,7 @@
     {"section": "Monte-Carlo ensemble", "label": "the ensemble variance of the final azimuth is positive", "detail": "", "passed": false},
     {"section": "Statistical agreement", "label": "the means agree within one percent of the standard deviation", "detail": "value=nan limit=0.01", "passed": false},
     {"section": "Statistical agreement", "label": "the variances agree within a relative 2 percent", "detail": "actual=0 expected=0 rel_error=0 tolerance=0.02", "passed": true},
-    {"section": "Cost", "label": "the order-four expansion is at least 400 times faster than the ten-million-sample ensemble", "detail": "ratio=9317.17", "passed": true}
+    {"section": "Cost", "label": "the order-four expansion is at least 400 times faster than the ten-million-sample ensemble", "detail": "ratio=8140.44", "passed": true}
   ],
   "measurements": [
     {"section": "Statistical agreement", "name": "pce_mean", "value": 0, "unit": "rad"},
@@ -20,8 +20,8 @@
     {"section": "Statistical agreement", "name": "mc_variance", "value": 0, "unit": "rad^2"},
     {"section": "Statistical agreement", "name": "pce_skewness", "value": 0, "unit": "dimensionless"},
     {"section": "Statistical agreement", "name": "mc_skewness", "value": 0, "unit": "dimensionless"},
-    {"section": "Cost", "name": "pce_time", "value": 5.7336, "unit": "ms"},
-    {"section": "Cost", "name": "monte_carlo_time", "value": 53420.912, "unit": "ms"},
-    {"section": "Cost", "name": "speedup_ratio", "value": 9317.1675736, "unit": "dimensionless"}
+    {"section": "Cost", "name": "pce_time", "value": 6.2731, "unit": "ms"},
+    {"section": "Cost", "name": "monte_carlo_time", "value": 51065.778, "unit": "ms"},
+    {"section": "Cost", "name": "speedup_ratio", "value": 8140.43742328, "unit": "dimensionless"}
   ]
 }

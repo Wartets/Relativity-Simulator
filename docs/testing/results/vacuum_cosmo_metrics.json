@@ -1,8 +1,8 @@
 {
   "suite": "vacuum_cosmo_metrics",
   "description": "Verifies the electrovacuum and cosmological metrics: Reissner-Nordstrom and Kerr-Newman horizons and regimes, Kerr-Newman reduction to Kerr, geometric invariants of Reissner-Nordstrom, Kerr-Newman, Schwarzschild-de Sitter and Kerr-de Sitter, and the FLRW scale factor, redshift and metric inversion.",
-  "generated": "2026-11-06 12:57:31 UTC",
-  "duration_seconds": 0.0028185,
+  "generated": "2026-11-07 18:20:43 UTC",
+  "duration_seconds": 0.0050029,
   "passed": true,
   "checks": [
     {"section": "Reissner-Nordstrom horizons", "label": "Q / M = 0.6 is sub-extremal", "detail": "", "passed": true},

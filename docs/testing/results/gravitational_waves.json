@@ -1,8 +1,8 @@
 {
   "suite": "gravitational_waves",
   "description": "Verifies the quadrupole gravitational wave strain of a binary neutron star system at face-on inclination: the plus polarization dominates at orbital phase zero, the cross polarization dominates at a quarter-turn phase, and each suppressed polarization vanishes relative to the dominant one.",
-  "generated": "2026-11-06 12:54:38 UTC",
-  "duration_seconds": 0.000895,
+  "generated": "2026-11-07 18:17:52 UTC",
+  "duration_seconds": 0.0011095,
   "passed": true,
   "checks": [
     {"section": "Orbital phase zero", "label": "the plus polarization is non-zero at phase zero", "detail": "", "passed": true},

@@ -7,8 +7,8 @@ Verifies the gravitational deflection of a light ray grazing the solar limb, int
 | Status | PASSED |
 | Checks | 5 |
 | Failed checks | 0 |
-| Duration | 0.03925 s |
-| Generated | 2026-11-06 12:56:29 UTC |
+| Duration | 0.03196 s |
+| Generated | 2026-11-07 18:19:44 UTC |
 
 ## Integration across the solar field
 

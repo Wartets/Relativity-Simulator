@@ -7,8 +7,8 @@ Verifies the lock-free single-producer single-consumer ring buffer: capacity, or
 | Status | PASSED |
 | Checks | 12 |
 | Failed checks | 0 |
-| Duration | 0.1772 s |
-| Generated | 2026-11-06 12:56:30 UTC |
+| Duration | 0.1601 s |
+| Generated | 2026-11-07 18:19:45 UTC |
 
 ## Sequential behaviour
 

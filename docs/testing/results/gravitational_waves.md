@@ -7,8 +7,8 @@ Verifies the quadrupole gravitational wave strain of a binary neutron star syste
 | Status | PASSED |
 | Checks | 4 |
 | Failed checks | 0 |
-| Duration | 0.000895 s |
-| Generated | 2026-11-06 12:54:38 UTC |
+| Duration | 0.00111 s |
+| Generated | 2026-11-07 18:17:52 UTC |
 
 ## Orbital phase zero
 

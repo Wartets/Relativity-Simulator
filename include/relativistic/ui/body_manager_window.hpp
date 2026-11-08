@@ -662,6 +662,7 @@ private:
 		d.polar_cap_strength = (is_world || is_giant) ? static_cast<float>(random_real(0.1, 0.5)) : 0.0f;
 		d.night_side_light_intensity = is_world ? static_cast<float>(random_real(0.0, 0.6)) : 0.0f;
 		d.ring_system_enabled = is_giant && (random_int(0, 1) == 0);
+		d.set_orientation_euler_degrees(random_real(-8.0, 8.0), random_real(-30.0, 30.0), random_real(-180.0, 180.0));
 
 		d.set_name(unique_name(synthesize_creation_name(profile.label, d.mass, d.radius, orbit_radius)));
 		creation_draft_pristine_ = true;
@@ -1033,8 +1034,61 @@ private:
 		}
 		render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms and the Kerr parameter of spacetime sources.");
 
+		if (render_orientation_controls(b)) {
+			changed = true;
+		}
+
 		const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
 		ImGui::TextDisabled("Speed: %s | Kinetic Energy: %s", Units::format_velocity(b.speed() * speed_scale_mps, prefs.velocity).c_str(), Units::format_energy(kinetic_energy_joules, prefs.energy).c_str());
+		return changed;
+	}
+
+	[[nodiscard]] bool render_orientation_controls(Dynamics::PostNewtonianBody& b) noexcept {
+		bool changed = false;
+		constexpr double radians_to_degrees = 180.0 / std::numbers::pi;
+		ImGui::Separator();
+		ImGui::TextDisabled("Orientation & Rotation");
+
+		const auto euler = b.orientation_euler_degrees();
+		float roll = static_cast<float>(euler[0]);
+		float pitch = static_cast<float>(euler[1]);
+		float yaw = static_cast<float>(euler[2]);
+		bool orientation_edited = ImGui::SliderFloat("Orientation Roll (X)", &roll, -180.0f, 180.0f, "%.1f deg");
+		render_setting_tooltip("Rotation of the body around its X axis. Together with pitch and yaw it sets the attitude of the body in the world; the value updates live while the body spins.");
+		orientation_edited = ImGui::SliderFloat("Orientation Pitch (Y)", &pitch, -90.0f, 90.0f, "%.1f deg") || orientation_edited;
+		render_setting_tooltip("Rotation of the body around its Y axis, applied after roll. Tilting the polar axis of a spheroid reproduces an axial tilt.");
+		orientation_edited = ImGui::SliderFloat("Orientation Yaw (Z)", &yaw, -180.0f, 180.0f, "%.1f deg") || orientation_edited;
+		render_setting_tooltip("Rotation of the body around the world Z axis, applied last.");
+		if (orientation_edited) {
+			b.set_orientation_euler_degrees(static_cast<double>(roll), static_cast<double>(pitch), static_cast<double>(yaw));
+			changed = true;
+		}
+		if (ImGui::SmallButton("Reset Orientation")) {
+			b.orientation = {1.0, 0.0, 0.0, 0.0};
+			changed = true;
+		}
+		render_setting_tooltip("Aligns the body axes with the world axes.");
+
+		const auto axis = b.body_spin_axis_unit();
+		float axis_polar = static_cast<float>(std::acos(std::clamp(axis[2], -1.0, 1.0)) * radians_to_degrees);
+		float axis_azimuth = static_cast<float>(std::atan2(axis[1], axis[0]) * radians_to_degrees);
+		bool axis_edited = ImGui::SliderFloat("Rotation Axis Polar Angle", &axis_polar, 0.0f, 180.0f, "%.1f deg");
+		render_setting_tooltip("Angle between the rotation axis and the body Z axis. The axis is expressed in the body frame and turns with the body.");
+		axis_edited = ImGui::SliderFloat("Rotation Axis Azimuth", &axis_azimuth, -180.0f, 180.0f, "%.1f deg") || axis_edited;
+		render_setting_tooltip("Azimuth of the rotation axis around the body Z axis.");
+		if (axis_edited) {
+			const double polar = static_cast<double>(axis_polar) / radians_to_degrees;
+			const double azimuth = static_cast<double>(axis_azimuth) / radians_to_degrees;
+			b.rotation_axis_3d = {std::sin(polar) * std::cos(azimuth), std::sin(polar) * std::sin(azimuth), std::cos(polar)};
+			changed = true;
+		}
+
+		auto omega = b.angular_velocity();
+		if (ImGui::InputScalarN("Angular Velocity (rad/s)", ImGuiDataType_Double, omega.data(), 3, nullptr, nullptr, "%.6g")) {
+			b.set_angular_velocity(omega);
+			changed = true;
+		}
+		render_setting_tooltip("Angular velocity vector in the body frame. Its direction sets the rotation axis, its magnitude the spin rate, and the orientation is integrated from it at every simulation step.");
 		return changed;
 	}
 
@@ -1402,8 +1456,8 @@ private:
 		if (ImGui::SliderFloat("Emission Intensity", &b.emission_intensity, 0.0f, 5.0f, "%.2f")) changed = true;
 		render_setting_tooltip("Self-illumination added on top of the lit surface, required for stars and compact remnants.");
 		if (ImGui::SliderFloat("Specular Roughness", &b.specular_roughness, 0.05f, 1.0f, "%.2f")) changed = true;
-		if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, 0.0f, 2.0f, "%.3f rad/s")) changed = true;
-		render_setting_tooltip("Visual rotation rate of the surface texture and layer drift.");
+		if (ImGui::SliderFloat("3D Rotation Speed", &b.rotation_speed_3d, -10.0f, 10.0f, "%.3f rad/s")) changed = true;
+		render_setting_tooltip("Angular rate around the rotation axis. It advances the body orientation every simulation step; negative values reverse the spin.");
 		return changed;
 	}
 

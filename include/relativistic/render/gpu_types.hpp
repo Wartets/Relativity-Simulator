@@ -551,6 +551,7 @@ struct alignas(16) GpuBodyData {
 	uint32_t earth_map_quality{0};
 	float earth_terminator_softness{0.25f};
 	std::array<double, 4> spin_axis{0.0, 0.0, 1.0, 0.0};
+	std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};
 
 	uint32_t surface_layer_count{0};
 	std::array<GpuSurfaceLayer, kMaxSurfaceLayers> surface_layers{};
@@ -597,6 +598,10 @@ struct alignas(16) GpuBodyGpuLayout {
 	double spin_axis_y{0.0};
 	double spin_axis_z{1.0};
 	double spin_axis_reserved{0.0};
+	double orientation_w{1.0};
+	double orientation_x{0.0};
+	double orientation_y{0.0};
+	double orientation_z{0.0};
 	uint32_t surface_layer_count{0};
 	uint32_t earth_map_quality{0};
 	float earth_terminator_softness{0.25f};
@@ -644,6 +649,10 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.spin_axis_x = b.spin_axis[0];
 		g.spin_axis_y = b.spin_axis[1];
 		g.spin_axis_z = b.spin_axis[2];
+		g.orientation_w = b.orientation[0];
+		g.orientation_x = b.orientation[1];
+		g.orientation_y = b.orientation[2];
+		g.orientation_z = b.orientation[3];
 		g.surface_layer_count = std::min<uint32_t>(b.surface_layer_count, static_cast<uint32_t>(kMaxSurfaceLayers));
 		g.earth_map_quality = b.earth_map_quality;
 		g.earth_terminator_softness = b.earth_terminator_softness;
@@ -655,6 +664,6 @@ struct alignas(16) GpuBodyGpuLayout {
 	}
 };
 
-static_assert(sizeof(GpuBodyGpuLayout) == 832);
+static_assert(sizeof(GpuBodyGpuLayout) == 864);
 
 }

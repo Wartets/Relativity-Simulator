@@ -9,6 +9,7 @@
 #include <cmath>
 #include <algorithm>
 #include <optional>
+#include <numbers>
 #include <vector>
 
 namespace Relativistic::Metrics {
@@ -21,6 +22,7 @@ struct SubsidiarySourceParams {
 	double horizon_radius{0.0};
 	double equatorial_horizon_radius{0.0};
 	double isco_radius{0.0};
+	double shadow_capture_radius{0.0};
 	double disk_inner_radius{0.0};
 	double disk_outer_radius{0.0};
 	Render::GpuDiskProfile disk{};
@@ -41,6 +43,10 @@ struct SubsidiarySourceParams {
 		p.equatorial_horizon_radius = std::sqrt(p.horizon_radius * p.horizon_radius + p.spin * p.spin);
 		p.assign_spin_axis({body.spin_axis[0], body.spin_axis[1], body.spin_axis[2]});
 		p.isco_radius = Optics::DiskThermalProfile::kerr_isco_radius(p.mass, p.spin);
+		constexpr double critical_impact_parameter = 5.196152422706632;
+		constexpr double spin_shrink = 0.55;
+		constexpr double capture_fraction = 0.9;
+		p.shadow_capture_radius = std::max(capture_fraction * p.mass * (critical_impact_parameter - spin_shrink * a_star * a_star), p.equatorial_horizon_radius * 1.05);
 		p.disk = body.disk;
 		p.disk_inner_radius = p.isco_radius * static_cast<double>(std::max(body.disk.inner_radius_scale, 1.0f));
 		p.disk_outer_radius = std::max(static_cast<double>(body.disk.outer_radius_mass_units) * p.mass, p.disk_inner_radius * 1.05);
@@ -136,6 +142,39 @@ public:
 		return (t1 >= 0.0 && t1 <= 1.0) || (t2 >= 0.0 && t2 <= 1.0);
 	}
 
+	[[nodiscard]] static bool segment_is_captured(
+		const std::array<double, 3>& seg_start,
+		const std::array<double, 3>& seg_end,
+		const SubsidiarySourceParams& source
+	) noexcept {
+		const double inverse_radius = 1.0 / std::max(source.shadow_capture_radius, 1e-12);
+		const std::array<double, 3> s{
+			(seg_start[0] - source.position[0]) * inverse_radius,
+			(seg_start[1] - source.position[1]) * inverse_radius,
+			(seg_start[2] - source.position[2]) * inverse_radius
+		};
+		const std::array<double, 3> d{
+			(seg_end[0] - seg_start[0]) * inverse_radius,
+			(seg_end[1] - seg_start[1]) * inverse_radius,
+			(seg_end[2] - seg_start[2]) * inverse_radius
+		};
+		const double a_coeff = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+		if (a_coeff <= 1e-30) {
+			return false;
+		}
+		const double b_coeff = 2.0 * (s[0] * d[0] + s[1] * d[1] + s[2] * d[2]);
+		const double c_coeff = s[0] * s[0] + s[1] * s[1] + s[2] * s[2] - 1.0;
+		if (c_coeff <= 0.0) {
+			return b_coeff < 0.0;
+		}
+		const double discriminant = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
+		if (discriminant < 0.0) {
+			return false;
+		}
+		const double t_entry = (-b_coeff - std::sqrt(discriminant)) / (2.0 * a_coeff);
+		return t_entry >= 0.0 && t_entry <= 1.0;
+	}
+
 	[[nodiscard]] static std::optional<DiskCrossingSample> segment_crosses_disk(
 		const std::array<double, 3>& seg_start,
 		const std::array<double, 3>& seg_end,
@@ -211,11 +250,11 @@ public:
 		const double ny = cross_y / cross_norm;
 		const double nz = cross_z / cross_norm;
 
-		const double schwarzschild_term = (4.0 * source.mass) / std::max(impact_param, source.mass * 1e-3);
 		const double spin_alignment = source.spin_axis[0] * nx + source.spin_axis[1] * ny + source.spin_axis[2] * nz;
-		const double gravitomagnetic_term = -(4.0 * source.spin * source.mass * spin_alignment) / std::max(impact_param * impact_param, source.mass * source.mass * 1e-6);
-		const double weight = std::exp(-r_len / (30.0 * std::max(source.mass, 1e-6)));
-		const double total_deflection = std::min(std::max(schwarzschild_term + gravitomagnetic_term, 0.0) * weight * (step_length / std::max(r_len, source.mass)), 0.5);
+		const double monopole_term = 2.0 * source.mass * impact_param;
+		const double gravitomagnetic_term = -2.0 * source.spin * source.mass * spin_alignment;
+		const double quadrupole_term = (15.0 * std::numbers::pi_v<double> / 8.0) * source.mass * source.mass;
+		const double total_deflection = std::min(std::max(monopole_term + gravitomagnetic_term + quadrupole_term, 0.0) * step_length / (r_len * r_len * r_len), 0.5);
 
 		const double wx = ny * ray_dir[2] - nz * ray_dir[1];
 		const double wy = nz * ray_dir[0] - nx * ray_dir[2];

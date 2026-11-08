@@ -8,6 +8,7 @@
 #include "relativistic/render/bodies/earth_surface_shading.hpp"
 #include "relativistic/render/bodies/earth_terminator.hpp"
 #include "relativistic/render/bodies/body_lighting.hpp"
+#include "relativistic/render/bodies/body_orientation.hpp"
 #include "relativistic/render/bodies/earth_texture_requirements.hpp"
 #include "relativistic/optics/textures/earth_texture_image.hpp"
 #include "relativistic/observer/observer_tetrad.hpp"
@@ -196,9 +197,13 @@ private:
 			const double inv_b2 = 1.0 / (scale_b * scale_b);
 			const double inv_c2 = 1.0 / (scale_c * scale_c);
 
-			const double A = ray_dir[0] * ray_dir[0] * inv_a2 + ray_dir[1] * ray_dir[1] * inv_b2 + ray_dir[2] * ray_dir[2] * inv_c2;
-			const double B = 2.0 * (ox * ray_dir[0] * inv_a2 + oy * ray_dir[1] * inv_b2 + oz * ray_dir[2] * inv_c2);
-			const double C = ox * ox * inv_a2 + oy * oy * inv_b2 + oz * oz * inv_c2 - 1.0;
+			const auto body_rotation = BodyOrientation::normalized(body.orientation);
+			const std::array<double, 3> local_origin = BodyOrientation::rotate_inverse(body_rotation, std::array<double, 3>{ox, oy, oz});
+			const std::array<double, 3> local_dir = BodyOrientation::rotate_inverse(body_rotation, ray_dir);
+
+			const double A = local_dir[0] * local_dir[0] * inv_a2 + local_dir[1] * local_dir[1] * inv_b2 + local_dir[2] * local_dir[2] * inv_c2;
+			const double B = 2.0 * (local_origin[0] * local_dir[0] * inv_a2 + local_origin[1] * local_dir[1] * inv_b2 + local_origin[2] * local_dir[2] * inv_c2);
+			const double C = local_origin[0] * local_origin[0] * inv_a2 + local_origin[1] * local_origin[1] * inv_b2 + local_origin[2] * local_origin[2] * inv_c2 - 1.0;
 
 			const double discr = B * B - 4.0 * A * C;
 			if (!(A > 1e-300) || !(discr >= 0.0)) continue;
@@ -217,17 +222,21 @@ private:
 			const double hit_y = ray_pos[1] + t * ray_dir[1];
 			const double hit_z = ray_pos[2] + t * ray_dir[2];
 
-			const double lx = hit_x - bx;
-			const double ly = hit_y - by;
-			const double lz = hit_z - bz;
+			const double lx = local_origin[0] + t * local_dir[0];
+			const double ly = local_origin[1] + t * local_dir[1];
+			const double lz = local_origin[2] + t * local_dir[2];
 
-			double nx = lx * inv_a2;
-			double ny = ly * inv_b2;
-			double nz = lz * inv_c2;
-			const double n_len = std::sqrt(nx * nx + ny * ny + nz * nz);
+			double lnx = lx * inv_a2;
+			double lny = ly * inv_b2;
+			double lnz = lz * inv_c2;
+			const double n_len = std::sqrt(lnx * lnx + lny * lny + lnz * lnz);
 			if (n_len > 1e-12) {
-				nx /= n_len; ny /= n_len; nz /= n_len;
+				lnx /= n_len; lny /= n_len; lnz /= n_len;
 			}
+			const std::array<double, 3> world_normal = BodyOrientation::rotate(body_rotation, std::array<double, 3>{lnx, lny, lnz});
+			const double nx = world_normal[0];
+			const double ny = world_normal[1];
+			const double nz = world_normal[2];
 
 			const double dist_to_camera_for_lod = std::sqrt(ox * ox + oy * oy + oz * oz);
 			const double angular_pixel_size_lod = params.field_of_view_rad / std::max(static_cast<double>(params.screen_width), 1.0);
@@ -242,8 +251,7 @@ private:
 
 			const double norm_lz = std::clamp(lz / scale_c, -1.0, 1.0);
 			const double theta = std::acos(norm_lz);
-			const double rot_angle = body.rotation_speed * static_cast<double>(params.time);
-			const double phi = std::atan2(ly, lx) + rot_angle;
+			const double phi = std::atan2(ly, lx);
 
 			const double view_dot_n = std::max(0.0, -(ray_dir[0] * nx + ray_dir[1] * ny + ray_dir[2] * nz));
 
@@ -3275,7 +3283,7 @@ private:
 		if (speed < 1e-12) return;
 		const std::array<double, 3> dir{v[0] / speed, v[1] / speed, v[2] / speed};
 
-		const auto new_dir = Metrics::SubsidiarySourceField::apply_all_source_corrections(pos, dir, std::abs(dt), sources);
+		const auto new_dir = Metrics::SubsidiarySourceField::apply_all_source_corrections(pos, dir, std::abs(dt) * speed, sources);
 		const std::array<double, 3> new_v{new_dir[0] * speed, new_dir[1] * speed, new_dir[2] * speed};
 
 		double new_pr = 0.0, new_ptheta = 0.0, new_pphi = 0.0;
@@ -3340,6 +3348,10 @@ private:
 				result.disk_hit = true;
 				result.color = shaded.radiance;
 				result.opacity = shaded.opacity;
+				return result;
+			}
+			if (Metrics::SubsidiarySourceField::segment_is_captured(seg_start, seg_end, source)) {
+				result.absorbed = true;
 				return result;
 			}
 		}

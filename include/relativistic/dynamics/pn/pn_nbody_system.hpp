@@ -295,6 +295,14 @@ public:
 		update_accelerations();
 	}
 
+	void advance_orientations(double dt) noexcept {
+		std::lock_guard<std::recursive_mutex> lock(bodies_mutex_);
+		for (auto& body : bodies_) {
+			if (!body.enabled || body.is_spacetime_source) continue;
+			body.advance_orientation(dt);
+		}
+	}
+
 	[[nodiscard]] double time() const noexcept {
 		return time_;
 	}

@@ -364,6 +364,10 @@ struct GpuBody {
 	double spin_axis_y;
 	double spin_axis_z;
 	double spin_axis_reserved;
+	double orientation_w;
+	double orientation_x;
+	double orientation_y;
+	double orientation_z;
 	uint surface_layer_count;
 	uint earth_map_quality;
 	float earth_terminator_softness;
@@ -1771,8 +1775,7 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 	float sin_th = sin(theta);
 	vec2 azimuth_vector = vec2(float(nrm.x), float(nrm.y));
 	float base_azimuth = (dot(azimuth_vector, azimuth_vector) > 1e-18) ? atan(azimuth_vector.y, azimuth_vector.x) : 0.0;
-	float rotation_offset = float(bodies[bi].rotation_speed * pc.time);
-	float phi = base_azimuth + ((rotation_offset == rotation_offset) ? rotation_offset : 0.0);
+	float phi = base_azimuth;
 	vec3 sph = vec3(sin_th * cos(phi), sin_th * sin(phi), cos_t);
 	vec3 sp = sph * noise_scale;
 	bool earth_mode = (bodies[bi].surface_texture_mode == 13u);
@@ -1907,6 +1910,21 @@ void source_frame(dvec3 axis, out dvec3 frame_x, out dvec3 frame_y) {
 	frame_y = cross(axis, frame_x);
 }
 
+bool segment_captured(dvec3 rel_start, dvec3 seg_vec, double radius) {
+	double inverse_radius = 1.0 / max(radius, 1e-12);
+	dvec3 s = rel_start * inverse_radius;
+	dvec3 d = seg_vec * inverse_radius;
+	double a_coeff = dot(d, d);
+	if (a_coeff <= 1e-30) return false;
+	double b_coeff = 2.0 * dot(s, d);
+	double c_coeff = dot(s, s) - 1.0;
+	if (c_coeff <= 0.0) return b_coeff < 0.0;
+	double discriminant = b_coeff * b_coeff - 4.0 * a_coeff * c_coeff;
+	if (discriminant < 0.0) return false;
+	double t_entry = (-b_coeff - sqrt(discriminant)) / (2.0 * a_coeff);
+	return t_entry >= 0.0 && t_entry <= 1.0;
+}
+
 bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_color, out double out_opacity, out bool out_absorbed) {
 	out_color = vec3(0.0);
 	out_opacity = 0.0;
@@ -1986,6 +2004,11 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 				out_opacity = shaded_opacity;
 				any_hit = true;
 			}
+		}
+		double capture_radius = max(0.9 * m * (5.196152422706632 - 0.55 * a_star * a_star), req * 1.05);
+		if (out_opacity <= 0.0 && segment_captured(o, seg_vec, capture_radius)) {
+			out_absorbed = true;
+			return true;
 		}
 	}
 	if (rim_total.x + rim_total.y + rim_total.z > 0.0) {
@@ -2147,6 +2170,22 @@ vec3 emitted_irradiance(dvec3 hit, dvec3 nrm, uint self_index, int excluded_inde
 	return total;
 }
 
+dvec4 body_orientation(uint bi) {
+	dvec4 q = dvec4(bodies[bi].orientation_w, bodies[bi].orientation_x, bodies[bi].orientation_y, bodies[bi].orientation_z);
+	double length_squared = dot(q, q);
+	return (length_squared > 1e-24) ? (q * inversesqrt(length_squared)) : dvec4(1.0, 0.0, 0.0, 0.0);
+}
+
+dvec3 quat_rotate(dvec4 q, dvec3 v) {
+	dvec3 u = q.yzw;
+	dvec3 t = 2.0 * cross(u, v);
+	return v + q.x * t + cross(u, t);
+}
+
+dvec3 quat_rotate_inverse(dvec4 q, dvec3 v) {
+	return quat_rotate(dvec4(q.x, -q.yzw), v);
+}
+
 bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 out_color, out uint out_status, out double out_hit_dist) {
 	bool hit_any = false;
 	double best_t = max_dist;
@@ -2188,9 +2227,13 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double inv_b2 = 1.0 / (scale_b * scale_b);
 		double inv_c2 = 1.0 / (scale_c * scale_c);
 
-		double A = ray_dir.x * ray_dir.x * inv_a2 + ray_dir.y * ray_dir.y * inv_b2 + ray_dir.z * ray_dir.z * inv_c2;
-		double B = 2.0 * (o.x * ray_dir.x * inv_a2 + o.y * ray_dir.y * inv_b2 + o.z * ray_dir.z * inv_c2);
-		double C = o.x * o.x * inv_a2 + o.y * o.y * inv_b2 + o.z * o.z * inv_c2 - 1.0;
+		dvec4 body_q = body_orientation(bi);
+		dvec3 local_o = quat_rotate_inverse(body_q, o);
+		dvec3 local_d = quat_rotate_inverse(body_q, ray_dir);
+
+		double A = local_d.x * local_d.x * inv_a2 + local_d.y * local_d.y * inv_b2 + local_d.z * local_d.z * inv_c2;
+		double B = 2.0 * (local_o.x * local_d.x * inv_a2 + local_o.y * local_d.y * inv_b2 + local_o.z * local_d.z * inv_c2);
+		double C = local_o.x * local_o.x * inv_a2 + local_o.y * local_o.y * inv_b2 + local_o.z * local_o.z * inv_c2 - 1.0;
 
 		double discr = B * B - 4.0 * A * C;
 		if (!(A > 1e-300) || !(discr >= 0.0)) continue;
@@ -2203,10 +2246,11 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		if (t <= 1e-5 || t >= best_t) continue;
 
 		dvec3 hit_pos = ray_pos + ray_dir * t;
-		dvec3 l = hit_pos - bpos;
-		dvec3 nrm = dvec3(l.x * inv_a2, l.y * inv_b2, l.z * inv_c2);
-		double n_len = length(nrm);
-		if (n_len > 1e-12) nrm = nrm / n_len;
+		dvec3 local_hit = local_o + local_d * t;
+		dvec3 local_nrm = dvec3(local_hit.x * inv_a2, local_hit.y * inv_b2, local_hit.z * inv_c2);
+		double n_len = length(local_nrm);
+		if (n_len > 1e-12) local_nrm = local_nrm / n_len;
+		dvec3 nrm = quat_rotate(body_q, local_nrm);
 
 		double dist_to_cam = length(o);
 		double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
@@ -2226,7 +2270,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double surface_sun_facing = body_light.lit ? dot(nrm, body_light.direction) : 1.0;
 		bool earth_surface = (bodies[bi].surface_texture_mode == 13u) && (pc.body_render_low_power_mode == 0u);
 		if (!is_simple_lod || earth_surface) {
-			surf = shade_body_surface(bi, nrm, surface_sun_facing, surface_view_dot_n, surface_emissive, surface_city_speckle, float(coverage) * 6.28318531);
+			surf = shade_body_surface(bi, local_nrm, surface_sun_facing, surface_view_dot_n, surface_emissive, surface_city_speckle, float(coverage) * 6.28318531);
 		}
 
 		double view_dot_n = max(0.0, dot(-ray_dir, nrm));
@@ -2493,12 +2537,10 @@ void apply_subsidiary_deflection(inout double ray_r, double ray_th, double ray_p
 		if (cross_norm < 1e-12) continue;
 		dvec3 n_axis = dvec3(cross_x, cross_y, cross_z) / cross_norm;
 
-		double schwarzschild_term = (4.0 * m) / max(impact_param, m * 1e-3);
-		double impact_squared = impact_param * impact_param;
-		double gravitomagnetic_term = -(4.0 * a_spin * m * dot(deflection_axis, n_axis)) / max(impact_squared, m * m * 1e-6);
-		double quad_term = (schwarzschild_term * schwarzschild_term) * 0.1875;
-		double weight = double(exp(float(-r_len / (30.0 * max(m, 1e-6)))));
-		double total_deflection = min(max(schwarzschild_term + gravitomagnetic_term + quad_term, 0.0) * weight * (abs(dt) / max(r_len, m)), 0.5);
+		double monopole_term = 2.0 * m * impact_param;
+		double gravitomagnetic_term = -2.0 * a_spin * m * dot(deflection_axis, n_axis);
+		double quadrupole_term = 5.890486225480862 * m * m;
+		double total_deflection = min(max(monopole_term + gravitomagnetic_term + quadrupole_term, 0.0) * abs(dt) * speed / (r_len * r_len * r_len), 0.5);
 		if (total_deflection < 1e-14) continue;
 
 		double wx = n_axis.y * dir.z - n_axis.z * dir.y;

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <algorithm>
 #include <string_view>
+#include <numbers>
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/optics/textures/earth_texture_catalog.hpp"
@@ -115,6 +116,7 @@ struct alignas(64) PostNewtonianBody {
 	float specular_roughness{0.3f};
 	float rotation_speed_3d{0.1f};
 	std::array<double, 3> rotation_axis_3d{0.0, 0.0, 1.0};
+	std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};
 	std::array<float, 4> color_tertiary{0.9f, 0.85f, 0.6f, 1.0f};
 	float texture_detail_scale{1.0f};
 	float polar_cap_strength{0.0f};
@@ -232,6 +234,83 @@ struct alignas(64) PostNewtonianBody {
 		composition[len] = '\0';
 	}
 
+	[[nodiscard]] std::array<double, 4> normalized_orientation() const noexcept {
+		const double norm = std::sqrt(orientation[0] * orientation[0] + orientation[1] * orientation[1] + orientation[2] * orientation[2] + orientation[3] * orientation[3]);
+		if (!(norm > 1e-12)) {
+			return {1.0, 0.0, 0.0, 0.0};
+		}
+		return {orientation[0] / norm, orientation[1] / norm, orientation[2] / norm, orientation[3] / norm};
+	}
+
+	void set_orientation_euler_degrees(double roll_deg, double pitch_deg, double yaw_deg) noexcept {
+		constexpr double half_angle_scale = std::numbers::pi_v<double> / 360.0;
+		const double cr = std::cos(roll_deg * half_angle_scale);
+		const double sr = std::sin(roll_deg * half_angle_scale);
+		const double cp = std::cos(pitch_deg * half_angle_scale);
+		const double sp = std::sin(pitch_deg * half_angle_scale);
+		const double cy = std::cos(yaw_deg * half_angle_scale);
+		const double sy = std::sin(yaw_deg * half_angle_scale);
+		orientation = {
+			cr * cp * cy + sr * sp * sy,
+			sr * cp * cy - cr * sp * sy,
+			cr * sp * cy + sr * cp * sy,
+			cr * cp * sy - sr * sp * cy
+		};
+	}
+
+	[[nodiscard]] std::array<double, 3> orientation_euler_degrees() const noexcept {
+		const auto q = normalized_orientation();
+		constexpr double radians_to_degrees = 180.0 / std::numbers::pi_v<double>;
+		const double roll = std::atan2(2.0 * (q[0] * q[1] + q[2] * q[3]), 1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2]));
+		const double pitch = std::asin(std::clamp(2.0 * (q[0] * q[2] - q[3] * q[1]), -1.0, 1.0));
+		const double yaw = std::atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]));
+		return {roll * radians_to_degrees, pitch * radians_to_degrees, yaw * radians_to_degrees};
+	}
+
+	[[nodiscard]] std::array<double, 3> body_spin_axis_unit() const noexcept {
+		const double norm = std::sqrt(rotation_axis_3d[0] * rotation_axis_3d[0] + rotation_axis_3d[1] * rotation_axis_3d[1] + rotation_axis_3d[2] * rotation_axis_3d[2]);
+		if (norm <= 1e-12) {
+			return {0.0, 0.0, 1.0};
+		}
+		return {rotation_axis_3d[0] / norm, rotation_axis_3d[1] / norm, rotation_axis_3d[2] / norm};
+	}
+
+	[[nodiscard]] std::array<double, 3> angular_velocity() const noexcept {
+		const auto axis = body_spin_axis_unit();
+		const double rate = static_cast<double>(rotation_speed_3d);
+		return {axis[0] * rate, axis[1] * rate, axis[2] * rate};
+	}
+
+	void set_angular_velocity(const std::array<double, 3>& omega) noexcept {
+		const double magnitude = std::sqrt(omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2]);
+		rotation_speed_3d = static_cast<float>(magnitude);
+		if (magnitude > 1e-12) {
+			rotation_axis_3d = {omega[0] / magnitude, omega[1] / magnitude, omega[2] / magnitude};
+		}
+	}
+
+	void advance_orientation(double dt) noexcept {
+		const double rate = static_cast<double>(rotation_speed_3d);
+		if (dt == 0.0 || std::abs(rate) <= 1e-18) {
+			return;
+		}
+		const auto axis = body_spin_axis_unit();
+		const double half_angle = 0.5 * rate * dt;
+		const double s = std::sin(half_angle);
+		const double dw = std::cos(half_angle);
+		const double dx = axis[0] * s;
+		const double dy = axis[1] * s;
+		const double dz = axis[2] * s;
+		const auto q = normalized_orientation();
+		orientation = {
+			q[0] * dw - q[1] * dx - q[2] * dy - q[3] * dz,
+			q[0] * dx + q[1] * dw + q[2] * dz - q[3] * dy,
+			q[0] * dy - q[1] * dz + q[2] * dw + q[3] * dx,
+			q[0] * dz + q[1] * dy - q[2] * dx + q[3] * dw
+		};
+		orientation = normalized_orientation();
+	}
+
 	[[nodiscard]] Render::GpuBodyData to_gpu_body_data() const noexcept {
 		Render::GpuBodyData gpu{};
 		gpu.position = {position[0], position[1], position[2], 0.0};
@@ -253,6 +332,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.spin_parameter = is_spacetime_source ? kerr_spin_parameter() : 0.0;
 		const std::array<double, 3> source_axis = spin_axis_unit();
 		gpu.spin_axis = {source_axis[0], source_axis[1], source_axis[2], 0.0};
+		gpu.orientation = normalized_orientation();
 		gpu.color_tertiary = {color_tertiary[0], color_tertiary[1], color_tertiary[2], color_tertiary[3]};
 		gpu.texture_detail_scale = static_cast<double>(texture_detail_scale);
 		gpu.polar_cap_strength = static_cast<double>(polar_cap_strength);

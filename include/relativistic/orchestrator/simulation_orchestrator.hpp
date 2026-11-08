@@ -535,6 +535,7 @@ public:
 
 		if (nbody_system_.body_count() > 0) {
 			step_nbody_dynamics(dt);
+			nbody_system_.advance_orientations(dt);
 		}
 
 		if (params_.camera_mode == 3 && !scheduler_.is_paused()) {

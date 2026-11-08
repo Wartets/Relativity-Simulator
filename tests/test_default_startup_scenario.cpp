@@ -14,9 +14,24 @@ namespace {
 	return std::abs(lhs - rhs) <= 1e-9;
 }
 
-void check_startup_pose(TestSuite& suite, const Orchestrator::CameraState& camera, const std::string& context) {
+void check_default_startup_pose(TestSuite& suite, const Orchestrator::CameraState& camera, const std::string& context) {
 	suite.check(nearly_equal(camera.position[0], -5.0) && nearly_equal(camera.position[1], 37.0) && nearly_equal(camera.position[2], -7.0), context + ": the camera is at (-5, 37, -7)");
 	suite.check(nearly_equal(camera.pitch, 0.0) && nearly_equal(camera.yaw, 130.0) && nearly_equal(camera.roll, 0.0), context + ": the camera attitude is pitch 0, yaw 130, roll 0");
+}
+
+void check_camera_matches(TestSuite& suite, const Orchestrator::CameraState& camera, const Orchestrator::CameraState& expected, const std::string& context) {
+	suite.check(
+		nearly_equal(camera.position[0], expected.position[0]) &&
+		nearly_equal(camera.position[1], expected.position[1]) &&
+		nearly_equal(camera.position[2], expected.position[2]),
+		context + ": the camera position matches the startup scenario"
+	);
+	suite.check(
+		nearly_equal(camera.pitch, expected.pitch) &&
+		nearly_equal(camera.yaw, expected.yaw) &&
+		nearly_equal(camera.roll, expected.roll),
+		context + ": the camera attitude matches the startup scenario"
+	);
 }
 
 }
@@ -30,7 +45,7 @@ int main() {
 
 	suite.section("Initial state");
 	Orchestrator::SimulationOrchestrator<1024> orchestrator;
-	check_startup_pose(suite, orchestrator.camera(), "initial camera");
+	check_default_startup_pose(suite, orchestrator.camera(), "initial camera");
 	suite.check_near(orchestrator.camera().radius, std::sqrt(1443.0), 1e-9, "the initial spherical radius is synchronized with the position");
 	suite.check(orchestrator.active_scenario_path().empty(), "no scenario path exists before the startup load");
 
@@ -58,7 +73,8 @@ int main() {
 	suite.check(orchestrator.poll_result(load_result) && load_result.success, "the startup scenario loads successfully");
 	suite.check(orchestrator.active_scenario_name() == expected_name, "the active scenario name matches the startup scenario");
 	suite.check(ScenarioLocator::same_file(orchestrator.active_scenario_path(), ScenarioLocator::kBuiltInStartupScenario), "the active scenario path matches the startup scenario");
-	check_startup_pose(suite, orchestrator.camera(), "camera after the startup load");
+	const auto startup_camera = orchestrator.camera();
+	const double startup_spin = orchestrator.parameters().spin;
 
 	suite.section("Resets");
 	orchestrator.camera().position = {12.0, -3.0, 4.0};
@@ -66,16 +82,16 @@ int main() {
 	orchestrator.camera().pitch = 20.0;
 	suite.check(orchestrator.enqueue_command(Orchestrator::Command::make_camera_reset()), "the camera reset command is accepted");
 	orchestrator.process_incoming_commands();
-	check_startup_pose(suite, orchestrator.camera(), "camera after the view reset");
+	check_camera_matches(suite, orchestrator.camera(), startup_camera, "camera after the view reset");
 
 	orchestrator.parameters().spin = 0.5;
 	orchestrator.camera().yaw = 15.0;
 	suite.check(orchestrator.enqueue_command(Orchestrator::Command::make_reset()), "the reset command is accepted");
 	orchestrator.process_incoming_commands();
-	suite.check(nearly_equal(orchestrator.parameters().spin, 0.0), "the reset restores the scenario parameters");
+	suite.check(nearly_equal(orchestrator.parameters().spin, startup_spin), "the reset restores the scenario parameters");
 	suite.check(orchestrator.active_scenario_name() == expected_name, "the reset keeps the active scenario");
 	suite.check(orchestrator.scheduler().is_paused(), "the reset pauses the scheduler");
-	check_startup_pose(suite, orchestrator.camera(), "camera after the full reset");
+	check_camera_matches(suite, orchestrator.camera(), startup_camera, "camera after the full reset");
 
 	suite.section("Failed load");
 	Orchestrator::CommandResult missing_result{};

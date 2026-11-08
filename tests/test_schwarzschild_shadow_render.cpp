@@ -3,7 +3,10 @@
 #include "relativistic/observer/observer_tetrad.hpp"
 #include "relativistic/metrics/schwarzschild.hpp"
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <numbers>
+#include <string>
 
 using Relativistic::Testing::TestSuite;
 

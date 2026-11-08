@@ -94,6 +94,7 @@ int main() {
 	double worst_wrapper = 0.0;
 	bool ordering_holds = true;
 
+	const size_t baseline_allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed);
 	g_trap_dynamic_allocations.store(true, std::memory_order_seq_cst);
 	{
 		FlatMinkowskiMetric<double> minkowski(1.0);
@@ -142,7 +143,7 @@ int main() {
 		}
 	}
 	g_trap_dynamic_allocations.store(false, std::memory_order_seq_cst);
-	const size_t allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed);
+	const size_t allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed) - baseline_allocations;
 
 	suite.section("Flat spacetime");
 	suite.check_at_most(flat_error[0], 1e-15, "the fourth-order connection of Minkowski vanishes");

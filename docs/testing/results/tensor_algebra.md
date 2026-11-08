@@ -4,11 +4,11 @@ Verifies the static tensor algebra: closed-form 4x4 metric inversion for Minkows
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 13 |
-| Failed checks | 1 |
-| Duration | 0.001114 s |
-| Generated | 2026-11-07 18:19:47 UTC |
+| Failed checks | 0 |
+| Duration | 0.001516 s |
+| Generated | 2026-11-08 00:20:33 UTC |
 
 ## Metric inversion
 
@@ -41,5 +41,5 @@ Verifies the static tensor algebra: closed-form 4x4 metric inversion for Minkows
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | no dynamic allocation occurs during tensor algebra | allocations=1 |
+| PASS | no dynamic allocation occurs during tensor algebra | allocations=0 |
 

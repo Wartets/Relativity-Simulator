@@ -236,7 +236,7 @@ private:
 			if (n == 12) i12 = current;
 			c_odd *= c2;
 		}
-		return (current - i12) / (b * std::sqrt(b));
+		return (i12 - current) / (b * std::sqrt(b));
 	}
 
 	[[nodiscard]] static double soliton_derivative(double x) noexcept {

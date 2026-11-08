@@ -404,18 +404,7 @@ void CryptoChannel::poly1305_generate_tag(
 
 	auto process_blocks = [&](std::span<const uint8_t> data) {
 		size_t offset = 0;
-		while (offset < data.size()) {
-			uint8_t block[17] = {0};
-			const size_t len = std::min<size_t>(16, data.size() - offset);
-			std::memcpy(block, data.data() + offset, len);
-			block[16] = 1;
-
-			h0 += load32_le(block) & 0x3FFFFFF;
-			h1 += (load32_le(block + 3) >> 2) & 0x3FFFFFF;
-			h2 += (load32_le(block + 6) >> 4) & 0x3FFFFFF;
-			h3 += (load32_le(block + 9) >> 6) & 0x3FFFFFF;
-			h4 += (load32_le(block + 12) >> 8) | (static_cast<uint32_t>(block[16]) << 24);
-
+		auto multiply_reduce = [&]() {
 			uint64_t d0 = static_cast<uint64_t>(h0) * r0 + static_cast<uint64_t>(h1) * s4 + static_cast<uint64_t>(h2) * s3 + static_cast<uint64_t>(h3) * s2 + static_cast<uint64_t>(h4) * s1;
 			uint64_t d1 = static_cast<uint64_t>(h0) * r1 + static_cast<uint64_t>(h1) * r0 + static_cast<uint64_t>(h2) * s4 + static_cast<uint64_t>(h3) * s3 + static_cast<uint64_t>(h4) * s2;
 			uint64_t d2 = static_cast<uint64_t>(h0) * r2 + static_cast<uint64_t>(h1) * r1 + static_cast<uint64_t>(h2) * r0 + static_cast<uint64_t>(h3) * s4 + static_cast<uint64_t>(h4) * s3;
@@ -427,8 +416,30 @@ void CryptoChannel::poly1305_generate_tag(
 			h2 = static_cast<uint32_t>(d2) & 0x3FFFFFF; d3 += d2 >> 26;
 			h3 = static_cast<uint32_t>(d3) & 0x3FFFFFF; d4 += d3 >> 26;
 			h4 = static_cast<uint32_t>(d4) & 0x3FFFFFF; h0 += static_cast<uint32_t>(d4 >> 26) * 5; h1 += h0 >> 26; h0 &= 0x3FFFFFF;
+		};
 
-			offset += len;
+		while (offset + 16 <= data.size()) {
+			const uint8_t* block = data.data() + offset;
+			h0 += load32_le(block) & 0x3FFFFFF;
+			h1 += (load32_le(block + 3) >> 2) & 0x3FFFFFF;
+			h2 += (load32_le(block + 6) >> 4) & 0x3FFFFFF;
+			h3 += (load32_le(block + 9) >> 6) & 0x3FFFFFF;
+			h4 += (load32_le(block + 12) >> 8) | (1U << 24);
+			multiply_reduce();
+			offset += 16;
+		}
+
+		if (offset < data.size()) {
+			uint8_t block[17] = {0};
+			const size_t len = data.size() - offset;
+			std::memcpy(block, data.data() + offset, len);
+			block[len] = 1;
+			h0 += load32_le(block) & 0x3FFFFFF;
+			h1 += (load32_le(block + 3) >> 2) & 0x3FFFFFF;
+			h2 += (load32_le(block + 6) >> 4) & 0x3FFFFFF;
+			h3 += (load32_le(block + 9) >> 6) & 0x3FFFFFF;
+			h4 += (load32_le(block + 12) >> 8);
+			multiply_reduce();
 		}
 	};
 
@@ -557,13 +568,13 @@ bool CryptoChannel::encrypt_and_authenticate_packet(
 	nonce_u32[2] = static_cast<uint32_t>(context_.transmit_sequence >> 32);
 	context_.transmit_sequence++;
 
-	std::array<uint8_t, 64> poly_key_block{};
+	std::array<uint8_t, 64> poly_key_block;
 	chacha20_block(key_u32, 0, nonce_u32, poly_key_block);
 
 	size_t offset = 0;
 	uint32_t counter = 1;
 	while (offset < plaintext_payload.size()) {
-		std::array<uint8_t, 64> block{};
+		std::array<uint8_t, 64> block;
 		chacha20_block(key_u32, counter++, nonce_u32, block);
 		const size_t len = std::min<size_t>(64, plaintext_payload.size() - offset);
 		for (size_t i = 0; i < len; ++i) {
@@ -618,7 +629,7 @@ bool CryptoChannel::verify_and_decrypt_packet(
 	nonce_u32[1] = static_cast<uint32_t>(packet_sequence & 0xFFFFFFFF);
 	nonce_u32[2] = static_cast<uint32_t>(packet_sequence >> 32);
 
-	std::array<uint8_t, 64> poly_key_block{};
+	std::array<uint8_t, 64> poly_key_block;
 	chacha20_block(key_u32, 0, nonce_u32, poly_key_block);
 
 	std::array<uint8_t, 16> expected_tag{};
@@ -639,7 +650,7 @@ bool CryptoChannel::verify_and_decrypt_packet(
 	size_t offset = 0;
 	uint32_t counter = 1;
 	while (offset < ciphertext_payload.size()) {
-		std::array<uint8_t, 64> block{};
+		std::array<uint8_t, 64> block;
 		chacha20_block(key_u32, counter++, nonce_u32, block);
 		const size_t len = std::min<size_t>(64, ciphertext_payload.size() - offset);
 		for (size_t i = 0; i < len; ++i) {

@@ -1,9 +1,9 @@
 {
   "suite": "cluster_crypto_protocol",
   "description": "Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD sealing, and anti-replay constraints.",
-  "generated": "2026-11-07 18:14:28 UTC",
-  "duration_seconds": 117.137528,
-  "passed": false,
+  "generated": "2026-11-07 23:26:21 UTC",
+  "duration_seconds": 113.594034,
+  "passed": true,
   "checks": [
     {"section": "Packet Binary Envelopes", "label": "PacketEnvelope size is exactly 48 bytes (aligned 16 bytes)", "detail": "", "passed": true},
     {"section": "Packet Binary Envelopes", "label": "Magic identifier is 0x52454C44 (RELD)", "detail": "", "passed": true},
@@ -23,9 +23,9 @@
     {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Poly1305 rejects AAD modification (header manipulation)", "detail": "", "passed": true},
     {"section": "ChaCha20-Poly1305 AEAD Encrypt & Decrypt", "label": "Anti-replay window rejects duplicate sequence number", "detail": "", "passed": true},
     {"section": "Throughput Performance Measurement", "label": "Benchmark channel server handshake succeeds", "detail": "", "passed": true},
-    {"section": "Throughput Performance Measurement", "label": "ChaCha20-Poly1305 throughput is sufficient for real-time operations", "detail": "", "passed": false}
+    {"section": "Throughput Performance Measurement", "label": "ChaCha20-Poly1305 throughput is sufficient for real-time operations", "detail": "", "passed": true}
   ],
   "measurements": [
-    {"section": "Throughput Performance Measurement", "name": "chacha20_throughput", "value": 5.34562850927, "unit": "MB/s"}
+    {"section": "Throughput Performance Measurement", "name": "chacha20_throughput", "value": 5.50929626222, "unit": "MB/s"}
   ]
 }

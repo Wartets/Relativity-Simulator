@@ -273,6 +273,16 @@ private:
 	uint64_t master_seed_;
 	uint64_t sequence_id_;
 
+	static constexpr uint64_t mix_substream_seed(uint64_t master_seed, uint64_t stream_index) noexcept {
+		uint64_t mixed = master_seed ^ (stream_index + 0x9E3779B97F4A7C15ULL + (master_seed << 6) + (master_seed >> 2));
+		mixed ^= mixed >> 30;
+		mixed *= 0xBF58476D1CE4E5B9ULL;
+		mixed ^= mixed >> 27;
+		mixed *= 0x94D049BB133111EBULL;
+		mixed ^= mixed >> 31;
+		return mixed;
+	}
+
 public:
 	explicit constexpr DeterministicRngRegistry(uint64_t initial_seed = 0x853C49E6748FEA9BULL) noexcept
 		: global_engine_(initial_seed, 1ULL),
@@ -286,7 +296,7 @@ public:
 	}
 
 	[[nodiscard]] PCG64Engine create_sub_engine(uint64_t stream_index) noexcept {
-		const uint64_t sub_seed = global_engine_();
+		const uint64_t sub_seed = mix_substream_seed(master_seed_, stream_index);
 		return PCG64Engine(sub_seed, (stream_index << 1) | 1ULL);
 	}
 

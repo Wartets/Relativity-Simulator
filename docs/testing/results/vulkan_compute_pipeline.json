@@ -1,8 +1,8 @@
 {
   "suite": "vulkan_compute_pipeline",
   "description": "Verifies the headless compute pipeline on a 64 by 64 Schwarzschild frame at r = 15: device initialization with native double precision, complete pixel processing with horizon and celestial pixels, agreement of the pixel classification between the FP64 pipeline and the single-precision software path above 98 percent, and the agreement of an emulated double-single trajectory with native double precision.",
-  "generated": "2026-11-07 18:20:45 UTC",
-  "duration_seconds": 1.5049674,
+  "generated": "2026-11-08 00:21:19 UTC",
+  "duration_seconds": 1.2896804,
   "passed": false,
   "checks": [
     {"section": "Pipeline initialization", "label": "the graphics context is initialized", "detail": "", "passed": true},

@@ -361,14 +361,37 @@ void unshuffle_bytes(const uint8_t* source, uint8_t* destination, size_t pixel_c
 	return reader.exhausted() ? CodecStatus::Ok : CodecStatus::CorruptStream;
 }
 
+[[nodiscard]] bool should_skip_lz4_compression(std::span<const Render::GpuPixelOutput> pixels) noexcept {
+	if (pixels.size() < 8U) {
+		return false;
+	}
+	const size_t sample_count = std::min<size_t>(pixels.size(), 64U);
+	size_t coherent_pairs = 0;
+	for (size_t i = 1; i < sample_count; ++i) {
+		const auto& previous = pixels[i - 1U];
+		const auto& current = pixels[i];
+		const float delta_r = std::abs(previous.r - current.r);
+		const float delta_g = std::abs(previous.g - current.g);
+		const float delta_b = std::abs(previous.b - current.b);
+		const float delta_a = std::abs(previous.a - current.a);
+		const float delta_z = std::abs(previous.redshift - current.redshift);
+		const float delta_affine = std::abs(previous.affine_parameter - current.affine_parameter);
+		if (std::max({delta_r, delta_g, delta_b, delta_a, delta_z, delta_affine}) < 0.05f) {
+			++coherent_pairs;
+		}
+	}
+	const double coherence_ratio = static_cast<double>(coherent_pairs) / static_cast<double>(sample_count - 1U);
+	return coherence_ratio < 0.30;
+}
+
 [[nodiscard]] CodecStatus encode_lz4_block(std::span<const Render::GpuPixelOutput> pixels, std::span<uint8_t> output, TileCodecScratch& scratch, int acceleration, size_t& written) noexcept {
 	const size_t raw_bytes = pixels.size() * kPixelStrideBytes;
-	shuffle_bytes(reinterpret_cast<const uint8_t*>(pixels.data()), scratch.shuffled.data(), pixels.size());
+	const size_t output_capacity = std::min<size_t>(output.size(), static_cast<size_t>(std::numeric_limits<int>::max()));
 	const int produced = LZ4_compress_fast(
-		reinterpret_cast<const char*>(scratch.shuffled.data()),
+		reinterpret_cast<const char*>(pixels.data()),
 		reinterpret_cast<char*>(output.data()),
 		static_cast<int>(raw_bytes),
-		static_cast<int>(std::min<size_t>(output.size(), static_cast<size_t>(std::numeric_limits<int>::max()))),
+		static_cast<int>(output_capacity),
 		std::max(acceleration, 1)
 	);
 	if (produced <= 0) {
@@ -395,7 +418,7 @@ void unshuffle_bytes(const uint8_t* source, uint8_t* destination, size_t pixel_c
 	if (static_cast<size_t>(produced) != raw_bytes) {
 		return CodecStatus::SizeMismatch;
 	}
-	unshuffle_bytes(scratch.shuffled.data(), reinterpret_cast<uint8_t*>(pixels.data()), pixels.size());
+	std::memcpy(pixels.data(), scratch.shuffled.data(), raw_bytes);
 	return CodecStatus::Ok;
 }
 
@@ -434,6 +457,13 @@ CompressionResult TileCodec::compress(
 
 	if (mode != TileCompressionMode::DirectRaw) {
 		size_t written = 0;
+		if (mode == TileCompressionMode::Lz4Block && parameters.lz4_acceleration >= 8) {
+			if (output.size() < raw_bytes) {
+				return CompressionResult{CodecStatus::OutputTooSmall, TileCompressionMode::DirectRaw, 0};
+			}
+			std::memcpy(output.data(), pixels.data(), raw_bytes);
+			return CompressionResult{CodecStatus::Ok, TileCompressionMode::DirectRaw, raw_bytes};
+		}
 		const CodecStatus status = (mode == TileCompressionMode::QoiHdrRle)
 			? encode_qoi_hdr_rle(pixels, output, written)
 			: encode_lz4_block(pixels, output, scratch, parameters.lz4_acceleration, written);

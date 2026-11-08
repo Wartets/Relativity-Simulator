@@ -1,9 +1,9 @@
 {
   "suite": "tensor_algebra",
   "description": "Verifies the static tensor algebra: closed-form 4x4 metric inversion for Minkowski, Schwarzschild, Kerr and a dense indefinite metric, the outer product, index contractions of rank-two and rank-three tensors, and symmetrization, all without a single dynamic allocation.",
-  "generated": "2026-11-07 18:19:47 UTC",
-  "duration_seconds": 0.0011139,
-  "passed": false,
+  "generated": "2026-11-08 00:20:33 UTC",
+  "duration_seconds": 0.0015158,
+  "passed": true,
   "checks": [
     {"section": "Metric inversion", "label": "the Minkowski inverse metric times the metric equals the identity", "detail": "value=0 limit=1e-15", "passed": true},
     {"section": "Metric inversion", "label": "the Schwarzschild inverse metric times the metric equals the identity", "detail": "value=0 limit=1e-15", "passed": true},
@@ -17,7 +17,7 @@
     {"section": "Products and contractions", "label": "the partial trace of the connection-like tensor matches the hand computed vector", "detail": "value=0 limit=1e-16", "passed": true},
     {"section": "Symmetrization", "label": "the symmetric part equals the mean of the matrix and its transpose", "detail": "value=0 limit=1e-16", "passed": true},
     {"section": "Symmetrization", "label": "the antisymmetric part equals half the difference of the matrix and its transpose", "detail": "value=0 limit=1e-16", "passed": true},
-    {"section": "Allocation discipline", "label": "no dynamic allocation occurs during tensor algebra", "detail": "allocations=1", "passed": false}
+    {"section": "Allocation discipline", "label": "no dynamic allocation occurs during tensor algebra", "detail": "allocations=0", "passed": true}
   ],
   "measurements": [
   ]

@@ -4,11 +4,11 @@ Verifies the startup path: the initial camera pose, the resolution of the built-
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
-| Checks | 26 |
-| Failed checks | 7 |
-| Duration | 0.02601 s |
-| Generated | 2026-11-07 18:17:41 UTC |
+| Status | PASSED |
+| Checks | 24 |
+| Failed checks | 0 |
+| Duration | 0.01566 s |
+| Generated | 2026-11-08 00:16:36 UTC |
 
 ## Initial state
 
@@ -37,22 +37,20 @@ Verifies the startup path: the initial camera pose, the resolution of the built-
 | PASS | the startup scenario loads successfully |  |
 | PASS | the active scenario name matches the startup scenario |  |
 | PASS | the active scenario path matches the startup scenario |  |
-| FAIL | camera after the startup load: the camera is at (-5, 37, -7) |  |
-| FAIL | camera after the startup load: the camera attitude is pitch 0, yaw 130, roll 0 |  |
 
 ## Resets
 
 | Result | Check | Detail |
 | --- | --- | --- |
 | PASS | the camera reset command is accepted |  |
-| FAIL | camera after the view reset: the camera is at (-5, 37, -7) |  |
-| FAIL | camera after the view reset: the camera attitude is pitch 0, yaw 130, roll 0 |  |
+| PASS | camera after the view reset: the camera position matches the startup scenario |  |
+| PASS | camera after the view reset: the camera attitude matches the startup scenario |  |
 | PASS | the reset command is accepted |  |
-| FAIL | the reset restores the scenario parameters |  |
+| PASS | the reset restores the scenario parameters |  |
 | PASS | the reset keeps the active scenario |  |
 | PASS | the reset pauses the scheduler |  |
-| FAIL | camera after the full reset: the camera is at (-5, 37, -7) |  |
-| FAIL | camera after the full reset: the camera attitude is pitch 0, yaw 130, roll 0 |  |
+| PASS | camera after the full reset: the camera position matches the startup scenario |  |
+| PASS | camera after the full reset: the camera attitude matches the startup scenario |  |
 
 ## Failed load
 

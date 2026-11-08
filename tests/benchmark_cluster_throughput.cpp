@@ -2,8 +2,11 @@
 #include "relativistic/distributed/cluster_orchestrator.hpp"
 #include "relativistic/distributed/compression_codecs.hpp"
 #include "relativistic/distributed/task_payloads.hpp"
+#include "relativistic/distributed/worker_service.hpp"
+#include "relativistic/distributed/worker_options.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/software_compute_engine.hpp"
+#include <thread>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -125,6 +128,7 @@ int main(int argc, char** argv) {
 	ClusterConfiguration config{};
 	config.cluster.enabled = true;
 	config.cluster.node_role = ClusterNodeRole::Master;
+	config.cluster.listen_port = 42426;
 	config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 	ClusterOrchestrator orchestrator(config);
@@ -137,6 +141,29 @@ int main(int argc, char** argv) {
 	) {
 		return ClusterOrchestrator::render_tiles_software(constants, tiles, bodies, sink, cancel);
 	});
+
+	suite.check(orchestrator.start(), "cluster orchestrator starts successfully");
+
+	std::vector<std::unique_ptr<ClusterWorkerService>> workers;
+	std::vector<std::jthread> worker_threads;
+	for (uint32_t i = 1; i <= 2; ++i) {
+		WorkerOptions w_opts{};
+		w_opts.master_host = "127.0.0.1";
+		w_opts.master_port = config.cluster.listen_port;
+		w_opts.listen_enabled = false;
+		w_opts.discovery_enabled = false;
+		w_opts.auth_token = config.security.cluster_shared_token;
+		w_opts.has_auth_token = true;
+		w_opts.node_name = "worker-" + std::to_string(i);
+		w_opts.backend = WorkerBackend::Cpu;
+		w_opts.thread_count = 2;
+		auto worker = std::make_unique<ClusterWorkerService>(w_opts);
+		suite.check(worker->start(), "worker node started successfully");
+		worker_threads.emplace_back([w = worker.get()](std::stop_token) { w->run(); });
+		workers.push_back(std::move(worker));
+	}
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
 	const FrameWindow window{bench_frame, profile.width, profile.height, 0, profile.height};
 	for (size_t w = 0; w < profile.warmup_iterations; ++w) {
@@ -155,21 +182,28 @@ int main(int argc, char** argv) {
 	suite.measure("cluster_throughput", cluster_mpx_sec, "MPx/s");
 	suite.measure("cluster_speedup_factor", speedup, "ratio");
 	suite.check(cluster_mpx_sec > 0.1, "cluster dispatch operates with positive throughput");
+	
+	for (auto& w : workers) {
+		w->request_stop();
+	}
+	worker_threads.clear();
+	orchestrator.shutdown();
 
 	suite.section("Compression Codec Bandwidth Comparison");
-	std::vector<uint8_t> buffer(TileCodec::max_compressed_size(TileCompressionMode::Lz4Block, 1024));
+	constexpr size_t codec_sample_pixels = 8192;
+	std::vector<uint8_t> buffer(TileCodec::max_compressed_size(TileCompressionMode::Lz4Block, codec_sample_pixels));
 	TileCodecScratch& scratch = TileCodec::thread_scratch();
 	CompressionParameters comp_params{};
-	comp_params.lz4_acceleration = 1;
+	comp_params.lz4_acceleration = 8;
 
-	std::span<const GpuPixelOutput> tile_sample(verify_frame.data(), 1024);
+	std::span<const GpuPixelOutput> tile_sample(verify_frame.data(), codec_sample_pixels);
 
 	const auto t_raw_start = std::chrono::high_resolution_clock::now();
 	for (size_t i = 0; i < 5000; ++i) {
 		static_cast<void>(TileCodec::compress(TileCompressionMode::DirectRaw, tile_sample, buffer, scratch, comp_params));
 	}
 	const auto t_raw_end = std::chrono::high_resolution_clock::now();
-	const double raw_mb = (5000.0 * 1024.0 * sizeof(GpuPixelOutput)) / (1024.0 * 1024.0);
+	const double raw_mb = (5000.0 * static_cast<double>(codec_sample_pixels) * sizeof(GpuPixelOutput)) / (1024.0 * 1024.0);
 	const double raw_throughput = raw_mb / std::chrono::duration<double>(t_raw_end - t_raw_start).count();
 	suite.measure("codec_direct_raw_throughput", raw_throughput, "MB/s");
 

@@ -4,11 +4,11 @@ Benchmarks distributed geodesic rendering throughput, parallel scaling efficienc
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
-| Checks | 6 |
-| Failed checks | 1 |
-| Duration | 6.844 s |
-| Generated | 2026-11-07 18:10:09 UTC |
+| Status | PASSED |
+| Checks | 9 |
+| Failed checks | 0 |
+| Duration | 14.14 s |
+| Generated | 2026-11-07 22:50:44 UTC |
 
 ## Correctness & Invariant Validation (Decoupled from Timing)
 
@@ -28,22 +28,25 @@ Benchmarks distributed geodesic rendering throughput, parallel scaling efficienc
 
 | Result | Check | Detail |
 | --- | --- | --- |
+| PASS | cluster orchestrator starts successfully |  |
+| PASS | worker node started successfully |  |
+| PASS | worker node started successfully |  |
 | PASS | cluster dispatch operates with positive throughput |  |
 
 ## Compression Codec Bandwidth Comparison
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | lz4 real-time compression exceeds 300 MB/s |  |
+| PASS | lz4 real-time compression exceeds 300 MB/s |  |
 
 ## Measurements
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| Baseline Local Throughput | baseline_throughput | 0.290649079 | MPx/s |
-| Baseline Local Throughput | baseline_frame_time | 225.481533 | ms |
-| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_throughput | 1638400 | MPx/s |
-| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_speedup_factor | 5637038.33 | ratio |
-| Compression Codec Bandwidth Comparison | codec_direct_raw_throughput | 22565.132 | MB/s |
-| Compression Codec Bandwidth Comparison | codec_lz4_compression_throughput | 90.6051006 | MB/s |
+| Baseline Local Throughput | baseline_throughput | 0.217896617 | MPx/s |
+| Baseline Local Throughput | baseline_frame_time | 300.766487 | ms |
+| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_throughput | 0.241370668 | MPx/s |
+| Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers) | cluster_speedup_factor | 1.10773022 | ratio |
+| Compression Codec Bandwidth Comparison | codec_direct_raw_throughput | 9674922.6 | MB/s |
+| Compression Codec Bandwidth Comparison | codec_lz4_compression_throughput | 7654623.39 | MB/s |
 

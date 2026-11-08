@@ -4,11 +4,11 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 68 |
-| Failed checks | 8 |
-| Duration | 0.04587 s |
-| Generated | 2026-11-07 18:19:27 UTC |
+| Failed checks | 0 |
+| Duration | 0.04283 s |
+| Generated | 2026-11-07 23:58:16 UTC |
 
 ## Mode catalogue
 
@@ -28,7 +28,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Pinhole: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Pinhole: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Pinhole: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Pinhole: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Pinhole: direction-to-screen projection inverts the ray generator | missing=0 worst_error=0 |
 
 ## Projection mode 1: Auto-Zoom
 
@@ -40,7 +40,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Auto-Zoom: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Auto-Zoom: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Auto-Zoom: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Auto-Zoom: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Auto-Zoom: direction-to-screen projection inverts the ray generator | missing=0 worst_error=0 |
 
 ## Projection mode 2: Fisheye Stereographic
 
@@ -52,7 +52,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Fisheye Stereographic: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Stereographic: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Stereographic: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Fisheye Stereographic: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Fisheye Stereographic: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.11e-16 |
 
 ## Projection mode 3: Equirectangular 360
 
@@ -64,7 +64,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Equirectangular 360: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Equirectangular 360: up-down mirror symmetry | value=3.33067e-16 limit=1e-09 |
 | PASS | Equirectangular 360: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Equirectangular 360: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Equirectangular 360: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.11e-16 |
 
 ## Projection mode 4: Fisheye Equidistant
 
@@ -76,7 +76,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Fisheye Equidistant: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Equidistant: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Equidistant: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Fisheye Equidistant: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Fisheye Equidistant: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.11e-16 |
 
 ## Projection mode 5: Fisheye Orthographic
 
@@ -88,7 +88,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Fisheye Orthographic: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Orthographic: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Fisheye Orthographic: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Fisheye Orthographic: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.2 |
+| PASS | Fisheye Orthographic: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.11e-16 |
 
 ## Projection mode 6: Panini Cylindrical
 
@@ -100,7 +100,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Panini Cylindrical: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Panini Cylindrical: up-down mirror symmetry | value=0 limit=1e-09 |
 | PASS | Panini Cylindrical: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Panini Cylindrical: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.209 |
+| PASS | Panini Cylindrical: direction-to-screen projection inverts the ray generator | missing=0 worst_error=8.882e-16 |
 
 ## Projection mode 7: Hammer-Aitoff
 
@@ -112,7 +112,7 @@ Verifies every camera projection mode of the observer: unit-length finite rays o
 | PASS | Hammer-Aitoff: left-right mirror symmetry | value=0 limit=1e-09 |
 | PASS | Hammer-Aitoff: up-down mirror symmetry | value=1.38778e-16 limit=1e-09 |
 | PASS | Hammer-Aitoff: off-axis angle grows monotonically along the horizontal axis |  |
-| FAIL | Hammer-Aitoff: direction-to-screen projection inverts the ray generator | missing=0 worst_error=1.652 |
+| PASS | Hammer-Aitoff: direction-to-screen projection inverts the ray generator | missing=0 worst_error=6.616e-13 |
 
 ## Pinhole analytic geometry
 

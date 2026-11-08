@@ -17,7 +17,6 @@
 
 using namespace Relativistic::Metrics;
 using namespace Relativistic::Core;
-using Relativistic::Testing::format_number;
 using Relativistic::Testing::TestSuite;
 
 namespace {

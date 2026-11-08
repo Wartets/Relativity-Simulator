@@ -4,11 +4,11 @@ Verifies the explicit-state PCG64 generator that underpins deterministic replay:
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 9 |
-| Failed checks | 1 |
-| Duration | 0.03331 s |
-| Generated | 2026-11-07 18:19:23 UTC |
+| Failed checks | 0 |
+| Duration | 0.01869 s |
+| Generated | 2026-11-07 23:04:32 UTC |
 
 ## Reproducibility
 
@@ -37,7 +37,7 @@ Verifies the explicit-state PCG64 generator that underpins deterministic replay:
 | --- | --- | --- |
 | PASS | step_forward equals the same number of sequential draws |  |
 | PASS | distinct sub-engine identifiers give distinct streams |  |
-| FAIL | the same registry seed and identifier reproduce the same sub-engine |  |
+| PASS | the same registry seed and identifier reproduce the same sub-engine |  |
 
 ## Measurements
 

@@ -4,11 +4,11 @@ Verifies the structure-of-arrays ray bundles and their four-vector algebra: the 
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 6 |
-| Failed checks | 1 |
-| Duration | 0.04467 s |
-| Generated | 2026-11-07 18:17:51 UTC |
+| Failed checks | 0 |
+| Duration | 0.05915 s |
+| Generated | 2026-11-08 00:02:46 UTC |
 
 ## Four-vector algebra
 
@@ -29,5 +29,5 @@ Verifies the structure-of-arrays ray bundles and their four-vector algebra: the 
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | no dynamic allocation occurs in the bundle algebra | allocations=1 |
+| PASS | no dynamic allocation occurs in the bundle algebra | allocations=0 |
 

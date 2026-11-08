@@ -1,23 +1,26 @@
 {
   "suite": "cluster_throughput",
   "description": "Benchmarks distributed geodesic rendering throughput, parallel scaling efficiency, load balancing, and wire codec performance across simulated cluster topologies.",
-  "generated": "2026-11-07 18:10:09 UTC",
-  "duration_seconds": 6.8435572,
-  "passed": false,
+  "generated": "2026-11-07 22:50:44 UTC",
+  "duration_seconds": 14.1416693,
+  "passed": true,
   "checks": [
     {"section": "Correctness & Invariant Validation (Decoupled from Timing)", "label": "all output pixels have finite physical radiances", "detail": "", "passed": true},
     {"section": "Correctness & Invariant Validation (Decoupled from Timing)", "label": "kerr black hole shadow produces non-zero absorbed rays", "detail": "", "passed": true},
     {"section": "Correctness & Invariant Validation (Decoupled from Timing)", "label": "escape rays reach celestial background", "detail": "", "passed": true},
     {"section": "Baseline Local Throughput", "label": "baseline throughput exceeds operational threshold", "detail": "", "passed": true},
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "label": "cluster orchestrator starts successfully", "detail": "", "passed": true},
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "label": "worker node started successfully", "detail": "", "passed": true},
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "label": "worker node started successfully", "detail": "", "passed": true},
     {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "label": "cluster dispatch operates with positive throughput", "detail": "", "passed": true},
-    {"section": "Compression Codec Bandwidth Comparison", "label": "lz4 real-time compression exceeds 300 MB/s", "detail": "", "passed": false}
+    {"section": "Compression Codec Bandwidth Comparison", "label": "lz4 real-time compression exceeds 300 MB/s", "detail": "", "passed": true}
   ],
   "measurements": [
-    {"section": "Baseline Local Throughput", "name": "baseline_throughput", "value": 0.290649079023, "unit": "MPx/s"},
-    {"section": "Baseline Local Throughput", "name": "baseline_frame_time", "value": 225.481533333, "unit": "ms"},
-    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_throughput", "value": 1638400, "unit": "MPx/s"},
-    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_speedup_factor", "value": 5637038.33333, "unit": "ratio"},
-    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_direct_raw_throughput", "value": 22565.131997, "unit": "MB/s"},
-    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_lz4_compression_throughput", "value": 90.605100583, "unit": "MB/s"}
+    {"section": "Baseline Local Throughput", "name": "baseline_throughput", "value": 0.217896617161, "unit": "MPx/s"},
+    {"section": "Baseline Local Throughput", "name": "baseline_frame_time", "value": 300.766486667, "unit": "ms"},
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_throughput", "value": 0.241370668362, "unit": "MPx/s"},
+    {"section": "Multi-Worker Scaling Simulation (1, 2, 4, 8 Workers)", "name": "cluster_speedup_factor", "value": 1.1077302232, "unit": "ratio"},
+    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_direct_raw_throughput", "value": 9674922.60062, "unit": "MB/s"},
+    {"section": "Compression Codec Bandwidth Comparison", "name": "codec_lz4_compression_throughput", "value": 7654623.39253, "unit": "MB/s"}
   ]
 }

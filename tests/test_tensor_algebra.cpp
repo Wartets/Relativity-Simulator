@@ -79,6 +79,7 @@ int main() {
 	size_t product_rank = 0;
 	size_t contraction_rank = 99;
 	size_t connection_rank = 99;
+	const size_t allocations_before_trap = g_dynamic_allocations_count.load(std::memory_order_relaxed);
 
 	g_trap_dynamic_allocations.store(true, std::memory_order_seq_cst);
 	{
@@ -171,7 +172,8 @@ int main() {
 		antisymmetric_error = std::max({std::abs(a(0, 1) + 1.0), std::abs(a(1, 0) - 1.0), std::abs(a(2, 3) + 3.0), std::abs(a(3, 2) - 3.0)});
 	}
 	g_trap_dynamic_allocations.store(false, std::memory_order_seq_cst);
-	const size_t allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed);
+	const size_t allocations_after_trap = g_dynamic_allocations_count.load(std::memory_order_relaxed);
+	const size_t allocations = allocations_after_trap - allocations_before_trap;
 
 	suite.section("Metric inversion");
 	suite.check_at_most(residual_minkowski, 1e-15, "the Minkowski inverse metric times the metric equals the identity");

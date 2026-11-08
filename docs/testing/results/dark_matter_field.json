@@ -1,12 +1,12 @@
 {
   "suite": "dark_matter_field",
   "description": "Verifies the dark matter field of the renderer and the N-body coupling: enclosed mass fractions of every profile, triaxial ellipsoidal geometry, gravitational acceleration and lensing scale, photon deflection and step limit, volumetric emission, settings serialization, anchor resolution, subhalo population generation and presets.",
-  "generated": "2026-11-07 18:17:40 UTC",
-  "duration_seconds": 0.004851,
-  "passed": false,
+  "generated": "2026-11-08 00:40:58 UTC",
+  "duration_seconds": 0.0034774,
+  "passed": true,
   "checks": [
     {"section": "Profile mathematics", "label": "the enclosed mass fraction vanishes at the centre for every profile", "detail": "", "passed": true},
-    {"section": "Profile mathematics", "label": "the enclosed mass fraction is non-negative and non-decreasing for every profile", "detail": "", "passed": false},
+    {"section": "Profile mathematics", "label": "the enclosed mass fraction is non-negative and non-decreasing for every profile", "detail": "", "passed": true},
     {"section": "Profile mathematics", "label": "the derivative of the enclosed fraction is non-negative for every profile", "detail": "", "passed": true},
     {"section": "Triaxial ellipsoidal geometry", "label": "the local x coordinate equals the offset from the halo centre", "detail": "actual=3 expected=3 abs_error=0 tolerance=1e-12", "passed": true},
     {"section": "Triaxial ellipsoidal geometry", "label": "the local y coordinate equals the offset from the halo centre", "detail": "actual=4 expected=4 abs_error=0 tolerance=1e-12", "passed": true},
@@ -41,7 +41,7 @@
     {"section": "Subhalo population", "label": "the generator spawns the requested number of subhalos", "detail": "", "passed": true},
     {"section": "Subhalo population", "label": "every subhalo mass lies in the configured range", "detail": "", "passed": true},
     {"section": "Subhalo population", "label": "every subhalo lies in the configured shell", "detail": "", "passed": true},
-    {"section": "Presets", "label": "every preset has a positive mass, scale radius and normalization", "detail": "", "passed": false}
+    {"section": "Presets", "label": "every preset has a positive mass, scale radius and normalization", "detail": "", "passed": true}
   ],
   "measurements": [
   ]

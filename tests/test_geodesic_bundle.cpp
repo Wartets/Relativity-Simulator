@@ -14,6 +14,9 @@ static std::atomic<size_t> g_dynamic_allocations_count{0};
 static std::atomic<bool> g_trap_dynamic_allocations{false};
 
 void* operator new(size_t size) {
+	if (size == 0) {
+		size = 1;
+	}
 	g_dynamic_allocations_count.fetch_add(1, std::memory_order_relaxed);
 	if (g_trap_dynamic_allocations.load(std::memory_order_relaxed)) {
 		std::abort();
@@ -21,11 +24,39 @@ void* operator new(size_t size) {
 	return std::malloc(size);
 }
 
+void* operator new[](size_t size) {
+	return ::operator new(size);
+}
+
+void* operator new(size_t size, std::align_val_t) {
+	return ::operator new(size);
+}
+
+void* operator new[](size_t size, std::align_val_t) {
+	return ::operator new(size);
+}
+
 void operator delete(void* ptr) noexcept {
 	std::free(ptr);
 }
 
+void operator delete[](void* ptr) noexcept {
+	std::free(ptr);
+}
+
 void operator delete(void* ptr, size_t) noexcept {
+	std::free(ptr);
+}
+
+void operator delete[](void* ptr, size_t) noexcept {
+	std::free(ptr);
+}
+
+void operator delete(void* ptr, std::align_val_t) noexcept {
+	std::free(ptr);
+}
+
+void operator delete[](void* ptr, std::align_val_t) noexcept {
 	std::free(ptr);
 }
 
@@ -44,6 +75,7 @@ int main() {
 	size_t bundle_initial_count = 0;
 	bool bundle_positions_positive = true;
 
+	const size_t allocation_baseline = g_dynamic_allocations_count.load(std::memory_order_relaxed);
 	g_trap_dynamic_allocations.store(true, std::memory_order_seq_cst);
 	{
 		Double4 u0(1.0, 2.0, 3.0, 4.0);
@@ -95,7 +127,7 @@ int main() {
 		}
 	}
 	g_trap_dynamic_allocations.store(false, std::memory_order_seq_cst);
-	const size_t allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed);
+	const size_t allocations = g_dynamic_allocations_count.load(std::memory_order_relaxed) - allocation_baseline;
 
 	suite.section("Four-vector algebra");
 	suite.check_at_most(dot_error, 1e-15, "the lane-wise Minkowski product follows -u0 v0 + u.v");

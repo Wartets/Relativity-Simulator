@@ -4,18 +4,18 @@ Verifies the dark matter field of the renderer and the N-body coupling: enclosed
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 37 |
-| Failed checks | 2 |
-| Duration | 0.004851 s |
-| Generated | 2026-11-07 18:17:40 UTC |
+| Failed checks | 0 |
+| Duration | 0.003477 s |
+| Generated | 2026-11-08 00:40:58 UTC |
 
 ## Profile mathematics
 
 | Result | Check | Detail |
 | --- | --- | --- |
 | PASS | the enclosed mass fraction vanishes at the centre for every profile |  |
-| FAIL | the enclosed mass fraction is non-negative and non-decreasing for every profile |  |
+| PASS | the enclosed mass fraction is non-negative and non-decreasing for every profile |  |
 | PASS | the derivative of the enclosed fraction is non-negative for every profile |  |
 
 ## Triaxial ellipsoidal geometry
@@ -90,5 +90,5 @@ Verifies the dark matter field of the renderer and the N-body coupling: enclosed
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | every preset has a positive mass, scale radius and normalization |  |
+| PASS | every preset has a positive mass, scale radius and normalization |  |
 

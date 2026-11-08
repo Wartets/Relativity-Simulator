@@ -7,8 +7,8 @@ Verifies the finite-difference connection solver at fourth, sixth and eighth ord
 | Status | FAILED |
 | Checks | 13 |
 | Failed checks | 1 |
-| Duration | 0.004259 s |
-| Generated | 2026-11-07 18:12:30 UTC |
+| Duration | 0.00357 s |
+| Generated | 2026-11-08 00:20:28 UTC |
 
 ## Flat spacetime
 

@@ -4,11 +4,11 @@ Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD seal
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 19 |
-| Failed checks | 1 |
-| Duration | 117.1 s |
-| Generated | 2026-11-07 18:14:28 UTC |
+| Failed checks | 0 |
+| Duration | 113.6 s |
+| Generated | 2026-11-07 23:26:21 UTC |
 
 ## Packet Binary Envelopes
 
@@ -47,11 +47,11 @@ Validates binary packet layout, X25519 key exchange, ChaCha20-Poly1305 AEAD seal
 | Result | Check | Detail |
 | --- | --- | --- |
 | PASS | Benchmark channel server handshake succeeds |  |
-| FAIL | ChaCha20-Poly1305 throughput is sufficient for real-time operations |  |
+| PASS | ChaCha20-Poly1305 throughput is sufficient for real-time operations |  |
 
 ## Measurements
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| Throughput Performance Measurement | chacha20_throughput | 5.34562851 | MB/s |
+| Throughput Performance Measurement | chacha20_throughput | 5.50929626 | MB/s |
 

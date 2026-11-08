@@ -7,8 +7,8 @@ Verifies the Hulse-Taylor binary pulsar: the Peters-Mathews orbital period deriv
 | Status | FAILED |
 | Checks | 5 |
 | Failed checks | 1 |
-| Duration | 0.09069 s |
-| Generated | 2026-11-07 18:17:55 UTC |
+| Duration | 0.08603 s |
+| Generated | 2026-11-08 00:20:30 UTC |
 
 ## Peters-Mathews period derivative
 

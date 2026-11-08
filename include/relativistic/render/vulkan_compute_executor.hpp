@@ -6,6 +6,7 @@
 #include "relativistic/optics/textures/earth_texture_image.hpp"
 #include "relativistic/render/bodies/earth_texture_requirements.hpp"
 #include <thread>
+#include <future>
 #include "relativistic/core/engine_log.hpp"
 #include "relativistic/core/diagnostics/diagnostics_registry.hpp"
 #include <vulkan/vulkan.h>
@@ -36,6 +37,8 @@ private:
 	VkDescriptorSetLayout descriptor_set_layout_{VK_NULL_HANDLE};
 	VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};
 	VkPipeline compute_pipeline_{VK_NULL_HANDLE};
+	VkPipelineCache pipeline_cache_{VK_NULL_HANDLE};
+	size_t pipeline_cache_loaded_bytes_{0};
 	VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
 	VkDescriptorSet descriptor_set_{VK_NULL_HANDLE};
 
@@ -137,6 +140,162 @@ private:
 			return std::nullopt;
 		}
 		return code;
+	}
+
+	static constexpr const char* kPipelineCacheDirectory = "config/pipeline_cache";
+	static constexpr std::streamsize kMaxPipelineCacheBytes = 256LL * 1024LL * 1024LL;
+
+	[[nodiscard]] static std::filesystem::path pipeline_cache_path(std::string_view shader_name) {
+		return std::filesystem::path(kPipelineCacheDirectory) / (std::string(shader_name) + ".cache");
+	}
+
+	[[nodiscard]] static std::vector<uint8_t> read_pipeline_cache_file(const std::filesystem::path& path) {
+		std::ifstream file(path, std::ios::binary | std::ios::ate);
+		if (!file.is_open()) {
+			return {};
+		}
+		const std::streamsize size = file.tellg();
+		if (size <= 0 || size > kMaxPipelineCacheBytes) {
+			return {};
+		}
+		std::vector<uint8_t> blob(static_cast<size_t>(size));
+		file.seekg(0);
+		file.read(reinterpret_cast<char*>(blob.data()), size);
+		if (!file) {
+			return {};
+		}
+		return blob;
+	}
+
+	[[nodiscard]] bool pipeline_cache_matches_device(const std::vector<uint8_t>& blob) const noexcept {
+		constexpr size_t kHeaderBytes = 4U * sizeof(uint32_t) + VK_UUID_SIZE;
+		if (blob.size() < kHeaderBytes) {
+			return false;
+		}
+		uint32_t header_size = 0;
+		uint32_t header_version = 0;
+		uint32_t vendor_id = 0;
+		uint32_t device_id = 0;
+		std::memcpy(&header_size, blob.data(), sizeof(uint32_t));
+		std::memcpy(&header_version, blob.data() + sizeof(uint32_t), sizeof(uint32_t));
+		std::memcpy(&vendor_id, blob.data() + 2U * sizeof(uint32_t), sizeof(uint32_t));
+		std::memcpy(&device_id, blob.data() + 3U * sizeof(uint32_t), sizeof(uint32_t));
+		VkPhysicalDeviceProperties properties{};
+		vkGetPhysicalDeviceProperties(physical_device_, &properties);
+		return header_size >= kHeaderBytes
+			&& header_version == static_cast<uint32_t>(VK_PIPELINE_CACHE_HEADER_VERSION_ONE)
+			&& vendor_id == properties.vendorID
+			&& device_id == properties.deviceID
+			&& std::memcmp(blob.data() + 4U * sizeof(uint32_t), properties.pipelineCacheUUID, VK_UUID_SIZE) == 0;
+	}
+
+	void create_pipeline_cache(std::string_view shader_name) {
+		pipeline_cache_loaded_bytes_ = 0;
+		std::vector<uint8_t> blob = read_pipeline_cache_file(pipeline_cache_path(shader_name));
+		if (blob.empty()) {
+			Startup::note("No pipeline cache found on disk, the first compilation will take longer...");
+		} else if (!pipeline_cache_matches_device(blob)) {
+			Startup::note("Stored pipeline cache belongs to another device or driver, discarding it...");
+			blob.clear();
+		} else {
+			Startup::note("Pipeline cache read from disk (" + std::to_string(blob.size() / 1024U) + " KiB), validating it against the device...");
+		}
+
+		VkPipelineCacheCreateInfo cache_info{};
+		cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+		cache_info.initialDataSize = blob.size();
+		cache_info.pInitialData = blob.empty() ? nullptr : blob.data();
+		if (vkCreatePipelineCache(device_, &cache_info, nullptr, &pipeline_cache_) == VK_SUCCESS) {
+			pipeline_cache_loaded_bytes_ = blob.size();
+			return;
+		}
+		pipeline_cache_ = VK_NULL_HANDLE;
+		if (!blob.empty()) {
+			cache_info.initialDataSize = 0;
+			cache_info.pInitialData = nullptr;
+			if (vkCreatePipelineCache(device_, &cache_info, nullptr, &pipeline_cache_) == VK_SUCCESS) {
+				Startup::note("The driver rejected the stored pipeline cache, starting with an empty one...");
+				return;
+			}
+			pipeline_cache_ = VK_NULL_HANDLE;
+		}
+		Startup::note("Pipeline cache unavailable, compiling without caching...");
+	}
+
+	void store_pipeline_cache(std::string_view shader_name) noexcept {
+		if (pipeline_cache_ == VK_NULL_HANDLE) {
+			return;
+		}
+		try {
+			size_t size = 0;
+			if (vkGetPipelineCacheData(device_, pipeline_cache_, &size, nullptr) != VK_SUCCESS || size == 0U) {
+				return;
+			}
+			if (size == pipeline_cache_loaded_bytes_) {
+				Startup::note("Pipeline cache is already up to date on disk...");
+				return;
+			}
+			std::vector<uint8_t> data(size);
+			const VkResult result = vkGetPipelineCacheData(device_, pipeline_cache_, &size, data.data());
+			if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+				return;
+			}
+			data.resize(size);
+			Startup::note("Saving the pipeline cache (" + std::to_string(size / 1024U) + " KiB) for faster future launches...");
+			const std::filesystem::path path = pipeline_cache_path(shader_name);
+			std::error_code ec;
+			std::filesystem::create_directories(path.parent_path(), ec);
+			std::filesystem::path temporary = path;
+			temporary += ".tmp";
+			{
+				std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+				if (!out.is_open()) {
+					return;
+				}
+				out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+				if (!out.good()) {
+					return;
+				}
+			}
+			ec.clear();
+			std::filesystem::rename(temporary, path, ec);
+			if (ec) {
+				ec.clear();
+				std::filesystem::remove(path, ec);
+				ec.clear();
+				std::filesystem::rename(temporary, path, ec);
+			}
+		} catch (...) {
+		}
+	}
+
+	[[nodiscard]] VkResult build_compute_pipeline(const VkComputePipelineCreateInfo& pipeline_info) {
+		const bool warm = pipeline_cache_loaded_bytes_ > 0U;
+		Startup::note(warm
+			? "Submitting the compute pipeline to the driver (warm pipeline cache)..."
+			: "Submitting the compute pipeline to the driver (cold start, the shader is compiled from scratch)...");
+		const auto started = std::chrono::steady_clock::now();
+		const VkDevice device = device_;
+		const VkPipelineCache cache = pipeline_cache_;
+		VkPipeline created{VK_NULL_HANDLE};
+		std::future<VkResult> job = std::async(std::launch::async, [device, cache, &pipeline_info, &created]() {
+			return vkCreateComputePipelines(device, cache, 1, &pipeline_info, nullptr, &created);
+		});
+		while (job.wait_for(std::chrono::milliseconds(250)) != std::future_status::ready) {
+			const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+			char text[128];
+			std::snprintf(text, sizeof(text), "The driver is compiling the compute shader (%.1f s elapsed)...", elapsed);
+			Startup::note(text);
+		}
+		const VkResult result = job.get();
+		if (result == VK_SUCCESS) {
+			compute_pipeline_ = created;
+			const double total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+			char text[128];
+			std::snprintf(text, sizeof(text), "Compute pipeline ready in %.0f ms (%s)...", total_ms, warm ? "pipeline cache hit" : "compiled from scratch");
+			Startup::note(text);
+		}
+		return result;
 	}
 
 	[[nodiscard]] std::optional<uint32_t> find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) const noexcept {
@@ -814,7 +973,7 @@ public:
 			return false;
 		}
 
-		Startup::note("Creating descriptor set layout and pipeline layout...");
+		Startup::note("Declaring descriptor bindings: camera uniform, pixel output, bodies, work counter and texture samplers...");
 		std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
 		bindings[0].binding = 0;
 		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -860,6 +1019,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Creating the pipeline layout...");
 		VkPipelineLayoutCreateInfo pipeline_layout_info{};
 		pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipeline_layout_info.setLayoutCount = 1;
@@ -875,17 +1035,20 @@ public:
 		stage_info.module = shader_module_;
 		stage_info.pName = "main";
 
-		Startup::note("Building the geodesic compute pipeline...");
+		create_pipeline_cache(source.file_name);
+
+		Startup::note("Describing the compute stage (entry point main, workgroup 16x16)...");
 		VkComputePipelineCreateInfo pipeline_info{};
 		pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
 		pipeline_info.stage = stage_info;
 		pipeline_info.layout = pipeline_layout_;
 
-		if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &compute_pipeline_) != VK_SUCCESS) {
+		if (build_compute_pipeline(pipeline_info) != VK_SUCCESS) {
 			return false;
 		}
+		store_pipeline_cache(source.file_name);
 
-		Startup::note("Allocating the descriptor pool and uniform buffers...");
+		Startup::note("Creating the descriptor pool (1 uniform buffer, 3 storage buffers, 3 samplers)...");
 		std::array<VkDescriptorPoolSize, 3> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
 		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
@@ -901,6 +1064,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Allocating the descriptor set...");
 		VkDescriptorSetAllocateInfo set_alloc_info{};
 		set_alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		set_alloc_info.descriptorPool = descriptor_pool_;
@@ -911,6 +1075,7 @@ public:
 			return false;
 		}
 
+		Startup::note("Allocating the camera uniform buffer (" + std::to_string(sizeof(GpuCameraPushConstants) / 1024U) + " KiB, host visible)...");
 		if (!create_buffer(
 			sizeof(GpuCameraPushConstants),
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -940,6 +1105,7 @@ public:
 
 		vkUpdateDescriptorSets(device_, 1, &uniform_write, 0, nullptr);
 
+		Startup::note("Creating the persistent work queue counter...");
 		if (!create_buffer(
 			sizeof(uint32_t),
 			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1100,6 +1266,8 @@ public:
 
 		if (descriptor_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); descriptor_pool_ = VK_NULL_HANDLE; }
 		if (compute_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, compute_pipeline_, nullptr); compute_pipeline_ = VK_NULL_HANDLE; }
+		if (pipeline_cache_ != VK_NULL_HANDLE) { vkDestroyPipelineCache(device_, pipeline_cache_, nullptr); pipeline_cache_ = VK_NULL_HANDLE; }
+		pipeline_cache_loaded_bytes_ = 0;
 		if (pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr); pipeline_layout_ = VK_NULL_HANDLE; }
 		if (descriptor_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, nullptr); descriptor_set_layout_ = VK_NULL_HANDLE; }
 		if (shader_module_ != VK_NULL_HANDLE) { vkDestroyShaderModule(device_, shader_module_, nullptr); shader_module_ = VK_NULL_HANDLE; }

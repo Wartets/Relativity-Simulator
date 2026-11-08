@@ -9,6 +9,7 @@
 #include "relativistic/core/diagnostics/diagnostics_session.hpp"
 #include "relativistic/startup/application_info.hpp"
 #include "relativistic/startup/platform_bootstrap.hpp"
+#include "relativistic/startup/single_instance_guard.hpp"
 #include "relativistic/startup/startup_progress.hpp"
 #include "relativistic/startup/startup_window.hpp"
 #include <iostream>
@@ -404,6 +405,20 @@ int main(int argc, char* argv[]) {
 	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #endif
 
+	const CommandLineOptions options = parse_command_line(argc, argv);
+
+	Relativistic::Startup::SingleInstanceGuard instance_guard;
+	if (!options.show_help && !options.show_version && !instance_guard.acquire()) {
+		Relativistic::Startup::SingleInstanceGuard::activate_existing_instance();
+		const std::string notice = std::string(Relativistic::Startup::ApplicationInfo::kProductName) + " is already running. Close the other instance before starting a new one.";
+		if (options.headless) {
+			std::fprintf(stderr, "[ERROR] %s\n", notice.c_str());
+		} else {
+			Relativistic::Startup::PlatformBootstrap::show_notice(Relativistic::Startup::ApplicationInfo::kProductName, notice);
+		}
+		return EXIT_FAILURE;
+	}
+
 	static_cast<void>(Relativistic::Core::Diagnostics::DiagnosticsSession::begin(Relativistic::Core::Diagnostics::SessionDescriptor{
 		.product_name = Relativistic::Startup::ApplicationInfo::kProductName,
 		.product_version = Relativistic::Startup::ApplicationInfo::kVersion,
@@ -411,7 +426,6 @@ int main(int argc, char* argv[]) {
 		.arguments = argv
 	}));
 
-	const CommandLineOptions options = parse_command_line(argc, argv);
 	Relativistic::Core::Diagnostics::set_environment("launch.headless", options.headless ? "yes" : "no");
 	Relativistic::Core::Diagnostics::set_environment("launch.skip.splash", options.skip_splash ? "yes" : "no");
 	Relativistic::Core::Diagnostics::record_milestone(options.headless ? "launch options parsed (headless)" : "launch options parsed (interactive)");

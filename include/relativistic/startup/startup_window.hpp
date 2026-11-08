@@ -119,6 +119,8 @@ private:
 	static constexpr UINT kMessageClose = WM_APP + 2U;
 	static constexpr UINT_PTR kEaseTimerId = 1;
 	static constexpr UINT kEaseIntervalMs = 15;
+	static constexpr UINT_PTR kClockTimerId = 2;
+	static constexpr UINT kClockIntervalMs = 100;
 	static constexpr const wchar_t* kWindowClassName = L"RelativisticEngineStartupWindow";
 
 	StartupProgress* progress_{nullptr};
@@ -128,6 +130,8 @@ private:
 	std::atomic<bool> update_pending_{false};
 	HINSTANCE instance_{nullptr};
 	std::chrono::steady_clock::time_point start_time_{};
+	std::chrono::steady_clock::time_point end_time_{};
+	bool clock_running_{true};
 
 	UINT dpi_{96};
 	int client_width_{kLogicalWidth};
@@ -443,10 +447,16 @@ private:
 		const UINT single_line = DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
 		const int percent = static_cast<int>(std::clamp(displayed_fraction_, 0.0f, 1.0f) * 100.0f + 0.5f);
 
-		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time_).count();
+		const auto reference_time = clock_running_ ? std::chrono::steady_clock::now() : end_time_;
+		const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(reference_time - start_time_).count();
 		const double seconds = static_cast<double>(elapsed_ms) / 1000.0;
 		wchar_t time_buffer[32];
-		swprintf_s(time_buffer, L"%.1fs", seconds);
+		if (seconds >= 60.0) {
+			const int whole_minutes = static_cast<int>(seconds / 60.0);
+			swprintf_s(time_buffer, L"%dm %04.1fs", whole_minutes, seconds - 60.0 * static_cast<double>(whole_minutes));
+		} else {
+			swprintf_s(time_buffer, L"%.1fs", seconds);
+		}
 
 		const std::wstring metrics = std::to_wstring(percent) + L"%  " + time_buffer;
 		draw_text(device, metrics, fonts_.mono, StartupPalette::kAccentSymbol, percent_rect_, single_line | DT_RIGHT);
@@ -489,9 +499,9 @@ private:
 	}
 
 	void draw_footer_actions(HDC device) const noexcept {
-		draw_action_button(device, Control::License, license_rect_, L"[ License ]");
-		draw_action_button(device, Control::Documentation, docs_rect_, L"[ Docs ]");
-		draw_action_button(device, Control::Repository, repository_rect_, L"[ GitHub ]");
+		draw_action_button(device, Control::License, license_rect_, L"License");
+		draw_action_button(device, Control::Documentation, docs_rect_, L"Docs");
+		draw_action_button(device, Control::Repository, repository_rect_, L"GitHub");
 	}
 
 	void paint(HWND hwnd) noexcept {
@@ -575,6 +585,15 @@ private:
 		}
 	}
 
+	void freeze_clock(HWND hwnd) noexcept {
+		if (!clock_running_) {
+			return;
+		}
+		end_time_ = std::chrono::steady_clock::now();
+		clock_running_ = false;
+		KillTimer(hwnd, kClockTimerId);
+	}
+
 	void apply_snapshot(HWND hwnd) noexcept {
 		update_pending_.store(false, std::memory_order_release);
 		if (progress_ == nullptr) {
@@ -584,6 +603,9 @@ private:
 			const StartupSnapshot snapshot = progress_->snapshot();
 			target_fraction_ = std::clamp(snapshot.fraction, 0.0f, 1.0f);
 			phase_ = snapshot.phase;
+			if (phase_ != StartupPhase::Running) {
+				freeze_clock(hwnd);
+			}
 			cancelling_ = snapshot.cancel_requested;
 			stage_text_ = widen_utf8(snapshot.stage);
 			if (cancelling_) {
@@ -703,12 +725,15 @@ private:
 			case WM_TIMER:
 				if (wparam == kEaseTimerId) {
 					advance_ease(hwnd);
+				} else if (wparam == kClockTimerId) {
+					InvalidateRect(hwnd, &percent_rect_, FALSE);
 				}
 				return 0;
 			case WM_DPICHANGED:
 				on_dpi_changed(hwnd, wparam, lparam);
 				return 0;
 			case WM_DESTROY:
+				KillTimer(hwnd, kClockTimerId);
 				if (ease_timer_active_) {
 					KillTimer(hwnd, kEaseTimerId);
 					ease_timer_active_ = false;
@@ -791,6 +816,9 @@ private:
 		ShowWindow(hwnd, SW_SHOWNORMAL);
 		UpdateWindow(hwnd);
 		SetForegroundWindow(hwnd);
+
+		clock_running_ = true;
+		SetTimer(hwnd, kClockTimerId, kClockIntervalMs, nullptr);
 
 		progress_->set_listener([this]() { post_update(); });
 		ready_.set_value(true);

@@ -54,6 +54,8 @@
 #include <atomic>
 #include <thread>
 #include <string_view>
+#include <filesystem>
+#include <system_error>
 
 namespace Relativistic::UI {
 
@@ -93,6 +95,7 @@ private:
 	std::unique_ptr<Distributed::ClusterMasterService> cluster_master_;
 #endif
 
+	std::string imgui_ini_path_{};
 	bool glfw_initialized_{false};
 	bool imgui_context_created_{false};
 	bool platform_backends_ready_{false};
@@ -178,6 +181,7 @@ public:
 		ImPlot::CreateContext();
 		imgui_context_created_ = true;
 		ImGuiIO& io = ImGui::GetIO();
+		configure_imgui_ini_path(io);
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -782,6 +786,37 @@ public:
 	}
 
 private:
+	void configure_imgui_ini_path(ImGuiIO& io) {
+		namespace fs = std::filesystem;
+		const fs::path settings_directory = IO::UserSettings::settings_file_path().parent_path();
+		const fs::path target = settings_directory / "imgui.ini";
+		const fs::path legacy = fs::path("imgui.ini");
+		std::error_code ec;
+		fs::create_directories(settings_directory, ec);
+		ec.clear();
+		const bool target_exists = fs::exists(target, ec);
+		ec.clear();
+		const bool legacy_exists = fs::exists(legacy, ec);
+		ec.clear();
+		if (legacy_exists) {
+			if (!target_exists) {
+				fs::rename(legacy, target, ec);
+				if (ec) {
+					ec.clear();
+					fs::copy_file(legacy, target, fs::copy_options::skip_existing, ec);
+					if (!ec) {
+						fs::remove(legacy, ec);
+					}
+				}
+			} else {
+				fs::remove(legacy, ec);
+			}
+		}
+		imgui_ini_path_ = target.generic_string();
+		io.IniFilename = imgui_ini_path_.c_str();
+		Core::log_info("Interface layout file: " + imgui_ini_path_);
+	}
+
 	void publish_graphics_environment() noexcept {
 		try {
 			using Core::Diagnostics::append_format;

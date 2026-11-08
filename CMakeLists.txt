@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.019
+	VERSION 0.4.2.020
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -780,6 +780,16 @@ endif()
 
 add_executable(headless_exporter apps/headless_exporter/main.cpp)
 target_link_libraries(headless_exporter PRIVATE relativistic_core)
+
+add_executable(startup_preview apps/startup_preview/main.cpp)
+target_link_libraries(startup_preview PRIVATE relativistic_core)
+if (WIN32)
+	target_compile_definitions(startup_preview PRIVATE UNICODE _UNICODE)
+	target_link_libraries(startup_preview PRIVATE dwmapi shell32 gdi32 user32)
+	if (MSVC)
+		target_compile_options(startup_preview PRIVATE /bigobj)
+	endif()
+endif()
 
 if (ENGINE_ENABLE_DISTRIBUTED)
 	add_executable(cluster_worker apps/cluster_worker/main.cpp)

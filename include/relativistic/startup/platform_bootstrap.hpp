@@ -129,6 +129,18 @@ public:
 		}
 	}
 
+	static void show_notice(std::string_view title, std::string_view message) noexcept {
+		try {
+			std::fprintf(stderr, "[INFO] %.*s\n", static_cast<int>(message.size()), message.data());
+#if defined(_WIN32)
+			MessageBoxW(nullptr, widen_utf8(message).c_str(), widen_utf8(title).c_str(), MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+#else
+			static_cast<void>(title);
+#endif
+		} catch (...) {
+		}
+	}
+
 	static void show_fatal_error(std::string_view title, std::string_view message) noexcept {
 		try {
 			std::fprintf(stderr, "[ERROR] %.*s\n", static_cast<int>(message.size()), message.data());

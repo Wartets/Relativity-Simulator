@@ -4,27 +4,27 @@ Validates distributed geodesic compute pipeline execution, colorimetric and geom
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 19 |
-| Failed checks | 6 |
-| Duration | 0.2361 s |
-| Generated | 2026-11-08 12:34:49 UTC |
+| Failed checks | 0 |
+| Duration | 0.6114 s |
+| Generated | 2026-11-08 12:53:38 UTC |
 
 ## Pipeline Frame Reassembly & Parity
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | orchestrator dispatch frame succeeds |  |
-| FAIL | radiance matches local reference within 1e-5 across all pixels | value=1 limit=1e-05 |
-| FAIL | pixel status classifications match exactly |  |
-| FAIL | horizon absorbed ray count preserved exactly |  |
-| FAIL | celestial hit ray count preserved exactly |  |
+| PASS | orchestrator dispatch frame succeeds |  |
+| PASS | radiance matches local reference within 1e-5 across all pixels | value=0 limit=1e-05 |
+| PASS | pixel status classifications match exactly |  |
+| PASS | horizon absorbed ray count preserved exactly |  |
+| PASS | celestial hit ray count preserved exactly |  |
 
 ## Worker Disconnection Resilience & Work Stealing
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | frame completed reliably despite synthetic disruption |  |
+| PASS | frame completed reliably despite synthetic disruption |  |
 | PASS | zero unrendered or missing pixels in reassembled framebuffer |  |
 
 ## Distributed 1PN N-Body Evaluation
@@ -58,7 +58,7 @@ Validates distributed geodesic compute pipeline execution, colorimetric and geom
 
 | Section | Name | Value | Unit |
 | --- | --- | --- | --- |
-| Pipeline Frame Reassembly & Parity | max_radiance_absolute_difference | 1 | radiance |
+| Pipeline Frame Reassembly & Parity | max_radiance_absolute_difference | 0 | radiance |
 | Distributed 1PN N-Body Evaluation | max_nbody_acceleration_error | 0 | acceleration |
 | Distributed Stochastic PCE Quadrature | max_pce_response_error | 0 | response |
 

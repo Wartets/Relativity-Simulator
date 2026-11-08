@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.018
+	VERSION 0.4.2.019
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )

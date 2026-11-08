@@ -1427,7 +1427,7 @@ bool ClusterOrchestrator::dispatch_frame(
 	if (window.width != width || window.height != height || window.row_count == 0U || window.first_row >= height || window_end > height || window.pixels.size() < static_cast<size_t>(width) * window.row_count) {
 		return false;
 	}
-	if (bodies.size() > kMaximumCatalogBodies || registry_.schedulable_count() == 0U) {
+	if (bodies.size() > kMaximumCatalogBodies) {
 		return false;
 	}
 	std::unique_lock<std::mutex> dispatch_lock(dispatch_mutex_, std::try_to_lock);

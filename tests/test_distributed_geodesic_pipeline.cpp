@@ -72,6 +72,7 @@ int main() {
 		config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		ClusterOrchestrator orchestrator(config);
+		orchestrator.start();
 		orchestrator.set_local_tile_renderer([](
 			const GpuCameraPushConstants& constants,
 			std::span<const uint32_t> tiles,
@@ -130,6 +131,7 @@ int main() {
 		config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		ClusterOrchestrator orchestrator(config);
+		orchestrator.start();
 		orchestrator.set_local_tile_renderer([](
 			const GpuCameraPushConstants& constants,
 			std::span<const uint32_t> tiles,
@@ -186,6 +188,7 @@ int main() {
 		config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		ClusterOrchestrator orchestrator(config);
+		orchestrator.start();
 		std::vector<NBodyRowResult> distributed_results(kBodyCount);
 		const bool dist_ok = orchestrator.evaluate_nbody_accelerations(bodies, options, distributed_results, nullptr);
 		suite.check(dist_ok, "orchestrator evaluate nbody accelerations succeeds");
@@ -223,6 +226,7 @@ int main() {
 		config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		ClusterOrchestrator orchestrator(config);
+		orchestrator.start();
 		GeodesicEnsemblePartial dist_partial{};
 		const bool dist_ok = orchestrator.run_geodesic_ensemble(spec, 200, dist_partial, nullptr);
 		suite.check(dist_ok, "orchestrator run geodesic ensemble succeeds");
@@ -254,6 +258,7 @@ int main() {
 		config.security.apply_token_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		ClusterOrchestrator orchestrator(config);
+		orchestrator.start();
 		std::vector<StochasticQuadratureResult> dist_res(spec.total_quadrature_points);
 		const bool dist_ok = orchestrator.evaluate_stochastic_pce_quadrature(spec, 4, dist_res, nullptr);
 		suite.check(dist_ok, "orchestrator pce quadrature succeeds");

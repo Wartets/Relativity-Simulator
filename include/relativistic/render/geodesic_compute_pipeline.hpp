@@ -218,7 +218,7 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr
 	) {
 		auto* cluster = cluster_.load(std::memory_order_acquire);
-		if (cluster != nullptr) {
+		if (cluster != nullptr && cluster->workers_active() > 0U) {
 			return cluster->evaluate_nbody_accelerations(bodies, options, output, cancel_flag);
 		}
 		return Distributed::evaluate_nbody_accelerations_local(bodies, options, output);
@@ -231,7 +231,7 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr
 	) {
 		auto* cluster = cluster_.load(std::memory_order_acquire);
-		if (cluster != nullptr) {
+		if (cluster != nullptr && cluster->workers_active() > 0U) {
 			return cluster->run_geodesic_ensemble(spec, samples_per_unit, result, cancel_flag);
 		}
 		return Distributed::run_geodesic_ensemble_local(spec, samples_per_unit, result);
@@ -244,7 +244,7 @@ public:
 		const std::atomic<bool>* cancel_flag = nullptr
 	) {
 		auto* cluster = cluster_.load(std::memory_order_acquire);
-		if (cluster != nullptr) {
+		if (cluster != nullptr && cluster->workers_active() > 0U) {
 			return cluster->evaluate_stochastic_pce_quadrature(spec, points_per_unit, results, cancel_flag);
 		}
 		return Distributed::run_stochastic_pce_quadrature_local(spec, points_per_unit, results);
@@ -576,7 +576,7 @@ private:
 			RenderDiagnostics::publish(current_job, current_bodies, gpu_background_eligible ? "vulkan compute preferred" : "cpu software", DispatchState::InFlight, 0.0);
 			try {
 				bool rendered_on_cluster = false;
-				if (cluster_extension_.is_cluster_active()) {
+				if (cluster_extension_.is_cluster_active() && cluster_extension_.workers_active() > 0U) {
 					rendered_on_cluster = cluster_extension_.dispatch_distributed(current_job, back_buffer_, current_bodies, &cancel_render_);
 					rendered_on_cluster_path = rendered_on_cluster;
 				}
@@ -1120,7 +1120,7 @@ public:
 
 		try {
 			await_earth_textures(bodies);
-			if (cluster_extension_.is_cluster_active()) {
+			if (cluster_extension_.is_cluster_active() && cluster_extension_.workers_active() > 0U) {
 				if (cluster_extension_.dispatch_capture(camera_constants, output, 0U, camera_constants.screen_height, bodies, nullptr)) {
 					return true;
 				}
@@ -1171,7 +1171,7 @@ public:
 
 		try {
 			await_earth_textures(bodies);
-			if (cluster_extension_.is_cluster_active() && cluster_extension_.dispatch_capture(band_constants, output, first_row, rows, bodies, cancel)) {
+			if (cluster_extension_.is_cluster_active() && cluster_extension_.workers_active() > 0U && cluster_extension_.dispatch_capture(band_constants, output, first_row, rows, bodies, cancel)) {
 				return true;
 			}
 			if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
@@ -1212,7 +1212,7 @@ public:
 			const bool gpu_background_eligible = use_gpu_compute_.load(std::memory_order_relaxed) && bodies.size() <= kMaxGpuBackgroundBodies;
 			const PrecisionMode active_precision_mode = precision_mode_.load(std::memory_order_relaxed);
 			try {
-				if (cluster_extension_.is_cluster_active()) {
+				if (cluster_extension_.is_cluster_active() && cluster_extension_.workers_active() > 0U) {
 					rendered_on_cluster = cluster_extension_.dispatch_distributed(actual_constants, front_buffer_, bodies, nullptr);
 				}
 

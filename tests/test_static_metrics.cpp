@@ -12,7 +12,6 @@
 #include "relativistic/core/math/tensor_ops.hpp"
 #include <algorithm>
 #include <cmath>
-#include <numbers>
 #include <string>
 
 using namespace Relativistic::Metrics;
@@ -32,6 +31,7 @@ struct UnitSystem {
 
 constexpr UnitSystem kGeometricUnits{"geometric", 1.0, 1.0, 1.0, 1e-12, 1e-7};
 constexpr UnitSystem kSiUnits{"SI", 299792458.0, 6.67430e-11, 1.98847e30, 1e-9, 1e-6};
+constexpr double kPi = 3.14159265358979323846;
 
 template <typename MetricType>
 double max_inversion_error(const MetricType& metric, const FourVector<double>& x) {
@@ -147,7 +147,7 @@ void run_unit_system(TestSuite& suite, const UnitSystem& units) {
 	EddingtonFinkelsteinMetric<double> eddington(units.mass, units.speed_of_light, units.gravitational_constant);
 
 	const double rs = schwarzschild.schwarzschild_radius();
-	const FourVector<double> x(0.0, 5.0 * rs, std::numbers::pi_v<double> / 3.0, 0.5);
+	const FourVector<double> x(0.0, 5.0 * rs, kPi / 3.0, 0.5);
 
 	run_core_checks(suite, "Flat Minkowski", minkowski, x, units);
 	run_core_checks(suite, "Schwarzschild", schwarzschild, x, units);
@@ -155,7 +155,7 @@ void run_unit_system(TestSuite& suite, const UnitSystem& units) {
 	run_core_checks(suite, "Painleve-Gullstrand", painleve, x, units);
 	run_core_checks(suite, "Eddington-Finkelstein", eddington, x, units);
 
-	const FourVector<double> horizon(0.0, rs, std::numbers::pi_v<double> / 2.0, 0.0);
+	const FourVector<double> horizon(0.0, rs, kPi / 2.0, 0.0);
 	const double horizon_scale = std::pow(rs, 4.0) * std::pow(units.speed_of_light, 2.0);
 	suite.check(std::abs(determinant_4x4(painleve.metric_tensor(horizon))) > 1e-6 * horizon_scale, std::string("Painleve-Gullstrand metric stays regular at the horizon [") + units.label + "]");
 	suite.check(std::abs(determinant_4x4(eddington.metric_tensor(horizon))) > 1e-6 * horizon_scale, std::string("Eddington-Finkelstein metric stays regular at the horizon [") + units.label + "]");
@@ -163,7 +163,7 @@ void run_unit_system(TestSuite& suite, const UnitSystem& units) {
 
 void run_vacuum_curvature(TestSuite& suite) {
 	suite.section("Vacuum curvature invariants in geometric units");
-	const FourVector<double> x(0.0, 10.0, std::numbers::pi_v<double> / 3.0, 0.5);
+	const FourVector<double> x(0.0, 10.0, kPi / 3.0, 0.5);
 	SchwarzschildMetric<double> schwarzschild(1.0, 1.0, 1.0);
 	PainleveGullstrandMetric<double> painleve(1.0, 1.0, 1.0);
 	EddingtonFinkelsteinMetric<double> eddington(1.0, 1.0, 1.0);
@@ -175,7 +175,7 @@ void run_vacuum_curvature(TestSuite& suite) {
 void run_reissner_nordstrom(TestSuite& suite) {
 	suite.section("Reissner-Nordstrom");
 	const ReissnerNordstromMetric<double> charged(1.0, 0.6, 1.0, 1.0, 1.0);
-	const FourVector<double> x(0.0, 4.0, std::numbers::pi_v<double> / 3.0, 0.5);
+	const FourVector<double> x(0.0, 4.0, kPi / 3.0, 0.5);
 	run_core_checks(suite, "Reissner-Nordstrom", charged, x, kGeometricUnits);
 	suite.check_near(charged.outer_horizon_radius(), 1.8, 1e-12, "outer horizon radius equals M + sqrt(M^2 - Q^2)");
 	suite.check_near(charged.inner_horizon_radius(), 0.2, 1e-12, "inner horizon radius equals M - sqrt(M^2 - Q^2)");
@@ -192,7 +192,7 @@ void run_reissner_nordstrom(TestSuite& suite) {
 void run_exotic_static(TestSuite& suite) {
 	suite.section("Morris-Thorne wormhole and Alcubierre bubble");
 	const MorrisThorneWormholeMetric<double> wormhole(1.0, 0.3, 1.0);
-	const FourVector<double> wormhole_point(0.0, 2.0, std::numbers::pi_v<double> / 3.0, 0.5);
+	const FourVector<double> wormhole_point(0.0, 2.0, kPi / 3.0, 0.5);
 	run_core_checks(suite, "Morris-Thorne", wormhole, wormhole_point, kGeometricUnits);
 	suite.check_near(wormhole.radius_from_proper_length(0.0), 1.0, 1e-14, "areal radius at the throat equals the throat radius");
 	suite.check_near(wormhole.radius_from_proper_length(3.0), std::sqrt(10.0), 1e-14, "areal radius follows sqrt(l^2 + b0^2)");

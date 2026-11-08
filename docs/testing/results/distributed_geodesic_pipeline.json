@@ -1,8 +1,8 @@
 {
   "suite": "distributed_geodesic_pipeline",
   "description": "Validates distributed geodesic compute pipeline execution, colorimetric and geometric fidelity of reassembled frames against local reference, resilience under simulated worker failure, and distributed physics/uncertainty evaluation.",
-  "generated": "2026-11-08 00:20:30 UTC",
-  "duration_seconds": 0.2063187,
+  "generated": "2026-11-08 12:34:49 UTC",
+  "duration_seconds": 0.2360926,
   "passed": false,
   "checks": [
     {"section": "Pipeline Frame Reassembly & Parity", "label": "orchestrator dispatch frame succeeds", "detail": "", "passed": false},

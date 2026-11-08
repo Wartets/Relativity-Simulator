@@ -89,6 +89,9 @@ ClusterOrchestrator::ClusterOrchestrator(const ClusterConfiguration& configurati
 	  route_exact_metrics_(config_.task_routing.route_exact_spacetime_metrics) {
 	local_capabilities_ = detect_local_hardware_capabilities(LocalGpuInfo{});
 	reseed_local_throughput();
+	try {
+		Core::log_trace("[Cluster] Orchestrator instantiated successfully.");
+	} catch (...) {}
 }
 
 ClusterOrchestrator::~ClusterOrchestrator() noexcept {

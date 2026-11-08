@@ -7,8 +7,8 @@ Validates distributed geodesic compute pipeline execution, colorimetric and geom
 | Status | FAILED |
 | Checks | 19 |
 | Failed checks | 6 |
-| Duration | 0.2063 s |
-| Generated | 2026-11-08 00:20:30 UTC |
+| Duration | 0.2361 s |
+| Generated | 2026-11-08 12:34:49 UTC |
 
 ## Pipeline Frame Reassembly & Parity
 

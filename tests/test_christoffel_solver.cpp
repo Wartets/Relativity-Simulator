@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <new>
 #include <numbers>
+#include <string>
 
 using Relativistic::Testing::TestSuite;
 

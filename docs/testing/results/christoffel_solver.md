@@ -4,11 +4,11 @@ Verifies the finite-difference connection solver at fourth, sixth and eighth ord
 
 | Property | Value |
 | --- | --- |
-| Status | FAILED |
+| Status | PASSED |
 | Checks | 13 |
-| Failed checks | 1 |
-| Duration | 0.00357 s |
-| Generated | 2026-11-08 00:20:28 UTC |
+| Failed checks | 0 |
+| Duration | 0.00318 s |
+| Generated | 2026-11-08 01:04:25 UTC |
 
 ## Flat spacetime
 
@@ -36,5 +36,5 @@ Verifies the finite-difference connection solver at fourth, sixth and eighth ord
 
 | Result | Check | Detail |
 | --- | --- | --- |
-| FAIL | no dynamic allocation occurs in the connection solver | allocations=2 |
+| PASS | no dynamic allocation occurs in the connection solver | allocations=0 |
 

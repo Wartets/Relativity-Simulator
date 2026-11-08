@@ -154,19 +154,21 @@ public:
 	[[nodiscard]] uint32_t workers_active() const {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		const auto* cluster = cluster_.load(std::memory_order_acquire);
-		return (cluster != nullptr) ? cluster->workers_active() : 0U;
-#else
-		return 0U;
+		if (cluster != nullptr) {
+			return cluster->workers_active();
+		}
 #endif
+		return 0U;
 	}
 
 	[[nodiscard]] Distributed::ClusterFrameTelemetry last_frame_telemetry() const {
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		const auto* cluster = cluster_.load(std::memory_order_acquire);
-		return (cluster != nullptr) ? cluster->last_frame_telemetry() : Distributed::ClusterFrameTelemetry{};
-#else
-		return Distributed::ClusterFrameTelemetry{};
+		if (cluster != nullptr) {
+			return cluster->last_frame_telemetry();
+		}
 #endif
+		return Distributed::ClusterFrameTelemetry{};
 	}
 
 	void detach_local_renderer() noexcept {

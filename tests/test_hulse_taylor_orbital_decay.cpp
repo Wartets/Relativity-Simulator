@@ -30,7 +30,7 @@ int main() {
 	suite.check(system.latest_gw_emission().radiated_power > 0.0, "the initial gravitational wave luminosity is positive");
 
 	double dt = 10.0;
-	for (size_t step = 0; step < 500; ++step) {
+	for (std::size_t step = 0; step < 500; ++step) {
 		AdaptiveRungeKuttaPNIntegrator::step(system, dt);
 	}
 	suite.check(system.step_count() > 0, "the integrator recorded at least one step");

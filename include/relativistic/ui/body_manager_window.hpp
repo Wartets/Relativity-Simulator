@@ -1181,12 +1181,10 @@ private:
 		}
 		render_setting_tooltip("Kerr spin parameter a/M in [0, 0.999]. It flattens the horizon, shrinks the ISCO and drives frame dragging and spin-orbit coupling; its direction is set by the spin axis below.");
 
-		const bool spinning = b.kerr_spin_parameter() > 1e-9;
 		const std::array<double, 3> axis = b.spin_axis_unit();
 		constexpr double radians_to_degrees = 180.0 / std::numbers::pi;
 		float polar_degrees = static_cast<float>(std::acos(std::clamp(axis[2], -1.0, 1.0)) * radians_to_degrees);
 		float azimuth_degrees = static_cast<float>(std::atan2(axis[1], axis[0]) * radians_to_degrees);
-		ImGui::BeginDisabled(!spinning);
 		bool orientation_changed = ImGui::SliderFloat("Spin Axis Polar Angle", &polar_degrees, 0.0f, 180.0f, "%.1f deg");
 		render_setting_tooltip("Angle between the black hole rotation axis and the world +Z axis. It orients the flattened horizon, the accretion disk plane and the frame dragging direction.");
 		orientation_changed = ImGui::SliderFloat("Spin Axis Azimuth", &azimuth_degrees, -180.0f, 180.0f, "%.1f deg") || orientation_changed;
@@ -1220,10 +1218,7 @@ private:
 			b.set_spin_state(b.kerr_spin_parameter(), {0.0, 0.0, 1.0});
 			changed = true;
 		}
-		ImGui::EndDisabled();
-		if (!spinning) {
-			ImGui::TextDisabled("The spin axis only has an effect when the dimensionless spin is non-zero.");
-		}
+		ImGui::TextDisabled("The axis orients the accretion disk plane and, when spin is non-zero, the frame dragging.");
 
 		const double charge_limit = std::max(b.mass, 1e-6);
 		double charge = b.charge;

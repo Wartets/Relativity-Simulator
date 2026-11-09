@@ -3038,7 +3038,7 @@ void ks_field(dvec3 x, double mass, double a, out double r, out double h, out dv
 	k = dvec3((r * x.x + a * x.y) / rpa, (r * x.y - a * x.x) / rpa, x.z / r);
 }
 
-void ks_rhs(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp) {
+void ks_source_terms(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp) {
 	double r;
 	double h;
 	dvec3 k;
@@ -3054,7 +3054,7 @@ void ks_rhs(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp)
 	double inv_rpa2 = 1.0 / (rpa * rpa);
 	double s = dot(k, p) + 1.0;
 
-	dx = p - 2.0 * h * s * k;
+	dx = -2.0 * h * s * k;
 
 	dvec3 dr = dvec3(r3 * x.x / den, r3 * x.y / den, r * rpa * x.z / den);
 	double bracket = 3.0 * a2 * z2 - r4;
@@ -3075,6 +3075,12 @@ void ks_rhs(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp)
 		+ ((r - x.z * dr.z) / r2) * p.z;
 
 	dp = dh * s * s + 2.0 * h * s * dk_dot_p;
+}
+
+void ks_rhs(dvec3 x, dvec3 p, double mass, double a, out dvec3 dx, out dvec3 dp) {
+	dvec3 perturbation;
+	ks_source_terms(x, p, mass, a, perturbation, dp);
+	dx = p + perturbation;
 }
 
 void ks_rk4_step(inout dvec3 x, inout dvec3 p, double dt, double mass, double a) {
@@ -3406,6 +3412,427 @@ void trace_extended_metric(dvec3 ray_dir, out dvec3 accum_out, out uint status_o
 	redshift_out = redshift;
 }
 
+const uint MS_MAX = 16u;
+
+shared dvec4 ms_position_mass[MS_MAX];
+shared dvec4 ms_axis_spin[MS_MAX];
+shared dvec4 ms_frame_x_horizon[MS_MAX];
+shared dvec4 ms_frame_y_equatorial[MS_MAX];
+shared dvec2 ms_disk_range[MS_MAX];
+shared uint ms_body_slot[MS_MAX];
+shared uint ms_source_count;
+
+double ms_potential_cache[MS_MAX];
+dvec3 ms_direction_cache[MS_MAX];
+
+dvec3 ms_to_local(uint i, dvec3 d) {
+	return dvec3(dot(d, ms_frame_x_horizon[i].xyz), dot(d, ms_frame_y_equatorial[i].xyz), dot(d, ms_axis_spin[i].xyz));
+}
+
+dvec3 ms_to_world(uint i, dvec3 l) {
+	return l.x * ms_frame_x_horizon[i].xyz + l.y * ms_frame_y_equatorial[i].xyz + l.z * ms_axis_spin[i].xyz;
+}
+
+void ms_build_sources() {
+	ms_source_count = 0u;
+	if (pc.metric_type != 1u && pc.metric_type != 2u && pc.metric_type != 3u) {
+		return;
+	}
+	double m = max(pc.metric_mass, 1e-4);
+	double a = (pc.metric_type == 1u) ? 0.0 : clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
+	double rh = m + sqrt(max(m * m - a * a, 0.0));
+	double isco = kerr_isco_radius_prograde_retrograde(m, a);
+	double inner = isco * double(max(pc.primary_disk.inner_radius_scale, 1.0));
+	double outer = max(double(pc.primary_disk.outer_radius_mass_units) * m, inner * 1.05);
+	bool primary_disk_on = pc.primary_disk.enabled > 0.5 && pc.hydro_disk.model != 2u;
+	ms_position_mass[0] = dvec4(0.0, 0.0, 0.0, m);
+	ms_axis_spin[0] = dvec4(0.0, 0.0, 1.0, a);
+	ms_frame_x_horizon[0] = dvec4(1.0, 0.0, 0.0, rh);
+	ms_frame_y_equatorial[0] = dvec4(0.0, 1.0, 0.0, sqrt(rh * rh + a * a));
+	ms_disk_range[0] = primary_disk_on ? dvec2(inner, outer) : dvec2(-1.0, -1.0);
+	ms_body_slot[0] = 0xFFFFFFFFu;
+	uint count = 1u;
+	for (uint bi = 0u; bi < pc.body_count && count < MS_MAX; ++bi) {
+		if (bodies[bi].preset_3d != 8u) continue;
+		double mb = max(bodies[bi].mass, 1e-9);
+		double ab = clamp(bodies[bi].spin_parameter, -0.9999, 0.9999) * mb;
+		double rhb = mb + sqrt(max(mb * mb - ab * ab, 0.0));
+		dvec3 axis = source_spin_axis(bi);
+		dvec3 fx;
+		dvec3 fy;
+		source_frame(axis, fx, fy);
+		double isco_b = kerr_isco_radius_prograde_retrograde(mb, ab);
+		double inner_b = isco_b * double(max(bodies[bi].disk.inner_radius_scale, 1.0));
+		double outer_b = max(double(bodies[bi].disk.outer_radius_mass_units) * mb, inner_b * 1.05);
+		ms_position_mass[count] = dvec4(body_center(bi), mb);
+		ms_axis_spin[count] = dvec4(axis, ab);
+		ms_frame_x_horizon[count] = dvec4(fx, rhb);
+		ms_frame_y_equatorial[count] = dvec4(fy, sqrt(rhb * rhb + ab * ab));
+		ms_disk_range[count] = (bodies[bi].disk.enabled > 0.5) ? dvec2(inner_b, outer_b) : dvec2(-1.0, -1.0);
+		ms_body_slot[count] = bi;
+		++count;
+	}
+	ms_source_count = count;
+}
+
+void ms_source_terms(uint i, dvec3 x, dvec3 p, out dvec3 ddx, out dvec3 ddp) {
+	dvec4 pm = ms_position_mass[i];
+	dvec3 local_dx;
+	dvec3 local_dp;
+	ks_source_terms(ms_to_local(i, x - pm.xyz), ms_to_local(i, p), pm.w, ms_axis_spin[i].w, local_dx, local_dp);
+	ddx = ms_to_world(i, local_dx);
+	ddp = ms_to_world(i, local_dp);
+}
+
+void ms_rhs(dvec3 x, dvec3 p, out dvec3 dx, out dvec3 dp) {
+	dx = p;
+	dp = dvec3(0.0);
+	for (uint i = 0u; i < ms_source_count; ++i) {
+		dvec3 ddx;
+		dvec3 ddp;
+		ms_source_terms(i, x, p, ddx, ddp);
+		dx += ddx;
+		dp += ddp;
+	}
+}
+
+void ms_rk4_step(inout dvec3 x, inout dvec3 p, double dt) {
+	dvec3 k1x;
+	dvec3 k1p;
+	dvec3 k2x;
+	dvec3 k2p;
+	dvec3 k3x;
+	dvec3 k3p;
+	dvec3 k4x;
+	dvec3 k4p;
+	ms_rhs(x, p, k1x, k1p);
+	ms_rhs(x + 0.5 * dt * k1x, p + 0.5 * dt * k1p, k2x, k2p);
+	ms_rhs(x + 0.5 * dt * k2x, p + 0.5 * dt * k2p, k3x, k3p);
+	ms_rhs(x + dt * k3x, p + dt * k3p, k4x, k4p);
+	double sixth = dt / 6.0;
+	x += sixth * (k1x + 2.0 * k2x + 2.0 * k3x + k4x);
+	p += sixth * (k1p + 2.0 * k2p + 2.0 * k3p + k4p);
+}
+
+double ms_metric_dot(dvec4 a, dvec4 b, uint count) {
+	double value = -a.x * b.x + dot(a.yzw, b.yzw);
+	for (uint i = 0u; i < count; ++i) {
+		double la = a.x + dot(ms_direction_cache[i], a.yzw);
+		double lb = b.x + dot(ms_direction_cache[i], b.yzw);
+		value += 2.0 * ms_potential_cache[i] * la * lb;
+	}
+	return value;
+}
+
+dvec4 ms_lift(dvec3 v, double inverse_lapse_sq, uint count) {
+	double shift = 0.0;
+	for (uint i = 0u; i < count; ++i) {
+		shift += ms_potential_cache[i] * dot(ms_direction_cache[i], v);
+	}
+	return dvec4(2.0 * shift * inverse_lapse_sq, v);
+}
+
+dvec3 ms_initial_momentum(dvec3 x, dvec3 outward) {
+	uint count = ms_source_count;
+	double potential_sum = 0.0;
+	for (uint i = 0u; i < count; ++i) {
+		double radius;
+		double potential;
+		dvec3 local_direction;
+		ks_field(ms_to_local(i, x - ms_position_mass[i].xyz), ms_position_mass[i].w, ms_axis_spin[i].w, radius, potential, local_direction);
+		ms_potential_cache[i] = potential;
+		ms_direction_cache[i] = ms_to_world(i, local_direction);
+		potential_sum += potential;
+	}
+	double inverse_lapse_sq = 1.0 / max(1.0 - 2.0 * potential_sum, 1e-6);
+	double u0 = sqrt(inverse_lapse_sq);
+	dvec4 e1 = ms_lift(dvec3(1.0, 0.0, 0.0), inverse_lapse_sq, count);
+	dvec4 e2 = ms_lift(dvec3(0.0, 1.0, 0.0), inverse_lapse_sq, count);
+	dvec4 e3 = ms_lift(dvec3(0.0, 0.0, 1.0), inverse_lapse_sq, count);
+	e1 /= sqrt(max(ms_metric_dot(e1, e1, count), 1e-30));
+	e2 -= ms_metric_dot(e2, e1, count) * e1;
+	e2 /= sqrt(max(ms_metric_dot(e2, e2, count), 1e-30));
+	e3 -= ms_metric_dot(e3, e1, count) * e1;
+	e3 -= ms_metric_dot(e3, e2, count) * e2;
+	e3 /= sqrt(max(ms_metric_dot(e3, e3, count), 1e-30));
+	dvec4 v = dvec4(u0, 0.0, 0.0, 0.0) - outward.x * e1 - outward.y * e2 - outward.z * e3;
+	dvec3 momentum = v.yzw;
+	double time_component = -v.x;
+	for (uint i = 0u; i < count; ++i) {
+		double lv = v.x + dot(ms_direction_cache[i], v.yzw);
+		time_component += 2.0 * ms_potential_cache[i] * lv;
+		momentum += 2.0 * ms_potential_cache[i] * lv * ms_direction_cache[i];
+	}
+	return momentum / max(-time_component, 1e-12);
+}
+
+bool ms_inside_horizon(dvec3 x) {
+	for (uint i = 0u; i < ms_source_count; ++i) {
+		dvec3 l = ms_to_local(i, x - ms_position_mass[i].xyz);
+		double eq = ms_frame_y_equatorial[i].w;
+		double rh = ms_frame_x_horizon[i].w;
+		if ((l.x * l.x + l.y * l.y) / (eq * eq) + (l.z * l.z) / (rh * rh) <= 1.0) return true;
+	}
+	return false;
+}
+
+bool ms_horizon_entry(uint i, dvec3 from, dvec3 to, out double t) {
+	t = 2.0;
+	dvec3 origin = ms_position_mass[i].xyz;
+	double inverse_eq = 1.0 / max(ms_frame_y_equatorial[i].w, 1e-12);
+	double inverse_pol = 1.0 / max(ms_frame_x_horizon[i].w, 1e-12);
+	dvec3 ls = ms_to_local(i, from - origin);
+	dvec3 le = ms_to_local(i, to - origin);
+	dvec3 s = dvec3(ls.x * inverse_eq, ls.y * inverse_eq, ls.z * inverse_pol);
+	dvec3 e = dvec3(le.x * inverse_eq, le.y * inverse_eq, le.z * inverse_pol);
+	dvec3 d = e - s;
+	double c = dot(s, s) - 1.0;
+	if (c <= 0.0) {
+		t = 0.0;
+		return true;
+	}
+	double qa = dot(d, d);
+	if (qa <= 1e-30) return false;
+	double qb = 2.0 * dot(s, d);
+	double discriminant = qb * qb - 4.0 * qa * c;
+	if (discriminant < 0.0) return false;
+	double entry = (-qb - sqrt(discriminant)) / (2.0 * qa);
+	if (entry < 0.0 || entry > 1.0) return false;
+	t = entry;
+	return true;
+}
+
+bool ms_disk_crossing(uint i, dvec3 from, dvec3 to, dvec3 p_from, dvec3 p_to, out double t, out double radius, out double azimuth, out double lz) {
+	t = 2.0;
+	radius = 0.0;
+	azimuth = 0.0;
+	lz = 0.0;
+	dvec2 range = ms_disk_range[i];
+	if (range.x < 0.0) return false;
+	dvec3 origin = ms_position_mass[i].xyz;
+	dvec3 ls = ms_to_local(i, from - origin);
+	dvec3 le = ms_to_local(i, to - origin);
+	double dz = le.z - ls.z;
+	if (ls.z * le.z > 0.0 || abs(dz) <= 1.0e-15) return false;
+	double s = clamp(abs(ls.z) / abs(dz), 0.0, 1.0);
+	dvec3 c = ls + s * (le - ls);
+	double spin = ms_axis_spin[i].w;
+	double r = sqrt(max(c.x * c.x + c.y * c.y - spin * spin, 0.0));
+	if (r < range.x || r > range.y || r <= ms_frame_x_horizon[i].w * 1.02) return false;
+	dvec3 pl = ms_to_local(i, p_from + s * (p_to - p_from));
+	t = s;
+	radius = r;
+	azimuth = atan2_wide(c.y, c.x) - atan2_wide(spin, r);
+	lz = c.x * pl.y - c.y * pl.x;
+	return true;
+}
+
+void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out, out uint iters_out, out double redshift_out) {
+	double obs_r = max(pc.observer_position.y, 1.0e-6);
+	double obs_th = clamp(pc.observer_position.z, 0.001, PI_D - 0.001);
+	dvec3 origin = spherical_to_cartesian(obs_r, obs_th, pc.observer_position.w);
+	dvec3 x = origin;
+	dvec3 accum = dvec3(0.0);
+	double throughput = 1.0;
+	uint status = 0u;
+	uint iters = 0u;
+	double redshift = 1.0;
+	bool escaped = false;
+
+	if (ms_inside_horizon(x)) {
+		accum_out = accum;
+		status_out = 1u;
+		iters_out = 0u;
+		redshift_out = 0.0;
+		return;
+	}
+
+	dvec3 p = ms_initial_momentum(x, ray_dir);
+	bool bodies_traced = ((pc.render_flags & (1u << 12)) != 0u) && pc.body_count > 0u;
+	bool dark_matter_enabled = pc.dark_matter.halo_count > 0u && pc.dark_matter.flags != 0u;
+	bool torus_enabled = pc.primary_disk.enabled > 0.5 && pc.hydro_disk.model == 2u;
+	double primary_mass = ms_position_mass[0].w;
+	double primary_spin = ms_axis_spin[0].w;
+	double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
+	double crossing_t[MS_MAX];
+
+	for (uint step = 0u; step < pc.max_integration_steps && throughput > 0.01; ++step) {
+		iters = step + 1u;
+		if (length(x) >= pc.escape_radius) {
+			escaped = true;
+			break;
+		}
+
+		double scale = 1.0e30;
+		double far_blend = 1.0;
+		for (uint i = 0u; i < ms_source_count; ++i) {
+			dvec4 pm = ms_position_mass[i];
+			double rh_i = ms_frame_x_horizon[i].w;
+			double d = length(x - pm.xyz);
+			scale = min(scale, sqrt(d * max(d - rh_i, 0.02 * pm.w)));
+			far_blend = min(far_blend, clamp((d - 20.0 * rh_i) / (80.0 * rh_i), 0.0, 1.0));
+		}
+		double far_factor = 1.0 + (pc.far_field_step_scale - 1.0) * far_blend;
+		double dt_mag = clamp(pc.step_size_factor * scale * far_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale);
+		if (dark_matter_enabled) {
+			dt_mag = min(dt_mag, dark_matter_step_limit(x));
+		}
+		double dt = -dt_mag;
+
+		dvec3 x_prev = x;
+		dvec3 p_prev = p;
+		ms_rk4_step(x, p, dt);
+
+		if (any(isnan(x)) || any(isinf(x)) || any(isnan(p)) || any(isinf(p))) {
+			status |= 1u;
+			throughput = 0.0;
+			break;
+		}
+
+		if (dark_matter_enabled) {
+			dvec3 middle = 0.5 * (x_prev + x);
+			p = dark_matter_kick(middle, p, dt);
+			accum += throughput * dvec3(dark_matter_emission(middle, length(x - x_prev)));
+		}
+
+		dvec3 segment = x - x_prev;
+		double segment_length = length(segment);
+		if (segment_length <= 1.0e-14) continue;
+
+		if (torus_enabled) {
+			double torus_ratio = x_prev.x * p_prev.y - x_prev.y * p_prev.x;
+			vec3 torus_rgb;
+			double torus_opacity;
+			double torus_redshift;
+			torus_integrate_segment(x_prev, x, torus_ratio, primary_mass, primary_spin, torus_rgb, torus_opacity, torus_redshift);
+			if (torus_opacity > 1e-6) {
+				status |= 4u;
+				redshift = torus_redshift;
+				accum += throughput * dvec3(torus_rgb);
+				throughput *= (1.0 - torus_opacity);
+			}
+		}
+		if (pc.jet.enabled > 0.5) {
+			vec3 jet_rgb;
+			double jet_transmittance;
+			if (jet_integrate_segment(x_prev, x, jet_rgb, jet_transmittance)) {
+				accum += throughput * dvec3(jet_rgb);
+				throughput *= jet_transmittance;
+				status |= 32u;
+			}
+		}
+
+		double absorb_t = 2.0;
+		for (uint i = 0u; i < ms_source_count; ++i) {
+			double horizon_t;
+			if (ms_horizon_entry(i, x_prev, x, horizon_t)) {
+				absorb_t = min(absorb_t, horizon_t);
+			}
+			double crossing_param;
+			double crossing_radius;
+			double crossing_azimuth;
+			double crossing_lz;
+			crossing_t[i] = ms_disk_crossing(i, x_prev, x, p_prev, p, crossing_param, crossing_radius, crossing_azimuth, crossing_lz) ? crossing_param : -1.0;
+		}
+
+		double body_t = 2.0;
+		vec3 body_color = vec3(0.0);
+		if (bodies_traced) {
+			uint body_status;
+			double body_distance;
+			if (intersect_bodies(x_prev, segment / segment_length, segment_length, body_color, body_status, body_distance)) {
+				body_t = body_distance / segment_length;
+			}
+		}
+
+		double limit_t = min(absorb_t, body_t);
+		for (uint pass = 0u; pass < ms_source_count && throughput > 0.01; ++pass) {
+			uint pick = MS_MAX;
+			double best = limit_t;
+			for (uint i = 0u; i < ms_source_count; ++i) {
+				if (crossing_t[i] >= 0.0 && crossing_t[i] < best) {
+					best = crossing_t[i];
+					pick = i;
+				}
+			}
+			if (pick == MS_MAX) break;
+			crossing_t[pick] = -1.0;
+
+			double t_c;
+			double r_c;
+			double az_c;
+			double lz_c;
+			if (!ms_disk_crossing(pick, x_prev, x, p_prev, p, t_c, r_c, az_c, lz_c)) continue;
+
+			dvec4 pm = ms_position_mass[pick];
+			double spin_s = ms_axis_spin[pick].w;
+			dvec2 range = ms_disk_range[pick];
+			double g_doppler = disk_redshift(pm.w, spin_s, r_c, lz_c);
+			double view_distance = max(length(origin - pm.xyz), 1.0e-9);
+			double detail = clamp((2.0 * ms_frame_x_horizon[pick].w / view_distance) / max(angular_pixel_size * 24.0, 1.0e-9), 0.0, 1.0);
+			vec3 shaded_rgb;
+			double shaded_opacity;
+			if (pick == 0u) {
+				double nt_base = (pc.hydro_disk.model == 1u) ? nt_base_temperature(r_c, pm.w, spin_s) : -1.0;
+				disk_shade_with_base(pc.primary_disk, pm.w, spin_s, range.x, range.y, r_c, az_c, g_doppler, pc.time, detail, nt_base, shaded_rgb, shaded_opacity);
+			} else {
+				disk_shade(bodies[ms_body_slot[pick]].disk, pm.w, spin_s, range.x, range.y, r_c, az_c, g_doppler, pc.time, detail, shaded_rgb, shaded_opacity);
+			}
+			redshift = g_doppler;
+			status |= 4u;
+			accum += throughput * dvec3(shaded_rgb);
+			throughput *= (1.0 - shaded_opacity);
+		}
+
+		if (throughput > 0.01 && body_t <= absorb_t && body_t <= 1.0) {
+			accum += throughput * dvec3(body_color);
+			status |= 16u;
+			throughput = 0.0;
+			break;
+		}
+		if (absorb_t <= 1.0) {
+			status |= 1u;
+			throughput = 0.0;
+			break;
+		}
+	}
+
+	if (!escaped && (status & 1u) == 0u && throughput > 0.01) {
+		for (uint i = 0u; i < ms_source_count; ++i) {
+			if (length(x - ms_position_mass[i].xyz) < 6.0 * ms_position_mass[i].w) {
+				throughput = 0.0;
+			}
+		}
+	}
+
+	if (escaped || throughput > 0.01) {
+		dvec3 flow;
+		dvec3 unused_momentum;
+		ms_rhs(x, p, flow, unused_momentum);
+		dvec3 dir_out = -flow / max(length(flow), 1.0e-12);
+		bool exit_body_hit = false;
+		if (bodies_traced) {
+			vec3 exit_color;
+			uint exit_status;
+			double exit_distance;
+			exit_body_hit = intersect_bodies(x, dir_out, 1e30, exit_color, exit_status, exit_distance);
+			if (exit_body_hit) {
+				accum += throughput * dvec3(exit_color);
+				status |= 16u;
+			}
+		}
+		if (!exit_body_hit) {
+			accum += throughput * dvec3(compute_sky_radiance(dir_out, pc.sky_rotation_rad));
+			status |= 2u;
+		}
+	}
+
+	accum_out = accum;
+	status_out = status;
+	iters_out = iters;
+	redshift_out = redshift;
+}
+
 #include "spacetime_teves_metric.glsl"
 #include "spacetime_spherical_tracer.glsl"
 
@@ -3415,6 +3842,9 @@ void main() {
 		float spectral_lambda_nm = 380.0 + float(spectral_index) * (400.0 / 32.0);
 		float trapezoid_weight = (spectral_index == 0u || spectral_index == 32u) ? 0.5 : 1.0;
 		cie_weight_table[spectral_index] = trapezoid_weight * vec3(cie_x_bar(spectral_lambda_nm), cie_y_bar(spectral_lambda_nm), cie_z_bar(spectral_lambda_nm));
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		ms_build_sources();
 	}
 	memoryBarrierShared();
 	barrier();
@@ -3496,6 +3926,21 @@ void main() {
 			pixels[pixel_index].iterations_used = 0u;
 			early_done = true;
 		}
+	}
+
+	if (!early_done && ms_source_count > 1u) {
+		dvec3 ms_accum;
+		uint ms_status;
+		uint ms_iters;
+		double ms_redshift;
+		trace_multi_source(ray_dir, ms_accum, ms_status, ms_iters, ms_redshift);
+		vec3 ms_mapped = apply_tonemapping(vec3(ms_accum), pc.tonemapping_mode, pc.camera_exposure);
+		pixels[pixel_index].rgba = vec4(ms_mapped, 1.0);
+		pixels[pixel_index].redshift = float(ms_redshift);
+		pixels[pixel_index].affine_parameter = float(ms_iters) * 0.05;
+		pixels[pixel_index].status_flags = ms_status;
+		pixels[pixel_index].iterations_used = ms_iters;
+		early_done = true;
 	}
 
 	if (!early_done && pc.metric_type >= 10u && pc.metric_type <= 15u && pc.metric_type != 11u && pc.metric_type != 12u) {

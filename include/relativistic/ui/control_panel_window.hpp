@@ -25,6 +25,7 @@
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/optics/textures/sky_panorama_catalog.hpp"
+#include "relativistic/ui/spacetime_source_panel.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -129,6 +130,7 @@ private:
 	ClusterPanel cluster_panel_{};
 	MultiRowTabBar tab_bar_{};
 	int active_tab_{0};
+	SpacetimeSourceEditState metric_source_edit_{false, true, 0.0, {}};
 
 public:
 	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open)
@@ -488,80 +490,72 @@ private:
 		const bool needs_teves = (metric_selection_ == 16);
 		const bool has_any_param = needs_mass || needs_spin || needs_charge || needs_lambda || needs_throat || needs_warp_velocity || needs_teves;
 		const Metrics::HorizonConstraintSet horizon_constraints = Metrics::HorizonConstraintSet::from_metric_name(orchestrator_.active_metric_name());
-		if (horizon_constraints.any()) {
-			render_horizon_guarantee_controls(horizon_constraints);
+		SpacetimeSourceValues source_values{static_cast<double>(mass_), static_cast<double>(spin_), static_cast<double>(charge_), static_cast<double>(lambda_)};
+		SpacetimeSourcePanelOptions source_opts;
+		source_opts.constraints = &horizon_constraints;
+		source_opts.guarantee_horizon = &guarantee_horizon_;
+		source_opts.metric_name = &orchestrator_.active_metric_name();
+		source_opts.mass_label = "Central Mass (M)";
+		source_opts.show_mass = needs_mass;
+		source_opts.show_spin = needs_spin;
+		source_opts.show_charge = needs_charge;
+		source_opts.show_lambda = needs_lambda;
+		source_opts.render_lock_controls = horizon_constraints.any();
+		source_opts.mass_slider_minimum = 0.001;
+		source_opts.mass_slider_maximum = 1.0e6;
+		source_opts.mass_log_minimum = 1e-12;
+		source_opts.mass_log_maximum = 1e60;
+		metric_source_edit_.mass_log_mode = mass_log_mode_;
+		metric_source_edit_.lambda_log_mode = lambda_log_mode_;
+
+		const auto panel_res = render_spacetime_source_panel(orchestrator_, metric_source_edit_, source_values, source_opts);
+		mass_log_mode_ = metric_source_edit_.mass_log_mode;
+		lambda_log_mode_ = metric_source_edit_.lambda_log_mode;
+		if (panel_res.mass_changed) {
+			mass_ = static_cast<float>(source_values.mass);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, source_values.mass)));
+		}
+		if (panel_res.spin_changed) {
+			spin_ = static_cast<float>(source_values.spin);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, source_values.spin)));
+		}
+		if (panel_res.charge_changed) {
+			charge_ = static_cast<float>(source_values.charge);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, source_values.charge)));
+		}
+		if (panel_res.cosmological_constant_changed) {
+			lambda_ = static_cast<float>(source_values.cosmological_constant);
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, source_values.cosmological_constant)));
+		}
+
+		if (needs_spin && mass_ > 0.0f) {
+			float spin_ratio = std::abs(spin_) / mass_;
+			const float max_ratio = static_cast<float>(std::sqrt(std::max(1.0 - (static_cast<double>(charge_) * static_cast<double>(charge_)) / (static_cast<double>(mass_) * static_cast<double>(mass_)), 0.0)));
+			const float allowed_ratio = guarantee_horizon_ ? std::min(max_ratio, 0.999f) : 1.5f;
+			if (slider_float_with_input("Dimensionless Spin (a/M)", &spin_ratio, 0.0f, allowed_ratio, "%.4f")) {
+				const float sign = (spin_ < 0.0f) ? -1.0f : 1.0f;
+				spin_ = sign * spin_ratio * mass_;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
+			}
+			render_setting_tooltip("Specific angular momentum ratio a/M. Directly scales spin parameter 'a' proportionally with mass.");
 		}
 
 		if (needs_mass) {
-			const double active_mass_scale_disp = orchestrator_.constants_engine().mass_scale();
-			double mass_kg_disp = static_cast<double>(mass_) * active_mass_scale_disp;
-			const double mass_min_kg_disp = 0.01 * active_mass_scale_disp;
-			const double mass_max_kg_disp = 100.0 * active_mass_scale_disp;
-			if (unit_aware_slider_double("Central Mass (M)", &mass_kg_disp, mass_min_kg_disp, mass_max_kg_disp, UnitCategory::Mass, orchestrator_.unit_preferences(), "%.3f", &mass_log_mode_)) {
-				mass_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Mass, mass_kg_disp / active_mass_scale_disp, horizon_constraints));
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, static_cast<double>(mass_))));
+			const double pm = std::max(static_cast<double>(mass_), 1e-4);
+			const double pa = std::clamp(static_cast<double>(spin_), -0.999 * pm, 0.999 * pm);
+			const double pq = static_cast<double>(charge_);
+			const double pdisc = pm * pm - pa * pa - pq * pq;
+			const double prh = (pdisc >= 0.0) ? (pm + std::sqrt(pdisc)) : 0.0;
+			const double prc = (pdisc >= 0.0) ? (pm - std::sqrt(pdisc)) : 0.0;
+			const double pisco = Optics::DiskThermalProfile::kerr_isco_radius(pm, std::abs(pa));
+			const double plen = orchestrator_.constants_engine().length_scale();
+			const auto& uprefs = orchestrator_.unit_preferences();
+			if (prh > 0.0) {
+				ImGui::TextDisabled("Outer Event Horizon (r+): %.4f M  (%s)", prh / pm, Units::format_distance(prh * plen, uprefs.distance).c_str());
+				ImGui::TextDisabled("Inner Cauchy Horizon (r-): %.4f M  (%s)", prc / pm, Units::format_distance(prc * plen, uprefs.distance).c_str());
 			}
-			const std::string mass_tt = "Central gravitating mass in " + std::string(Units::mass_unit_suffix(orchestrator_.unit_preferences().mass)) +
-				". Sets horizon rs = " + std::to_string(2.0 * static_cast<double>(mass_)).substr(0, 5) +
-				" M and photon orbit r_ph = " + std::to_string(3.0 * static_cast<double>(mass_)).substr(0, 5) + " M.";
-			render_setting_tooltip(mass_tt.c_str());
-			render_horizon_strip("##MassHorizonZones", Metrics::HorizonParameter::Mass, horizon_constraints, 0.01, 100.0, mass_log_mode_);
-
-			const double active_mass_scale = orchestrator_.constants_engine().mass_scale();
-			mass_quantity_kg_ = static_cast<double>(mass_) * active_mass_scale;
-			if (smart_quantity_input("M  [dim: Mass]", &mass_quantity_kg_, Units::Dimensions::Mass, mass_expr_error_)) {
-				if (active_mass_scale > 0.0) {
-					const double new_mass = constrain_horizon_parameter(Metrics::HorizonParameter::Mass, mass_quantity_kg_ / active_mass_scale, horizon_constraints);
-					mass_ = static_cast<float>(new_mass);
-					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Mass, new_mass)));
-				}
-			}
-			render_setting_tooltip("Enter central mass with arbitrary unit expression (e.g. '1.989e30 kg', '4.3e6 msun'). Automatically scaled via active constants.");
-		}
-
-		if (needs_spin) {
-			const float spin_extent = static_cast<float>(horizon_slider_extent(Metrics::HorizonParameter::Spin, horizon_constraints));
-			if (slider_float_with_input("Spin Parameter (a)", &spin_, -spin_extent, spin_extent, "%.4f")) {
-				spin_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Spin, static_cast<double>(spin_), horizon_constraints));
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, static_cast<double>(spin_))));
-			}
-			const auto spin_warning = metric_spin_incompatibility(orchestrator_.active_metric_name(), static_cast<double>(spin_), static_cast<double>(mass_));
-			const double spin_ratio = std::abs(static_cast<double>(spin_)) / std::max(static_cast<double>(mass_), 1e-6);
-			const std::string spin_info = "Dimensionless spin a/M = " + std::to_string(spin_ratio).substr(0, 5) +
-				(spin_ratio > 0.95 ? " (near-extremal ergosphere deformation)" : " (standard frame dragging)");
-			if (!spin_warning.empty()) {
-				render_setting_tooltip_warning(spin_info.c_str(), std::string(spin_warning).c_str());
-			} else {
-				render_setting_tooltip(spin_info.c_str());
-			}
-			render_horizon_strip("##SpinHorizonZones", Metrics::HorizonParameter::Spin, horizon_constraints, -static_cast<double>(spin_extent), static_cast<double>(spin_extent), false);
-		}
-
-		if (needs_charge) {
-			const double charge_extent = horizon_slider_extent(Metrics::HorizonParameter::Charge, horizon_constraints);
-			double charge_disp = static_cast<double>(charge_);
-			if (unit_aware_slider_double("Electric Charge (Q)", &charge_disp, -charge_extent, charge_extent, UnitCategory::Charge, orchestrator_.unit_preferences(), "%.3f")) {
-				charge_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::Charge, charge_disp, horizon_constraints));
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Charge, static_cast<double>(charge_))));
-			}
-			const double q_ratio = std::abs(static_cast<double>(charge_)) / std::max(static_cast<double>(mass_), 1e-6);
-			const std::string charge_info = "Electrostatic charge in " + std::string(Units::charge_unit_suffix(orchestrator_.unit_preferences().charge)) +
-				" (|Q|/M = " + std::to_string(q_ratio).substr(0, 5) + "). Repulsive geometry shifts outer horizon inwards.";
-			render_setting_tooltip(charge_info.c_str());
-			render_horizon_strip("##ChargeHorizonZones", Metrics::HorizonParameter::Charge, horizon_constraints, -charge_extent, charge_extent, false);
-		}
-
-		if (needs_lambda) {
-			const float lambda_extent = static_cast<float>(horizon_slider_extent(Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints));
-			const float lambda_max = std::clamp(lambda_extent, 1e-4f, 1e-2f);
-			if (slider_float_with_input("Cosmological Lambda", &lambda_, 1e-8f, lambda_max, "%.2e", &lambda_log_mode_)) {
-				lambda_ = static_cast<float>(constrain_horizon_parameter(Metrics::HorizonParameter::CosmologicalConstant, static_cast<double>(lambda_), horizon_constraints));
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, static_cast<double>(lambda_))));
-			}
-			render_setting_tooltip((metric_selection_ == 6 || metric_selection_ == 11 || metric_selection_ == 12)
-				? "Dark-energy density driving the expansion: the Hubble constant is H0 = sqrt(Lambda / 2.1) for the flat LambdaCDM background, which sets the redshift and the particle horizon beyond which the sky turns black."
-				: "Cosmological constant. Establishes asymptotic de Sitter cosmological horizon r_c ~ sqrt(3/Lambda).");
-			render_horizon_strip("##LambdaHorizonZones", Metrics::HorizonParameter::CosmologicalConstant, horizon_constraints, 1e-8, static_cast<double>(lambda_max), lambda_log_mode_);
+			ImGui::TextDisabled("Equatorial Ergosphere: %.4f M  (%s)", 2.0, Units::format_distance(2.0 * pm * plen, uprefs.distance).c_str());
+			ImGui::TextDisabled("ISCO (Prograde): %.4f M  (%s)", pisco / pm, Units::format_distance(pisco * plen, uprefs.distance).c_str());
 		}
 
 		if (needs_throat) {

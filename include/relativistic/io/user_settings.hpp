@@ -70,9 +70,14 @@ struct UserSettings {
 	bool body_manager_sort_descending{false};
 	std::string body_manager_search_filter{};
 	float body_manager_list_pane_width{230.0f};
+	uint32_t body_manager_source_sort_mode{0};
+	bool body_manager_source_sort_descending{false};
+	std::string body_manager_source_search_filter{};
+	float body_manager_source_list_pane_width{300.0f};
 	uint32_t body_manager_bulk_parameter_index{0};
 	bool body_manager_new_body_mass_log_mode{true};
 	bool body_manager_new_body_radius_log_mode{true};
+	bool body_manager_new_source_mass_log_mode{true};
 
 	UI::WindowChromeSettings window_chrome{};
 	std::unordered_map<std::string, std::string> session_values{};
@@ -303,9 +308,14 @@ struct UserSettings {
 		result.body_manager_sort_descending = get_bool("body_manager_sort_descending", result.body_manager_sort_descending);
 		result.body_manager_search_filter = get_str("body_manager_search_filter", result.body_manager_search_filter);
 		result.body_manager_list_pane_width = static_cast<float>(get_dbl("body_manager_list_pane_width", result.body_manager_list_pane_width));
+		result.body_manager_source_sort_mode = get_u32("body_manager_source_sort_mode", result.body_manager_source_sort_mode);
+		result.body_manager_source_sort_descending = get_bool("body_manager_source_sort_descending", result.body_manager_source_sort_descending);
+		result.body_manager_source_search_filter = get_str("body_manager_source_search_filter", result.body_manager_source_search_filter);
+		result.body_manager_source_list_pane_width = static_cast<float>(get_dbl("body_manager_source_list_pane_width", result.body_manager_source_list_pane_width));
 		result.body_manager_bulk_parameter_index = get_u32("body_manager_bulk_parameter_index", result.body_manager_bulk_parameter_index);
 		result.body_manager_new_body_mass_log_mode = get_bool("body_manager_new_body_mass_log_mode", result.body_manager_new_body_mass_log_mode);
 		result.body_manager_new_body_radius_log_mode = get_bool("body_manager_new_body_radius_log_mode", result.body_manager_new_body_radius_log_mode);
+		result.body_manager_new_source_mass_log_mode = get_bool("body_manager_new_source_mass_log_mode", result.body_manager_new_source_mass_log_mode);
 
 		result.unit_preferences.distance = static_cast<Units::DistanceUnit>(get_u32("unit_distance", static_cast<uint32_t>(result.unit_preferences.distance)));
 		result.unit_preferences.velocity = static_cast<Units::VelocityUnit>(get_u32("unit_velocity", static_cast<uint32_t>(result.unit_preferences.velocity)));
@@ -560,9 +570,14 @@ struct UserSettings {
 		out << "body_manager_sort_descending=" << (body_manager_sort_descending ? 1 : 0) << "\n";
 		out << "body_manager_search_filter=" << body_manager_search_filter << "\n";
 		out << "body_manager_list_pane_width=" << body_manager_list_pane_width << "\n";
+		out << "body_manager_source_sort_mode=" << body_manager_source_sort_mode << "\n";
+		out << "body_manager_source_sort_descending=" << (body_manager_source_sort_descending ? 1 : 0) << "\n";
+		out << "body_manager_source_search_filter=" << body_manager_source_search_filter << "\n";
+		out << "body_manager_source_list_pane_width=" << body_manager_source_list_pane_width << "\n";
 		out << "body_manager_bulk_parameter_index=" << body_manager_bulk_parameter_index << "\n";
 		out << "body_manager_new_body_mass_log_mode=" << (body_manager_new_body_mass_log_mode ? 1 : 0) << "\n";
 		out << "body_manager_new_body_radius_log_mode=" << (body_manager_new_body_radius_log_mode ? 1 : 0) << "\n";
+		out << "body_manager_new_source_mass_log_mode=" << (body_manager_new_source_mass_log_mode ? 1 : 0) << "\n";
 		out << "unit_distance=" << static_cast<uint32_t>(unit_preferences.distance) << "\n";
 		out << "unit_velocity=" << static_cast<uint32_t>(unit_preferences.velocity) << "\n";
 		out << "unit_mass=" << static_cast<uint32_t>(unit_preferences.mass) << "\n";

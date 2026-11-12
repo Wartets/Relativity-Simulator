@@ -159,7 +159,7 @@ namespace Relativistic::UI {
 }
 
 [[nodiscard]] inline bool render_source_disk_section(Dynamics::PostNewtonianBody& b) noexcept {
-	render_hint_text("Thermal profile, geometry and structure of the accretion disk orbiting this black hole. The editor is the same one used by the primary source in the Spacetime & Metrics tab.");
+	render_hint_text("Thermal profile, geometry and structure of the accretion disk orbiting this black hole. The editor is the same one used by the primary source in the Spacetime & Metrics tab. Jet magnetosphere emission and the hydrodynamic disk models are available for the primary source only.");
 	const double horizon = b.kerr_outer_horizon_radius();
 	const double spin_length = b.kerr_spin_parameter() * b.mass;
 	const double isco = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);

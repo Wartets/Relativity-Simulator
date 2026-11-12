@@ -6,6 +6,8 @@
 #include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
 #include <cmath>
 #include <string>
+#include "relativistic/units/unit_system.hpp"
+#include "relativistic/optics/disk_thermal_profile.hpp"
 #include "relativistic/ui/numeric_slider_utils.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/orchestrator/simulation_orchestrator.hpp"
@@ -207,6 +209,34 @@ namespace Relativistic::UI {
 
 	ImGui::PopID();
 	return changed;
+}
+
+inline void render_primary_geometric_landmarks(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {
+	const auto& params = orchestrator.parameters();
+	const double mass = std::max(params.mass, 1e-4);
+	const double spin = std::clamp(params.spin, -0.999 * mass, 0.999 * mass);
+	const double charge = params.charge;
+	const double discriminant = mass * mass - spin * spin - charge * charge;
+	const double outer_horizon = (discriminant >= 0.0) ? (mass + std::sqrt(discriminant)) : 0.0;
+	const double inner_horizon = (discriminant >= 0.0) ? (mass - std::sqrt(discriminant)) : 0.0;
+	const double isco = Optics::DiskThermalProfile::kerr_isco_radius(mass, std::abs(spin));
+	const bool charged_static = std::abs(spin) < 1e-9 * mass && std::abs(charge) > 1e-12 * mass;
+	const double photon_sphere = charged_static
+		? (0.5 * (3.0 * mass + std::sqrt(std::max(9.0 * mass * mass - 8.0 * charge * charge, 0.0))))
+		: (2.0 * mass * (1.0 + std::cos(2.0 / 3.0 * std::acos(-std::clamp(std::abs(spin) / mass, 0.0, 1.0)))));
+	const double length_scale = orchestrator.constants_engine().length_scale();
+	const auto& prefs = orchestrator.unit_preferences();
+	const auto line = [&](const char* label, double radius) {
+		ImGui::TextDisabled("%s: %.4f M  (%s)", label, radius / mass, Units::format_distance(radius * length_scale, prefs.distance).c_str());
+	};
+	if (outer_horizon > 0.0) {
+		line("Outer Event Horizon (r+)", outer_horizon);
+		line("Inner Cauchy Horizon (r-)", inner_horizon);
+		line("Equatorial Horizon Extent", std::sqrt(outer_horizon * outer_horizon + spin * spin));
+	}
+	line("Equatorial Ergosphere Boundary", 2.0 * mass);
+	line("Photon Sphere Orbit (r_ph)", photon_sphere);
+	line("Innermost Stable Orbit (ISCO, Prograde)", isco);
 }
 
 inline void render_primary_accretion_disk_editor(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {

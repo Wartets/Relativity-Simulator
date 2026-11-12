@@ -541,21 +541,11 @@ private:
 		}
 
 		if (needs_mass) {
-			const double pm = std::max(static_cast<double>(mass_), 1e-4);
-			const double pa = std::clamp(static_cast<double>(spin_), -0.999 * pm, 0.999 * pm);
-			const double pq = static_cast<double>(charge_);
-			const double pdisc = pm * pm - pa * pa - pq * pq;
-			const double prh = (pdisc >= 0.0) ? (pm + std::sqrt(pdisc)) : 0.0;
-			const double prc = (pdisc >= 0.0) ? (pm - std::sqrt(pdisc)) : 0.0;
-			const double pisco = Optics::DiskThermalProfile::kerr_isco_radius(pm, std::abs(pa));
-			const double plen = orchestrator_.constants_engine().length_scale();
-			const auto& uprefs = orchestrator_.unit_preferences();
-			if (prh > 0.0) {
-				ImGui::TextDisabled("Outer Event Horizon (r+): %.4f M  (%s)", prh / pm, Units::format_distance(prh * plen, uprefs.distance).c_str());
-				ImGui::TextDisabled("Inner Cauchy Horizon (r-): %.4f M  (%s)", prc / pm, Units::format_distance(prc * plen, uprefs.distance).c_str());
+			render_primary_geometric_landmarks(orchestrator_);
+			if (ImGui::Button("Look At Central Object", ImVec2(220.0f, 24.0f))) {
+				camera_controller_.look_at_target(std::array<double, 3>{0.0, 0.0, 0.0});
 			}
-			ImGui::TextDisabled("Equatorial Ergosphere: %.4f M  (%s)", 2.0, Units::format_distance(2.0 * pm * plen, uprefs.distance).c_str());
-			ImGui::TextDisabled("ISCO (Prograde): %.4f M  (%s)", pisco / pm, Units::format_distance(pisco * plen, uprefs.distance).c_str());
+			render_setting_tooltip("Orients the camera toward the central compact object without moving it. Continuous tracking is available in the Source Catalog of the Celestial Body & N-Body Manager.");
 		}
 
 		if (needs_throat) {

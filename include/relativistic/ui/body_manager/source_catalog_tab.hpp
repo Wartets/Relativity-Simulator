@@ -6,6 +6,8 @@
 #include "relativistic/ui/body_manager/body_property_editor.hpp"
 #include "relativistic/ui/spacetime_source_panel.hpp"
 #include "relativistic/ui/accretion_disk_editor.hpp"
+#include "relativistic/ui/jet_magnetosphere_editor.hpp"
+#include "relativistic/ui/compatibility_notes.hpp"
 #include "relativistic/ui/split_pane_layout.hpp"
 #include "relativistic/ui/panel_text_helpers.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
@@ -59,7 +61,15 @@ private:
 		options.metric_name = &orchestrator.active_metric_name();
 		options.render_lock_controls = true;
 		options.mass_label = "Central Mass (M)";
-		options.show_lambda = (orchestrator.active_metric_name().find("de Sitter") != std::string::npos || orchestrator.active_metric_name().find("FLRW") != std::string::npos);
+		const std::string& active_metric = orchestrator.active_metric_name();
+		options.show_mass = metric_uses_central_mass(active_metric);
+		options.show_spin = active_metric.find("Kerr") != std::string::npos;
+		options.show_charge = active_metric.find("Reissner") != std::string::npos || active_metric.find("Newman") != std::string::npos;
+		options.show_lambda = active_metric.find("de Sitter") != std::string::npos
+			|| active_metric.find("DeSitter") != std::string::npos
+			|| active_metric.find("FLRW") != std::string::npos
+			|| active_metric.find("Quintessence") != std::string::npos
+			|| active_metric.find("Chaplygin") != std::string::npos;
 		options.mass_slider_minimum = 0.001;
 		options.mass_slider_maximum = 1.0e6;
 		options.mass_log_minimum = 1e-12;
@@ -78,6 +88,23 @@ private:
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CosmologicalLambda, central_values_.cosmological_constant)));
 		}
 
+		if (options.show_spin && params.mass > 0.0) {
+			float spin_ratio = static_cast<float>(std::abs(params.spin) / params.mass);
+			const double charge_ratio = params.charge / params.mass;
+			const float extremal_ratio = static_cast<float>(std::sqrt(std::max(1.0 - charge_ratio * charge_ratio, 0.0)));
+			const float allowed_ratio = central_lock_ ? std::max(std::min(extremal_ratio, 0.999f), 1e-3f) : 1.5f;
+			if (slider_float_with_input("Dimensionless Spin (a/M)", &spin_ratio, 0.0f, allowed_ratio, "%.4f")) {
+				const double sign = (params.spin < 0.0) ? -1.0 : 1.0;
+				static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::Spin, sign * static_cast<double>(spin_ratio) * params.mass)));
+			}
+			render_setting_tooltip("Specific angular momentum ratio a/M, identical to the control in the Spacetime & Metrics tab. The sign of the spin is preserved.");
+		}
+		if (!options.show_mass && !options.show_spin && !options.show_charge && !options.show_lambda) {
+			render_hint_text("The active spacetime has no central mass, spin or charge parameter; its specific parameters are edited in the Spacetime & Metrics tab.");
+		} else if (active_metric.find("Morris") != std::string::npos || active_metric.find("Wormhole") != std::string::npos || active_metric.find("Alcubierre") != std::string::npos || active_metric.find("Warp") != std::string::npos || active_metric.find("TeVeS") != std::string::npos) {
+			render_hint_text("Throat, bubble and scalar-field parameters of the active spacetime are edited in the Spacetime & Metrics tab.");
+		}
+
 		ImGui::Spacing();
 		if (ImGui::CollapsingHeader("Accretion Disk", ImGuiTreeNodeFlags_DefaultOpen)) {
 			render_primary_accretion_disk_editor(orchestrator);
@@ -86,21 +113,7 @@ private:
 			render_jet_magnetosphere_editor(orchestrator);
 		}
 		render_group_title("Primary Geometric Landmarks", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
-		const double primary_m = std::max(params.mass, 1e-4);
-		const double primary_a = std::clamp(params.spin, -0.999 * primary_m, 0.999 * primary_m);
-		const double primary_q = params.charge;
-		const double primary_disc = primary_m * primary_m - primary_a * primary_a - primary_q * primary_q;
-		const double primary_rh = (primary_disc >= 0.0) ? (primary_m + std::sqrt(primary_disc)) : 0.0;
-		const double primary_rc = (primary_disc >= 0.0) ? (primary_m - std::sqrt(primary_disc)) : 0.0;
-		const double primary_isco = Optics::DiskThermalProfile::kerr_isco_radius(primary_m, std::abs(primary_a));
-		const double primary_len_m = ctx.length_scale();
-		const auto& unit_prefs = orchestrator.unit_preferences();
-		if (primary_rh > 0.0) {
-			ImGui::TextDisabled("Outer Event Horizon (r+): %.4f M  (%s)", primary_rh / primary_m, Units::format_distance(primary_rh * primary_len_m, unit_prefs.distance).c_str());
-			ImGui::TextDisabled("Inner Cauchy Horizon (r-): %.4f M  (%s)", primary_rc / primary_m, Units::format_distance(primary_rc * primary_len_m, unit_prefs.distance).c_str());
-		}
-		ImGui::TextDisabled("Equatorial Ergosphere Boundary: %.4f M  (%s)", 2.0, Units::format_distance(2.0 * primary_m * primary_len_m, unit_prefs.distance).c_str());
-		ImGui::TextDisabled("Innermost Stable Orbit (ISCO): %.4f M  (%s)", primary_isco / primary_m, Units::format_distance(primary_isco * primary_len_m, unit_prefs.distance).c_str());
+		render_primary_geometric_landmarks(orchestrator);
 	}
 
 	void render_source_detail(BodyManagerContext& ctx, Dynamics::PostNewtonianSystem& sys, Dynamics::PostNewtonianBody& b, CatalogListResult& pending) noexcept {
@@ -120,6 +133,7 @@ private:
 		if (ImGui::Checkbox("Track", &tracking_this)) {
 			ctx.set_tracking(static_cast<int>(body_id), tracking_this);
 		}
+		render_setting_tooltip("Keeps the camera pointed at this black hole while it moves.");
 		ImGui::SameLine();
 		if (ImGui::Button("Duplicate", ImVec2(80.0f, 24.0f))) {
 			pending.action = CatalogRowAction::Duplicate;

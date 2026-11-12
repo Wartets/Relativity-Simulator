@@ -9,6 +9,7 @@
 #include "relativistic/units/unit_system.hpp"
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <string>
 
 namespace Relativistic::UI {

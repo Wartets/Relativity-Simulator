@@ -1991,12 +1991,12 @@ bool intersect_subsidiary_sources(dvec3 seg_start, dvec3 seg_end, out vec3 out_c
 			dvec3 cross_pos = lo + s_cross * lv;
 			double cross_x = cross_pos.x * req;
 			double cross_y = cross_pos.y * req;
-			double r_cross = length(dvec2(cross_x, cross_y));
+			double r_cross = sqrt(max(cross_x * cross_x + cross_y * cross_y - a_spin * a_spin, 0.0));
 			if (bodies[bi].disk.enabled > 0.5 && r_cross >= disk_inner && r_cross <= disk_outer) {
 				dvec3 segment_local = dvec3(lv.x * req, lv.y * req, lv.z * rh);
 				double l_over_e = -(cross_x * segment_local.y - cross_y * segment_local.x) / max(length(segment_local), 1e-30);
 				double g_doppler = disk_redshift(m, a_spin, r_cross, l_over_e);
-				double azimuth = double(atan(float(cross_y), float(cross_x)));
+				double azimuth = double(atan(float(cross_y), float(cross_x))) - double(atan(float(a_spin), float(max(r_cross, 1e-12))));
 				vec3 shaded_rgb;
 				double shaded_opacity;
 				disk_shade(bodies[bi].disk, m, a_spin, disk_inner, disk_outer, r_cross, azimuth, g_doppler, pc.time, 1.0, shaded_rgb, shaded_opacity);
@@ -3569,9 +3569,13 @@ dvec3 ms_initial_momentum(dvec3 x, dvec3 outward) {
 bool ms_inside_horizon(dvec3 x) {
 	for (uint i = 0u; i < ms_source_count; ++i) {
 		dvec3 l = ms_to_local(i, x - ms_position_mass[i].xyz);
-		double eq = ms_frame_y_equatorial[i].w;
+		double a = ms_axis_spin[i].w;
+		double a2 = a * a;
+		double diff = dot(l, l) - a2;
+		double r2 = max(0.5 * (diff + sqrt(diff * diff + 4.0 * a2 * l.z * l.z)), 1e-24);
+		double r = sqrt(r2);
 		double rh = ms_frame_x_horizon[i].w;
-		if ((l.x * l.x + l.y * l.y) / (eq * eq) + (l.z * l.z) / (rh * rh) <= 1.0) return true;
+		if (r <= rh * 1.0001 || (r2 - 2.0 * ms_position_mass[i].w * r + a2) <= 0.0) return true;
 	}
 	return false;
 }
@@ -3579,8 +3583,8 @@ bool ms_inside_horizon(dvec3 x) {
 bool ms_horizon_entry(uint i, dvec3 from, dvec3 to, out double t) {
 	t = 2.0;
 	dvec3 origin = ms_position_mass[i].xyz;
-	double inverse_eq = 1.0 / max(ms_frame_y_equatorial[i].w, 1e-12);
-	double inverse_pol = 1.0 / max(ms_frame_x_horizon[i].w, 1e-12);
+	double inverse_eq = 1.0 / max(ms_frame_y_equatorial[i].w * 1.0001, 1e-12);
+	double inverse_pol = 1.0 / max(ms_frame_x_horizon[i].w * 1.0001, 1e-12);
 	dvec3 ls = ms_to_local(i, from - origin);
 	dvec3 le = ms_to_local(i, to - origin);
 	dvec3 s = dvec3(ls.x * inverse_eq, ls.y * inverse_eq, ls.z * inverse_pol);
@@ -3592,14 +3596,33 @@ bool ms_horizon_entry(uint i, dvec3 from, dvec3 to, out double t) {
 		return true;
 	}
 	double qa = dot(d, d);
-	if (qa <= 1e-30) return false;
+	if (qa <= 1e-30) {
+		if (dot(e, e) <= 1.0) {
+			t = 0.5;
+			return true;
+		}
+		return false;
+	}
 	double qb = 2.0 * dot(s, d);
 	double discriminant = qb * qb - 4.0 * qa * c;
-	if (discriminant < 0.0) return false;
-	double entry = (-qb - sqrt(discriminant)) / (2.0 * qa);
-	if (entry < 0.0 || entry > 1.0) return false;
-	t = entry;
-	return true;
+	if (discriminant >= 0.0) {
+		double sqrt_disc = sqrt(discriminant);
+		double t1 = (-qb - sqrt_disc) / (2.0 * qa);
+		double t2 = (-qb + sqrt_disc) / (2.0 * qa);
+		if (t1 >= 0.0 && t1 <= 1.0) {
+			t = t1;
+			return true;
+		}
+		if (t2 >= 0.0 && t2 <= 1.0) {
+			t = t2;
+			return true;
+		}
+	}
+	if (dot(e, e) <= 1.0) {
+		t = clamp(-qb / (2.0 * qa), 0.0, 1.0);
+		return true;
+	}
+	return false;
 }
 
 bool ms_disk_crossing(uint i, dvec3 from, dvec3 to, dvec3 p_from, dvec3 p_to, out double t, out double radius, out double azimuth, out double lz) {
@@ -3623,7 +3646,8 @@ bool ms_disk_crossing(uint i, dvec3 from, dvec3 to, dvec3 p_from, dvec3 p_to, ou
 	t = s;
 	radius = r;
 	azimuth = atan2_wide(c.y, c.x) - atan2_wide(spin, r);
-	lz = c.x * pl.y - c.y * pl.x;
+	double pl_mag = length(pl);
+	lz = (c.x * pl.y - c.y * pl.x) / max(pl_mag, 1e-30);
 	return true;
 }
 
@@ -3655,6 +3679,9 @@ void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out,
 	double primary_spin = ms_axis_spin[0].w;
 	double angular_pixel_size = pc.field_of_view_rad / max(double(pc.screen_width), 1.0);
 	double crossing_t[MS_MAX];
+	double c_rad[MS_MAX];
+	double c_az[MS_MAX];
+	double c_lz[MS_MAX];
 
 	for (uint step = 0u; step < pc.max_integration_steps && throughput > 0.01; ++step) {
 		iters = step + 1u;
@@ -3663,17 +3690,30 @@ void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out,
 			break;
 		}
 
+		if (ms_inside_horizon(x)) {
+			status |= 1u;
+			throughput = 0.0;
+			break;
+		}
+
 		double scale = 1.0e30;
 		double far_blend = 1.0;
 		for (uint i = 0u; i < ms_source_count; ++i) {
-			dvec4 pm = ms_position_mass[i];
+			dvec4 pm_i = ms_position_mass[i];
 			double rh_i = ms_frame_x_horizon[i].w;
-			double d = length(x - pm.xyz);
-			scale = min(scale, sqrt(d * max(d - rh_i, 0.02 * pm.w)));
-			far_blend = min(far_blend, clamp((d - 20.0 * rh_i) / (80.0 * rh_i), 0.0, 1.0));
+			dvec3 l = ms_to_local(i, x - pm_i.xyz);
+			double a = ms_axis_spin[i].w;
+			double a2 = a * a;
+			double diff = dot(l, l) - a2;
+			double r2 = max(0.5 * (diff + sqrt(diff * diff + 4.0 * a2 * l.z * l.z)), 1e-24);
+			double r = sqrt(r2);
+			double r_dist = max(r - rh_i, 0.005 * pm_i.w);
+			scale = min(scale, sqrt(r * r_dist));
+			scale = min(scale, max(0.35 * r_dist, pc.min_step_size));
+			far_blend = min(far_blend, clamp((r - 20.0 * rh_i) / max(80.0 * rh_i, 1e-9), 0.0, 1.0));
 		}
 		double far_factor = 1.0 + (pc.far_field_step_scale - 1.0) * far_blend;
-		double dt_mag = clamp(pc.step_size_factor * scale * far_factor, pc.min_step_size, pc.max_step_size * pc.far_field_step_scale);
+		double dt_mag = clamp(pc.step_size_factor * scale * far_factor, pc.min_step_size, pc.max_step_size * far_factor);
 		if (dark_matter_enabled) {
 			dt_mag = min(dt_mag, dark_matter_step_limit(x));
 		}
@@ -3732,7 +3772,14 @@ void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out,
 			double crossing_radius;
 			double crossing_azimuth;
 			double crossing_lz;
-			crossing_t[i] = ms_disk_crossing(i, x_prev, x, p_prev, p, crossing_param, crossing_radius, crossing_azimuth, crossing_lz) ? crossing_param : -1.0;
+			if (ms_disk_crossing(i, x_prev, x, p_prev, p, crossing_param, crossing_radius, crossing_azimuth, crossing_lz)) {
+				crossing_t[i] = crossing_param;
+				c_rad[i] = crossing_radius;
+				c_az[i] = crossing_azimuth;
+				c_lz[i] = crossing_lz;
+			} else {
+				crossing_t[i] = -1.0;
+			}
 		}
 
 		double body_t = 2.0;
@@ -3758,11 +3805,9 @@ void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out,
 			if (pick == MS_MAX) break;
 			crossing_t[pick] = -1.0;
 
-			double t_c;
-			double r_c;
-			double az_c;
-			double lz_c;
-			if (!ms_disk_crossing(pick, x_prev, x, p_prev, p, t_c, r_c, az_c, lz_c)) continue;
+			double r_c = c_rad[pick];
+			double az_c = c_az[pick];
+			double lz_c = c_lz[pick];
 
 			dvec4 pm = ms_position_mass[pick];
 			double spin_s = ms_axis_spin[pick].w;
@@ -3799,7 +3844,12 @@ void trace_multi_source(dvec3 ray_dir, out dvec3 accum_out, out uint status_out,
 
 	if (!escaped && (status & 1u) == 0u && throughput > 0.01) {
 		for (uint i = 0u; i < ms_source_count; ++i) {
-			if (length(x - ms_position_mass[i].xyz) < 6.0 * ms_position_mass[i].w) {
+			dvec3 l = ms_to_local(i, x - ms_position_mass[i].xyz);
+			double a = ms_axis_spin[i].w;
+			double a2 = a * a;
+			double diff = dot(l, l) - a2;
+			double r = sqrt(max(0.5 * (diff + sqrt(diff * diff + 4.0 * a2 * l.z * l.z)), 1e-24));
+			if (r < 6.0 * ms_position_mass[i].w) {
 				throughput = 0.0;
 			}
 		}
@@ -4323,4 +4373,3 @@ void main() {
 	}
 	}
 }
-

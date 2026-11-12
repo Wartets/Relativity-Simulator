@@ -953,8 +953,16 @@ public:
 				|| params.jet.enabled > 0.5f
 				|| DarkMatter::DarkMatterLensing::is_active(params.dark_matter)
 				|| params.metric_type >= 7U;
+			bool has_spacetime_sources = false;
+			for (const auto& b : bodies) {
+				if (b.preset_3d == 8U) {
+					has_spacetime_sources = true;
+					break;
+				}
+			}
 			const bool single_precision = (params.precision_mode == static_cast<uint32_t>(PrecisionMode::DoubleSingleEmulation)) && !heavy;
 			const bool scalar_only = heavy
+				|| has_spacetime_sources
 				|| (params.render_flags & RenderFlags::BODIES_ONLY_MODE) != 0U
 				|| (params.render_flags & RenderFlags::USE_SCALAR_PIPELINE) != 0U
 				|| requires_exact_metric_path(params)
@@ -2684,6 +2692,552 @@ private:
 		};
 	}
 
+	struct MultiSourceData {
+		static constexpr size_t kMaxSources = 16;
+		size_t count{0};
+		std::array<std::array<double, 4>, kMaxSources> position_mass{};
+		std::array<std::array<double, 4>, kMaxSources> axis_spin{};
+		std::array<std::array<double, 4>, kMaxSources> frame_x_horizon{};
+		std::array<std::array<double, 4>, kMaxSources> frame_y_equatorial{};
+		std::array<std::array<double, 2>, kMaxSources> disk_range{};
+		std::array<uint32_t, kMaxSources> body_slot{};
+		
+		std::array<double, kMaxSources> potential_cache{};
+		std::array<std::array<double, 3>, kMaxSources> direction_cache{};
+
+		[[nodiscard]] std::array<double, 3> to_local(size_t i, const std::array<double, 3>& d) const noexcept {
+			return {
+				d[0] * frame_x_horizon[i][0] + d[1] * frame_x_horizon[i][1] + d[2] * frame_x_horizon[i][2],
+				d[0] * frame_y_equatorial[i][0] + d[1] * frame_y_equatorial[i][1] + d[2] * frame_y_equatorial[i][2],
+				d[0] * axis_spin[i][0] + d[1] * axis_spin[i][1] + d[2] * axis_spin[i][2]
+			};
+		}
+
+		[[nodiscard]] std::array<double, 3> to_world(size_t i, const std::array<double, 3>& l) const noexcept {
+			return {
+				l[0] * frame_x_horizon[i][0] + l[1] * frame_y_equatorial[i][0] + l[2] * axis_spin[i][0],
+				l[0] * frame_x_horizon[i][1] + l[1] * frame_y_equatorial[i][1] + l[2] * axis_spin[i][1],
+				l[0] * frame_x_horizon[i][2] + l[1] * frame_y_equatorial[i][2] + l[2] * axis_spin[i][2]
+			};
+		}
+	};
+
+	[[nodiscard]] static MultiSourceData build_multi_source_data(
+		const GpuCameraPushConstants& pc,
+		std::span<const GpuBodyData> bodies
+	) noexcept {
+		MultiSourceData ms;
+		if (pc.metric_type != 1U && pc.metric_type != 2U && pc.metric_type != 3U) {
+			return ms;
+		}
+		double m = std::max(pc.metric_mass, 1e-4);
+		double a = (pc.metric_type == 1U) ? 0.0 : std::clamp(pc.metric_spin, -0.999 * m, 0.999 * m);
+		double rh = m + std::sqrt(std::max(m * m - a * a, 0.0));
+		double isco = kerr_isco_radius(m, a);
+		double inner = isco * static_cast<double>(std::max(pc.primary_disk.inner_radius_scale, 1.0f));
+		double outer = std::max(static_cast<double>(pc.primary_disk.outer_radius_mass_units) * m, inner * 1.05);
+		bool primary_disk_on = pc.primary_disk.enabled > 0.5f && pc.hydro_disk.model != 2U;
+		
+		ms.position_mass[0] = {0.0, 0.0, 0.0, m};
+		ms.axis_spin[0] = {0.0, 0.0, 1.0, a};
+		ms.frame_x_horizon[0] = {1.0, 0.0, 0.0, rh};
+		ms.frame_y_equatorial[0] = {0.0, 1.0, 0.0, std::sqrt(rh * rh + a * a)};
+		ms.disk_range[0] = primary_disk_on ? std::array<double, 2>{inner, outer} : std::array<double, 2>{-1.0, -1.0};
+		ms.body_slot[0] = 0xFFFFFFFFU;
+		ms.count = 1;
+
+		for (size_t bi = 0; bi < bodies.size() && ms.count < MultiSourceData::kMaxSources; ++bi) {
+			if (bodies[bi].preset_3d != 8U) continue;
+			double mb = std::max(bodies[bi].mass, 1e-9);
+			double ab = std::clamp(bodies[bi].spin_parameter, -0.9999, 0.9999) * mb;
+			double rhb = mb + std::sqrt(std::max(mb * mb - ab * ab, 0.0));
+			
+			const double axis_len = std::sqrt(bodies[bi].spin_axis[0] * bodies[bi].spin_axis[0] + bodies[bi].spin_axis[1] * bodies[bi].spin_axis[1] + bodies[bi].spin_axis[2] * bodies[bi].spin_axis[2]);
+			std::array<double, 3> axis = (axis_len > 1e-12) ? std::array<double, 3>{bodies[bi].spin_axis[0]/axis_len, bodies[bi].spin_axis[1]/axis_len, bodies[bi].spin_axis[2]/axis_len} : std::array<double, 3>{0.0, 0.0, 1.0};
+			
+			std::array<double, 3> helper = (std::abs(axis[2]) < 0.9) ? std::array<double, 3>{0.0, 0.0, 1.0} : std::array<double, 3>{1.0, 0.0, 0.0};
+			std::array<double, 3> fx{
+				helper[1] * axis[2] - helper[2] * axis[1],
+				helper[2] * axis[0] - helper[0] * axis[2],
+				helper[0] * axis[1] - helper[1] * axis[0]
+			};
+			double fx_len = std::sqrt(fx[0]*fx[0] + fx[1]*fx[1] + fx[2]*fx[2]);
+			fx = {fx[0]/fx_len, fx[1]/fx_len, fx[2]/fx_len};
+			std::array<double, 3> fy{
+				axis[1] * fx[2] - axis[2] * fx[1],
+				axis[2] * fx[0] - axis[0] * fx[2],
+				axis[0] * fx[1] - axis[1] * fx[0]
+			};
+			
+			double isco_b = kerr_isco_radius(mb, ab);
+			double inner_b = isco_b * static_cast<double>(std::max(bodies[bi].disk.inner_radius_scale, 1.0f));
+			double outer_b = std::max(static_cast<double>(bodies[bi].disk.outer_radius_mass_units) * mb, inner_b * 1.05);
+			
+			ms.position_mass[ms.count] = {bodies[bi].position[0], bodies[bi].position[1], bodies[bi].position[2], mb};
+			ms.axis_spin[ms.count] = {axis[0], axis[1], axis[2], ab};
+			ms.frame_x_horizon[ms.count] = {fx[0], fx[1], fx[2], rhb};
+			ms.frame_y_equatorial[ms.count] = {fy[0], fy[1], fy[2], std::sqrt(rhb * rhb + ab * ab)};
+			ms.disk_range[ms.count] = (bodies[bi].disk.enabled > 0.5f) ? std::array<double, 2>{inner_b, outer_b} : std::array<double, 2>{-1.0, -1.0};
+			ms.body_slot[ms.count] = static_cast<uint32_t>(bi);
+			++ms.count;
+		}
+		return ms;
+	}
+
+	static void ks_field(const std::array<double, 3>& x, double mass, double a, double& r, double& h, std::array<double, 3>& k) noexcept {
+		double a2 = a * a;
+		double z2 = x[2] * x[2];
+		double diff = (x[0]*x[0] + x[1]*x[1] + x[2]*x[2]) - a2;
+		double r2 = std::max(0.5 * (diff + std::sqrt(diff * diff + 4.0 * a2 * z2)), 1e-24);
+		r = std::sqrt(r2);
+		double den = r2 * r2 + a2 * z2;
+		double rpa = r2 + a2;
+		h = mass * r2 * r / den;
+		k = {(r * x[0] + a * x[1]) / rpa, (r * x[1] - a * x[0]) / rpa, x[2] / r};
+	}
+
+	static void ks_source_terms(const std::array<double, 3>& x, const std::array<double, 3>& p, double mass, double a, std::array<double, 3>& dx, std::array<double, 3>& dp) noexcept {
+		double r, h;
+		std::array<double, 3> k;
+		ks_field(x, mass, a, r, h, k);
+		double a2 = a * a;
+		double z2 = x[2] * x[2];
+		double r2 = r * r;
+		double r3 = r2 * r;
+		double r4 = r2 * r2;
+		double den = r4 + a2 * z2;
+		double den2 = den * den;
+		double rpa = r2 + a2;
+		double inv_rpa2 = 1.0 / (rpa * rpa);
+		double s = k[0]*p[0] + k[1]*p[1] + k[2]*p[2] + 1.0;
+
+		dx = {-2.0 * h * s * k[0], -2.0 * h * s * k[1], -2.0 * h * s * k[2]};
+
+		std::array<double, 3> dr{r3 * x[0] / den, r3 * x[1] / den, r * rpa * x[2] / den};
+		double bracket = 3.0 * a2 * z2 - r4;
+		std::array<double, 3> dh{
+			mass * dr[0] * r2 * bracket / den2,
+			mass * dr[1] * r2 * bracket / den2,
+			mass * dr[2] * r2 * bracket / den2 - 2.0 * mass * a2 * r3 * x[2] / den2
+		};
+
+		double nx = r * x[0] + a * x[1];
+		double ny = r * x[1] - a * x[0];
+		std::array<double, 3> dk_dot_p;
+		dk_dot_p[0] = (((dr[0] * x[0] + r) * rpa - nx * 2.0 * r * dr[0]) * inv_rpa2) * p[0]
+			+ (((dr[0] * x[1] - a) * rpa - ny * 2.0 * r * dr[0]) * inv_rpa2) * p[1]
+			+ (-x[2] * dr[0] / r2) * p[2];
+		dk_dot_p[1] = (((dr[1] * x[0] + a) * rpa - nx * 2.0 * r * dr[1]) * inv_rpa2) * p[0]
+			+ (((dr[1] * x[1] + r) * rpa - ny * 2.0 * r * dr[1]) * inv_rpa2) * p[1]
+			+ (-x[2] * dr[1] / r2) * p[2];
+		dk_dot_p[2] = (((dr[2] * x[0]) * rpa - nx * 2.0 * r * dr[2]) * inv_rpa2) * p[0]
+			+ (((dr[2] * x[1]) * rpa - ny * 2.0 * r * dr[2]) * inv_rpa2) * p[1]
+			+ ((r - x[2] * dr[2]) / r2) * p[2];
+
+		dp = {
+			dh[0] * s * s + 2.0 * h * s * dk_dot_p[0],
+			dh[1] * s * s + 2.0 * h * s * dk_dot_p[1],
+			dh[2] * s * s + 2.0 * h * s * dk_dot_p[2]
+		};
+	}
+
+	static void ms_rhs(const MultiSourceData& ms, const std::array<double, 3>& x, const std::array<double, 3>& p, std::array<double, 3>& dx, std::array<double, 3>& dp) noexcept {
+		dx = p;
+		dp = {0.0, 0.0, 0.0};
+		for (size_t i = 0; i < ms.count; ++i) {
+			std::array<double, 3> local_x = ms.to_local(i, {x[0] - ms.position_mass[i][0], x[1] - ms.position_mass[i][1], x[2] - ms.position_mass[i][2]});
+			std::array<double, 3> local_p = ms.to_local(i, p);
+			std::array<double, 3> local_dx, local_dp;
+			ks_source_terms(local_x, local_p, ms.position_mass[i][3], ms.axis_spin[i][3], local_dx, local_dp);
+			std::array<double, 3> world_dx = ms.to_world(i, local_dx);
+			std::array<double, 3> world_dp = ms.to_world(i, local_dp);
+			dx[0] += world_dx[0]; dx[1] += world_dx[1]; dx[2] += world_dx[2];
+			dp[0] += world_dp[0]; dp[1] += world_dp[1]; dp[2] += world_dp[2];
+		}
+	}
+
+	static void ms_rk4_step(const MultiSourceData& ms, std::array<double, 3>& x, std::array<double, 3>& p, double dt) noexcept {
+		std::array<double, 3> k1x, k1p, k2x, k2p, k3x, k3p, k4x, k4p;
+		ms_rhs(ms, x, p, k1x, k1p);
+		ms_rhs(ms, {x[0] + 0.5 * dt * k1x[0], x[1] + 0.5 * dt * k1x[1], x[2] + 0.5 * dt * k1x[2]}, {p[0] + 0.5 * dt * k1p[0], p[1] + 0.5 * dt * k1p[1], p[2] + 0.5 * dt * k1p[2]}, k2x, k2p);
+		ms_rhs(ms, {x[0] + 0.5 * dt * k2x[0], x[1] + 0.5 * dt * k2x[1], x[2] + 0.5 * dt * k2x[2]}, {p[0] + 0.5 * dt * k2p[0], p[1] + 0.5 * dt * k2p[1], p[2] + 0.5 * dt * k2p[2]}, k3x, k3p);
+		ms_rhs(ms, {x[0] + dt * k3x[0], x[1] + dt * k3x[1], x[2] + dt * k3x[2]}, {p[0] + dt * k3p[0], p[1] + dt * k3p[1], p[2] + dt * k3p[2]}, k4x, k4p);
+		double sixth = dt / 6.0;
+		for(int i=0; i<3; ++i) {
+			x[i] += sixth * (k1x[i] + 2.0 * k2x[i] + 2.0 * k3x[i] + k4x[i]);
+			p[i] += sixth * (k1p[i] + 2.0 * k2p[i] + 2.0 * k3p[i] + k4p[i]);
+		}
+	}
+
+	static double ms_metric_dot(
+		const std::array<double, MultiSourceData::kMaxSources>& pot,
+		const std::array<std::array<double, 3>, MultiSourceData::kMaxSources>& dir,
+		size_t count,
+		const std::array<double, 4>& a,
+		const std::array<double, 4>& b
+	) noexcept {
+		double value = -a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+		for (size_t i = 0; i < count; ++i) {
+			double la = a[0] + dir[i][0] * a[1] + dir[i][1] * a[2] + dir[i][2] * a[3];
+			double lb = b[0] + dir[i][0] * b[1] + dir[i][1] * b[2] + dir[i][2] * b[3];
+			value += 2.0 * pot[i] * la * lb;
+		}
+		return value;
+	}
+
+	static std::array<double, 4> ms_lift(
+		const std::array<double, MultiSourceData::kMaxSources>& pot,
+		const std::array<std::array<double, 3>, MultiSourceData::kMaxSources>& dir,
+		size_t count,
+		const std::array<double, 3>& v,
+		double inverse_lapse_sq
+	) noexcept {
+		double shift = 0.0;
+		for (size_t i = 0; i < count; ++i) {
+			shift += pot[i] * (dir[i][0] * v[0] + dir[i][1] * v[1] + dir[i][2] * v[2]);
+		}
+		return {2.0 * shift * inverse_lapse_sq, v[0], v[1], v[2]};
+	}
+
+	static std::array<double, 3> ms_initial_momentum(const MultiSourceData& ms, const std::array<double, 3>& x, const std::array<double, 3>& outward) noexcept {
+		std::array<double, MultiSourceData::kMaxSources> potential_cache{};
+		std::array<std::array<double, 3>, MultiSourceData::kMaxSources> direction_cache{};
+		double potential_sum = 0.0;
+		for (size_t i = 0; i < ms.count; ++i) {
+			double r, h;
+			std::array<double, 3> k;
+			std::array<double, 3> local_x = ms.to_local(i, {x[0] - ms.position_mass[i][0], x[1] - ms.position_mass[i][1], x[2] - ms.position_mass[i][2]});
+			ks_field(local_x, ms.position_mass[i][3], ms.axis_spin[i][3], r, h, k);
+			potential_cache[i] = h;
+			direction_cache[i] = ms.to_world(i, k);
+			potential_sum += h;
+		}
+		double inverse_lapse_sq = 1.0 / std::max(1.0 - 2.0 * potential_sum, 1e-6);
+		double u0 = std::sqrt(inverse_lapse_sq);
+		auto e1 = ms_lift(potential_cache, direction_cache, ms.count, {1.0, 0.0, 0.0}, inverse_lapse_sq);
+		auto e2 = ms_lift(potential_cache, direction_cache, ms.count, {0.0, 1.0, 0.0}, inverse_lapse_sq);
+		auto e3 = ms_lift(potential_cache, direction_cache, ms.count, {0.0, 0.0, 1.0}, inverse_lapse_sq);
+		
+		double e1_norm = std::sqrt(std::max(ms_metric_dot(potential_cache, direction_cache, ms.count, e1, e1), 1e-30));
+		for(int j=0; j<4; ++j) e1[j] /= e1_norm;
+		
+		double e2_dot_e1 = ms_metric_dot(potential_cache, direction_cache, ms.count, e2, e1);
+		for(int j=0; j<4; ++j) e2[j] -= e2_dot_e1 * e1[j];
+		double e2_norm = std::sqrt(std::max(ms_metric_dot(potential_cache, direction_cache, ms.count, e2, e2), 1e-30));
+		for(int j=0; j<4; ++j) e2[j] /= e2_norm;
+		
+		double e3_dot_e1 = ms_metric_dot(potential_cache, direction_cache, ms.count, e3, e1);
+		double e3_dot_e2 = ms_metric_dot(potential_cache, direction_cache, ms.count, e3, e2);
+		for(int j=0; j<4; ++j) e3[j] -= e3_dot_e1 * e1[j] + e3_dot_e2 * e2[j];
+		double e3_norm = std::sqrt(std::max(ms_metric_dot(potential_cache, direction_cache, ms.count, e3, e3), 1e-30));
+		for(int j=0; j<4; ++j) e3[j] /= e3_norm;
+		
+		std::array<double, 4> v = {u0 - outward[0]*e1[0] - outward[1]*e2[0] - outward[2]*e3[0],
+								   -outward[0]*e1[1] - outward[1]*e2[1] - outward[2]*e3[1],
+								   -outward[0]*e1[2] - outward[1]*e2[2] - outward[2]*e3[2],
+								   -outward[0]*e1[3] - outward[1]*e2[3] - outward[2]*e3[3]};
+		
+		std::array<double, 3> momentum = {v[1], v[2], v[3]};
+		double time_component = -v[0];
+		for (size_t i = 0; i < ms.count; ++i) {
+			double lv = v[0] + direction_cache[i][0]*v[1] + direction_cache[i][1]*v[2] + direction_cache[i][2]*v[3];
+			time_component += 2.0 * potential_cache[i] * lv;
+			momentum[0] += 2.0 * potential_cache[i] * lv * direction_cache[i][0];
+			momentum[1] += 2.0 * potential_cache[i] * lv * direction_cache[i][1];
+			momentum[2] += 2.0 * potential_cache[i] * lv * direction_cache[i][2];
+		}
+		double inv_pt = 1.0 / std::max(-time_component, 1e-12);
+		return {momentum[0] * inv_pt, momentum[1] * inv_pt, momentum[2] * inv_pt};
+	}
+
+	static bool ms_inside_horizon(const MultiSourceData& ms, const std::array<double, 3>& x) noexcept {
+		for (size_t i = 0; i < ms.count; ++i) {
+			const auto l = ms.to_local(i, {x[0] - ms.position_mass[i][0], x[1] - ms.position_mass[i][1], x[2] - ms.position_mass[i][2]});
+			const double a = ms.axis_spin[i][3];
+			const double a2 = a * a;
+			const double diff = (l[0]*l[0] + l[1]*l[1] + l[2]*l[2]) - a2;
+			const double r2 = std::max(0.5 * (diff + std::sqrt(diff * diff + 4.0 * a2 * l[2]*l[2])), 1e-24);
+			const double r = std::sqrt(r2);
+			const double rh = ms.frame_x_horizon[i][3];
+			if (r <= rh * 1.0001 || (r2 - 2.0 * ms.position_mass[i][3] * r + a2) <= 0.0) return true;
+		}
+		return false;
+	}
+
+	static bool ms_horizon_entry(const MultiSourceData& ms, size_t i, const std::array<double, 3>& from, const std::array<double, 3>& to, double& t) noexcept {
+		t = 2.0;
+		const double inverse_eq = 1.0 / std::max(ms.frame_y_equatorial[i][3] * 1.0001, 1e-12);
+		const double inverse_pol = 1.0 / std::max(ms.frame_x_horizon[i][3] * 1.0001, 1e-12);
+		const auto ls = ms.to_local(i, {from[0] - ms.position_mass[i][0], from[1] - ms.position_mass[i][1], from[2] - ms.position_mass[i][2]});
+		const auto le = ms.to_local(i, {to[0] - ms.position_mass[i][0], to[1] - ms.position_mass[i][1], to[2] - ms.position_mass[i][2]});
+		const std::array<double, 3> s{ls[0]*inverse_eq, ls[1]*inverse_eq, ls[2]*inverse_pol};
+		const std::array<double, 3> e{le[0]*inverse_eq, le[1]*inverse_eq, le[2]*inverse_pol};
+		const std::array<double, 3> d{e[0]-s[0], e[1]-s[1], e[2]-s[2]};
+		const double c = s[0]*s[0] + s[1]*s[1] + s[2]*s[2] - 1.0;
+		if (c <= 0.0) { t = 0.0; return true; }
+		const double qa = d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
+		if (qa <= 1e-30) {
+			if (e[0]*e[0] + e[1]*e[1] + e[2]*e[2] <= 1.0) {
+				t = 0.5;
+				return true;
+			}
+			return false;
+		}
+		const double qb = 2.0 * (s[0]*d[0] + s[1]*d[1] + s[2]*d[2]);
+		const double discriminant = qb*qb - 4.0*qa*c;
+		if (discriminant >= 0.0) {
+			const double sqrt_disc = std::sqrt(discriminant);
+			const double t1 = (-qb - sqrt_disc) / (2.0 * qa);
+			const double t2 = (-qb + sqrt_disc) / (2.0 * qa);
+			if (t1 >= 0.0 && t1 <= 1.0) {
+				t = t1;
+				return true;
+			}
+			if (t2 >= 0.0 && t2 <= 1.0) {
+				t = t2;
+				return true;
+			}
+		}
+		if (e[0]*e[0] + e[1]*e[1] + e[2]*e[2] <= 1.0) {
+			t = std::clamp(-qb / (2.0 * qa), 0.0, 1.0);
+			return true;
+		}
+		return false;
+	}
+
+	static bool ms_disk_crossing(const MultiSourceData& ms, size_t i, const std::array<double, 3>& from, const std::array<double, 3>& to, const std::array<double, 3>& p_from, const std::array<double, 3>& p_to, double& t, double& radius, double& azimuth, double& lz) noexcept {
+		t = 2.0; radius = 0.0; azimuth = 0.0; lz = 0.0;
+		double inner = ms.disk_range[i][0];
+		double outer = ms.disk_range[i][1];
+		if (inner < 0.0) return false;
+		auto ls = ms.to_local(i, {from[0] - ms.position_mass[i][0], from[1] - ms.position_mass[i][1], from[2] - ms.position_mass[i][2]});
+		auto le = ms.to_local(i, {to[0] - ms.position_mass[i][0], to[1] - ms.position_mass[i][1], to[2] - ms.position_mass[i][2]});
+		double dz = le[2] - ls[2];
+		if (ls[2] * le[2] > 0.0 || std::abs(dz) <= 1e-15) return false;
+		double s_ratio = std::clamp(std::abs(ls[2]) / std::abs(dz), 0.0, 1.0);
+		std::array<double, 3> c{ls[0] + s_ratio*(le[0]-ls[0]), ls[1] + s_ratio*(le[1]-ls[1]), ls[2] + s_ratio*(le[2]-ls[2])};
+		double spin = ms.axis_spin[i][3];
+		double r = std::sqrt(std::max(c[0]*c[0] + c[1]*c[1] - spin*spin, 0.0));
+		if (r < inner || r > outer || r <= ms.frame_x_horizon[i][3] * 1.02) return false;
+		const auto pl = ms.to_local(i, {p_from[0] + s_ratio*(p_to[0]-p_from[0]), p_from[1] + s_ratio*(p_to[1]-p_from[1]), p_from[2] + s_ratio*(p_to[2]-p_from[2])});
+		t = s_ratio;
+		radius = r;
+		azimuth = std::atan2(c[1], c[0]) - std::atan2(spin, r);
+		const double pl_mag = std::sqrt(pl[0]*pl[0] + pl[1]*pl[1] + pl[2]*pl[2]);
+		lz = (c[0] * pl[1] - c[1] * pl[0]) / std::max(pl_mag, 1e-30);
+		return true;
+	}
+
+	static GpuPixelOutput trace_multi_source(
+		const MultiSourceData& ms,
+		const std::array<double, 3>& ray_dir,
+		double r_obs, double theta_obs, double phi_obs,
+		const GpuCameraPushConstants& params,
+		const GpuDiskProfile& disk_profile,
+		std::span<const GpuBodyData> bodies,
+		std::span<const uint32_t> body_candidates
+	) noexcept {
+		std::array<double, 3> x = spherical_to_cartesian(r_obs, theta_obs, phi_obs);
+		std::array<double, 3> accum = {0.0, 0.0, 0.0};
+		double throughput = 1.0;
+		uint32_t status = 0;
+		uint32_t iters = 0;
+		double redshift = 1.0;
+		bool escaped = false;
+
+		if (ms_inside_horizon(ms, x)) {
+			return GpuPixelOutput{
+				.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f,
+				.redshift = 0.0f, .affine_parameter = 0.0f,
+				.status_flags = 1u, .iterations_used = 0u
+			};
+		}
+
+		std::array<double, 3> p = ms_initial_momentum(ms, x, ray_dir);
+		const bool bodies_traced = ((params.render_flags & RenderFlags::ENABLE_3D_BODY_RAYTRACING) != 0U) && !bodies.empty();
+		std::array<double, MultiSourceData::kMaxSources> c_rad{};
+		std::array<double, MultiSourceData::kMaxSources> c_az{};
+		std::array<double, MultiSourceData::kMaxSources> c_lz{};
+		
+		for (uint32_t step = 0; step < params.max_integration_steps && throughput > 0.01; ++step) {
+			iters = step + 1;
+			if (std::sqrt(x[0]*x[0] + x[1]*x[1] + x[2]*x[2]) >= params.escape_radius) {
+				escaped = true;
+				break;
+			}
+
+			if (ms_inside_horizon(ms, x)) {
+				status |= 1u;
+				throughput = 0.0;
+				break;
+			}
+			
+			double scale = 1.0e30;
+			double far_blend = 1.0;
+			for (size_t i = 0; i < ms.count; ++i) {
+				const double rh_i = ms.frame_x_horizon[i][3];
+				const auto l = ms.to_local(i, {x[0] - ms.position_mass[i][0], x[1] - ms.position_mass[i][1], x[2] - ms.position_mass[i][2]});
+				const double a = ms.axis_spin[i][3];
+				const double a2 = a * a;
+				const double diff = (l[0]*l[0] + l[1]*l[1] + l[2]*l[2]) - a2;
+				const double r2 = std::max(0.5 * (diff + std::sqrt(diff * diff + 4.0 * a2 * l[2]*l[2])), 1e-24);
+				const double r = std::sqrt(r2);
+				const double r_dist = std::max(r - rh_i, 0.005 * ms.position_mass[i][3]);
+				scale = std::min(scale, std::sqrt(r * r_dist));
+				scale = std::min(scale, std::max(0.35 * r_dist, params.min_step_size));
+				far_blend = std::min(far_blend, std::clamp((r - 20.0 * rh_i) / std::max(80.0 * rh_i, 1e-9), 0.0, 1.0));
+			}
+			const double far_factor = 1.0 + (params.far_field_step_scale - 1.0) * far_blend;
+			const double dt = -std::clamp(params.step_size_factor * scale * far_factor, params.min_step_size, params.max_step_size * far_factor);
+			
+			std::array<double, 3> x_prev = x;
+			std::array<double, 3> p_prev = p;
+			ms_rk4_step(ms, x, p, dt);
+			
+			if (!std::isfinite(x[0]) || !std::isfinite(x[1]) || !std::isfinite(x[2]) || !std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) {
+				status |= 1u;
+				throughput = 0.0;
+				break;
+			}
+			
+			std::array<double, 3> segment = {x[0] - x_prev[0], x[1] - x_prev[1], x[2] - x_prev[2]};
+			double segment_length = std::sqrt(segment[0]*segment[0] + segment[1]*segment[1] + segment[2]*segment[2]);
+			if (segment_length <= 1.0e-14) continue;
+			
+			double absorb_t = 2.0;
+			std::array<double, MultiSourceData::kMaxSources> crossing_t{};
+			for (size_t i = 0; i < ms.count; ++i) {
+				double horizon_t = 2.0;
+				if (ms_horizon_entry(ms, i, x_prev, x, horizon_t)) {
+					absorb_t = std::min(absorb_t, horizon_t);
+				}
+				double crossing_param = 0.0;
+				double crossing_radius = 0.0;
+				double crossing_azimuth = 0.0;
+				double crossing_lz = 0.0;
+				if (ms_disk_crossing(ms, i, x_prev, x, p_prev, p, crossing_param, crossing_radius, crossing_azimuth, crossing_lz)) {
+					crossing_t[i] = crossing_param;
+					c_rad[i] = crossing_radius;
+					c_az[i] = crossing_azimuth;
+					c_lz[i] = crossing_lz;
+				} else {
+					crossing_t[i] = -1.0;
+				}
+			}
+			
+			double body_t = 2.0;
+			std::array<float, 3> body_color = {0.0f, 0.0f, 0.0f};
+			if (bodies_traced) {
+				const auto seg_hit = evaluate_3d_body_segment(x_prev, x, bodies, params, body_candidates);
+				if (seg_hit.hit) {
+					body_t = seg_hit.t_hit / segment_length;
+					body_color = {seg_hit.color.r, seg_hit.color.g, seg_hit.color.b};
+				}
+			}
+			
+			double limit_t = std::min(absorb_t, body_t);
+			for (size_t pass = 0; pass < ms.count && throughput > 0.01; ++pass) {
+				size_t pick = MultiSourceData::kMaxSources;
+				double best = limit_t;
+				for (size_t i = 0; i < ms.count; ++i) {
+					if (crossing_t[i] >= 0.0 && crossing_t[i] < best) {
+						best = crossing_t[i];
+						pick = i;
+					}
+				}
+				if (pick == MultiSourceData::kMaxSources) break;
+				crossing_t[pick] = -1.0;
+				
+				const double r_c = c_rad[pick];
+				const double az_c = c_az[pick];
+				const double lz_c = c_lz[pick];
+				
+				double m_b = ms.position_mass[pick][3];
+				double a_b = ms.axis_spin[pick][3];
+				double inner_b = ms.disk_range[pick][0];
+				double outer_b = ms.disk_range[pick][1];
+				double g_doppler = AccretionDiskModel::redshift_at(m_b, a_b, r_c, lz_c);
+				
+				DiskSurfacePoint dsp{
+					.mass = m_b, .spin = a_b, .inner_radius = inner_b, .outer_radius = outer_b,
+					.radius = r_c, .azimuth = az_c, .redshift = g_doppler,
+					.time = params.time, .detail_scale = 1.0
+				};
+				
+				DiskShadingResult shaded;
+				if (pick == 0) {
+					shaded = AccretionDiskModel::shade(disk_profile, dsp);
+				} else {
+					shaded = AccretionDiskModel::shade(bodies[ms.body_slot[pick]].disk, dsp);
+				}
+				redshift = g_doppler;
+				status |= 4u;
+				accum[0] += throughput * static_cast<double>(shaded.radiance[0]);
+				accum[1] += throughput * static_cast<double>(shaded.radiance[1]);
+				accum[2] += throughput * static_cast<double>(shaded.radiance[2]);
+				throughput *= (1.0 - shaded.opacity);
+			}
+			
+			if (throughput > 0.01 && body_t <= absorb_t && body_t <= 1.0) {
+				accum[0] += throughput * static_cast<double>(body_color[0]);
+				accum[1] += throughput * static_cast<double>(body_color[1]);
+				accum[2] += throughput * static_cast<double>(body_color[2]);
+				status |= 16u;
+				throughput = 0.0;
+				break;
+			}
+			if (absorb_t <= 1.0) {
+				status |= 1u;
+				throughput = 0.0;
+				break;
+			}
+		}
+		
+		if (!escaped && (status & 1u) == 0u && throughput > 0.01) {
+			for (size_t i = 0; i < ms.count; ++i) {
+				double dx = x[0] - ms.position_mass[i][0];
+				double dy = x[1] - ms.position_mass[i][1];
+				double dz = x[2] - ms.position_mass[i][2];
+				if (std::sqrt(dx*dx + dy*dy + dz*dz) < 6.0 * ms.position_mass[i][3]) {
+					throughput = 0.0;
+				}
+			}
+		}
+		
+		if (escaped || throughput > 0.01) {
+			std::array<double, 3> flow, unused_momentum;
+			ms_rhs(ms, x, p, flow, unused_momentum);
+			double flow_len = std::sqrt(flow[0]*flow[0] + flow[1]*flow[1] + flow[2]*flow[2]);
+			std::array<double, 3> dir_out = (flow_len > 1e-12) ? std::array<double, 3>{-flow[0]/flow_len, -flow[1]/flow_len, -flow[2]/flow_len} : std::array<double, 3>{0.0, 0.0, -1.0};
+			
+			bool exit_body_hit = false;
+			if (bodies_traced) {
+				const auto exit_hit = evaluate_3d_bodies(x, dir_out, bodies, params, body_candidates);
+				if (exit_hit.hit) {
+					accum[0] += throughput * static_cast<double>(exit_hit.color.r);
+					accum[1] += throughput * static_cast<double>(exit_hit.color.g);
+					accum[2] += throughput * static_cast<double>(exit_hit.color.b);
+					status |= 16u;
+					exit_body_hit = true;
+				}
+			}
+			if (!exit_body_hit) {
+				const auto sky_rgb = compute_sky_radiance(dir_out[0], dir_out[1], dir_out[2], params);
+				accum[0] += throughput * static_cast<double>(sky_rgb[0]);
+				accum[1] += throughput * static_cast<double>(sky_rgb[1]);
+				accum[2] += throughput * static_cast<double>(sky_rgb[2]);
+				status |= 2u;
+			}
+		}
+		
+		const auto mapped = apply_tonemapping(accum, params.tonemapping_mode, params.camera_exposure);
+		return GpuPixelOutput{
+			.r = mapped[0], .g = mapped[1], .b = mapped[2], .a = 1.0f,
+			.redshift = static_cast<float>(redshift), .affine_parameter = static_cast<float>(iters * 0.05),
+			.status_flags = status, .iterations_used = iters
+		};
+	}
+
 	[[nodiscard]] static GpuPixelOutput trace_spherical_spacetime_dispatch(
 		const GpuCameraPushConstants& params,
 		const std::array<double, 3>& ray_dir,
@@ -2757,8 +3311,37 @@ private:
 		const GpuDiskProfile& disk_profile,
 		const GpuCameraPushConstants& params,
 		std::span<const GpuBodyData> bodies = {},
-		std::span<const uint32_t> body_candidates = {}
+		std::span<const uint32_t> body_candidates = {},
+		const MultiSourceData* multi_sources = nullptr
 	) noexcept {
+		if (multi_sources != nullptr) {
+			if (multi_sources->count > 1) {
+				const double sin_to = std::sin(theta_obs);
+				const double cos_to = std::cos(theta_obs);
+				const double sin_po = std::sin(phi_obs);
+				const double cos_po = std::cos(phi_obs);
+				const std::array<double, 3> cart_dir{
+					n1 * sin_to * cos_po + n2 * cos_to * cos_po - n3 * sin_po,
+					n1 * sin_to * sin_po + n2 * cos_to * sin_po + n3 * cos_po,
+					n1 * cos_to - n2 * sin_to
+				};
+				return trace_multi_source(*multi_sources, cart_dir, r_obs, theta_obs, phi_obs, params, disk_profile, bodies, body_candidates);
+			}
+		} else {
+			MultiSourceData ms = build_multi_source_data(params, bodies);
+			if (ms.count > 1) {
+				const double sin_to = std::sin(theta_obs);
+				const double cos_to = std::cos(theta_obs);
+				const double sin_po = std::sin(phi_obs);
+				const double cos_po = std::cos(phi_obs);
+				const std::array<double, 3> cart_dir{
+					n1 * sin_to * cos_po + n2 * cos_to * cos_po - n3 * sin_po,
+					n1 * sin_to * sin_po + n2 * cos_to * sin_po + n3 * cos_po,
+					n1 * cos_to - n2 * sin_to
+				};
+				return trace_multi_source(ms, cart_dir, r_obs, theta_obs, phi_obs, params, disk_profile, bodies, body_candidates);
+			}
+		}
 		if (metric_type == 4U) {
 			const Metrics::ReissnerNordstromMetric<double> metric(m, charge, 1.0, 1.0, 1.0);
 			const double rh = metric.outer_horizon_radius();
@@ -3449,6 +4032,7 @@ public:
 		}
 
 		const auto subsidiary_sources = collect_subsidiary_sources(bodies);
+		const auto multi_source_data = build_multi_source_data(params, bodies);
 		const bool dark_matter_present = DarkMatter::DarkMatterLensing::is_active(params.dark_matter);
 
 		const unsigned int num_threads = std::max(1u, std::thread::hardware_concurrency());
@@ -3482,7 +4066,7 @@ public:
 			? std::max(params.space_skip_radius_scale * m, disk_outer * 1.05)
 			: std::max(params.space_skip_radius_scale * m, rh * 2.0);
 
-		const bool use_exact_metric_path = requires_exact_metric_path(params);
+		const bool use_exact_metric_path = requires_exact_metric_path(params) || !subsidiary_sources.empty();
 		const bool lod_active = (params.render_flags & RenderFlags::USE_LOD_SYSTEM) != 0U && params.lod_distance_threshold > 0.0;
 		const double r_obs_frame = std::max(params.observer_position[1], rh * 1.02);
 		uint32_t effective_max_steps = (lod_active && r_obs_frame > params.lod_distance_threshold)
@@ -3609,7 +4193,8 @@ public:
 							r_obs, theta_obs, phi_obs,
 							rs, params.escape_radius, effective_max_steps,
 							has_accretion_disk, turbulence_aa_factor, primary_disk, params,
-							bodies_need_curved_path ? bodies : std::span<const GpuBodyData>{}, body_candidates
+							bodies_need_curved_path ? bodies : std::span<const GpuBodyData>{}, body_candidates,
+							&multi_source_data
 						);
 						continue;
 					}
@@ -5136,7 +5721,14 @@ public:
 		static_cast<void>(stage_stats);
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
+		bool has_spacetime_sources = false;
+		for (const auto& b : bodies) {
+			if (b.preset_3d == 8U) {
+				has_spacetime_sources = true;
+				break;
+			}
+		}
+		if (has_spacetime_sources || HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
 			dispatch_fp64(params, output_framebuffer, bodies, pool, cancel_flag, stage_stats);
 			return;
 		}
@@ -5178,7 +5770,14 @@ public:
 	) noexcept {
 		Optics::EarthTextureLoader::instance().trim_when_idle(EarthTextureRequirements::gather(bodies).any());
 		const bool requires_exact_kerr = requires_exact_metric_path(params);
-		if (HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
+		bool has_spacetime_sources = false;
+		for (const auto& b : bodies) {
+			if (b.preset_3d == 8U) {
+				has_spacetime_sources = true;
+				break;
+			}
+		}
+		if (has_spacetime_sources || HydroDiskShader::requires_scalar_pipeline(params.hydro_disk) || params.jet.enabled > 0.5f || DarkMatter::DarkMatterLensing::is_active(params.dark_matter) || params.metric_type >= 7U) {
 			dispatch_fp64_scalar(params, output_framebuffer, bodies, pool, cancel_flag);
 			return;
 		}

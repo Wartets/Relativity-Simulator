@@ -194,7 +194,7 @@ public:
 		const double s_cross = std::clamp(std::abs(prev_z_rel) / std::abs(z_span), 0.0, 1.0);
 		const double cross_x = start_local[0] + s_cross * (end_local[0] - start_local[0]);
 		const double cross_y = start_local[1] + s_cross * (end_local[1] - start_local[1]);
-		const double r_cross = std::sqrt(cross_x * cross_x + cross_y * cross_y);
+		const double r_cross = std::sqrt(std::max(cross_x * cross_x + cross_y * cross_y - source.spin * source.spin, 0.0));
 		if (r_cross < source.disk_inner_radius || r_cross > source.disk_outer_radius) {
 			return std::nullopt;
 		}
@@ -207,7 +207,7 @@ public:
 
 		DiskCrossingSample sample;
 		sample.radius = r_cross;
-		sample.azimuth = std::atan2(cross_y, cross_x);
+		sample.azimuth = std::atan2(cross_y, cross_x) - std::atan2(source.spin, std::max(r_cross, 1e-12));
 		sample.redshift = Render::AccretionDiskModel::redshift_at(source.mass, source.spin, r_cross, angular_momentum_ratio);
 		return sample;
 	}

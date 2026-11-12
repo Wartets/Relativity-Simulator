@@ -217,6 +217,7 @@ struct alignas(64) PostNewtonianBody {
 
 	void enforce_spacetime_source_invariants() noexcept {
 		if (!is_spacetime_source) return;
+		preset_3d = Body3DPreset::BlackHole;
 		quadrupole_moment = 0.0;
 		j2 = 0.0;
 		j3 = 0.0;
@@ -347,6 +348,7 @@ struct alignas(64) PostNewtonianBody {
 		gpu.earth_map_quality = static_cast<uint32_t>(earth_map_quality);
 		gpu.earth_terminator_softness = std::clamp(earth_terminator_softness, 0.0f, 1.0f);
 		if (is_spacetime_source) {
+			gpu.preset_3d = static_cast<uint32_t>(Body3DPreset::BlackHole);
 			gpu.disk = accretion_disk.to_gpu_profile();
 			gpu.color_primary = {0.0, 0.0, 0.0, 1.0};
 			gpu.color_secondary = {0.01, 0.01, 0.015, 1.0};

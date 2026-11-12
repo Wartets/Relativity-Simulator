@@ -478,7 +478,7 @@ private:
 		if (gpu_executor_ == nullptr || !gpu_executor_->is_ready()) {
 			return false;
 		}
-		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params)) {
+		if (!bodies.empty() && SoftwareComputeEngine::requires_exact_metric_path(params) && params.metric_type != 1U && params.metric_type != 2U && params.metric_type != 3U) {
 			return false;
 		}
 		if (precision_mode_.load(std::memory_order_relaxed) != PrecisionMode::NativeFloat64) {
@@ -987,7 +987,7 @@ public:
 	}
 
 	[[nodiscard]] static bool gpu_path_supported(const GpuCameraPushConstants& params, size_t body_count) noexcept {
-		if (body_count > 0U && SoftwareComputeEngine::requires_exact_metric_path(params)) {
+		if (body_count > 0U && SoftwareComputeEngine::requires_exact_metric_path(params) && params.metric_type != 1U && params.metric_type != 2U && params.metric_type != 3U) {
 			return false;
 		}
 		if (params.precision_mode != static_cast<uint32_t>(PrecisionMode::NativeFloat64)) {

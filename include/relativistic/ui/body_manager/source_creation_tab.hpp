@@ -23,6 +23,8 @@ private:
 	bool pristine_{true};
 	double reference_mass_{-1.0};
 	std::string last_spawned_name_{};
+	uint32_t last_spawned_id_{0};
+	bool spawn_notification_active_{false};
 
 	void apply_template(BodyManagerContext& ctx, SourcePresetTemplate preset) noexcept {
 		if (preset == SourcePresetTemplate::Custom) {
@@ -94,18 +96,54 @@ private:
 		}
 		render_setting_tooltip("Immediately creates a black hole roughly half the mass of the primary source on a wide, randomly inclined circular orbit.");
 
-		render_group_title("Draft Summary", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 		const auto& prefs = ctx.orchestrator().unit_preferences();
 		const double length_scale_m = ctx.length_scale();
+		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		const double mass_ratio = draft_.mass / central_m;
+		const double mass_kg = draft_.mass * ctx.mass_scale();
+		const double draft_dist = BodyManagerContext::distance_from_center(draft_);
+		const double horizon = draft_.kerr_outer_horizon_radius();
+		const double primary_h = ctx.primary_horizon_radius();
+
 		ImGui::TextWrapped("Name: %s", BodyManagerContext::display_name(draft_).c_str());
-		ImGui::TextWrapped("Mass: %s", Units::format_mass(draft_.mass * ctx.mass_scale(), prefs.mass, 3).c_str());
-		ImGui::TextWrapped("Dimensionless Spin: %.4f", draft_.kerr_spin_parameter());
-		ImGui::TextWrapped("Outer Horizon: %s", Units::format_distance(draft_.kerr_outer_horizon_radius() * length_scale_m, prefs.distance, 3).c_str());
-		ImGui::TextWrapped("Distance From Center: %s", Units::format_distance(BodyManagerContext::distance_from_center(draft_) * length_scale_m, prefs.distance, 3).c_str());
-		ImGui::TextWrapped("Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
-		const std::string overlap_warning = ctx.source_overlap_warning(draft_);
-		if (!overlap_warning.empty()) {
-			render_caution_text(overlap_warning.c_str());
+		ImGui::TextDisabled("Mass Ratio (M2 / M1): %.5f (%.3f%% of primary)", mass_ratio, mass_ratio * 100.0);
+		ImGui::TextDisabled("Astrophysical Mass: %.3e M_sun", mass_kg / 1.98847e30);
+		ImGui::TextDisabled("Outer Horizon: %s (%.4f M)", Units::format_distance(horizon * length_scale_m, prefs.distance, 3).c_str(), horizon / draft_.mass);
+		if (primary_h > 0.0) {
+			ImGui::TextDisabled("Horizon Scale Ratio (r_h,2 / r_h,1): %.4f", horizon / primary_h);
+		}
+		ImGui::TextDisabled("Orbital Separation: %s (%.2f r_g,1)", Units::format_distance(draft_dist * length_scale_m, prefs.distance, 3).c_str(), draft_dist / central_m);
+		ImGui::TextDisabled("Coordinate Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
+
+		const auto draft_binary = ctx.compute_binary_configuration(draft_);
+		if (draft_binary.valid) {
+			ImGui::TextDisabled("Binary Metrics: q = %.4f | eta = %.4f | GW Coalescence: %s", draft_binary.mass_ratio, draft_binary.symmetric_mass_ratio, Units::format_time(draft_binary.peters_coalescence_time_seconds, prefs.time).c_str());
+		}
+
+		render_group_title("Anti-Collision & Separation Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+		const auto collision_diag = ctx.check_placement_collision(draft_.position, horizon, true);
+		if (collision_diag.has_collision) {
+			if (collision_diag.inside_primary_horizon) {
+				render_caution_text("Separation Hazard: Draft horizon overlaps the primary central event horizon!");
+			} else if (collision_diag.inside_source_horizon) {
+				render_caution_text(("Separation Hazard: Horizon overlaps independent black hole " + collision_diag.colliding_body_name + "!").c_str());
+			} else {
+				render_caution_text(("Separation Hazard: Horizon intersects celestial body " + collision_diag.colliding_body_name + "!").c_str());
+			}
+			if (ImGui::Button("Move to Safe Separation", ImVec2(-1.0f, 26.0f))) {
+				ctx.resolve_safe_placement(draft_.position, horizon, true);
+				draft_.velocity = ctx.compute_circular_orbit_velocity(draft_.position, central_m + draft_.mass);
+				pristine_ = false;
+			}
+			render_setting_tooltip("Pushes the black hole outward until its horizon is completely separated from the primary source and every other body by a safe margin, and recomputes Keplerian circular velocity.");
+		} else {
+			ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Separation Status: Clear (No event horizon overlap)");
+		}
+
+		const auto draft_hazard = ctx.evaluate_trajectory_hazard(draft_.position, draft_.velocity, draft_.mass, draft_.radius, central_m + draft_.mass);
+		if (draft_hazard.plunge_hazard) {
+			render_caution_text("Trajectory Hazard: Periapsis falls inside the primary event horizon (direct plunge orbit).");
 		}
 
 		render_group_title("Spawn", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
@@ -113,15 +151,33 @@ private:
 			draft_.is_spacetime_source = true;
 			last_spawned_name_ = BodyManagerContext::display_name(draft_);
 			const uint32_t new_id = ctx.spawn_body(draft_, Dynamics::BodySurfaceLayerSet{});
+			last_spawned_id_ = new_id;
+			spawn_notification_active_ = true;
 			ctx.select_source(static_cast<int>(new_id));
 			reset_draft(ctx);
 		}
 		render_setting_tooltip("Adds a fully N-body integrated independent black hole with its own Kerr event horizon to the running simulation, using the mass, spin, charge, position and velocity configured in the editor.");
-		if (!last_spawned_name_.empty()) {
-			ImGui::TextWrapped("Last spawned: %s", last_spawned_name_.c_str());
-			if (ImGui::SmallButton("Show In Source Catalog")) {
+
+		if (spawn_notification_active_) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.85f, 0.45f, 0.8f));
+			ImGui::BeginChild("##SpawnSourceNotice", ImVec2(0.0f, 56.0f), true);
+			ImGui::TextColored(ImVec4(0.25f, 0.95f, 0.5f, 1.0f), "Black hole created successfully: %s (#%u)", last_spawned_name_.c_str(), last_spawned_id_);
+			if (ImGui::SmallButton("Inspect in Source Catalog")) {
+				ctx.select_source(static_cast<int>(last_spawned_id_));
 				ctx.request_tab(BodyManagerTab::SourceCatalog);
 			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Look At")) {
+				const auto* b = ctx.find_body(last_spawned_id_);
+				if (b != nullptr) ctx.look_at(b->position);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Track")) {
+				ctx.set_tracking(static_cast<int>(last_spawned_id_), true);
+			}
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
 		}
 	}
 

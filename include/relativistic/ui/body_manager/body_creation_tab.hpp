@@ -25,6 +25,8 @@ private:
 	double reference_mass_{-1.0};
 	bool randomize_after_spawn_{true};
 	std::string last_spawned_name_{};
+	uint32_t last_spawned_id_{0};
+	bool spawn_notification_active_{false};
 
 	[[nodiscard]] std::string synthesize_name(BodyManagerContext& ctx, std::string_view label, double mass, double radius, double orbit_radius) {
 		static constexpr std::array<std::string_view, 28> prefixes{
@@ -147,14 +149,57 @@ private:
 		}
 		render_setting_tooltip("Loads every property, the appearance and all texture layers of the object selected in the Object Catalog into the draft.");
 
-		render_group_title("Draft Summary", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 		const auto& prefs = ctx.orchestrator().unit_preferences();
+		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		const double mass_ratio = draft_.mass / central_m;
+		const double mass_kg = draft_.mass * ctx.mass_scale();
+		const double radius_m = draft_.radius * ctx.length_scale();
+		const double dist_m = BodyManagerContext::distance_from_center(draft_) * ctx.length_scale();
+		const double draft_dist = BodyManagerContext::distance_from_center(draft_);
+
 		ImGui::TextWrapped("Name: %s", BodyManagerContext::display_name(draft_).c_str());
-		ImGui::TextWrapped("Mass: %s", Units::format_mass(draft_.mass * ctx.mass_scale(), prefs.mass, 3).c_str());
-		ImGui::TextWrapped("Radius: %s", Units::format_distance(draft_.radius * ctx.length_scale(), prefs.distance, 3).c_str());
-		ImGui::TextWrapped("Distance From Center: %s", Units::format_distance(BodyManagerContext::distance_from_center(draft_) * ctx.length_scale(), prefs.distance, 3).c_str());
-		ImGui::TextWrapped("Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
-		ImGui::TextWrapped("Texture Layers: %u", layers_.count);
+		ImGui::TextDisabled("Mass Ratio (M / M_central): %.4e (%.4f%%)", mass_ratio, mass_ratio * 100.0);
+		ImGui::TextDisabled("Astrophysical Mass: %.3e M_sun | %.3e M_earth", mass_kg / 1.98847e30, mass_kg / 5.9722e24);
+		ImGui::TextDisabled("Radius vs Reference: %.3f R_earth | %.4f R_jup | %.5f R_sun", radius_m / 6.378137e6, radius_m / 7.1492e7, radius_m / 6.9634e8);
+		ImGui::TextDisabled("Orbital Separation: %s (%.2f r_g)", Units::format_distance(dist_m, prefs.distance, 3).c_str(), draft_dist / central_m);
+		ImGui::TextDisabled("Instantaneous Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
+		ImGui::TextDisabled("Texture Layers Assigned: %u", layers_.count);
+
+		const auto draft_orbit = ctx.compute_keplerian_elements(draft_.position, draft_.velocity, central_m);
+		if (draft_orbit.valid) {
+			ImGui::TextDisabled("Orbital Type: %s (%s) | e = %.4f | i = %.1f deg", draft_orbit.type_name, draft_orbit.is_prograde ? "Prograde" : "Retrograde", draft_orbit.eccentricity, draft_orbit.inclination_deg);
+			if (draft_orbit.is_bound) {
+				ImGui::TextDisabled("Keplerian Period: %s", Units::format_time(draft_orbit.period_seconds, prefs.time).c_str());
+			}
+		}
+
+		render_group_title("Anti-Collision & Hazard Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+		const auto collision_diag = ctx.check_placement_collision(draft_.position, draft_.radius, false);
+		if (collision_diag.has_collision) {
+			if (collision_diag.inside_primary_horizon) {
+				render_caution_text("Placement Hazard: Draft lies inside the central event horizon!");
+			} else if (collision_diag.inside_source_horizon) {
+				render_caution_text(("Placement Hazard: Draft lies inside the horizon of " + collision_diag.colliding_body_name + "!").c_str());
+			} else {
+				render_caution_text(("Placement Hazard: Direct physical collision with " + collision_diag.colliding_body_name + "!").c_str());
+			}
+			if (ImGui::Button("Move to Safe Orbit", ImVec2(-1.0f, 26.0f))) {
+				ctx.resolve_safe_placement(draft_.position, draft_.radius, false);
+				draft_.velocity = ctx.compute_circular_orbit_velocity(draft_.position, central_m);
+				pristine_ = false;
+			}
+			render_setting_tooltip("Shifts the draft's orbital distance radially outward until it is completely clear of all celestial bodies and event horizons, and recomputes circular orbital velocity.");
+		} else {
+			ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Placement Status: Clear (No collision or horizon conflict)");
+		}
+
+		const auto draft_hazard = ctx.evaluate_trajectory_hazard(draft_.position, draft_.velocity, draft_.mass, draft_.radius, central_m);
+		if (draft_hazard.plunge_hazard) {
+			render_caution_text("Trajectory Hazard: Periapsis falls inside the central event horizon (plunge orbit).");
+		} else if (draft_hazard.roche_hazard) {
+			render_caution_text("Trajectory Hazard: Periapsis crosses the central Roche tidal disruption limit.");
+		}
 
 		render_group_title("Spawn", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
 		ImGui::Checkbox("Randomize Draft After Spawn", &randomize_after_spawn_);
@@ -162,6 +207,8 @@ private:
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
 			last_spawned_name_ = BodyManagerContext::display_name(draft_);
 			const uint32_t new_id = ctx.spawn_body(draft_, layers_);
+			last_spawned_id_ = new_id;
+			spawn_notification_active_ = true;
 			ctx.select_object(static_cast<int>(new_id));
 			if (randomize_after_spawn_) {
 				reset_draft(ctx);
@@ -170,11 +217,27 @@ private:
 			}
 		}
 		render_setting_tooltip("Adds the configured body, with its full appearance and texture layers, to the running N-body system and selects it in the Object Catalog.");
-		if (!last_spawned_name_.empty()) {
-			ImGui::TextWrapped("Last spawned: %s", last_spawned_name_.c_str());
-			if (ImGui::SmallButton("Show In Object Catalog")) {
+
+		if (spawn_notification_active_) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.85f, 0.45f, 0.8f));
+			ImGui::BeginChild("##SpawnNotice", ImVec2(0.0f, 56.0f), true);
+			ImGui::TextColored(ImVec4(0.25f, 0.95f, 0.5f, 1.0f), "Body created successfully: %s (#%u)", last_spawned_name_.c_str(), last_spawned_id_);
+			if (ImGui::SmallButton("Inspect in Object Catalog")) {
+				ctx.select_object(static_cast<int>(last_spawned_id_));
 				ctx.request_tab(BodyManagerTab::ObjectCatalog);
 			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Look At")) {
+				const auto* b = ctx.find_body(last_spawned_id_);
+				if (b != nullptr) ctx.look_at(b->position);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Track")) {
+				ctx.set_tracking(static_cast<int>(last_spawned_id_), true);
+			}
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
 		}
 	}
 

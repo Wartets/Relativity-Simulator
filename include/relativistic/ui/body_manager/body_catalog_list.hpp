@@ -29,12 +29,27 @@ enum class CatalogRowAction : uint8_t {
 	ToggleSource
 };
 
+enum class CatalogDynamicsFilter : uint32_t {
+	All = 0,
+	BoundOrbits = 1,
+	EscapeTrajectories = 2,
+	NearHorizon = 3
+};
+
+inline constexpr std::array<const char*, 4> kCatalogDynamicsFilterNames{
+	"All Trajectories",
+	"Bound Orbits (e < 1)",
+	"Escape Trajectories (e >= 1)",
+	"Near Horizon (r < 5 rs)"
+};
+
 struct CatalogFilterState {
 	char search[64]{};
 	int sort_mode{0};
 	bool descending{false};
 	int enabled_filter{0};
 	int type_filter{0};
+	int dynamics_filter{0};
 	int page{0};
 	int page_size_index{2};
 };
@@ -72,6 +87,7 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 	CatalogListResult result;
 	filter.sort_mode = std::clamp(filter.sort_mode, 0, static_cast<int>(kCatalogSortNames.size()) - 1);
 	filter.enabled_filter = std::clamp(filter.enabled_filter, 0, static_cast<int>(kCatalogStateNames.size()) - 1);
+	filter.dynamics_filter = std::clamp(filter.dynamics_filter, 0, static_cast<int>(kCatalogDynamicsFilterNames.size()) - 1);
 	filter.page_size_index = std::clamp(filter.page_size_index, 0, static_cast<int>(kCatalogPageSizes.size()) - 1);
 
 	ImGui::SetNextItemWidth(-1.0f);
@@ -103,6 +119,12 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 	}
 
 	ImGui::SetNextItemWidth(-1.0f);
+	if (ImGui::Combo("##CatalogDynamics", &filter.dynamics_filter, kCatalogDynamicsFilterNames.data(), static_cast<int>(kCatalogDynamicsFilterNames.size()))) {
+		filter.page = 0;
+	}
+	render_setting_tooltip("Filters bodies by orbital dynamics: all trajectories, bound orbits (e < 1), escape trajectories (e >= 1), or close horizon proximity (r < 5 rs).");
+
+	ImGui::SetNextItemWidth(-1.0f);
 	if (ImGui::Combo("##CatalogPageSize", &filter.page_size_index, kCatalogPageSizeNames.data(), static_cast<int>(kCatalogPageSizeNames.size()))) {
 		filter.page = 0;
 	}
@@ -111,11 +133,27 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 	std::vector<size_t> visible;
 	visible.reserve(bodies.size());
 	const std::string needle = catalog_lowercase(filter.search);
+	const double central_mass = ctx.orchestrator().parameters().mass;
+	const double rs = std::max(2.0 * central_mass, 1e-6);
+
 	for (size_t i = 0; i < bodies.size(); ++i) {
 		const auto& b = bodies[i];
 		if (b.is_spacetime_source != sources) continue;
 		if (filter.enabled_filter == 1 && !b.enabled) continue;
 		if (filter.enabled_filter == 2 && b.enabled) continue;
+		if (filter.dynamics_filter > 0) {
+			const double effective_central = central_mass + (b.is_spacetime_source ? b.mass : 0.0);
+			if (filter.dynamics_filter == 1) {
+				const auto el = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central);
+				if (!el.valid || !el.is_bound) continue;
+			} else if (filter.dynamics_filter == 2) {
+				const auto el = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central);
+				if (!el.valid || el.is_bound) continue;
+			} else if (filter.dynamics_filter == 3) {
+				const double dist = BodyManagerContext::distance_from_center(b);
+				if (dist >= 5.0 * rs) continue;
+			}
+		}
 		if (!sources && filter.type_filter > 0) {
 			const auto cat = static_cast<CatalogTypeCategory>(filter.type_filter);
 			bool match = false;
@@ -217,15 +255,78 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 			ImDrawList* draw_list = ImGui::GetWindowDrawList();
 			const std::string id_label = "#" + std::to_string(b.id);
 			const float id_width = ImGui::CalcTextSize(id_label.c_str()).x;
-			std::string name = BodyManagerContext::display_name(b);
+			const std::string name = BodyManagerContext::display_name(b);
+
+			const bool is_tracked = ctx.is_tracking(id);
+			const bool is_luminous = b.is_spacetime_source
+				? (b.accretion_disk.enabled || b.emission_intensity > 0.0f)
+				: (b.emission_intensity > 0.0f || b.preset_3d == Dynamics::Body3DPreset::Star || b.preset_3d == Dynamics::Body3DPreset::Pulsar || b.preset_3d == Dynamics::Body3DPreset::NeutronStar);
+			const bool has_atmo = !b.is_spacetime_source && (b.atmosphere_mode != Dynamics::Body3DAtmosphereMode::Off) && (b.atmosphere_thickness > 0.0f);
+			const bool collisions_enabled = ctx.orchestrator().interaction_config().collisions.enabled;
+
+			struct CatalogRowBadge {
+				const char* text;
+				ImU32 text_col;
+				ImU32 bg_col;
+				ImU32 border_col;
+				float width;
+			};
+			std::array<CatalogRowBadge, 6> badge_items{};
+			size_t badge_count = 0;
+
+			const float badge_h = line_height - 2.0f;
+			const float badge_pad_x = 4.0f;
+
+			auto add_badge = [&](const char* text, ImU32 text_col, ImU32 bg_col, ImU32 border_col) noexcept {
+				if (badge_count < badge_items.size()) {
+					const float w = ImGui::CalcTextSize(text).x + 2.0f * badge_pad_x;
+					badge_items[badge_count++] = CatalogRowBadge{text, text_col, bg_col, border_col, w};
+				}
+			};
+
 			if (!b.enabled) {
-				name += "  (disabled)";
+				add_badge("OFF", IM_COL32(255, 110, 110, 255), IM_COL32(70, 20, 20, 220), IM_COL32(160, 45, 45, 230));
 			}
-			draw_list->PushClipRect(rect_min, ImVec2(std::max(rect_min.x, rect_max.x - id_width - 2.0f * pad_x), rect_max.y), true);
+			if (is_tracked) {
+				add_badge("TRK", IM_COL32(255, 255, 100, 255), IM_COL32(90, 85, 10, 220), IM_COL32(220, 210, 40, 255));
+			}
+			if (b.is_spacetime_source) {
+				add_badge("BH", IM_COL32(255, 175, 60, 255), IM_COL32(85, 40, 10, 220), IM_COL32(180, 85, 20, 230));
+			}
+			if (is_luminous) {
+				add_badge("LUM", IM_COL32(255, 225, 70, 255), IM_COL32(75, 65, 15, 220), IM_COL32(160, 140, 30, 230));
+			}
+			if (has_atmo) {
+				add_badge("ATM", IM_COL32(70, 220, 255, 255), IM_COL32(15, 60, 75, 220), IM_COL32(30, 130, 165, 230));
+			}
+			if (collisions_enabled) {
+				add_badge("COLL", IM_COL32(95, 235, 130, 255), IM_COL32(20, 65, 30, 220), IM_COL32(40, 140, 60, 230));
+			} else {
+				add_badge("COLL", IM_COL32(150, 150, 150, 180), IM_COL32(40, 40, 40, 180), IM_COL32(75, 75, 75, 200));
+			}
+
+			const float id_x = rect_max.x - id_width - pad_x;
+			float badge_right = id_x - 5.0f;
+			for (size_t bi = badge_count; bi > 0; --bi) {
+				const auto& item = badge_items[bi - 1];
+				const float badge_x = badge_right - item.width;
+				if (badge_x < rect_min.x + pad_x + 50.0f) {
+					break;
+				}
+				const float badge_y = rect_min.y + pad_y + 1.0f;
+				draw_list->AddRectFilled(ImVec2(badge_x, badge_y), ImVec2(badge_x + item.width, badge_y + badge_h), item.bg_col, 2.5f);
+				draw_list->AddRect(ImVec2(badge_x, badge_y), ImVec2(badge_x + item.width, badge_y + badge_h), item.border_col, 2.5f, 0, 1.0f);
+				draw_list->AddText(ImVec2(badge_x + badge_pad_x, badge_y - 0.5f), item.text_col, item.text);
+				badge_right -= item.width + 3.0f;
+			}
+
+			const float name_limit_x = std::max(rect_min.x + pad_x + 10.0f, badge_right - 4.0f);
+			draw_list->PushClipRect(rect_min, ImVec2(name_limit_x, rect_max.y), true);
 			draw_list->AddText(ImVec2(rect_min.x + pad_x, rect_min.y + pad_y), b.enabled ? text_color : muted_color, name.c_str());
 			draw_list->PopClipRect();
+
 			draw_list->PushClipRect(rect_min, rect_max, true);
-			draw_list->AddText(ImVec2(rect_max.x - id_width - pad_x, rect_min.y + pad_y), accent_color, id_label.c_str());
+			draw_list->AddText(ImVec2(id_x, rect_min.y + pad_y), accent_color, id_label.c_str());
 			const std::string info = catalog_info_line(ctx, b);
 			draw_list->AddText(ImVec2(rect_min.x + pad_x, rect_min.y + pad_y + line_height), muted_color, info.c_str());
 			draw_list->PopClipRect();
@@ -237,6 +338,15 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 				ImGui::Text("Distance from center: %.6f", BodyManagerContext::distance_from_center(b));
 				ImGui::TextUnformatted(("Position: " + describe_position(ctx.orchestrator().coordinate_preferences().widget_default, b.position, make_coordinate_frame(ctx.orchestrator()), length_scale, prefs, 4)).c_str());
 				ImGui::Text("Speed: %.6e", b.speed());
+				ImGui::Separator();
+				ImGui::TextDisabled("Status Badges:");
+				if (!b.enabled) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "[OFF] Body is currently disabled");
+				if (is_tracked) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.35f, 1.0f), "[TRK] Camera is currently tracking this body");
+				if (b.is_spacetime_source) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.25f, 1.0f), "[BH] Independent Kerr spacetime source");
+				if (is_luminous) ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.3f, 1.0f), "[LUM] Emissive / luminous surface");
+				if (has_atmo) ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "[ATM] Atmospheric scattering active");
+				if (collisions_enabled) ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.5f, 1.0f), "[COLL] Physical collisions enabled");
+				else ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "[COLL] Physical collisions disabled globally");
 				ImGui::EndTooltip();
 			}
 

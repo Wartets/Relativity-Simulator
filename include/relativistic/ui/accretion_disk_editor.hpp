@@ -237,6 +237,8 @@ inline void render_primary_geometric_landmarks(Orchestrator::SimulationOrchestra
 	line("Equatorial Ergosphere Boundary", 2.0 * mass);
 	line("Photon Sphere Orbit (r_ph)", photon_sphere);
 	line("Innermost Stable Orbit (ISCO, Prograde)", isco);
+	const double isco_retro = Optics::DiskThermalProfile::kerr_isco_radius(mass, -std::abs(spin));
+	line("Innermost Stable Orbit (ISCO, Retrograde)", isco_retro);
 }
 
 inline void render_primary_accretion_disk_editor(Orchestrator::SimulationOrchestrator<1024>& orchestrator) noexcept {

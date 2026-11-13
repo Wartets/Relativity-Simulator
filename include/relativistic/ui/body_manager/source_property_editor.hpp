@@ -50,6 +50,9 @@ namespace Relativistic::UI {
 		const double ratio = panel.spin_changed ? (values.spin / b.mass) : previous_ratio;
 		b.set_spin_state(std::clamp(ratio, 0.0, 0.999), preserved_axis);
 		b.charge = std::clamp(values.charge, -b.mass, b.mass);
+		if (view.lock_disk_inner_to_isco) {
+			b.accretion_disk.inner_radius_scale = 1.0f;
+		}
 		changed = true;
 	}
 
@@ -58,9 +61,19 @@ namespace Relativistic::UI {
 	const float allowed_max_ratio = view.guarantee_horizon ? std::min(max_ratio, 0.999f) : 0.999f;
 	if (slider_float_with_input("Dimensionless Spin (a/M)", &spin_ratio, 0.0f, allowed_max_ratio, "%.4f")) {
 		b.set_spin_state(std::clamp(static_cast<double>(spin_ratio), 0.0, static_cast<double>(allowed_max_ratio)), b.spin_axis_unit());
+		if (view.lock_disk_inner_to_isco) {
+			b.accretion_disk.inner_radius_scale = 1.0f;
+		}
 		changed = true;
 	}
 	render_setting_tooltip("Kerr spin parameter a/M in [0, 0.999]. Directly adjusts the rotation rate relative to the mass limit. It flattens the horizon, shrinks the ISCO and drives frame dragging and spin-orbit coupling.");
+
+	const double a_ratio = b.kerr_spin_parameter();
+	const double q_ratio = std::abs(b.charge) / std::max(b.mass, 1e-9);
+	const double chi_extremal = std::sqrt(a_ratio * a_ratio + q_ratio * q_ratio);
+	const ImVec4 chi_color = (chi_extremal > 1.0) ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+		: ((chi_extremal >= 0.95) ? ImVec4(1.0f, 0.8f, 0.25f, 1.0f) : ImVec4(0.35f, 0.9f, 0.45f, 1.0f));
+	ImGui::TextColored(chi_color, "Extremal Parameter (a^2+Q^2)^1/2 / M = %.4f (%s)", chi_extremal, (chi_extremal > 1.0) ? "Superextremal / Naked Singularity" : ((chi_extremal >= 0.95) ? "Near-Extremal Kerr-Newman" : "Standard Subextremal Horizon"));
 
 	render_group_title("Spin Axis", ImVec4(0.8f, 0.6f, 1.0f, 1.0f));
 	const std::array<double, 3> axis = b.spin_axis_unit();
@@ -114,11 +127,62 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip(("Coordinate velocity of the black hole, displayed in " + std::string(Units::velocity_unit_suffix(prefs.velocity)) + ".").c_str());
 
-	if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-		b.velocity = ctx.compute_circular_orbit_velocity(b.position, orchestrator.parameters().mass + b.mass);
+	const double effective_central_mass = orchestrator.parameters().mass + b.mass;
+	const auto hazard = ctx.evaluate_trajectory_hazard(b.position, b.velocity, b.mass, b.radius, effective_central_mass);
+	if (hazard.plunge_hazard) {
+		render_caution_text("Plunge Trajectory: Periapsis is inside the central event horizon. This black hole will plunge and coalesce into the primary source.");
+	} else if (hazard.roche_hazard) {
+		render_caution_text("Tidal Disruption Hazard: Periapsis is inside the mutual Roche limit of the system.");
+	}
+
+	const auto orbit = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central_mass);
+	if (orbit.valid) {
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Osculating Orbital Elements:");
+		ImGui::SameLine();
+		const ImVec4 badge_col = orbit.is_bound ? ImVec4(0.2f, 0.85f, 0.4f, 1.0f) : ImVec4(1.0f, 0.45f, 0.35f, 1.0f);
+		ImGui::TextColored(badge_col, "[%s | %s]", orbit.type_name, orbit.is_prograde ? "Prograde" : "Retrograde");
+
+		if (orbit.is_bound) {
+			ImGui::TextDisabled("Semi-Major Axis (a): %s  (%.4f M)", Units::format_distance(orbit.semi_major_axis * length_scale_m, prefs.distance).c_str(), orbit.semi_major_axis / b.mass);
+			ImGui::TextDisabled("Eccentricity (e): %.5f | Inclination (i): %.2f deg", orbit.eccentricity, orbit.inclination_deg);
+			ImGui::TextDisabled("Periapsis (r_p): %s | Apoapsis (r_a): %s", Units::format_distance(orbit.periapsis * length_scale_m, prefs.distance).c_str(), Units::format_distance(orbit.apoapsis * length_scale_m, prefs.distance).c_str());
+			ImGui::TextDisabled("Orbital Period (T): %s", Units::format_time(orbit.period_seconds, prefs.time).c_str());
+		} else {
+			ImGui::TextDisabled("Eccentricity (e): %.5f (Unbound) | Inclination (i): %.2f deg", orbit.eccentricity, orbit.inclination_deg);
+			ImGui::TextDisabled("Periapsis (r_p): %s", Units::format_distance(orbit.periapsis * length_scale_m, prefs.distance).c_str());
+		}
+	}
+
+	ImGui::Spacing();
+	if (ImGui::Button("Circular Prograde Orbit", ImVec2(175.0f, 24.0f))) {
+		b.velocity = ctx.compute_circular_orbit_velocity(b.position, effective_central_mass);
 		changed = true;
 	}
-	render_setting_tooltip("Overwrites the velocity with the Keplerian circular-orbit velocity around the primary source, including the mass of this black hole.");
+	render_setting_tooltip("Overwrites coordinate velocity with the circular prograde Keplerian orbital velocity.");
+	ImGui::SameLine();
+	if (ImGui::Button("Circular Retrograde Orbit", ImVec2(185.0f, 24.0f))) {
+		b.velocity = ctx.compute_retrograde_circular_orbit_velocity(b.position, effective_central_mass);
+		changed = true;
+	}
+	render_setting_tooltip("Overwrites coordinate velocity with the circular retrograde Keplerian orbital velocity.");
+	ImGui::SameLine();
+	if (ImGui::Button("Escape Velocity", ImVec2(130.0f, 24.0f))) {
+		b.velocity = ctx.compute_escape_velocity(b.position, b.velocity, effective_central_mass);
+		changed = true;
+	}
+	render_setting_tooltip("Scales orbital speed to exact local parabolic escape velocity.");
+
+	float target_ecc = view.target_eccentricity;
+	if (ImGui::SliderFloat("Target Eccentricity", &target_ecc, 0.0f, 2.0f, "%.3f")) {
+		view.target_eccentricity = target_ecc;
+	}
+	render_setting_tooltip("Select a target eccentricity to re-scale the tangential velocity while keeping the current distance as periapsis.");
+	ImGui::SameLine();
+	if (ImGui::Button("Apply Eccentricity", ImVec2(140.0f, 24.0f))) {
+		b.velocity = ctx.compute_target_eccentricity_velocity(b.position, b.velocity, effective_central_mass, static_cast<double>(view.target_eccentricity));
+		changed = true;
+	}
 
 	if (ImGui::Button("Move To Safe Separation", ImVec2(-1.0f, 24.0f))) {
 		ctx.resolve_source_placement(b);
@@ -131,23 +195,39 @@ namespace Relativistic::UI {
 		render_caution_text(overlap_warning.c_str());
 	}
 
+	render_group_title("Binary Configuration (Primary <-> This Source)", ImVec4(1.0f, 0.6f, 0.2f, 1.0f));
+	const auto binary = ctx.compute_binary_configuration(b);
+	if (binary.valid) {
+		ImGui::TextDisabled("Mass Ratio q = M2/M1: %.5f | Symmetric Ratio eta: %.5f", binary.mass_ratio, binary.symmetric_mass_ratio);
+		ImGui::TextDisabled("Orbital Separation: %s  (%.2f r_g,1)", Units::format_distance(binary.separation_distance * length_scale_m, prefs.distance).c_str(), binary.separation_rg);
+		ImGui::TextDisabled("Spin-Orbit Misalignment (theta_LS): %.2f deg", binary.spin_orbit_misalignment_deg);
+		ImGui::TextDisabled("Mutual Spin Tilt (theta_S1,S2): %.2f deg", binary.mutual_spin_angle_deg);
+		ImGui::TextDisabled("GW Coalescence Time (Peters 1964): %s", Units::format_time(binary.peters_coalescence_time_seconds, prefs.time).c_str());
+	} else {
+		ImGui::TextDisabled("Binary configuration metrics unavailable.");
+	}
+
 	render_group_title("Derived Properties", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	const double horizon = b.kerr_outer_horizon_radius();
 	const double spin_length = b.kerr_spin_parameter() * b.mass;
 	const double equatorial_extent = std::sqrt(horizon * horizon + spin_length * spin_length);
-	const double isco = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);
+	const double isco_pro = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);
+	const double isco_retro = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, -spin_length);
 	const double kerr_disc = b.mass * b.mass - spin_length * spin_length - b.charge * b.charge;
 	const double cauchy_horizon = (kerr_disc >= 0.0) ? (b.mass - std::sqrt(kerr_disc)) : 0.0;
 	const double a_over_m = std::clamp(b.kerr_spin_parameter(), 0.0, 0.999);
-	const double photon_sphere = 2.0 * b.mass * (1.0 + std::cos(2.0 / 3.0 * std::acos(-a_over_m)));
+	const double photon_sphere_pro = 2.0 * b.mass * (1.0 + std::cos(2.0 / 3.0 * std::acos(-a_over_m)));
+	const double photon_sphere_retro = 2.0 * b.mass * (1.0 + std::cos(2.0 / 3.0 * std::acos(a_over_m)));
 	ImGui::TextDisabled("Outer Event Horizon (r+): %s  (%.4f M)", Units::format_distance(horizon * length_scale_m, prefs.distance).c_str(), horizon / b.mass);
 	if (cauchy_horizon > 0.0) {
 		ImGui::TextDisabled("Inner Cauchy Horizon (r-): %s  (%.4f M)", Units::format_distance(cauchy_horizon * length_scale_m, prefs.distance).c_str(), cauchy_horizon / b.mass);
 	}
 	ImGui::TextDisabled("Equatorial Horizon Extent: %s  (%.4f M)", Units::format_distance(equatorial_extent * length_scale_m, prefs.distance).c_str(), equatorial_extent / b.mass);
 	ImGui::TextDisabled("Equatorial Ergosphere Boundary: %s  (%.4f M)", Units::format_distance(2.0 * b.mass * length_scale_m, prefs.distance).c_str(), 2.0);
-	ImGui::TextDisabled("Photon Sphere Orbit (r_ph): %s  (%.4f M)", Units::format_distance(photon_sphere * length_scale_m, prefs.distance).c_str(), photon_sphere / b.mass);
-	ImGui::TextDisabled("Innermost Stable Orbit (ISCO): %s  (%.4f M)", Units::format_distance(isco * length_scale_m, prefs.distance).c_str(), isco / b.mass);
+	ImGui::TextDisabled("Photon Sphere (Prograde): %s  (%.4f M)", Units::format_distance(photon_sphere_pro * length_scale_m, prefs.distance).c_str(), photon_sphere_pro / b.mass);
+	ImGui::TextDisabled("Photon Sphere (Retrograde): %s  (%.4f M)", Units::format_distance(photon_sphere_retro * length_scale_m, prefs.distance).c_str(), photon_sphere_retro / b.mass);
+	ImGui::TextDisabled("Innermost Stable Orbit (ISCO, Prograde): %s  (%.4f M)", Units::format_distance(isco_pro * length_scale_m, prefs.distance).c_str(), isco_pro / b.mass);
+	ImGui::TextDisabled("Innermost Stable Orbit (ISCO, Retrograde): %s  (%.4f M)", Units::format_distance(isco_retro * length_scale_m, prefs.distance).c_str(), isco_retro / b.mass);
 	const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
 	ImGui::TextDisabled("Speed: %s", Units::format_velocity(b.speed() * speed_scale_mps, prefs.velocity).c_str());
 	ImGui::TextDisabled("Kinetic Energy: %s", Units::format_energy(kinetic_energy_joules, prefs.energy).c_str());
@@ -158,13 +238,35 @@ namespace Relativistic::UI {
 	return changed;
 }
 
-[[nodiscard]] inline bool render_source_disk_section(Dynamics::PostNewtonianBody& b) noexcept {
-	render_hint_text("Thermal profile, geometry and structure of the accretion disk orbiting this black hole. The editor is the same one used by the primary source in the Spacetime & Metrics tab. Jet magnetosphere emission and the hydrodynamic disk models are available for the primary source only.");
+[[nodiscard]] inline bool render_source_disk_section(Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
+	bool changed = false;
+	ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Disk Model: Relativistic Thin Accretion Flow (g^4 Doppler Beaming)");
+	render_hint_text("Independent black holes evaluate a multi-pass relativistic thin disk with local Keplerian orbital frames and exact g^4 Doppler beaming. Volumetric hydrodynamic tori (Fishbone-Moncrief) and Blandford-Znajek magnetosphere jets require global coordinate grids that are currently tied to the background manifold of the central source.");
+
 	const double horizon = b.kerr_outer_horizon_radius();
 	const double spin_length = b.kerr_spin_parameter() * b.mass;
-	const double isco = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);
-	ImGui::TextDisabled("Outer Horizon: %.4f M | ISCO: %.4f M", horizon / std::max(b.mass, 1e-9), isco / std::max(b.mass, 1e-9));
-	return render_accretion_disk_editor(b.accretion_disk, true);
+	const double isco_pro = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, spin_length);
+	const double isco_retro = Optics::DiskThermalProfile::kerr_isco_radius(b.mass, -spin_length);
+	ImGui::TextDisabled("Outer Horizon: %.4f M | Prograde ISCO: %.4f M | Retrograde ISCO: %.4f M", horizon / std::max(b.mass, 1e-9), isco_pro / std::max(b.mass, 1e-9), isco_retro / std::max(b.mass, 1e-9));
+
+	if (ImGui::Checkbox("Lock Inner Edge To ISCO (r_in = 1.0 x ISCO)", &view.lock_disk_inner_to_isco)) {
+		if (view.lock_disk_inner_to_isco) {
+			b.accretion_disk.inner_radius_scale = 1.0f;
+		}
+		changed = true;
+	}
+	render_setting_tooltip("Automatically locks the emitting inner edge of the accretion disk to the innermost stable circular orbit of this black hole. When the mass or spin parameter changes, the inner edge adjusts dynamically.");
+
+	if (view.lock_disk_inner_to_isco) {
+		b.accretion_disk.inner_radius_scale = 1.0f;
+	}
+
+	changed = render_accretion_disk_editor(b.accretion_disk, true) || changed;
+
+	if (view.lock_disk_inner_to_isco) {
+		b.accretion_disk.inner_radius_scale = 1.0f;
+	}
+	return changed;
 }
 
 }

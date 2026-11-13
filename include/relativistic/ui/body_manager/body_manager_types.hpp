@@ -51,6 +51,48 @@ inline constexpr std::array<const char*, 8> kCatalogTypeCategoryNames{
 	"Custom / Other"
 };
 
+enum class BulkActionScope : uint32_t {
+	AllBodies = 0,
+	OrdinaryObjectsOnly = 1,
+	SpacetimeSourcesOnly = 2,
+	ByTypeCategory = 3
+};
+
+inline constexpr std::array<const char*, 4> kBulkActionScopeNames{
+	"All Bodies (Objects & Sources)",
+	"Ordinary Objects Only",
+	"Independent Black Holes Only",
+	"By Object Type Category"
+};
+
+[[nodiscard]] inline bool matches_bulk_scope(const Dynamics::PostNewtonianBody& b, BulkActionScope scope, CatalogTypeCategory cat) noexcept {
+	switch (scope) {
+		case BulkActionScope::AllBodies:
+			return true;
+		case BulkActionScope::OrdinaryObjectsOnly:
+			return !b.is_spacetime_source;
+		case BulkActionScope::SpacetimeSourcesOnly:
+			return b.is_spacetime_source;
+		case BulkActionScope::ByTypeCategory:
+			if (b.is_spacetime_source) {
+				return (cat == CatalogTypeCategory::Custom || cat == CatalogTypeCategory::All);
+			}
+			switch (cat) {
+				case CatalogTypeCategory::All: return true;
+				case CatalogTypeCategory::Terrestrial: return b.preset_3d == Dynamics::Body3DPreset::TerrestrialPlanet;
+				case CatalogTypeCategory::GasGiant: return b.preset_3d == Dynamics::Body3DPreset::GasGiant;
+				case CatalogTypeCategory::IceGiant: return b.preset_3d == Dynamics::Body3DPreset::IceGiant;
+				case CatalogTypeCategory::Star: return b.preset_3d == Dynamics::Body3DPreset::Star;
+				case CatalogTypeCategory::Compact: return b.preset_3d == Dynamics::Body3DPreset::NeutronStar || b.preset_3d == Dynamics::Body3DPreset::Pulsar;
+				case CatalogTypeCategory::SmallBody: return b.preset_3d == Dynamics::Body3DPreset::Metallic || b.preset_3d == Dynamics::Body3DPreset::Asteroid;
+				case CatalogTypeCategory::Custom: return b.preset_3d == Dynamics::Body3DPreset::Custom || b.preset_3d == Dynamics::Body3DPreset::BlackHole;
+				default: return true;
+			}
+		default:
+			return true;
+	}
+}
+
 enum class SourcePresetTemplate : uint32_t {
 	Custom = 0,
 	SagittariusA = 1,
@@ -134,6 +176,8 @@ struct BodyEditorViewState {
 	bool youngs_modulus_log_mode{true};
 	bool resistance_log_mode{false};
 	bool guarantee_horizon{true};
+	bool lock_disk_inner_to_isco{true};
+	float target_eccentricity{0.0f};
 	int layer_template_choice{0};
 	SpacetimeSourceEditState source_parameters{true};
 };

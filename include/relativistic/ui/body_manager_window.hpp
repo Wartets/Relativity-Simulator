@@ -113,6 +113,17 @@ public:
 		ImGui::SameLine();
 		ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.4f, 1.0f), "Sources: %zu (%zu enabled)", sources, enabled_sources);
 		render_setting_tooltip("Objects are ordinary bodies integrated by the post-Newtonian N-body solver. Sources are independent black holes with their own event horizons.");
+
+		if (context_.tracking_active()) {
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.25f, 1.0f), "[TRACKING: %s]", context_.tracked_target_name().c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Release Camera")) {
+				context_.stop_tracking();
+			}
+			render_setting_tooltip("Stops active camera tracking and uncouples the gaze orientation from the current target.");
+		}
+
 		ImGui::SameLine();
 		if (ImGui::Button("Clear All Bodies")) {
 			context_.clear_all_bodies();

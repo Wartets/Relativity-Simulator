@@ -51,7 +51,7 @@ namespace Relativistic::UI {
 	}
 }
 
-[[nodiscard]] inline bool render_body_identity_section(Dynamics::PostNewtonianBody& b, bool allow_source_toggle) noexcept {
+[[nodiscard]] inline bool render_body_identity_section(BodyManagerContext& ctx, Dynamics::PostNewtonianBody& b, bool allow_source_toggle) noexcept {
 	bool changed = false;
 	char name_buffer[32]{};
 	const std::string_view current_name = b.name_view();
@@ -63,22 +63,48 @@ namespace Relativistic::UI {
 	render_setting_tooltip("Human-readable label shown in the catalog, tags and saved scenarios instead of the numeric identifier.");
 	if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
 	render_setting_tooltip("Disabled bodies remain in the catalog and scenario, but are excluded from rendering, prediction, gravity, integration, and horizon absorption.");
+
 	if (allow_source_toggle) {
-		bool is_source = b.is_spacetime_source;
-		if (ImGui::Checkbox("Spacetime Source (Independent Black Hole)", &is_source)) {
-			b.is_spacetime_source = is_source;
-			if (is_source) {
+		ImGui::Spacing();
+		if (!b.is_spacetime_source) {
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 0.65f, 0.3f, 0.7f));
+			const float card_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f + 32.0f;
+			ImGui::BeginChild("##PromoteCard", ImVec2(0.0f, card_h), true);
+			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Classification: Ordinary N-Body Celestial Body");
+			render_hint_text("Promote this body into an independent Kerr black hole with its own event horizon, capable of horizon absorption and mergers.");
+			if (ImGui::Button("Promote to Independent Black Hole (Spacetime Source)", ImVec2(-1.0f, 26.0f))) {
+				b.is_spacetime_source = true;
+				b.radius = b.kerr_outer_horizon_radius();
+				b.reference_radius = b.radius;
 				apply_body_appearance_preset(b, Dynamics::Body3DPreset::BlackHole);
-			} else if (b.preset_3d == Dynamics::Body3DPreset::BlackHole) {
-				apply_body_appearance_preset(b, Dynamics::Body3DPreset::Metallic);
+				b.enforce_spacetime_source_invariants();
+				ctx.resolve_source_placement(b);
+				ctx.select_and_open_source(static_cast<int>(b.id));
+				changed = true;
 			}
-			b.enforce_spacetime_source_invariants();
-			changed = true;
+			render_setting_tooltip("Converts this body into a fully gravitating Kerr black hole. Its radius becomes the event horizon, its appearance switches to a black hole with optional accretion disk, and the inspector navigates to the Source Catalog.");
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
+		} else {
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.4f, 0.8f, 1.0f, 0.7f));
+			const float card_h = ImGui::GetTextLineHeightWithSpacing() * 2.8f + 32.0f;
+			ImGui::BeginChild("##DemoteCard", ImVec2(0.0f, card_h), true);
+			ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.4f, 1.0f), "Classification: Independent Kerr Spacetime Source");
+			ImGui::TextDisabled("Outer Horizon: %.4f M | Kerr spin a/M: %.4f", b.kerr_outer_horizon_radius() / std::max(b.mass, 1e-9), b.kerr_spin_parameter());
+			render_hint_text("Demote this black hole into an ordinary celestial body. Disables horizon absorption and transfers the body to the Object Catalog.");
+			if (ImGui::Button("Demote to Ordinary Celestial Body", ImVec2(-1.0f, 26.0f))) {
+				b.is_spacetime_source = false;
+				b.radius = std::max(b.radius, 4.0 * b.mass);
+				b.reference_radius = b.radius;
+				apply_body_appearance_preset(b, Dynamics::Body3DPreset::Metallic);
+				apply_body_material_preset(b, Dynamics::Body3DPreset::Metallic);
+				ctx.select_and_open_object(static_cast<int>(b.id));
+				changed = true;
+			}
+			render_setting_tooltip("Converts this black hole back into a solid body with physical surface collision parameters, and navigates to the Object Catalog.");
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
 		}
-		render_setting_tooltip("Marks this body as its own gravitating compact object with a Kerr event horizon derived from its mass and spin. It then moves to the Source Catalog tab, participates fully in N-body dynamics, can absorb ordinary bodies crossing its horizon, and merges with other spacetime sources on contact. The rendered lensing still follows the primary central object only.");
-	}
-	if (b.is_spacetime_source) {
-		ImGui::TextDisabled("Kerr spin a/M = %.4f | Outer horizon radius = %.4f M", b.kerr_spin_parameter(), b.kerr_outer_horizon_radius() / std::max(b.mass, 1e-9));
 	}
 	return changed;
 }
@@ -176,11 +202,62 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip(("Instantaneous coordinate velocity of this body, displayed in " + std::string(Units::velocity_unit_suffix(prefs.velocity)) + ".").c_str());
 
-	if (ImGui::Button("Set Circular Orbit Velocity", ImVec2(-1.0f, 24.0f))) {
-		b.velocity = ctx.compute_circular_orbit_velocity(b.position, orchestrator.parameters().mass);
+	const double central_mass = orchestrator.parameters().mass;
+	const auto hazard = ctx.evaluate_trajectory_hazard(b.position, b.velocity, b.mass, b.radius, central_mass);
+	if (hazard.plunge_hazard) {
+		render_caution_text("Plunge Trajectory: Periapsis is inside the central event horizon. This body will cross the horizon and be absorbed.");
+	} else if (hazard.roche_hazard) {
+		render_caution_text("Tidal Disruption Hazard: Periapsis is within the central Roche limit. Tidal forces will induce severe stress and fragmentation.");
+	}
+
+	const auto orbit = ctx.compute_keplerian_elements(b.position, b.velocity, central_mass);
+	if (orbit.valid) {
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Osculating Orbital Elements:");
+		ImGui::SameLine();
+		const ImVec4 badge_col = orbit.is_bound ? ImVec4(0.2f, 0.85f, 0.4f, 1.0f) : ImVec4(1.0f, 0.45f, 0.35f, 1.0f);
+		ImGui::TextColored(badge_col, "[%s | %s]", orbit.type_name, orbit.is_prograde ? "Prograde" : "Retrograde");
+
+		if (orbit.is_bound) {
+			ImGui::TextDisabled("Semi-Major Axis (a): %s", Units::format_distance(orbit.semi_major_axis * length_scale_m, prefs.distance).c_str());
+			ImGui::TextDisabled("Eccentricity (e): %.5f | Inclination (i): %.2f deg", orbit.eccentricity, orbit.inclination_deg);
+			ImGui::TextDisabled("Periapsis (r_p): %s | Apoapsis (r_a): %s", Units::format_distance(orbit.periapsis * length_scale_m, prefs.distance).c_str(), Units::format_distance(orbit.apoapsis * length_scale_m, prefs.distance).c_str());
+			ImGui::TextDisabled("Orbital Period (T): %s", Units::format_time(orbit.period_seconds, prefs.time).c_str());
+		} else {
+			ImGui::TextDisabled("Eccentricity (e): %.5f (Unbound) | Inclination (i): %.2f deg", orbit.eccentricity, orbit.inclination_deg);
+			ImGui::TextDisabled("Periapsis (r_p): %s", Units::format_distance(orbit.periapsis * length_scale_m, prefs.distance).c_str());
+		}
+	}
+
+	ImGui::Spacing();
+	if (ImGui::Button("Circular Prograde Orbit", ImVec2(175.0f, 24.0f))) {
+		b.velocity = ctx.compute_circular_orbit_velocity(b.position, central_mass);
 		changed = true;
 	}
-	render_setting_tooltip("Overwrites the velocity above with the Keplerian circular-orbit velocity for the current distance from the central mass.");
+	render_setting_tooltip("Overwrites the velocity with the circular prograde Keplerian orbit velocity.");
+	ImGui::SameLine();
+	if (ImGui::Button("Circular Retrograde Orbit", ImVec2(185.0f, 24.0f))) {
+		b.velocity = ctx.compute_retrograde_circular_orbit_velocity(b.position, central_mass);
+		changed = true;
+	}
+	render_setting_tooltip("Overwrites the velocity with the circular retrograde Keplerian orbit velocity.");
+	ImGui::SameLine();
+	if (ImGui::Button("Escape Velocity", ImVec2(130.0f, 24.0f))) {
+		b.velocity = ctx.compute_escape_velocity(b.position, b.velocity, central_mass);
+		changed = true;
+	}
+	render_setting_tooltip("Scales speed to the exact local parabolic escape velocity.");
+
+	float target_ecc = view.target_eccentricity;
+	if (ImGui::SliderFloat("Target Eccentricity", &target_ecc, 0.0f, 2.0f, "%.3f")) {
+		view.target_eccentricity = target_ecc;
+	}
+	render_setting_tooltip("Select a target eccentricity to re-scale the tangential velocity while keeping the current distance as periapsis.");
+	ImGui::SameLine();
+	if (ImGui::Button("Apply Eccentricity", ImVec2(140.0f, 24.0f))) {
+		b.velocity = ctx.compute_target_eccentricity_velocity(b.position, b.velocity, central_mass, static_cast<double>(view.target_eccentricity));
+		changed = true;
+	}
 
 	if (ImGui::InputScalarN("Spin Vector", ImGuiDataType_Double, b.spin.data(), 3, nullptr, nullptr, "%.6g")) {
 		changed = true;
@@ -500,13 +577,13 @@ inline void render_body_surface_section(Dynamics::PostNewtonianBody& b, Dynamics
 		sections &= ~BodyEditorSection::AccretionDisk;
 	}
 	if ((sections & BodyEditorSection::Identity) != 0U && ImGui::CollapsingHeader("Identity & State", ImGuiTreeNodeFlags_DefaultOpen)) {
-		result.body_changed = render_body_identity_section(b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
+		result.body_changed = render_body_identity_section(ctx, b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
 	}
 	if ((sections & BodyEditorSection::Physical) != 0U && ImGui::CollapsingHeader(b.is_spacetime_source ? "Spacetime & Metric Parameters" : "Physical State & Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
 		result.body_changed = (b.is_spacetime_source ? render_source_parameters_section(ctx, b, view) : render_body_physical_section(ctx, b, view)) || result.body_changed;
 	}
 	if ((sections & BodyEditorSection::AccretionDisk) != 0U && ImGui::CollapsingHeader("Accretion Disk", ImGuiTreeNodeFlags_DefaultOpen)) {
-		result.body_changed = render_source_disk_section(b) || result.body_changed;
+		result.body_changed = render_source_disk_section(b, view) || result.body_changed;
 	}
 	if ((sections & BodyEditorSection::Multipoles) != 0U && ImGui::CollapsingHeader("Gravitational Multipoles")) {
 		result.body_changed = render_body_multipole_section(ctx, b, view) || result.body_changed;

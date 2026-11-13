@@ -29,6 +29,44 @@ public:
 		std::lock_guard<std::recursive_mutex> interactions_lock(orchestrator.nbody_system().bodies_mutex());
 		const auto bodies_span = orchestrator.nbody_system().bodies();
 
+		render_group_title("Physical Coupling Consistency Dashboard", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+		render_hint_text("Live matrix of all active interaction and coupling models across the N-body system.");
+
+		const bool coulomb_active = cfg.electromagnetic.electricity_enabled;
+		const bool dipole_active = cfg.electromagnetic.magnetism_enabled;
+		const bool collisions_active = cfg.collisions.enabled;
+		const bool thermo_active = cfg.thermodynamics.enabled;
+		const bool frag_active = cfg.fragmentation.enabled;
+		const bool tidal_active = frag_active && cfg.fragmentation.enable_tidal_stress;
+		const bool ann_active = cfg.annihilation.enabled;
+
+		ImGui::Columns(3, "##ConsistencyMatrix", true);
+		ImGui::Text("Gravitation:");
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "  Post-Newtonian (1PN)");
+		ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "  Spin-Orbit Coupling");
+		ImGui::NextColumn();
+
+		ImGui::Text("Electromagnetism:");
+		ImGui::TextColored(coulomb_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Coulomb: %s", coulomb_active ? "Active" : "Off");
+		ImGui::TextColored(dipole_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Dipoles: %s", dipole_active ? "Active" : "Off");
+		ImGui::NextColumn();
+
+		ImGui::Text("Mechanics & Thermal:");
+		ImGui::TextColored(collisions_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Contact: %s", collisions_active ? "Hertzian" : "Off");
+		ImGui::TextColored(thermo_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Radiative: %s", thermo_active ? "Active" : "Off");
+		ImGui::Columns(1);
+
+		ImGui::Columns(2, "##ConsistencyMatrix2", true);
+		ImGui::Text("Integrity & Fragmentation:");
+		ImGui::TextColored(frag_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Collision Impact: %s", frag_active ? "Active" : "Off");
+		ImGui::TextColored(tidal_active ? ImVec4(0.3f, 0.9f, 0.5f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Roche Tidal: %s", tidal_active ? "Active" : "Off");
+		ImGui::NextColumn();
+
+		ImGui::Text("Matter Annihilation:");
+		ImGui::TextColored(ann_active ? ImVec4(0.85f, 0.45f, 1.0f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "  Rest-Mass Conversion: %s", ann_active ? "Active" : "Off");
+		ImGui::Columns(1);
+		ImGui::Separator();
+
 		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Electromagnetic Interactions");
 		bool electricity = cfg.electromagnetic.electricity_enabled;
 		if (ImGui::Checkbox("Enable Electricity (Coulomb Force)", &electricity)) {
@@ -57,10 +95,23 @@ public:
 		}
 		render_setting_tooltip("Magnetic permeability of the medium the bodies interact through, scaling the dipole-dipole magnetic force.");
 		ImGui::Spacing();
+
+		const auto& engine = orchestrator.constants_engine();
+		const double true_eps = engine.sim_vacuum_permittivity();
+		const double true_mu = engine.sim_vacuum_permeability();
+		const bool is_vacuum = (std::abs(cfg.electromagnetic.vacuum_permittivity - true_eps) <= 1e-18 * std::max(true_eps, 1.0))
+			&& (std::abs(cfg.electromagnetic.vacuum_permeability - true_mu) <= 1e-12 * std::max(true_mu, 1.0));
+
+		if (is_vacuum) {
+			ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Medium Status: Perfect Vacuum (Synchronized with Constants Engine)");
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Medium Status: Custom Medium (Dielectric / Magnetic Material)");
+			render_hint_text("Permittivity or permeability differ from fundamental physical vacuum values, scaling Coulomb or dipole forces accordingly.");
+		}
+
 		if (ImGui::Button("Sync To Vacuum Values From Constants Engine", ImVec2(-1.0f, 26.0f))) {
-			const auto& engine = orchestrator.constants_engine();
-			cfg.electromagnetic.vacuum_permittivity = engine.sim_vacuum_permittivity();
-			cfg.electromagnetic.vacuum_permeability = engine.sim_vacuum_permeability();
+			cfg.electromagnetic.vacuum_permittivity = true_eps;
+			cfg.electromagnetic.vacuum_permeability = true_mu;
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermittivity, cfg.electromagnetic.vacuum_permittivity)));
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionVacuumPermeability, cfg.electromagnetic.vacuum_permeability)));
 		}
@@ -72,7 +123,8 @@ public:
 		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Collisions");
+		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Collisions (Mechanical Contact Dynamics)");
+		render_hint_text("Physical Contact Dynamics: Simulates non-destructive mechanical collisions that conserve rest mass, resolving surface contact through Hertzian elasticity, Baumgarte stabilization, restitution, and Coulomb friction.");
 		bool collisions = cfg.collisions.enabled;
 		if (ImGui::Checkbox("Enable Collisions", &collisions)) {
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionsEnabled, collisions ? 1.0 : 0.0)));
@@ -189,7 +241,8 @@ public:
 		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.7f, 0.5f, 1.0f, 1.0f), "Annihilation");
+		ImGui::TextColored(ImVec4(0.7f, 0.5f, 1.0f, 1.0f), "Annihilation (Matter-Antimatter Rest-Mass Conversion)");
+		render_hint_text("Matter-Antimatter Annihilation: In contrast to mechanical collisions which conserve mass and cause bodies to bounce, annihilation converts overlapping rest mass into radiant energy, destroying or eroding both bodies when opposite charges meet.");
 		bool annihilation = cfg.annihilation.enabled;
 		if (ImGui::Checkbox("Enable Annihilation", &annihilation)) {
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationEnabled, annihilation ? 1.0 : 0.0)));

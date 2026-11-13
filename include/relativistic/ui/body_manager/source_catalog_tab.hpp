@@ -161,7 +161,7 @@ private:
 			sys.update_accelerations();
 			ctx.orchestrator().notify_state_changed();
 		}
-		if (reverted) {
+		if (reverted || !b.is_spacetime_source) {
 			ctx.select_object(static_cast<int>(body_id));
 			ctx.select_source(BodyManagerContext::kNoSelection);
 			ctx.request_tab(BodyManagerTab::ObjectCatalog);
@@ -198,7 +198,11 @@ public:
 		split_pane_begin_primary("SourceCatalogList", split_, font * 15.0f, font * 26.0f);
 		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Primary Metric Source");
 		const auto& params = ctx.orchestrator().parameters();
-		const std::string primary_label = "Central Object  (M " + Units::format_mass(params.mass * ctx.mass_scale(), ctx.orchestrator().unit_preferences().mass, 3) + ", a " + std::to_string(params.spin).substr(0, 5) + ")";
+		const bool central_tracked = ctx.is_tracking(BodyManagerContext::kCentralSourceId);
+		std::string primary_label = "Central Object  (M " + Units::format_mass(params.mass * ctx.mass_scale(), ctx.orchestrator().unit_preferences().mass, 3) + ", a " + std::to_string(params.spin).substr(0, 5) + ")";
+		if (central_tracked) {
+			primary_label += "  [TRK]";
+		}
 		if (ImGui::Selectable(primary_label.c_str(), ctx.selected_source_id() == BodyManagerContext::kCentralSourceId)) {
 			ctx.select_source(BodyManagerContext::kCentralSourceId);
 		}

@@ -225,29 +225,42 @@ public:
 			}
 			render_setting_tooltip("Creates a black hole roughly half the mass of the primary source on a wide, randomly inclined circular orbit.");
 		} else {
+			if (source_count > 0) {
+				if (ImGui::SmallButton("Select All Sources")) {
+					std::vector<int> all_src_ids;
+					for (const auto& b : bodies) {
+						if (b.is_spacetime_source) all_src_ids.push_back(static_cast<int>(b.id));
+					}
+					ctx.set_selected_sources(all_src_ids);
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Deselect Sources")) {
+					ctx.clear_source_selection();
+				}
+			}
 			pending = render_body_catalog_list(ctx, bodies, true, filter_, ctx.selected_source_id());
 			if (pending.clicked_id >= 0) {
-				ctx.select_source(pending.clicked_id);
+				ctx.select_source(pending.clicked_id, pending.ctrl_held, pending.shift_held, pending.visible_ids);
 			}
 		}
 		split_pane_end_primary(split_);
 
 		split_pane_begin_secondary("SourceCatalogDetail", split_);
-		if (ctx.selected_source_id() == BodyManagerContext::kCentralSourceId) {
+		std::vector<Dynamics::PostNewtonianBody*> selected_sources;
+		for (auto& body : bodies) {
+			if (body.is_spacetime_source && ctx.is_source_selected(static_cast<int>(body.id))) {
+				selected_sources.push_back(&body);
+			}
+		}
+
+		if (ctx.selected_source_id() == BodyManagerContext::kCentralSourceId && selected_sources.empty()) {
 			render_primary_source_detail(ctx);
+		} else if (selected_sources.size() == 1) {
+			render_source_detail(ctx, sys, *selected_sources.front(), pending);
+		} else if (selected_sources.size() > 1) {
+			static_cast<void>(render_batch_source_editor(ctx, sys, selected_sources, view_));
 		} else {
-			Dynamics::PostNewtonianBody* selected = nullptr;
-			for (auto& body : bodies) {
-				if (body.is_spacetime_source && static_cast<int>(body.id) == ctx.selected_source_id()) {
-					selected = &body;
-					break;
-				}
-			}
-			if (selected != nullptr) {
-				render_source_detail(ctx, sys, *selected, pending);
-			} else {
-				render_hint_text("Select the primary metric source or an independent black hole in the list to inspect or edit it. Right-click an entry for quick actions.");
-			}
+			render_hint_text("Select the primary metric source or independent black holes in the list. Hold Ctrl or Shift to select multiple sources for batch staging.");
 		}
 		split_pane_end_secondary();
 

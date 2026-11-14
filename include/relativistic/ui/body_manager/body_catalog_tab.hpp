@@ -119,37 +119,54 @@ public:
 		split_pane_begin_primary("ObjectCatalogList", split_, font * 15.0f, font * 26.0f);
 		ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "Objects: %zu (%zu enabled)", object_count, enabled_count);
 		render_setting_tooltip("Ordinary bodies integrated by the post-Newtonian N-body solver. Independent black holes are listed in the Source Catalog tab.");
+		if (object_count > 0) {
+			if (ImGui::SmallButton("Select All")) {
+				std::vector<int> all_obj_ids;
+				for (const auto& b : bodies) {
+					if (!b.is_spacetime_source) all_obj_ids.push_back(static_cast<int>(b.id));
+				}
+				ctx.set_selected_objects(all_obj_ids);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Deselect")) {
+				ctx.clear_object_selection();
+			}
+		}
 		ImGui::Separator();
 		if (object_count == 0) {
 			render_empty_state(ctx);
 		} else {
 			pending = render_body_catalog_list(ctx, bodies, false, filter_, ctx.selected_object_id());
 			if (pending.clicked_id >= 0) {
-				ctx.select_object(pending.clicked_id);
+				ctx.select_object(pending.clicked_id, pending.ctrl_held, pending.shift_held, pending.visible_ids);
 			}
 		}
 		split_pane_end_primary(split_);
 
 		split_pane_begin_secondary("ObjectCatalogDetail", split_);
-		if (ctx.selected_object_id() == BodyManagerContext::kNoSelection && object_count > 0) {
-			for (const auto& body : bodies) {
-				if (!body.is_spacetime_source) {
+		std::vector<Dynamics::PostNewtonianBody*> selected_bodies;
+		for (auto& body : bodies) {
+			if (!body.is_spacetime_source && ctx.is_object_selected(static_cast<int>(body.id))) {
+				selected_bodies.push_back(&body);
+			}
+		}
+
+		if (selected_bodies.empty() && object_count > 0 && ctx.selected_object_id() != BodyManagerContext::kNoSelection) {
+			for (auto& body : bodies) {
+				if (!body.is_spacetime_source && static_cast<int>(body.id) == ctx.selected_object_id()) {
+					selected_bodies.push_back(&body);
 					ctx.select_object(static_cast<int>(body.id));
 					break;
 				}
 			}
 		}
-		Dynamics::PostNewtonianBody* selected = nullptr;
-		for (auto& body : bodies) {
-			if (!body.is_spacetime_source && static_cast<int>(body.id) == ctx.selected_object_id()) {
-				selected = &body;
-				break;
-			}
-		}
-		if (selected != nullptr) {
-			render_object_detail(ctx, sys, *selected, pending);
+
+		if (selected_bodies.size() == 1) {
+			render_object_detail(ctx, sys, *selected_bodies.front(), pending);
+		} else if (selected_bodies.size() > 1) {
+			static_cast<void>(render_batch_object_editor(ctx, sys, selected_bodies, view_));
 		} else {
-			render_hint_text("Select an object in the list to inspect or edit its parameters. Right-click an entry for quick actions such as look at, track, enable, duplicate and delete.");
+			render_hint_text("Select an object in the list to inspect or edit its parameters. Hold Ctrl to select multiple objects, or Shift for range selection. Right-click an entry for quick actions.");
 		}
 		split_pane_end_secondary();
 

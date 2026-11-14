@@ -6,6 +6,8 @@
 #include "relativistic/dynamics/body_surface_layers.hpp"
 #include "relativistic/ui/body_manager/body_manager_types.hpp"
 #include "relativistic/ui/body_manager/body_preset_library.hpp"
+#include "relativistic/ui/numeric_slider_utils.hpp"
+#include "relativistic/ui/tooltip_utils.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include <algorithm>
 #include <array>
@@ -79,6 +81,8 @@ private:
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
 	int selected_object_id_{kNoSelection};
 	int selected_source_id_{kCentralSourceId};
+	std::vector<int> selected_object_ids_{};
+	std::vector<int> selected_source_ids_{};
 	int tracked_body_id_{kNoSelection};
 	bool tracking_enabled_{false};
 	std::optional<BodyManagerTab> requested_tab_{};
@@ -130,22 +134,158 @@ public:
 		return selected_source_id_;
 	}
 
-	void select_object(int id) noexcept {
-		selected_object_id_ = id;
+	[[nodiscard]] const std::vector<int>& selected_object_ids() const noexcept {
+		return selected_object_ids_;
 	}
 
-	void select_source(int id) noexcept {
+	[[nodiscard]] const std::vector<int>& selected_source_ids() const noexcept {
+		return selected_source_ids_;
+	}
+
+	[[nodiscard]] bool is_object_selected(int id) const noexcept {
+		return std::find(selected_object_ids_.begin(), selected_object_ids_.end(), id) != selected_object_ids_.end();
+	}
+
+	[[nodiscard]] bool is_source_selected(int id) const noexcept {
+		if (id == kCentralSourceId) {
+			return selected_source_id_ == kCentralSourceId && selected_source_ids_.empty();
+		}
+		return std::find(selected_source_ids_.begin(), selected_source_ids_.end(), id) != selected_source_ids_.end();
+	}
+
+	void clear_object_selection() noexcept {
+		selected_object_id_ = kNoSelection;
+		selected_object_ids_.clear();
+	}
+
+	void clear_source_selection() noexcept {
+		selected_source_id_ = kCentralSourceId;
+		selected_source_ids_.clear();
+	}
+
+	void set_selected_objects(const std::vector<int>& ids) noexcept {
+		selected_object_ids_ = ids;
+		selected_object_id_ = ids.empty() ? kNoSelection : ids.front();
+	}
+
+	void set_selected_sources(const std::vector<int>& ids) noexcept {
+		selected_source_ids_ = ids;
+		selected_source_id_ = ids.empty() ? kCentralSourceId : ids.front();
+	}
+
+	void select_object(int id, bool additive = false, bool range = false, const std::vector<int>& visible_ids = {}) noexcept {
+		if (id < 0) {
+			clear_object_selection();
+			return;
+		}
+		if (range && selected_object_id_ >= 0 && !visible_ids.empty()) {
+			auto start_it = std::find(visible_ids.begin(), visible_ids.end(), selected_object_id_);
+			auto end_it = std::find(visible_ids.begin(), visible_ids.end(), id);
+			if (start_it != visible_ids.end() && end_it != visible_ids.end()) {
+				if (start_it > end_it) std::swap(start_it, end_it);
+				if (!additive) selected_object_ids_.clear();
+				for (auto it = start_it; it <= end_it; ++it) {
+					if (std::find(selected_object_ids_.begin(), selected_object_ids_.end(), *it) == selected_object_ids_.end()) {
+						selected_object_ids_.push_back(*it);
+					}
+				}
+				selected_object_id_ = id;
+				return;
+			}
+		}
+		if (additive) {
+			auto it = std::find(selected_object_ids_.begin(), selected_object_ids_.end(), id);
+			if (it != selected_object_ids_.end()) {
+				selected_object_ids_.erase(it);
+				selected_object_id_ = selected_object_ids_.empty() ? kNoSelection : selected_object_ids_.back();
+			} else {
+				selected_object_ids_.push_back(id);
+				selected_object_id_ = id;
+			}
+			return;
+		}
+		selected_object_id_ = id;
+		selected_object_ids_ = {id};
+	}
+
+	void select_source(int id, bool additive = false, bool range = false, const std::vector<int>& visible_ids = {}) noexcept {
+		if (id == kCentralSourceId) {
+			clear_source_selection();
+			return;
+		}
+		if (id < 0) {
+			clear_source_selection();
+			return;
+		}
+		if (range && selected_source_id_ >= 0 && selected_source_id_ != kCentralSourceId && !visible_ids.empty()) {
+			auto start_it = std::find(visible_ids.begin(), visible_ids.end(), selected_source_id_);
+			auto end_it = std::find(visible_ids.begin(), visible_ids.end(), id);
+			if (start_it != visible_ids.end() && end_it != visible_ids.end()) {
+				if (start_it > end_it) std::swap(start_it, end_it);
+				if (!additive) selected_source_ids_.clear();
+				for (auto it = start_it; it <= end_it; ++it) {
+					if (std::find(selected_source_ids_.begin(), selected_source_ids_.end(), *it) == selected_source_ids_.end()) {
+						selected_source_ids_.push_back(*it);
+					}
+				}
+				selected_source_id_ = id;
+				return;
+			}
+		}
+		if (additive) {
+			auto it = std::find(selected_source_ids_.begin(), selected_source_ids_.end(), id);
+			if (it != selected_source_ids_.end()) {
+				selected_source_ids_.erase(it);
+				selected_source_id_ = selected_source_ids_.empty() ? kCentralSourceId : selected_source_ids_.back();
+			} else {
+				selected_source_ids_.push_back(id);
+				selected_source_id_ = id;
+			}
+			return;
+		}
 		selected_source_id_ = id;
+		selected_source_ids_ = {id};
 	}
 
 	void select_and_open_source(int id) noexcept {
-		selected_source_id_ = id;
+		select_source(id);
 		requested_tab_ = BodyManagerTab::SourceCatalog;
 	}
 
 	void select_and_open_object(int id) noexcept {
-		selected_object_id_ = id;
+		select_object(id);
 		requested_tab_ = BodyManagerTab::ObjectCatalog;
+	}
+
+	void look_at_selection(const std::vector<Dynamics::PostNewtonianBody*>& selection) noexcept {
+		if (selection.empty()) return;
+		std::array<double, 3> centroid{0.0, 0.0, 0.0};
+		double total_mass = 0.0;
+		for (const auto* b : selection) {
+			if (b == nullptr) continue;
+			const double m = std::max(b->mass, 1e-12);
+			centroid[0] += b->position[0] * m;
+			centroid[1] += b->position[1] * m;
+			centroid[2] += b->position[2] * m;
+			total_mass += m;
+		}
+		if (total_mass > 0.0) {
+			centroid[0] /= total_mass;
+			centroid[1] /= total_mass;
+			centroid[2] /= total_mass;
+		} else {
+			for (const auto* b : selection) {
+				if (b == nullptr) continue;
+				centroid[0] += b->position[0];
+				centroid[1] += b->position[1];
+				centroid[2] += b->position[2];
+			}
+			const double n = static_cast<double>(selection.size());
+			centroid[0] /= n;
+			centroid[1] /= n;
+			centroid[2] /= n;
+		}
+		look_at(centroid);
 	}
 
 	void request_tab(BodyManagerTab tab) noexcept {
@@ -753,11 +893,15 @@ public:
 			tracking_enabled_ = false;
 			tracked_body_id_ = kNoSelection;
 		}
+		auto it_obj = std::find(selected_object_ids_.begin(), selected_object_ids_.end(), static_cast<int>(id));
+		if (it_obj != selected_object_ids_.end()) selected_object_ids_.erase(it_obj);
+		auto it_src = std::find(selected_source_ids_.begin(), selected_source_ids_.end(), static_cast<int>(id));
+		if (it_src != selected_source_ids_.end()) selected_source_ids_.erase(it_src);
 		if (selected_object_id_ == static_cast<int>(id)) {
-			selected_object_id_ = kNoSelection;
+			selected_object_id_ = selected_object_ids_.empty() ? kNoSelection : selected_object_ids_.back();
 		}
 		if (selected_source_id_ == static_cast<int>(id)) {
-			selected_source_id_ = kNoSelection;
+			selected_source_id_ = selected_source_ids_.empty() ? kCentralSourceId : selected_source_ids_.back();
 		}
 		orchestrator_.notify_state_changed();
 	}
@@ -767,6 +911,8 @@ public:
 		orchestrator_.nbody_system().clear_bodies();
 		selected_object_id_ = kNoSelection;
 		selected_source_id_ = kNoSelection;
+		selected_object_ids_.clear();
+		selected_source_ids_.clear();
 		if (tracked_body_id_ != kCentralSourceId) {
 			tracking_enabled_ = false;
 			tracked_body_id_ = kNoSelection;
@@ -822,5 +968,145 @@ public:
 		selected_source_id_ = kNoSelection;
 	}
 };
+
+template <typename Getter>
+[[nodiscard]] inline bool batch_are_equal(const std::vector<Dynamics::PostNewtonianBody*>& bodies, Getter getter, double eps = 1e-9) noexcept {
+	if (bodies.size() <= 1) return true;
+	const double first = static_cast<double>(getter(*bodies.front()));
+	for (size_t i = 1; i < bodies.size(); ++i) {
+		if (std::abs(static_cast<double>(getter(*bodies[i])) - first) > eps) {
+			return false;
+		}
+	}
+	return true;
+}
+
+template <typename Getter>
+[[nodiscard]] inline bool batch_are_equal_exact(const std::vector<Dynamics::PostNewtonianBody*>& bodies, Getter getter) noexcept {
+	if (bodies.size() <= 1) return true;
+	const auto first = getter(*bodies.front());
+	for (size_t i = 1; i < bodies.size(); ++i) {
+		if (getter(*bodies[i]) != first) return false;
+	}
+	return true;
+}
+
+template <typename Getter, typename Formatter>
+inline void batch_hover_tooltip(const std::vector<Dynamics::PostNewtonianBody*>& bodies, Getter getter, Formatter formatter, const char* prop_name) noexcept {
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+		ImGui::BeginTooltip();
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "%s (Mixed across %zu bodies):", prop_name, bodies.size());
+		ImGui::Separator();
+		constexpr size_t kMaxDisplay = 20;
+		const size_t count = std::min(bodies.size(), kMaxDisplay);
+		for (size_t i = 0; i < count; ++i) {
+			const auto* b = bodies[i];
+			const std::string name = BodyManagerContext::display_name(*b);
+			const std::string val_str = formatter(getter(*b));
+			ImGui::TextDisabled("[#%u %s]: %s", b->id, name.c_str(), val_str.c_str());
+		}
+		if (bodies.size() > kMaxDisplay) {
+			ImGui::TextDisabled("... and %zu more bodies", bodies.size() - kMaxDisplay);
+		}
+		ImGui::EndTooltip();
+	}
+}
+
+template <typename Getter, typename Setter, typename Formatter>
+inline bool render_batch_scalar_slider(
+	const char* label,
+	const std::vector<Dynamics::PostNewtonianBody*>& bodies,
+	Getter getter,
+	Setter setter,
+	Formatter formatter,
+	float min_val,
+	float max_val,
+	const char* format = "%.4f",
+	bool* log_mode = nullptr,
+	float log_min = 0.0f,
+	float log_max = 0.0f
+) noexcept {
+	bool changed = false;
+	const bool uniform = batch_are_equal(bodies, getter);
+	const double common_val = uniform ? static_cast<double>(getter(*bodies.front())) : 0.0;
+	float display_val = static_cast<float>(common_val);
+
+	ImGui::PushID(label);
+	if (uniform) {
+		if (slider_float_with_input(label, &display_val, min_val, max_val, format, log_mode, log_min, log_max)) {
+			const double new_val = static_cast<double>(display_val);
+			for (auto* b : bodies) {
+				setter(*b, new_val);
+			}
+			changed = true;
+		}
+	} else {
+		constexpr float input_width = 92.0f;
+		const float avail = ImGui::CalcItemWidth();
+		ImGui::SetNextItemWidth(std::max(avail - input_width - 8.0f, 60.0f));
+
+		float dummy_slider = 0.5f;
+		if (ImGui::SliderFloat("##slider", &dummy_slider, 0.0f, 1.0f, "---")) {
+			const float lerped = min_val + dummy_slider * (max_val - min_val);
+			for (auto* b : bodies) {
+				setter(*b, static_cast<double>(lerped));
+			}
+			changed = true;
+		}
+		batch_hover_tooltip(bodies, getter, formatter, label);
+
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(input_width);
+		char input_buf[32] = "---";
+		if (ImGui::InputText("##input", input_buf, sizeof(input_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+			if (std::strcmp(input_buf, "---") != 0 && std::strcmp(input_buf, "*") != 0 && input_buf[0] != '\0') {
+				char* end_ptr = nullptr;
+				const double parsed = std::strtod(input_buf, &end_ptr);
+				if (end_ptr != input_buf) {
+					for (auto* b : bodies) {
+						setter(*b, parsed);
+					}
+					changed = true;
+				}
+			}
+		}
+		batch_hover_tooltip(bodies, getter, formatter, label);
+
+		ImGui::SameLine();
+		ImGui::TextUnformatted(label);
+	}
+
+	ImGui::SameLine();
+	if (ImGui::SmallButton("+/-")) {
+		ImGui::OpenPopup("##DeltaPopup");
+	}
+	render_setting_tooltip("Apply a relative additive offset (+Delta) or scaling factor (*Factor) to this property across all selected bodies.");
+	if (ImGui::BeginPopup("##DeltaPopup")) {
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Relative Delta: %s", label);
+		ImGui::Separator();
+		static float delta_offset = 0.0f;
+		static float delta_factor = 1.0f;
+		ImGui::InputFloat("Additive Delta (+)", &delta_offset, 0.0f, 0.0f, "%.4g");
+		if (ImGui::Button("Apply Additive Offset", ImVec2(-1.0f, 22.0f))) {
+			for (auto* b : bodies) {
+				setter(*b, static_cast<double>(getter(*b)) + static_cast<double>(delta_offset));
+			}
+			changed = true;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::Spacing();
+		ImGui::InputFloat("Scale Factor (*)", &delta_factor, 0.0f, 0.0f, "%.4gx");
+		if (ImGui::Button("Apply Multiplicative Scale", ImVec2(-1.0f, 22.0f))) {
+			for (auto* b : bodies) {
+				setter(*b, static_cast<double>(getter(*b)) * static_cast<double>(delta_factor));
+			}
+			changed = true;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+	ImGui::PopID();
+	return changed;
+}
 
 }

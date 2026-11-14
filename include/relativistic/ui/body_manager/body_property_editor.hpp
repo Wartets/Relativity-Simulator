@@ -597,4 +597,415 @@ inline void render_body_surface_section(Dynamics::PostNewtonianBody& b, Dynamics
 	return result;
 }
 
+inline bool render_batch_object_editor(
+	BodyManagerContext& ctx,
+	Dynamics::PostNewtonianSystem& sys,
+	std::vector<Dynamics::PostNewtonianBody*>& bodies,
+	BodyEditorViewState& view
+) noexcept {
+	if (bodies.empty()) return false;
+	bool changed = false;
+	const auto& prefs = ctx.orchestrator().unit_preferences();
+	const double mass_scale_kg = ctx.mass_scale();
+	const double length_scale_m = ctx.length_scale();
+	const double speed_scale_mps = ctx.speed_scale();
+
+	size_t enabled_count = 0;
+	double total_mass = 0.0;
+	std::array<double, 3> centroid{0.0, 0.0, 0.0};
+	double total_weight = 0.0;
+	for (const auto* b : bodies) {
+		if (b->enabled) ++enabled_count;
+		total_mass += b->mass;
+		const double w = std::max(b->mass, 1e-6);
+		centroid[0] += b->position[0] * w;
+		centroid[1] += b->position[1] * w;
+		centroid[2] += b->position[2] * w;
+		total_weight += w;
+	}
+	if (total_weight > 0.0) {
+		centroid[0] /= total_weight;
+		centroid[1] /= total_weight;
+		centroid[2] /= total_weight;
+	}
+
+	ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Batch Inspector: %zu Objects Selected (%zu enabled)", bodies.size(), enabled_count);
+	ImGui::TextDisabled("Total Mass: %s | Centroid Position: (%.2e, %.2e, %.2e)", Units::format_mass(total_mass * mass_scale_kg, prefs.mass, 3).c_str(), centroid[0], centroid[1], centroid[2]);
+
+	if (ImGui::Button("Look At Centroid", ImVec2(120.0f, 24.0f))) {
+		ctx.look_at_selection(bodies);
+	}
+	render_setting_tooltip("Orients the camera gaze toward the center of mass of the current selection.");
+	ImGui::SameLine();
+	if (ImGui::Button("Enable All", ImVec2(85.0f, 24.0f))) {
+		for (auto* b : bodies) b->enabled = true;
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Disable All", ImVec2(90.0f, 24.0f))) {
+		for (auto* b : bodies) b->enabled = false;
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Circularize All", ImVec2(110.0f, 24.0f))) {
+		const double central_mass = ctx.orchestrator().parameters().mass;
+		for (auto* b : bodies) {
+			b->velocity = ctx.compute_circular_orbit_velocity(b->position, central_mass + (b->is_spacetime_source ? b->mass : 0.0));
+		}
+		changed = true;
+	}
+
+	static int batch_staging_mode = 0;
+	ImGui::RadioButton("Absolute Value Staging", &batch_staging_mode, 0);
+	ImGui::SameLine();
+	ImGui::RadioButton("Relative Delta & Scaling", &batch_staging_mode, 1);
+	render_setting_tooltip("Choose whether controls set uniform absolute values across the selection or apply relative offsets/deltas to each body's current value.");
+
+	if (batch_staging_mode == 1) {
+		render_group_title("Relative Transformations & Deltas", ImVec4(1.0f, 0.7f, 0.35f, 1.0f));
+
+		static float delta_mass_scale = 1.0f;
+		static float delta_mass_add_kg = 0.0f;
+		ImGui::InputFloat("Mass Multiplier (*)", &delta_mass_scale, 0.0f, 0.0f, "%.4gx");
+		ImGui::SameLine();
+		if (ImGui::Button("Scale Masses##Batch")) {
+			for (auto* b : bodies) b->mass = std::max(b->mass * static_cast<double>(delta_mass_scale), 0.0);
+			changed = true;
+		}
+		ImGui::InputFloat("Mass Additive Delta (kg)", &delta_mass_add_kg, 0.0f, 0.0f, "%.4e");
+		ImGui::SameLine();
+		if (ImGui::Button("Add Mass Delta##Batch")) {
+			for (auto* b : bodies) b->mass = std::max(b->mass + static_cast<double>(delta_mass_add_kg) / mass_scale_kg, 0.0);
+			changed = true;
+		}
+
+		static float delta_radius_scale = 1.0f;
+		ImGui::InputFloat("Radius Multiplier (*)", &delta_radius_scale, 0.0f, 0.0f, "%.4gx");
+		ImGui::SameLine();
+		if (ImGui::Button("Scale Radii##Batch")) {
+			for (auto* b : bodies) b->radius = std::max(b->radius * static_cast<double>(delta_radius_scale), 1e-6);
+			changed = true;
+		}
+
+		static float delta_pos[3]{0.0f, 0.0f, 0.0f};
+		ImGui::InputFloat3("Position Shift (dx, dy, dz)", delta_pos);
+		ImGui::SameLine();
+		if (ImGui::Button("Shift Positions##Batch")) {
+			for (auto* b : bodies) {
+				b->position[0] += static_cast<double>(delta_pos[0]);
+				b->position[1] += static_cast<double>(delta_pos[1]);
+				b->position[2] += static_cast<double>(delta_pos[2]);
+			}
+			changed = true;
+		}
+
+		static float delta_vel[3]{0.0f, 0.0f, 0.0f};
+		ImGui::InputFloat3("Velocity Delta (dvx, dvy, dvz)", delta_vel);
+		ImGui::SameLine();
+		if (ImGui::Button("Apply Velocity Delta##Batch")) {
+			for (auto* b : bodies) {
+				b->velocity[0] += static_cast<double>(delta_vel[0]);
+				b->velocity[1] += static_cast<double>(delta_vel[1]);
+				b->velocity[2] += static_cast<double>(delta_vel[2]);
+			}
+			changed = true;
+		}
+
+		static float speed_factor = 1.0f;
+		ImGui::InputFloat("Speed Multiplier (*)", &speed_factor, 0.0f, 0.0f, "%.4gx");
+		ImGui::SameLine();
+		if (ImGui::Button("Scale Speeds##Batch")) {
+			for (auto* b : bodies) {
+				b->velocity[0] *= static_cast<double>(speed_factor);
+				b->velocity[1] *= static_cast<double>(speed_factor);
+				b->velocity[2] *= static_cast<double>(speed_factor);
+			}
+			changed = true;
+		}
+
+		static float delta_temp_k = 0.0f;
+		ImGui::InputFloat("Temperature Delta (K)", &delta_temp_k, 0.0f, 0.0f, "%.2f");
+		ImGui::SameLine();
+		if (ImGui::Button("Apply Temperature Delta##Batch")) {
+			for (auto* b : bodies) b->temperature = std::max(b->temperature + static_cast<double>(delta_temp_k), 0.0);
+			changed = true;
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Identity & Batch Renaming", ImGuiTreeNodeFlags_DefaultOpen)) {
+		const bool all_enabled = batch_are_equal_exact(bodies, [](const auto& b) { return b.enabled; });
+		if (all_enabled) {
+			bool en = bodies.front()->enabled;
+			if (ImGui::Checkbox("Enabled (All)", &en)) {
+				for (auto* b : bodies) b->enabled = en;
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "State: * (Mixed: %zu enabled, %zu disabled)", enabled_count, bodies.size() - enabled_count);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Set All Enabled")) {
+				for (auto* b : bodies) b->enabled = true;
+				changed = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Set All Disabled")) {
+				for (auto* b : bodies) b->enabled = false;
+				changed = true;
+			}
+		}
+
+		static char batch_prefix[32] = "";
+		static char batch_suffix[32] = "";
+		static char batch_base_name[32] = "Entity";
+		ImGui::InputTextWithHint("##BatchPrefix", "Prefix...", batch_prefix, sizeof(batch_prefix));
+		ImGui::SameLine();
+		if (ImGui::Button("Add Prefix", ImVec2(90.0f, 24.0f)) && batch_prefix[0] != '\0') {
+			for (auto* b : bodies) {
+				b->set_name(std::string(batch_prefix) + " " + BodyManagerContext::display_name(*b));
+			}
+			changed = true;
+		}
+		ImGui::InputTextWithHint("##BatchSuffix", "Suffix...", batch_suffix, sizeof(batch_suffix));
+		ImGui::SameLine();
+		if (ImGui::Button("Add Suffix", ImVec2(90.0f, 24.0f)) && batch_suffix[0] != '\0') {
+			for (auto* b : bodies) {
+				b->set_name(BodyManagerContext::display_name(*b) + " " + std::string(batch_suffix));
+			}
+			changed = true;
+		}
+		ImGui::InputTextWithHint("##BatchBase", "Base name...", batch_base_name, sizeof(batch_base_name));
+		ImGui::SameLine();
+		if (ImGui::Button("Numbered Rename", ImVec2(130.0f, 24.0f)) && batch_base_name[0] != '\0') {
+			for (size_t i = 0; i < bodies.size(); ++i) {
+				bodies[i]->set_name(std::string(batch_base_name) + " " + std::to_string(i + 1));
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("Promote All Selected to Independent Black Holes", ImVec2(-1.0f, 26.0f))) {
+			for (auto* b : bodies) {
+				b->is_spacetime_source = true;
+				b->radius = b->kerr_outer_horizon_radius();
+				b->reference_radius = b->radius;
+				apply_body_appearance_preset(*b, Dynamics::Body3DPreset::BlackHole);
+				b->enforce_spacetime_source_invariants();
+				ctx.resolve_source_placement(*b);
+			}
+			std::vector<int> src_ids;
+			src_ids.reserve(bodies.size());
+			for (const auto* b : bodies) src_ids.push_back(static_cast<int>(b->id));
+			ctx.set_selected_sources(src_ids);
+			ctx.request_tab(BodyManagerTab::SourceCatalog);
+			changed = true;
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Physical State & Motion (Batch)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		changed = render_batch_scalar_slider(
+			"Mass", bodies,
+			[](const auto& b) { return b.mass; },
+			[](auto& b, double v) { b.mass = std::max(v, 0.0); },
+			[&](double v) { return Units::format_mass(v * mass_scale_kg, prefs.mass, 3); },
+			0.001f, 1.0e6f, "%.4f", &view.mass_log_mode, 1e-12f, 1e30f
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Physical Radius", bodies,
+			[](const auto& b) { return b.radius; },
+			[](auto& b, double v) { b.radius = std::max(v, 1e-6); },
+			[&](double v) { return Units::format_distance(v * length_scale_m, prefs.distance, 3); },
+			0.001f, 1.0e5f, "%.4f", &view.radius_log_mode, 1e-6f, 1e30f
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Charge", bodies,
+			[](const auto& b) { return b.charge; },
+			[](auto& b, double v) { b.charge = v; },
+			[&](double v) { return Units::format_charge(v, prefs.charge, 3); },
+			-10.0f, 10.0f, "%.4e"
+		) || changed;
+
+		const bool x_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[0]; });
+		const bool y_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[1]; });
+		const bool z_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[2]; });
+		if (x_eq && y_eq && z_eq) {
+			if (coordinate_aware_input_position("Position", bodies.front()->position, ctx.orchestrator())) {
+				for (size_t i = 1; i < bodies.size(); ++i) bodies[i]->position = bodies.front()->position;
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Position: * (Mixed Coordinates)");
+			batch_hover_tooltip(bodies, [](const auto& b) {
+				return "(" + std::to_string(b.position[0]).substr(0, 7) + ", " + std::to_string(b.position[1]).substr(0, 7) + ", " + std::to_string(b.position[2]).substr(0, 7) + ")";
+			}, [](const std::string& s) { return s; }, "Position");
+		}
+
+		const bool vx_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[0]; });
+		const bool vy_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[1]; });
+		const bool vz_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[2]; });
+		if (vx_eq && vy_eq && vz_eq) {
+			double vel[3] = {bodies.front()->velocity[0] * speed_scale_mps, bodies.front()->velocity[1] * speed_scale_mps, bodies.front()->velocity[2] * speed_scale_mps};
+			if (unit_aware_input_double3("Velocity", vel, UnitCategory::Velocity, prefs)) {
+				for (auto* b : bodies) {
+					b->velocity = {vel[0] / speed_scale_mps, vel[1] / speed_scale_mps, vel[2] / speed_scale_mps};
+				}
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Velocity: * (Mixed Velocities)");
+			batch_hover_tooltip(bodies, [](const auto& b) {
+				return "(" + std::to_string(b.velocity[0]).substr(0, 6) + ", " + std::to_string(b.velocity[1]).substr(0, 6) + ", " + std::to_string(b.velocity[2]).substr(0, 6) + ")";
+			}, [](const std::string& s) { return s; }, "Velocity");
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Gravitational Multipoles (Batch)")) {
+		changed = render_batch_scalar_slider(
+			"Quadrupole Moment", bodies,
+			[](const auto& b) { return b.quadrupole_moment; },
+			[](auto& b, double v) { b.quadrupole_moment = v; },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			-1e-2f, 1e-2f, "%.6e"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Zonal J2 Moment", bodies,
+			[](const auto& b) { return b.j2; },
+			[](auto& b, double v) { b.j2 = v; },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			-1e-2f, 1e-2f, "%.6e"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Zonal J3 Moment", bodies,
+			[](const auto& b) { return b.j3; },
+			[](auto& b, double v) { b.j3 = v; },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			-1e-3f, 1e-3f, "%.6e"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Zonal J4 Moment", bodies,
+			[](const auto& b) { return b.j4; },
+			[](auto& b, double v) { b.j4 = v; },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			-1e-3f, 1e-3f, "%.6e"
+		) || changed;
+	}
+
+	if (ImGui::CollapsingHeader("Material, Thermal & Mechanical (Batch)")) {
+		changed = render_batch_scalar_slider(
+			"Friction Coefficient", bodies,
+			[](const auto& b) { return b.friction_coefficient; },
+			[](auto& b, double v) { b.friction_coefficient = std::clamp(v, 0.0, 1.0); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
+			0.0f, 1.0f, "%.3f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Restitution", bodies,
+			[](const auto& b) { return b.restitution; },
+			[](auto& b, double v) { b.restitution = std::clamp(v, 0.0, 1.0); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
+			0.0f, 1.0f, "%.3f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Integrity", bodies,
+			[](const auto& b) { return b.integrity; },
+			[](auto& b, double v) { b.integrity = std::max(v, 0.0); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
+			0.0f, 1.0f, "%.3f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Temperature", bodies,
+			[](const auto& b) { return b.temperature; },
+			[](auto& b, double v) { b.temperature = std::max(v, 0.0); },
+			[&](double v) { return Units::format_temperature(v, prefs.temperature); },
+			0.0f, 50000.0f, "%.2f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Heat Capacity", bodies,
+			[](const auto& b) { return b.heat_capacity; },
+			[](auto& b, double v) { b.heat_capacity = std::max(v, 0.0); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			1e-6f, 1.0e9f, "%.4e", &view.heat_capacity_log_mode, 1e-6f, 1e12f
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Young's Modulus", bodies,
+			[](const auto& b) { return b.youngs_modulus_cold; },
+			[](auto& b, double v) { b.youngs_modulus_cold = std::max(v, 0.0); b.youngs_modulus_hot = std::max(v, 0.0); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4e", v); return std::string(buf); },
+			0.0f, 1.0e12f, "%.4e", &view.youngs_modulus_log_mode, 1e-3f, 1e15f
+		) || changed;
+	}
+
+	if (ImGui::CollapsingHeader("Surface Appearance & Presets (Batch)")) {
+		const bool geom_eq = batch_are_equal_exact(bodies, [](const auto& b) { return b.geometry_model; });
+		int geom_idx = geom_eq ? static_cast<int>(bodies.front()->geometry_model) : -1;
+		if (ImGui::Combo("3D Geometry Model", &geom_idx, kBodyGeometryNames.data(), static_cast<int>(kBodyGeometryNames.size()))) {
+			for (auto* b : bodies) b->geometry_model = static_cast<Dynamics::Body3DGeometryModel>(geom_idx);
+			changed = true;
+		}
+		if (!geom_eq) batch_hover_tooltip(bodies, [](const auto& b) { return std::string(kBodyGeometryNames[static_cast<size_t>(b.geometry_model)]); }, [](const std::string& s) { return s; }, "Geometry Model");
+
+		const bool preset_eq = batch_are_equal_exact(bodies, [](const auto& b) { return b.preset_3d; });
+		int preset_idx = preset_eq ? static_cast<int>(bodies.front()->preset_3d) : -1;
+		if (ImGui::Combo("Surface Preset", &preset_idx, kBodySurfacePresetNames.data(), static_cast<int>(kBodySurfacePresetNames.size()))) {
+			for (auto* b : bodies) apply_body_appearance_preset(*b, static_cast<Dynamics::Body3DPreset>(preset_idx));
+			changed = true;
+		}
+		if (!preset_eq) batch_hover_tooltip(bodies, [](const auto& b) { return std::string(kBodySurfacePresetNames[static_cast<size_t>(b.preset_3d)]); }, [](const std::string& s) { return s; }, "Surface Preset");
+
+		const bool texture_eq = batch_are_equal_exact(bodies, [](const auto& b) { return b.surface_texture_mode; });
+		int texture_idx = texture_eq ? static_cast<int>(bodies.front()->surface_texture_mode) : -1;
+		if (ImGui::Combo("Base Texture Mode", &texture_idx, kBodyTextureModeNames.data(), static_cast<int>(kBodyTextureModeNames.size()))) {
+			for (auto* b : bodies) b->surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(texture_idx);
+			changed = true;
+		}
+		if (!texture_eq) batch_hover_tooltip(bodies, [](const auto& b) { return std::string(kBodyTextureModeNames[static_cast<size_t>(b.surface_texture_mode)]); }, [](const std::string& s) { return s; }, "Base Texture Mode");
+
+		changed = render_batch_scalar_slider(
+			"Surface Noise Scale", bodies,
+			[](const auto& b) { return b.surface_noise_scale; },
+			[](auto& b, double v) { b.surface_noise_scale = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
+			0.5f, 20.0f, "%.2f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Surface Roughness", bodies,
+			[](const auto& b) { return b.surface_roughness; },
+			[](auto& b, double v) { b.surface_roughness = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
+			0.05f, 1.0f, "%.2f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Emission Intensity", bodies,
+			[](const auto& b) { return b.emission_intensity; },
+			[](auto& b, double v) { b.emission_intensity = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
+			0.0f, 5.0f, "%.2f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Atmosphere Thickness", bodies,
+			[](const auto& b) { return b.atmosphere_thickness; },
+			[](auto& b, double v) { b.atmosphere_thickness = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
+			0.0f, 0.5f, "%.3f"
+		) || changed;
+	}
+
+	if (changed) {
+		sys.update_accelerations();
+		ctx.orchestrator().notify_state_changed();
+	}
+	return changed;
+}
+
 }

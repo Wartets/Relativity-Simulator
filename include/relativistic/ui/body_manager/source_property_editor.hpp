@@ -269,4 +269,201 @@ namespace Relativistic::UI {
 	return changed;
 }
 
+inline bool render_batch_source_editor(
+	BodyManagerContext& ctx,
+	Dynamics::PostNewtonianSystem& sys,
+	std::vector<Dynamics::PostNewtonianBody*>& bodies,
+	BodyEditorViewState& view
+) noexcept {
+	if (bodies.empty()) return false;
+	bool changed = false;
+	const auto& prefs = ctx.orchestrator().unit_preferences();
+	const double mass_scale_kg = ctx.mass_scale();
+	const double speed_scale_mps = ctx.speed_scale();
+
+	size_t enabled_count = 0;
+	double total_mass = 0.0;
+	double total_spin_ratio = 0.0;
+	for (const auto* b : bodies) {
+		if (b->enabled) ++enabled_count;
+		total_mass += b->mass;
+		total_spin_ratio += b->kerr_spin_parameter();
+	}
+	const double mean_spin_ratio = bodies.empty() ? 0.0 : (total_spin_ratio / static_cast<double>(bodies.size()));
+
+	ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.4f, 1.0f), "Batch Kerr Inspector: %zu Black Holes Selected (%zu enabled)", bodies.size(), enabled_count);
+	ImGui::TextDisabled("Combined Mass: %s | Mean Kerr Spin a/M: %.4f", Units::format_mass(total_mass * mass_scale_kg, prefs.mass, 3).c_str(), mean_spin_ratio);
+
+	if (ImGui::Button("Look At Centroid", ImVec2(120.0f, 24.0f))) {
+		ctx.look_at_selection(bodies);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Move All to Safe Separation", ImVec2(190.0f, 24.0f))) {
+		for (auto* b : bodies) ctx.resolve_source_placement(*b);
+		changed = true;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Circularize All", ImVec2(110.0f, 24.0f))) {
+		const double central_mass = ctx.orchestrator().parameters().mass;
+		for (auto* b : bodies) {
+			b->velocity = ctx.compute_circular_orbit_velocity(b->position, central_mass + b->mass);
+		}
+		changed = true;
+	}
+
+	if (ImGui::Button("Demote All Selected to Ordinary Celestial Bodies", ImVec2(-1.0f, 26.0f))) {
+		for (auto* b : bodies) {
+			b->is_spacetime_source = false;
+			b->radius = std::max(b->radius, 4.0 * b->mass);
+			b->reference_radius = b->radius;
+			apply_body_appearance_preset(*b, Dynamics::Body3DPreset::Metallic);
+		}
+		std::vector<int> obj_ids;
+		obj_ids.reserve(bodies.size());
+		for (const auto* b : bodies) obj_ids.push_back(static_cast<int>(b->id));
+		ctx.set_selected_objects(obj_ids);
+		ctx.request_tab(BodyManagerTab::ObjectCatalog);
+		changed = true;
+	}
+
+	if (ImGui::CollapsingHeader("Spacetime & Metric Parameters (Batch)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		changed = render_batch_scalar_slider(
+			"Mass (M)", bodies,
+			[](const auto& b) { return b.mass; },
+			[](auto& b, double v) { b.mass = std::max(v, 1e-9); b.radius = b.kerr_outer_horizon_radius(); b.reference_radius = b.radius; },
+			[&](double v) { return Units::format_mass(v * mass_scale_kg, prefs.mass, 3); },
+			0.001f, 1.0e6f, "%.4f", &view.source_parameters.mass_log_mode, 1e-12f, 1e30f
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Dimensionless Spin (a/M)", bodies,
+			[](const auto& b) { return b.kerr_spin_parameter(); },
+			[](auto& b, double v) { b.set_spin_state(std::clamp(v, 0.0, 0.999), b.spin_axis_unit()); b.radius = b.kerr_outer_horizon_radius(); b.reference_radius = b.radius; },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.4f", v); return std::string(buf); },
+			0.0f, 0.999f, "%.4f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Electric Charge (Q)", bodies,
+			[](const auto& b) { return b.charge; },
+			[](auto& b, double v) { b.charge = std::clamp(v, -b.mass, b.mass); b.radius = b.kerr_outer_horizon_radius(); b.reference_radius = b.radius; },
+			[&](double v) { return Units::format_charge(v, prefs.charge, 3); },
+			-10.0f, 10.0f, "%.4e"
+		) || changed;
+
+		const bool x_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[0]; });
+		const bool y_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[1]; });
+		const bool z_eq = batch_are_equal(bodies, [](const auto& b) { return b.position[2]; });
+		if (x_eq && y_eq && z_eq) {
+			if (coordinate_aware_input_position("Position", bodies.front()->position, ctx.orchestrator())) {
+				for (size_t i = 1; i < bodies.size(); ++i) bodies[i]->position = bodies.front()->position;
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Position: * (Mixed Coordinates)");
+			batch_hover_tooltip(bodies, [](const auto& b) {
+				return "(" + std::to_string(b.position[0]).substr(0, 7) + ", " + std::to_string(b.position[1]).substr(0, 7) + ", " + std::to_string(b.position[2]).substr(0, 7) + ")";
+			}, [](const std::string& s) { return s; }, "Position");
+		}
+
+		const bool vx_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[0]; });
+		const bool vy_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[1]; });
+		const bool vz_eq = batch_are_equal(bodies, [](const auto& b) { return b.velocity[2]; });
+		if (vx_eq && vy_eq && vz_eq) {
+			double vel[3] = {bodies.front()->velocity[0] * speed_scale_mps, bodies.front()->velocity[1] * speed_scale_mps, bodies.front()->velocity[2] * speed_scale_mps};
+			if (unit_aware_input_double3("Velocity", vel, UnitCategory::Velocity, prefs)) {
+				for (auto* b : bodies) {
+					b->velocity = {vel[0] / speed_scale_mps, vel[1] / speed_scale_mps, vel[2] / speed_scale_mps};
+				}
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Velocity: * (Mixed Velocities)");
+			batch_hover_tooltip(bodies, [](const auto& b) {
+				return "(" + std::to_string(b.velocity[0]).substr(0, 6) + ", " + std::to_string(b.velocity[1]).substr(0, 6) + ", " + std::to_string(b.velocity[2]).substr(0, 6) + ")";
+			}, [](const std::string& s) { return s; }, "Velocity");
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Accretion Disk System (Batch)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		const bool disk_on_eq = batch_are_equal_exact(bodies, [](const auto& b) { return b.accretion_disk.enabled; });
+		if (disk_on_eq) {
+			bool disk_on = bodies.front()->accretion_disk.enabled;
+			if (ImGui::Checkbox("Render Accretion Disk (All Selected)", &disk_on)) {
+				for (auto* b : bodies) b->accretion_disk.enabled = disk_on;
+				changed = true;
+			}
+		} else {
+			ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Accretion Disk: * (Mixed Active States)");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Enable All Disks")) {
+				for (auto* b : bodies) b->accretion_disk.enabled = true;
+				changed = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Disable All Disks")) {
+				for (auto* b : bodies) b->accretion_disk.enabled = false;
+				changed = true;
+			}
+		}
+
+		if (ImGui::BeginCombo("Apply Preset To All Disks", "Select a preset...")) {
+			for (size_t i = 0; i < Render::kAccretionDiskPresetNames.size(); ++i) {
+				if (ImGui::Selectable(Render::kAccretionDiskPresetNames[i])) {
+					for (auto* b : bodies) b->accretion_disk.apply_preset(static_cast<Render::AccretionDiskPreset>(i), false);
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+
+		changed = render_batch_scalar_slider(
+			"Inner Radius (x ISCO)", bodies,
+			[](const auto& b) { return b.accretion_disk.inner_radius_scale; },
+			[](auto& b, double v) { b.accretion_disk.inner_radius_scale = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
+			1.0f, 4.0f, "%.2f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Outer Radius (M)", bodies,
+			[](const auto& b) { return b.accretion_disk.outer_radius_mass_units; },
+			[](auto& b, double v) { b.accretion_disk.outer_radius_mass_units = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.1f", v); return std::string(buf); },
+			6.0f, 120.0f, "%.1f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Peak Temperature (K)", bodies,
+			[](const auto& b) { return b.accretion_disk.peak_temperature_k; },
+			[](auto& b, double v) { b.accretion_disk.peak_temperature_k = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.0f K", v); return std::string(buf); },
+			1000.0f, 200000.0f, "%.0f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Brightness", bodies,
+			[](const auto& b) { return b.accretion_disk.brightness; },
+			[](auto& b, double v) { b.accretion_disk.brightness = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
+			0.0f, 20.0f, "%.3f"
+		) || changed;
+
+		changed = render_batch_scalar_slider(
+			"Opacity", bodies,
+			[](const auto& b) { return b.accretion_disk.opacity_scale; },
+			[](auto& b, double v) { b.accretion_disk.opacity_scale = static_cast<float>(v); },
+			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
+			0.0f, 2.0f, "%.2f"
+		) || changed;
+	}
+
+	if (changed) {
+		for (auto* b : bodies) b->enforce_spacetime_source_invariants();
+		sys.update_accelerations();
+		ctx.orchestrator().notify_state_changed();
+	}
+	return changed;
+}
+
 }

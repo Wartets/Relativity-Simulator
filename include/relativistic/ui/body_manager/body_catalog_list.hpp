@@ -26,7 +26,14 @@ enum class CatalogRowAction : uint8_t {
 	SetCircularOrbit,
 	SafeSeparation,
 	AlignSpinWithOrbit,
-	ToggleSource
+	ToggleSource,
+	BatchEnable,
+	BatchDisable,
+	BatchSetCircularOrbit,
+	BatchSafeSeparation,
+	BatchDuplicate,
+	BatchDelete,
+	BatchLookAtCentroid
 };
 
 enum class CatalogDynamicsFilter : uint32_t {
@@ -58,6 +65,9 @@ struct CatalogListResult {
 	int clicked_id{-1};
 	int action_id{-1};
 	CatalogRowAction action{CatalogRowAction::None};
+	bool ctrl_held{false};
+	bool shift_held{false};
+	std::vector<int> visible_ids{};
 };
 
 inline constexpr std::array<const char*, 5> kCatalogSortNames{"Creation Order", "Name", "Mass", "Distance From Center", "Speed"};
@@ -84,6 +94,7 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 }
 
 [[nodiscard]] inline CatalogListResult render_body_catalog_list(BodyManagerContext& ctx, std::span<Dynamics::PostNewtonianBody> bodies, bool sources, CatalogFilterState& filter, int selected_id) noexcept {
+	static_cast<void>(selected_id);
 	CatalogListResult result;
 	filter.sort_mode = std::clamp(filter.sort_mode, 0, static_cast<int>(kCatalogSortNames.size()) - 1);
 	filter.enabled_filter = std::clamp(filter.enabled_filter, 0, static_cast<int>(kCatalogStateNames.size()) - 1);
@@ -196,6 +207,11 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 		return filter.descending ? key_less(b, a) : key_less(a, b);
 	});
 
+	result.visible_ids.reserve(visible.size());
+	for (size_t v_idx : visible) {
+		result.visible_ids.push_back(static_cast<int>(bodies[v_idx].id));
+	}
+
 	const size_t total = visible.size();
 	const int page_size = kCatalogPageSizes[static_cast<size_t>(filter.page_size_index)];
 	const size_t per_page = (page_size > 0) ? static_cast<size_t>(page_size) : std::max<size_t>(total, 1);
@@ -241,12 +257,18 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 			const auto& b = bodies[visible[first + static_cast<size_t>(row)]];
 			const int id = static_cast<int>(b.id);
 			ImGui::PushID(id);
-			const bool is_selected = (id == selected_id);
+			const bool is_selected = sources ? ctx.is_source_selected(id) : ctx.is_object_selected(id);
 			if (ImGui::Selectable("##CatalogRow", is_selected, ImGuiSelectableFlags_None, ImVec2(0.0f, row_height))) {
 				result.clicked_id = id;
+				result.ctrl_held = ImGui::GetIO().KeyCtrl;
+				result.shift_held = ImGui::GetIO().KeyShift;
 			}
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-				result.clicked_id = id;
+				if (!is_selected) {
+					result.clicked_id = id;
+					result.ctrl_held = false;
+					result.shift_held = false;
+				}
 			}
 			const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
 			const ImVec2 rect_min = ImGui::GetItemRectMin();
@@ -351,56 +373,91 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 			}
 
 			if (ImGui::BeginPopupContextItem("##CatalogRowMenu")) {
-				ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", BodyManagerContext::display_name(b).c_str());
-				ImGui::Separator();
-				if (ImGui::MenuItem("Look At")) {
-					result.action = CatalogRowAction::LookAt;
-					result.action_id = id;
-				}
-				if (ImGui::MenuItem("Track", nullptr, ctx.is_tracking(id))) {
-					result.action = CatalogRowAction::ToggleTracking;
-					result.action_id = id;
-				}
-				if (ImGui::MenuItem("Enabled", nullptr, b.enabled)) {
-					result.action = CatalogRowAction::ToggleEnabled;
-					result.action_id = id;
-				}
-				ImGui::Separator();
-				if (!sources && b.enabled && ImGui::MenuItem("Walk On Surface")) {
-					result.action = CatalogRowAction::WalkOnSurface;
-					result.action_id = id;
-				}
-				if (ImGui::MenuItem("Set Circular Orbit Velocity")) {
-					result.action = CatalogRowAction::SetCircularOrbit;
-					result.action_id = id;
-				}
-				if (sources) {
-					if (ImGui::MenuItem("Move To Safe Separation")) {
-						result.action = CatalogRowAction::SafeSeparation;
+				const size_t batch_sel_count = sources ? ctx.selected_source_ids().size() : ctx.selected_object_ids().size();
+				if (batch_sel_count > 1 && is_selected) {
+					ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Batch Selection (%zu %s)", batch_sel_count, sources ? "Sources" : "Objects");
+					ImGui::Separator();
+					if (ImGui::MenuItem("Look At Group Centroid")) {
+						result.action = CatalogRowAction::BatchLookAtCentroid;
 						result.action_id = id;
 					}
-					if (ImGui::MenuItem("Align Spin With Orbit")) {
-						result.action = CatalogRowAction::AlignSpinWithOrbit;
+					if (ImGui::MenuItem("Enable All Selected")) {
+						result.action = CatalogRowAction::BatchEnable;
 						result.action_id = id;
 					}
-					if (ImGui::MenuItem("Revert To Ordinary Body")) {
-						result.action = CatalogRowAction::ToggleSource;
+					if (ImGui::MenuItem("Disable All Selected")) {
+						result.action = CatalogRowAction::BatchDisable;
+						result.action_id = id;
+					}
+					if (ImGui::MenuItem("Set Circular Orbit For All Selected")) {
+						result.action = CatalogRowAction::BatchSetCircularOrbit;
+						result.action_id = id;
+					}
+					if (sources && ImGui::MenuItem("Move All Selected To Safe Separation")) {
+						result.action = CatalogRowAction::BatchSafeSeparation;
+						result.action_id = id;
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Duplicate All Selected")) {
+						result.action = CatalogRowAction::BatchDuplicate;
+						result.action_id = id;
+					}
+					if (ImGui::MenuItem("Delete All Selected")) {
+						result.action = CatalogRowAction::BatchDelete;
 						result.action_id = id;
 					}
 				} else {
-					if (ImGui::MenuItem("Convert To Spacetime Source")) {
-						result.action = CatalogRowAction::ToggleSource;
+					ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", BodyManagerContext::display_name(b).c_str());
+					ImGui::Separator();
+					if (ImGui::MenuItem("Look At")) {
+						result.action = CatalogRowAction::LookAt;
 						result.action_id = id;
 					}
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Duplicate")) {
-					result.action = CatalogRowAction::Duplicate;
-					result.action_id = id;
-				}
-				if (ImGui::MenuItem("Delete")) {
-					result.action = CatalogRowAction::Delete;
-					result.action_id = id;
+					if (ImGui::MenuItem("Track", nullptr, ctx.is_tracking(id))) {
+						result.action = CatalogRowAction::ToggleTracking;
+						result.action_id = id;
+					}
+					if (ImGui::MenuItem("Enabled", nullptr, b.enabled)) {
+						result.action = CatalogRowAction::ToggleEnabled;
+						result.action_id = id;
+					}
+					ImGui::Separator();
+					if (!sources && b.enabled && ImGui::MenuItem("Walk On Surface")) {
+						result.action = CatalogRowAction::WalkOnSurface;
+						result.action_id = id;
+					}
+					if (ImGui::MenuItem("Set Circular Orbit Velocity")) {
+						result.action = CatalogRowAction::SetCircularOrbit;
+						result.action_id = id;
+					}
+					if (sources) {
+						if (ImGui::MenuItem("Move To Safe Separation")) {
+							result.action = CatalogRowAction::SafeSeparation;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Align Spin With Orbit")) {
+							result.action = CatalogRowAction::AlignSpinWithOrbit;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Revert To Ordinary Body")) {
+							result.action = CatalogRowAction::ToggleSource;
+							result.action_id = id;
+						}
+					} else {
+						if (ImGui::MenuItem("Convert To Spacetime Source")) {
+							result.action = CatalogRowAction::ToggleSource;
+							result.action_id = id;
+						}
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Duplicate")) {
+						result.action = CatalogRowAction::Duplicate;
+						result.action_id = id;
+					}
+					if (ImGui::MenuItem("Delete")) {
+						result.action = CatalogRowAction::Delete;
+						result.action_id = id;
+					}
 				}
 				ImGui::EndPopup();
 			}
@@ -494,6 +551,80 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 		case CatalogRowAction::Delete:
 			ctx.remove_body_by_id(id);
 			break;
+		case CatalogRowAction::BatchEnable: {
+			for (int sid : (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids())) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr) b->enabled = true;
+			}
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::BatchDisable: {
+			for (int sid : (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids())) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr) b->enabled = false;
+			}
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::BatchSetCircularOrbit: {
+			const double central_mass = ctx.orchestrator().parameters().mass;
+			for (int sid : (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids())) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr) {
+					b->velocity = ctx.compute_circular_orbit_velocity(b->position, central_mass + (b->is_spacetime_source ? b->mass : 0.0));
+				}
+			}
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::BatchSafeSeparation: {
+			for (int sid : ctx.selected_source_ids()) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr && b->is_spacetime_source) {
+					ctx.resolve_source_placement(*b);
+				}
+			}
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::BatchDuplicate: {
+			std::vector<int> target_ids = (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids());
+			std::vector<int> new_selected;
+			for (int sid : target_ids) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr) {
+					Dynamics::PostNewtonianBody clone = *b;
+					clone.position[0] += std::max(clone.radius, 1e-6) * 4.0;
+					const Dynamics::BodySurfaceLayerSet layers = ctx.orchestrator().surface_layers().get(static_cast<uint32_t>(sid));
+					const uint32_t new_id = ctx.spawn_body(clone, layers);
+					new_selected.push_back(static_cast<int>(new_id));
+				}
+			}
+			if (body->is_spacetime_source) ctx.set_selected_sources(new_selected);
+			else ctx.set_selected_objects(new_selected);
+			break;
+		}
+		case CatalogRowAction::BatchDelete: {
+			std::vector<int> target_ids = (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids());
+			for (int sid : target_ids) {
+				ctx.remove_body_by_id(static_cast<uint32_t>(sid));
+			}
+			break;
+		}
+		case CatalogRowAction::BatchLookAtCentroid: {
+			std::vector<Dynamics::PostNewtonianBody*> ptrs;
+			for (int sid : (body->is_spacetime_source ? ctx.selected_source_ids() : ctx.selected_object_ids())) {
+				auto* b = ctx.find_body(static_cast<uint32_t>(sid));
+				if (b != nullptr) ptrs.push_back(b);
+			}
+			ctx.look_at_selection(ptrs);
+			break;
+		}
 		case CatalogRowAction::None:
 		default:
 			break;

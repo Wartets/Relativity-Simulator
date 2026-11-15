@@ -480,6 +480,47 @@ public:
 		return {-prograde[0], -prograde[1], -prograde[2]};
 	}
 
+	[[nodiscard]] std::array<double, 3> compute_circular_satellite_velocity(
+		const std::array<double, 3>& sat_pos,
+		const std::array<double, 3>& sat_vel,
+		const std::array<double, 3>& parent_pos,
+		const std::array<double, 3>& parent_vel,
+		double parent_mass,
+		double sat_mass
+	) const noexcept {
+		const std::array<double, 3> r_rel{sat_pos[0] - parent_pos[0], sat_pos[1] - parent_pos[1], sat_pos[2] - parent_pos[2]};
+		const double d = std::sqrt(r_rel[0] * r_rel[0] + r_rel[1] * r_rel[1] + r_rel[2] * r_rel[2]);
+		if (d < 1e-9) return parent_vel;
+		const std::array<double, 3> v_rel{sat_vel[0] - parent_vel[0], sat_vel[1] - parent_vel[1], sat_vel[2] - parent_vel[2]};
+		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (parent_mass + sat_mass), 1e-14);
+		const double v_circ = std::sqrt(mu / d);
+
+		std::array<double, 3> h{
+			r_rel[1] * v_rel[2] - r_rel[2] * v_rel[1],
+			r_rel[2] * v_rel[0] - r_rel[0] * v_rel[2],
+			r_rel[0] * v_rel[1] - r_rel[1] * v_rel[0]
+		};
+		double h_len = std::sqrt(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
+		if (h_len < 1e-9) {
+			const std::array<double, 3> up{0.0, 0.0, 1.0};
+			h = {up[1] * r_rel[2] - up[2] * r_rel[1], up[2] * r_rel[0] - up[0] * r_rel[2], up[0] * r_rel[1] - up[1] * r_rel[0]};
+			h_len = std::sqrt(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
+			if (h_len < 1e-9) {
+				h = {1.0, 0.0, 0.0};
+				h_len = 1.0;
+			}
+		}
+		const std::array<double, 3> h_hat{h[0] / h_len, h[1] / h_len, h[2] / h_len};
+		std::array<double, 3> tangent{
+			h_hat[1] * r_rel[2] - h_hat[2] * r_rel[1],
+			h_hat[2] * r_rel[0] - h_hat[0] * r_rel[2],
+			h_hat[0] * r_rel[1] - h_hat[1] * r_rel[0]
+		};
+		const double t_len = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]);
+		const std::array<double, 3> t_hat = (t_len > 1e-9) ? std::array<double, 3>{tangent[0] / t_len, tangent[1] / t_len, tangent[2] / t_len} : std::array<double, 3>{0.0, 1.0, 0.0};
+		return {parent_vel[0] + v_circ * t_hat[0], parent_vel[1] + v_circ * t_hat[1], parent_vel[2] + v_circ * t_hat[2]};
+	}
+
 	[[nodiscard]] std::array<double, 3> compute_escape_velocity(const std::array<double, 3>& pos, const std::array<double, 3>& current_vel, double central_mass) const noexcept {
 		const double r = std::sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
 		if (r < 1e-12) return {0.0, 0.0, 0.0};

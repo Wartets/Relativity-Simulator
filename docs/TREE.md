@@ -14,7 +14,10 @@ Relativity-Simulator/
 │   ├── engine_cli/
 │   │   └── main.cpp
 │   │
-│   └── headless_exporter/
+│   ├── headless_exporter/
+│   │   └── main.cpp
+│   │
+│   └── startup_preview/
 │       └── main.cpp
 │   
 │
@@ -82,6 +85,14 @@ Relativity-Simulator/
 │   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.json
 │   │   │   ├── cie_spectral_pipeline.md
+│   │   │   ├── cluster_crypto_protocol.json
+│   │   │   ├── cluster_crypto_protocol.md
+│   │   │   ├── cluster_scheduler_stealing.json
+│   │   │   ├── cluster_scheduler_stealing.md
+│   │   │   ├── cluster_serialization_codecs.json
+│   │   │   ├── cluster_serialization_codecs.md
+│   │   │   ├── cluster_throughput.json
+│   │   │   ├── cluster_throughput.md
 │   │   │   ├── cluster_worker_execution.json
 │   │   │   ├── cluster_worker_execution.md
 │   │   │   ├── concurrent_command_injection.json
@@ -94,6 +105,8 @@ Relativity-Simulator/
 │   │   │   ├── dark_matter_profiles.md
 │   │   │   ├── default_startup_scenario.json
 │   │   │   ├── default_startup_scenario.md
+│   │   │   ├── distributed_geodesic_pipeline.json
+│   │   │   ├── distributed_geodesic_pipeline.md
 │   │   │   ├── double_single.json
 │   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.json
@@ -238,12 +251,16 @@ Relativity-Simulator/
 │   │   │   ├── christoffel_solver.md
 │   │   │   ├── cie_spectral_pipeline.md
 │   │   │   ├── cluster_crypto_protocol.md
+│   │   │   ├── cluster_scheduler_stealing.md
+│   │   │   ├── cluster_serialization_codecs.md
+│   │   │   ├── cluster_throughput.md
 │   │   │   ├── cluster_worker_execution.md
 │   │   │   ├── concurrent_command_injection.md
 │   │   │   ├── covariance_propagation.md
 │   │   │   ├── dark_matter_field.md
 │   │   │   ├── dark_matter_profiles.md
 │   │   │   ├── default_startup_scenario.md
+│   │   │   ├── distributed_geodesic_pipeline.md
 │   │   │   ├── double_single.md
 │   │   │   ├── engine_performance.md
 │   │   │   ├── eos_tov.md
@@ -587,6 +604,7 @@ Relativity-Simulator/
 │       │   │
 │       │   ├── bodies/
 │       │   │   ├── body_lighting.hpp
+│       │   │   ├── body_orientation.hpp
 │       │   │   ├── body_render_guard.hpp
 │       │   │   ├── body_surface_shading.hpp
 │       │   │   ├── earth_surface_shading.hpp
@@ -613,10 +631,25 @@ Relativity-Simulator/
 │       │   ├── application_info.hpp.in
 │       │   ├── application_resources.h
 │       │   ├── platform_bootstrap.hpp
+│       │   ├── single_instance_guard.hpp
 │       │   ├── startup_progress.hpp
 │       │   └── startup_window.hpp
 │       │
 │       ├── ui/
+│       │   ├── body_manager/
+│       │   │   ├── body_catalog_list.hpp
+│       │   │   ├── body_catalog_tab.hpp
+│       │   │   ├── body_creation_tab.hpp
+│       │   │   ├── body_manager_context.hpp
+│       │   │   ├── body_manager_types.hpp
+│       │   │   ├── body_preset_library.hpp
+│       │   │   ├── body_property_editor.hpp
+│       │   │   ├── interactions_tab.hpp
+│       │   │   ├── source_catalog_tab.hpp
+│       │   │   ├── source_creation_tab.hpp
+│       │   │   ├── source_property_editor.hpp
+│       │   │   └── system_dynamics_tab.hpp
+│       │   │
 │       │   ├── hud/
 │       │   │   ├── hud_layout_config.hpp
 │       │   │   ├── hud_linked_readouts.hpp
@@ -659,6 +692,7 @@ Relativity-Simulator/
 │       │   ├── motion_script_editor.hpp
 │       │   ├── multi_row_tab_bar.hpp
 │       │   ├── numeric_slider_utils.hpp
+│       │   ├── panel_text_helpers.hpp
 │       │   ├── performance_analysis_window.hpp
 │       │   ├── performance_settings_window.hpp
 │       │   ├── polarization_panel.hpp
@@ -667,7 +701,10 @@ Relativity-Simulator/
 │       │   ├── secondary_view_roles.hpp
 │       │   ├── secondary_view_window.hpp
 │       │   ├── secondary_viewport_manager.hpp
+│       │   ├── spacetime_source_panel.hpp
+│       │   ├── spacetime_source_state.hpp
 │       │   ├── spectrograph_window.hpp
+│       │   ├── split_pane_layout.hpp
 │       │   ├── telemetry_window.hpp
 │       │   ├── tooltip_utils.hpp
 │       │   ├── ui_manager.hpp
@@ -693,12 +730,6 @@ Relativity-Simulator/
 │           ├── unit_aware_widgets.hpp
 │           └── unit_system.hpp
 │       
-│   
-│
-├── logs/
-│   ├── crashes/
-│   │
-│   └── sessions/
 │   
 │
 ├── resources/
@@ -767,6 +798,7 @@ Relativity-Simulator/
 │   │   ├── metric_checks.hpp
 │   │   └── test_harness.hpp
 │   │
+│   ├── benchmark_cluster_throughput.cpp
 │   ├── benchmark_engine_performance.cpp
 │   ├── benchmark_simd_bundle.cpp
 │   ├── test_barnes_hut_octree.cpp
@@ -777,12 +809,15 @@ Relativity-Simulator/
 │   ├── test_christoffel_solver.cpp
 │   ├── test_cie_spectral_pipeline.cpp
 │   ├── test_cluster_crypto_protocol.cpp
+│   ├── test_cluster_scheduler_stealing.cpp
+│   ├── test_cluster_serialization_codecs.cpp
 │   ├── test_cluster_worker_execution.cpp
 │   ├── test_concurrent_command_injection.cpp
 │   ├── test_covariance_propagation.cpp
 │   ├── test_dark_matter_field.cpp
 │   ├── test_dark_matter_profiles.cpp
 │   ├── test_default_startup_scenario.cpp
+│   ├── test_distributed_geodesic_pipeline.cpp
 │   ├── test_double_single.cpp
 │   ├── test_eos_tov.cpp
 │   ├── test_ephemeris_kepler.cpp

@@ -34,7 +34,11 @@ enum class CatalogRowAction : uint8_t {
 	BatchSafeSeparation,
 	BatchDuplicate,
 	BatchDelete,
-	BatchLookAtCentroid
+	BatchLookAtCentroid,
+	SelectSubsystem,
+	SelectParent,
+	CircularizeAroundParent,
+	CircularizeSatellites
 };
 
 enum class CatalogDynamicsFilter : uint32_t {
@@ -143,6 +147,16 @@ struct CatalogRangeFilters {
 	}
 };
 
+enum class CatalogViewMode : uint32_t {
+	FlatList = 0,
+	HierarchicalTree = 1
+};
+
+inline constexpr std::array<const char*, 2> kCatalogViewModeNames{
+	"Flat Catalog List",
+	"Gravitational Hierarchy Tree"
+};
+
 struct CatalogFilterState {
 	char search[64]{};
 	int sort_mode{0};
@@ -152,7 +166,34 @@ struct CatalogFilterState {
 	int dynamics_filter{0};
 	int page{0};
 	int page_size_index{2};
+	int view_mode{0};
+	std::vector<uint32_t> collapsed_parents{};
 	CatalogRangeFilters ranges{};
+
+	[[nodiscard]] bool is_parent_collapsed(uint32_t id) const noexcept {
+		return std::find(collapsed_parents.begin(), collapsed_parents.end(), id) != collapsed_parents.end();
+	}
+
+	void set_parent_collapsed(uint32_t id, bool collapsed) noexcept {
+		auto it = std::find(collapsed_parents.begin(), collapsed_parents.end(), id);
+		if (collapsed && it == collapsed_parents.end()) {
+			collapsed_parents.push_back(id);
+		} else if (!collapsed && it != collapsed_parents.end()) {
+			collapsed_parents.erase(it);
+		}
+	}
+
+	void toggle_parent_collapsed(uint32_t id) noexcept {
+		set_parent_collapsed(id, !is_parent_collapsed(id));
+	}
+
+	void expand_all() noexcept {
+		collapsed_parents.clear();
+	}
+
+	void collapse_all(const std::vector<uint32_t>& parent_ids) noexcept {
+		collapsed_parents = parent_ids;
+	}
 };
 
 struct CatalogListResult {
@@ -185,6 +226,232 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 		text += "  |  v " + Units::format_velocity(b.speed() * ctx.speed_scale(), prefs.velocity);
 	}
 	return text;
+}
+
+struct BodyHierarchyNode {
+	size_t body_index{0};
+	uint32_t body_id{0};
+	int parent_body_index{-1};
+	int parent_id{-2};
+	int tier{0};
+	double distance_to_parent{0.0};
+	double relative_speed{0.0};
+	double relative_eccentricity{0.0};
+	double relative_semi_major_axis{0.0};
+	double hill_radius{0.0};
+	double hill_occupancy_pct{0.0};
+	double dominance_ratio{0.0};
+	bool bound_to_parent{false};
+	std::string parent_name{};
+	std::vector<size_t> children_indices{};
+};
+
+[[nodiscard]] inline std::vector<BodyHierarchyNode> build_gravitational_hierarchy(
+	std::span<const Dynamics::PostNewtonianBody> all_bodies,
+	double central_mass,
+	double g_sim
+) noexcept {
+	const size_t count = all_bodies.size();
+	std::vector<BodyHierarchyNode> nodes(count);
+	const double safe_central_mass = std::max(central_mass, 1e-12);
+	const double safe_g = std::max(g_sim, 1e-14);
+
+	for (size_t i = 0; i < count; ++i) {
+		const auto& b = all_bodies[i];
+		nodes[i].body_index = i;
+		nodes[i].body_id = b.id;
+		nodes[i].parent_body_index = -1;
+		nodes[i].parent_id = -2;
+		nodes[i].tier = 0;
+		nodes[i].distance_to_parent = BodyManagerContext::distance_from_center(b);
+		nodes[i].relative_speed = b.speed();
+		nodes[i].parent_name = "Central Attractor";
+
+		const double r_center = std::max(nodes[i].distance_to_parent, 1e-6);
+		const double m_b = std::max(b.mass, 0.0);
+		if (m_b > 0.0) {
+			nodes[i].hill_radius = r_center * std::cbrt(m_b / (3.0 * (safe_central_mass + m_b)));
+		}
+	}
+
+	for (size_t i = 0; i < count; ++i) {
+		const auto& b_i = all_bodies[i];
+		const double m_i = std::max(b_i.mass, 0.0);
+
+		int best_parent = -1;
+		double best_hill_ratio = 1e30;
+		double best_d = 0.0;
+		double best_v = 0.0;
+		double best_ecc = 0.0;
+		double best_sma = 0.0;
+		double best_r_hill = 0.0;
+		double best_dominance = 0.0;
+		bool best_bound = false;
+
+		for (size_t j = 0; j < count; ++j) {
+			if (j == i) continue;
+			const auto& b_j = all_bodies[j];
+			const double m_j = std::max(b_j.mass, 0.0);
+			if (m_j <= 0.0) continue;
+			if (m_i > 1e-9 && m_j < m_i * 1.05) continue;
+			if (m_i <= 1e-9 && m_j <= 1e-9) continue;
+
+			const double dx = b_i.position[0] - b_j.position[0];
+			const double dy = b_i.position[1] - b_j.position[1];
+			const double dz = b_i.position[2] - b_j.position[2];
+			const double d_ij = std::sqrt(dx * dx + dy * dy + dz * dz);
+			if (d_ij < 1e-9) continue;
+
+			const double r_j = std::max(BodyManagerContext::distance_from_center(b_j), 1e-6);
+			const double r_hill_j = r_j * std::cbrt(m_j / (3.0 * (safe_central_mass + m_j)));
+			const double r_soi_j = r_j * std::pow(m_j / (safe_central_mass + m_j), 0.4);
+			const double r_dom = std::max(r_hill_j, r_soi_j);
+
+			if (d_ij > r_dom * 1.35) continue;
+
+			const double dvx = b_i.velocity[0] - b_j.velocity[0];
+			const double dvy = b_i.velocity[1] - b_j.velocity[1];
+			const double dvz = b_i.velocity[2] - b_j.velocity[2];
+			const double v_ij = std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
+
+			const double mu = safe_g * (m_j + m_i);
+			const double energy = 0.5 * v_ij * v_ij - mu / d_ij;
+
+			const double hx = dy * dvz - dz * dvy;
+			const double hy = dz * dvx - dx * dvz;
+			const double hz = dx * dvy - dy * dvx;
+
+			const double v_cross_hx = dvy * hz - dvz * hy;
+			const double v_cross_hy = dvz * hx - dvx * hz;
+			const double v_cross_hz = dvx * hy - dvy * hx;
+
+			const double ex = v_cross_hx / mu - dx / d_ij;
+			const double ey = v_cross_hy / mu - dy / d_ij;
+			const double ez = v_cross_hz / mu - dz / d_ij;
+			const double ecc = std::sqrt(ex * ex + ey * ey + ez * ez);
+
+			const double a_parent = mu / (d_ij * d_ij);
+			const double a_tide = 2.0 * safe_g * safe_central_mass * d_ij / (r_j * r_j * r_j);
+			const double dominance = a_parent / std::max(a_tide, 1e-12);
+
+			const bool dynamically_bound = (energy < 0.0) || (ecc <= 1.15);
+			if (!dynamically_bound && dominance < 1.0) continue;
+
+			const double hill_ratio = d_ij / std::max(r_dom, 1e-9);
+			if (hill_ratio < best_hill_ratio) {
+				best_hill_ratio = hill_ratio;
+				best_parent = static_cast<int>(j);
+				best_d = d_ij;
+				best_v = v_ij;
+				best_ecc = ecc;
+				best_r_hill = r_hill_j;
+				best_dominance = dominance;
+				best_bound = (energy < 0.0);
+				best_sma = (energy < 0.0) ? (-mu / (2.0 * energy)) : d_ij;
+			}
+		}
+
+		if (best_parent >= 0) {
+			nodes[i].parent_body_index = best_parent;
+			nodes[i].parent_id = static_cast<int>(all_bodies[best_parent].id);
+			nodes[i].distance_to_parent = best_d;
+			nodes[i].relative_speed = best_v;
+			nodes[i].relative_eccentricity = best_ecc;
+			nodes[i].relative_semi_major_axis = best_sma;
+			nodes[i].hill_radius = best_r_hill;
+			nodes[i].hill_occupancy_pct = (best_d / std::max(best_r_hill, 1e-9)) * 100.0;
+			nodes[i].dominance_ratio = best_dominance;
+			nodes[i].bound_to_parent = best_bound;
+			nodes[i].parent_name = BodyManagerContext::display_name(all_bodies[best_parent]);
+		}
+	}
+
+	for (size_t i = 0; i < count; ++i) {
+		const int p = nodes[i].parent_body_index;
+		if (p >= 0 && static_cast<size_t>(p) < count) {
+			nodes[p].children_indices.push_back(i);
+		}
+	}
+
+	for (size_t i = 0; i < count; ++i) {
+		int p = nodes[i].parent_body_index;
+		int depth = 0;
+		while (p >= 0 && depth < 10) {
+			++depth;
+			p = (static_cast<size_t>(p) < count) ? nodes[p].parent_body_index : -1;
+		}
+		nodes[i].tier = depth;
+	}
+
+	return nodes;
+}
+
+struct TreeFlattenItem {
+	size_t body_index{0};
+	int depth{0};
+	bool has_children{false};
+	bool is_collapsed{false};
+	size_t child_count{0};
+	int parent_id{-2};
+	double distance_to_parent{0.0};
+	double relative_speed{0.0};
+	double relative_eccentricity{0.0};
+	double relative_semi_major_axis{0.0};
+	double hill_radius{0.0};
+	double hill_occupancy_pct{0.0};
+	double dominance_ratio{0.0};
+	bool bound_to_parent{false};
+	std::string parent_name{};
+};
+
+template <typename KeyLessFunc>
+inline void flatten_tree_branch(
+	size_t node_idx,
+	int depth,
+	const std::vector<BodyHierarchyNode>& hierarchy,
+	const std::vector<uint8_t>& matching_mask,
+	const CatalogFilterState& filter,
+	const KeyLessFunc& key_less,
+	std::vector<TreeFlattenItem>& out_rows
+) noexcept {
+	const auto& node = hierarchy[node_idx];
+	std::vector<size_t> valid_children;
+	for (size_t child_idx : node.children_indices) {
+		if (matching_mask[child_idx] != 0U) {
+			valid_children.push_back(child_idx);
+		}
+	}
+
+	std::stable_sort(valid_children.begin(), valid_children.end(), [&](size_t a, size_t b) noexcept {
+		return filter.descending ? key_less(b, a) : key_less(a, b);
+	});
+
+	const bool has_children = !valid_children.empty();
+	const bool is_collapsed = filter.is_parent_collapsed(node.body_id);
+
+	TreeFlattenItem item;
+	item.body_index = node_idx;
+	item.depth = depth;
+	item.has_children = has_children;
+	item.is_collapsed = is_collapsed;
+	item.child_count = valid_children.size();
+	item.parent_id = node.parent_id;
+	item.distance_to_parent = node.distance_to_parent;
+	item.relative_speed = node.relative_speed;
+	item.relative_eccentricity = node.relative_eccentricity;
+	item.relative_semi_major_axis = node.relative_semi_major_axis;
+	item.hill_radius = node.hill_radius;
+	item.hill_occupancy_pct = node.hill_occupancy_pct;
+	item.dominance_ratio = node.dominance_ratio;
+	item.bound_to_parent = node.bound_to_parent;
+	item.parent_name = node.parent_name;
+	out_rows.push_back(std::move(item));
+
+	if (has_children && !is_collapsed) {
+		for (size_t child_idx : valid_children) {
+			flatten_tree_branch(child_idx, depth + 1, hierarchy, matching_mask, filter, key_less, out_rows);
+		}
+	}
 }
 
 [[nodiscard]] inline CatalogListResult render_body_catalog_list(BodyManagerContext& ctx, std::span<Dynamics::PostNewtonianBody> bodies, bool sources, CatalogFilterState& filter, int selected_id) noexcept {
@@ -234,6 +501,12 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 		filter.page = 0;
 	}
 	render_setting_tooltip("Number of entries displayed on one page. Large catalogs stay responsive because only the visible rows are drawn.");
+
+	ImGui::SetNextItemWidth(-1.0f);
+	if (ImGui::Combo("##CatalogViewMode", &filter.view_mode, kCatalogViewModeNames.data(), static_cast<int>(kCatalogViewModeNames.size()))) {
+		filter.page = 0;
+	}
+	render_setting_tooltip("Toggles between a flat sequential list and a dynamic gravitational hierarchy tree grouping secondary bodies and satellites under their primary parent attractors.");
 
 	const double central_mass = ctx.orchestrator().parameters().mass;
 	const double rs = std::max(2.0 * central_mass, 1e-6);
@@ -442,8 +715,10 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 		ImGui::Separator();
 	}
 
-	std::vector<size_t> visible;
-	visible.reserve(bodies.size());
+	const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+	const auto hierarchy = build_gravitational_hierarchy(bodies, central_mass, g_sim);
+
+	std::vector<uint8_t> self_matches(bodies.size(), 0U);
 	const std::string needle = catalog_lowercase(filter.search);
 
 	for (const auto& m : metrics) {
@@ -481,7 +756,7 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 		if (!filter.ranges.eccentricity.matches(m.eccentricity)) continue;
 		if (!filter.ranges.distance.matches(m.distance)) continue;
 
-		visible.push_back(m.body_index);
+		self_matches[m.body_index] = 1U;
 	}
 
 	const auto key_less = [&](size_t a, size_t b) noexcept -> bool {
@@ -499,22 +774,97 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 				return a < b;
 		}
 	};
-	std::stable_sort(visible.begin(), visible.end(), [&](size_t a, size_t b) noexcept {
-		return filter.descending ? key_less(b, a) : key_less(a, b);
-	});
 
-	result.visible_ids.reserve(visible.size());
-	for (size_t v_idx : visible) {
-		result.visible_ids.push_back(static_cast<int>(bodies[v_idx].id));
+	std::vector<size_t> visible;
+	std::vector<TreeFlattenItem> tree_rows;
+
+	if (filter.view_mode == static_cast<int>(CatalogViewMode::FlatList)) {
+		visible.reserve(bodies.size());
+		for (size_t i = 0; i < bodies.size(); ++i) {
+			if (self_matches[i] != 0U) {
+				visible.push_back(i);
+			}
+		}
+		std::stable_sort(visible.begin(), visible.end(), [&](size_t a, size_t b) noexcept {
+			return filter.descending ? key_less(b, a) : key_less(a, b);
+		});
+		result.visible_ids.reserve(visible.size());
+		for (size_t v_idx : visible) {
+			result.visible_ids.push_back(static_cast<int>(bodies[v_idx].id));
+		}
+	} else {
+		std::vector<uint8_t> matching_mask = self_matches;
+		for (size_t pass = 0; pass < 6; ++pass) {
+			for (size_t i = 0; i < bodies.size(); ++i) {
+				if (matching_mask[i] != 0U) {
+					const int p = hierarchy[i].parent_body_index;
+					if (p >= 0 && static_cast<size_t>(p) < bodies.size()) {
+						matching_mask[p] = 1U;
+					}
+				}
+			}
+		}
+
+		std::vector<size_t> top_level;
+		for (size_t i = 0; i < bodies.size(); ++i) {
+			if (matching_mask[i] == 0U) continue;
+			if (bodies[i].is_spacetime_source != sources) continue;
+			const int p = hierarchy[i].parent_body_index;
+			if (p < 0 || static_cast<size_t>(p) >= bodies.size() || bodies[p].is_spacetime_source != sources || matching_mask[p] == 0U) {
+				top_level.push_back(i);
+			}
+		}
+
+		std::stable_sort(top_level.begin(), top_level.end(), [&](size_t a, size_t b) noexcept {
+			return filter.descending ? key_less(b, a) : key_less(a, b);
+		});
+
+		tree_rows.reserve(bodies.size());
+		for (size_t root_idx : top_level) {
+			flatten_tree_branch(root_idx, 0, hierarchy, matching_mask, filter, key_less, tree_rows);
+		}
+
+		result.visible_ids.reserve(tree_rows.size());
+		for (const auto& row_item : tree_rows) {
+			result.visible_ids.push_back(static_cast<int>(bodies[row_item.body_index].id));
+		}
 	}
 
-	const size_t total = visible.size();
+	const size_t total = (filter.view_mode == static_cast<int>(CatalogViewMode::HierarchicalTree)) ? tree_rows.size() : visible.size();
 	const int page_size = kCatalogPageSizes[static_cast<size_t>(filter.page_size_index)];
 	const size_t per_page = (page_size > 0) ? static_cast<size_t>(page_size) : std::max<size_t>(total, 1);
 	const size_t page_count = std::max<size_t>((total + per_page - 1) / per_page, 1);
 	filter.page = std::clamp(filter.page, 0, static_cast<int>(page_count) - 1);
 	const size_t first = static_cast<size_t>(filter.page) * per_page;
 	const size_t last = std::min(first + per_page, total);
+
+	if (filter.view_mode == static_cast<int>(CatalogViewMode::HierarchicalTree)) {
+		size_t parent_count = 0;
+		size_t satellite_count = 0;
+		size_t sub_satellite_count = 0;
+		for (const auto& item : tree_rows) {
+			if (item.depth == 0) ++parent_count;
+			else if (item.depth == 1) ++satellite_count;
+			else ++sub_satellite_count;
+		}
+
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Hierarchy: %zu Primary Attractors | %zu Secondary Bodies / Satellites | %zu Sub-satellites", parent_count, satellite_count, sub_satellite_count);
+		if (ImGui::SmallButton("Expand All Sub-systems")) {
+			filter.expand_all();
+		}
+		render_setting_tooltip("Expands every parent body tree node to display all satellites and secondary bodies.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Collapse All Sub-systems")) {
+			std::vector<uint32_t> parent_ids;
+			for (const auto& row_item : tree_rows) {
+				if (row_item.has_children) {
+					parent_ids.push_back(bodies[row_item.body_index].id);
+				}
+			}
+			filter.collapse_all(parent_ids);
+		}
+		render_setting_tooltip("Collapses all parent body tree nodes to hide satellites and streamline dense catalog views.");
+	}
 
 	if (total == 0) {
 		ImGui::TextDisabled("No entry matches the current filter.");
@@ -550,14 +900,30 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 	clipper.Begin(static_cast<int>(last - first), row_height + style.ItemSpacing.y);
 	while (clipper.Step()) {
 		for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-			const auto& b = bodies[visible[first + static_cast<size_t>(row)]];
+			const size_t item_idx = first + static_cast<size_t>(row);
+			const bool is_tree_mode = (filter.view_mode == static_cast<int>(CatalogViewMode::HierarchicalTree));
+			const size_t body_idx = is_tree_mode ? tree_rows[item_idx].body_index : visible[item_idx];
+			const auto& b = bodies[body_idx];
+			const auto* tree_item = is_tree_mode ? &tree_rows[item_idx] : nullptr;
 			const int id = static_cast<int>(b.id);
 			ImGui::PushID(id);
 			const bool is_selected = sources ? ctx.is_source_selected(id) : ctx.is_object_selected(id);
+
+			const float indent_px = (tree_item != nullptr) ? (static_cast<float>(tree_item->depth) * 18.0f) : 0.0f;
+			const float toggle_btn_w = (tree_item != nullptr && tree_item->has_children) ? 20.0f : 0.0f;
+
 			if (ImGui::Selectable("##CatalogRow", is_selected, ImGuiSelectableFlags_None, ImVec2(0.0f, row_height))) {
-				result.clicked_id = id;
-				result.ctrl_held = ImGui::GetIO().KeyCtrl;
-				result.shift_held = ImGui::GetIO().KeyShift;
+				const float mouse_click_x = ImGui::GetIO().MousePos.x;
+				const ImVec2 item_min_pos = ImGui::GetItemRectMin();
+				const float toggle_x_start = item_min_pos.x + pad_x + indent_px;
+				const float toggle_x_end = toggle_x_start + toggle_btn_w;
+				if (tree_item != nullptr && tree_item->has_children && mouse_click_x >= toggle_x_start && mouse_click_x <= toggle_x_end) {
+					filter.toggle_parent_collapsed(b.id);
+				} else {
+					result.clicked_id = id;
+					result.ctrl_held = ImGui::GetIO().KeyCtrl;
+					result.shift_held = ImGui::GetIO().KeyShift;
+				}
 			}
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
 				if (!is_selected) {
@@ -583,24 +949,40 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 			const bool collisions_enabled = ctx.orchestrator().interaction_config().collisions.enabled;
 
 			struct CatalogRowBadge {
-				const char* text;
-				ImU32 text_col;
-				ImU32 bg_col;
-				ImU32 border_col;
-				float width;
+				char text[32]{};
+				ImU32 text_col{0};
+				ImU32 bg_col{0};
+				ImU32 border_col{0};
+				float width{0.0f};
 			};
-			std::array<CatalogRowBadge, 6> badge_items{};
+			std::array<CatalogRowBadge, 8> badge_items{};
 			size_t badge_count = 0;
 
 			const float badge_h = line_height - 2.0f;
 			const float badge_pad_x = 4.0f;
 
-			auto add_badge = [&](const char* text, ImU32 text_col, ImU32 bg_col, ImU32 border_col) noexcept {
+			auto add_badge = [&](const char* badge_text, ImU32 text_col, ImU32 bg_col, ImU32 border_col) noexcept {
 				if (badge_count < badge_items.size()) {
-					const float w = ImGui::CalcTextSize(text).x + 2.0f * badge_pad_x;
-					badge_items[badge_count++] = CatalogRowBadge{text, text_col, bg_col, border_col, w};
+					auto& b_slot = badge_items[badge_count++];
+					std::strncpy(b_slot.text, badge_text, sizeof(b_slot.text) - 1);
+					b_slot.text_col = text_col;
+					b_slot.bg_col = bg_col;
+					b_slot.border_col = border_col;
+					b_slot.width = ImGui::CalcTextSize(b_slot.text).x + 2.0f * badge_pad_x;
 				}
 			};
+
+			if (tree_item != nullptr) {
+				if (tree_item->has_children) {
+					char sub_badge[32];
+					std::snprintf(sub_badge, sizeof(sub_badge), "DOM: %zu", tree_item->child_count);
+					add_badge(sub_badge, IM_COL32(255, 215, 80, 255), IM_COL32(80, 65, 10, 220), IM_COL32(180, 150, 30, 230));
+				} else if (tree_item->depth == 1) {
+					add_badge("SEC", IM_COL32(70, 230, 230, 255), IM_COL32(10, 70, 70, 220), IM_COL32(30, 160, 160, 230));
+				} else if (tree_item->depth >= 2) {
+					add_badge("SUB", IM_COL32(200, 150, 255, 255), IM_COL32(60, 20, 85, 220), IM_COL32(140, 50, 190, 230));
+				}
+			}
 
 			if (!b.enabled) {
 				add_badge("OFF", IM_COL32(255, 110, 110, 255), IM_COL32(70, 20, 20, 220), IM_COL32(160, 45, 45, 230));
@@ -638,15 +1020,44 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 				badge_right -= item.width + 3.0f;
 			}
 
-			const float name_limit_x = std::max(rect_min.x + pad_x + 10.0f, badge_right - 4.0f);
+			if (tree_item != nullptr) {
+				if (tree_item->depth > 0) {
+					draw_list->AddText(ImVec2(rect_min.x + pad_x + indent_px - 14.0f, rect_min.y + pad_y), muted_color, "└─");
+				}
+				if (tree_item->has_children) {
+					const bool is_collapsed = filter.is_parent_collapsed(b.id);
+					const float toggle_x = rect_min.x + pad_x + indent_px;
+					const bool toggle_hovered = hovered && (ImGui::GetIO().MousePos.x >= toggle_x) && (ImGui::GetIO().MousePos.x <= toggle_x + toggle_btn_w);
+					const ImU32 toggle_col = toggle_hovered ? IM_COL32(255, 230, 80, 255) : IM_COL32(190, 190, 200, 240);
+					draw_list->AddText(ImVec2(toggle_x, rect_min.y + pad_y), toggle_col, is_collapsed ? "[+]" : "[-]");
+				}
+			}
+
+			const float text_offset_x = indent_px + toggle_btn_w;
+			const float name_limit_x = std::max(rect_min.x + pad_x + text_offset_x + 10.0f, badge_right - 4.0f);
 			draw_list->PushClipRect(rect_min, ImVec2(name_limit_x, rect_max.y), true);
-			draw_list->AddText(ImVec2(rect_min.x + pad_x, rect_min.y + pad_y), b.enabled ? text_color : muted_color, name.c_str());
+			draw_list->AddText(ImVec2(rect_min.x + pad_x + text_offset_x, rect_min.y + pad_y), b.enabled ? text_color : muted_color, name.c_str());
 			draw_list->PopClipRect();
 
 			draw_list->PushClipRect(rect_min, rect_max, true);
 			draw_list->AddText(ImVec2(id_x, rect_min.y + pad_y), accent_color, id_label.c_str());
-			const std::string info = catalog_info_line(ctx, b);
-			draw_list->AddText(ImVec2(rect_min.x + pad_x, rect_min.y + pad_y + line_height), muted_color, info.c_str());
+
+			std::string info;
+			if (tree_item != nullptr && tree_item->depth > 0) {
+				char rel_buf[192];
+				const std::string dist_str = Units::format_distance(tree_item->distance_to_parent * length_scale, prefs.distance, 2);
+				const std::string speed_str = Units::format_velocity(tree_item->relative_speed * ctx.speed_scale(), prefs.velocity);
+				std::snprintf(rel_buf, sizeof(rel_buf), "Parent: #%d  |  r_rel: %s  |  v_rel: %s  |  e: %.3f  |  Hill: %.0f%%",
+					tree_item->parent_id, dist_str.c_str(), speed_str.c_str(), tree_item->relative_eccentricity, tree_item->hill_occupancy_pct);
+				info = std::string(rel_buf);
+			} else if (tree_item != nullptr && tree_item->has_children) {
+				const std::string hill_str = Units::format_distance(tree_item->hill_radius * length_scale, prefs.distance, 2);
+				info = catalog_info_line(ctx, b) + "  |  Sub-system: " + std::to_string(tree_item->child_count) + " satellite(s) (r_Hill: " + hill_str + ")";
+			} else {
+				info = catalog_info_line(ctx, b);
+			}
+
+			draw_list->AddText(ImVec2(rect_min.x + pad_x + text_offset_x, rect_min.y + pad_y + line_height), muted_color, info.c_str());
 			draw_list->PopClipRect();
 
 			if (hovered) {
@@ -656,6 +1067,28 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 				ImGui::Text("Distance from center: %.6f", BodyManagerContext::distance_from_center(b));
 				ImGui::TextUnformatted(("Position: " + describe_position(ctx.orchestrator().coordinate_preferences().widget_default, b.position, make_coordinate_frame(ctx.orchestrator()), length_scale, prefs, 4)).c_str());
 				ImGui::Text("Speed: %.6e", b.speed());
+
+				if (tree_item != nullptr) {
+					if (tree_item->depth > 0) {
+						ImGui::Separator();
+						ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.9f, 1.0f), "Gravitational Hierarchy & Parent Orbit:");
+						ImGui::Text("Dominant Parent Attractor: #%d (%s)", tree_item->parent_id, tree_item->parent_name.c_str());
+						ImGui::Text("Relative Distance: %s", Units::format_distance(tree_item->distance_to_parent * length_scale, prefs.distance).c_str());
+						ImGui::Text("Relative Speed: %s", Units::format_velocity(tree_item->relative_speed * ctx.speed_scale(), prefs.velocity).c_str());
+						ImGui::Text("Relative Eccentricity: %.4f (%s)", tree_item->relative_eccentricity, tree_item->bound_to_parent ? "Bound Orbit" : "Hyperbolic Encounter");
+						ImGui::Text("Parent Hill Radius: %s", Units::format_distance(tree_item->hill_radius * length_scale, prefs.distance).c_str());
+						ImGui::Text("Hill Sphere Occupancy: %.1f%% (%s)", tree_item->hill_occupancy_pct, (tree_item->hill_occupancy_pct < 50.0) ? "Deeply Stable Satellite" : ((tree_item->hill_occupancy_pct < 100.0) ? "Stable Satellite Orbit" : "Near Hill Sphere Margin"));
+						ImGui::Text("Gravitational Dominance Ratio: %.1f x central tide", tree_item->dominance_ratio);
+					}
+					if (tree_item->has_children) {
+						ImGui::Separator();
+						ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Sub-system Satellite Family:");
+						ImGui::Text("Direct Satellites / Secondary Bodies: %zu", tree_item->child_count);
+						ImGui::Text("Hill Sphere Radius: %s", Units::format_distance(tree_item->hill_radius * length_scale, prefs.distance).c_str());
+						ImGui::Text("Safe Satellite Boundary (0.5 r_Hill): %s", Units::format_distance(tree_item->hill_radius * 0.5 * length_scale, prefs.distance).c_str());
+					}
+				}
+
 				ImGui::Separator();
 				ImGui::TextDisabled("Status Badges:");
 				if (!b.enabled) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "[OFF] Body is currently disabled");
@@ -705,6 +1138,31 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 				} else {
 					ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", BodyManagerContext::display_name(b).c_str());
 					ImGui::Separator();
+					if (tree_item != nullptr && tree_item->has_children) {
+						if (ImGui::MenuItem("Select Entire Sub-system")) {
+							result.action = CatalogRowAction::SelectSubsystem;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Circularize Satellites Around This Body")) {
+							result.action = CatalogRowAction::CircularizeSatellites;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem(filter.is_parent_collapsed(static_cast<uint32_t>(id)) ? "Expand Sub-system" : "Collapse Sub-system")) {
+							filter.toggle_parent_collapsed(static_cast<uint32_t>(id));
+						}
+						ImGui::Separator();
+					}
+					if (tree_item != nullptr && tree_item->depth > 0) {
+						if (tree_item->parent_id >= 0 && ImGui::MenuItem("Select Parent Body")) {
+							result.action = CatalogRowAction::SelectParent;
+							result.action_id = tree_item->parent_id;
+						}
+						if (tree_item->parent_id >= 0 && ImGui::MenuItem("Set Circular Orbit Around Parent")) {
+							result.action = CatalogRowAction::CircularizeAroundParent;
+							result.action_id = id;
+						}
+						ImGui::Separator();
+					}
 					if (ImGui::MenuItem("Look At")) {
 						result.action = CatalogRowAction::LookAt;
 						result.action_id = id;
@@ -919,6 +1377,87 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 				if (b != nullptr) ptrs.push_back(b);
 			}
 			ctx.look_at_selection(ptrs);
+			break;
+		}
+		case CatalogRowAction::SelectSubsystem: {
+			const double central_mass = ctx.orchestrator().parameters().mass;
+			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
+			std::vector<int> subsystem_ids{static_cast<int>(id)};
+			std::vector<size_t> queue;
+			for (size_t i = 0; i < hierarchy.size(); ++i) {
+				if (hierarchy[i].body_id == id) {
+					queue.push_back(i);
+					break;
+				}
+			}
+			while (!queue.empty()) {
+				const size_t curr = queue.back();
+				queue.pop_back();
+				for (size_t child_idx : hierarchy[curr].children_indices) {
+					subsystem_ids.push_back(static_cast<int>(hierarchy[child_idx].body_id));
+					queue.push_back(child_idx);
+				}
+			}
+			if (body->is_spacetime_source) {
+				ctx.set_selected_sources(subsystem_ids);
+			} else {
+				ctx.set_selected_objects(subsystem_ids);
+			}
+			break;
+		}
+		case CatalogRowAction::SelectParent: {
+			if (body->is_spacetime_source) {
+				ctx.select_source(request.action_id);
+			} else {
+				ctx.select_object(request.action_id);
+			}
+			break;
+		}
+		case CatalogRowAction::CircularizeAroundParent: {
+			const double central_mass = ctx.orchestrator().parameters().mass;
+			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
+			for (const auto& node : hierarchy) {
+				if (node.body_id == id && node.parent_body_index >= 0) {
+					const auto& parent_body = sys.bodies()[node.parent_body_index];
+					body->velocity = ctx.compute_circular_satellite_velocity(
+						body->position, body->velocity,
+						parent_body.position, parent_body.velocity,
+						parent_body.mass, body->mass
+					);
+					sys.update_accelerations();
+					ctx.orchestrator().notify_state_changed();
+					break;
+				}
+			}
+			break;
+		}
+		case CatalogRowAction::CircularizeSatellites: {
+			const double central_mass = ctx.orchestrator().parameters().mass;
+			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
+			size_t parent_idx = hierarchy.size();
+			for (size_t i = 0; i < hierarchy.size(); ++i) {
+				if (hierarchy[i].body_id == id) {
+					parent_idx = i;
+					break;
+				}
+			}
+			if (parent_idx < hierarchy.size()) {
+				for (size_t child_idx : hierarchy[parent_idx].children_indices) {
+					auto* child = ctx.find_body(hierarchy[child_idx].body_id);
+					if (child != nullptr) {
+						child->velocity = ctx.compute_circular_satellite_velocity(
+							child->position, child->velocity,
+							body->position, body->velocity,
+							body->mass, child->mass
+						);
+					}
+				}
+				sys.update_accelerations();
+				ctx.orchestrator().notify_state_changed();
+			}
 			break;
 		}
 		case CatalogRowAction::None:

@@ -223,16 +223,36 @@ public:
 		return orchestrator_;
 	}
 
+	[[nodiscard]] double simulation_g() const noexcept {
+		const auto preset = orchestrator_.constants_engine().active_preset();
+		if (preset == Core::ConstantsPreset::Custom) {
+			const double g = orchestrator_.constants_engine().sim_gravitational_constant();
+			return (g > 1e-12) ? g : 1.0;
+		}
+		return 1.0;
+	}
+
+	[[nodiscard]] double simulation_c() const noexcept {
+		const auto preset = orchestrator_.constants_engine().active_preset();
+		if (preset == Core::ConstantsPreset::Custom) {
+			const double c = orchestrator_.constants_engine().sim_speed_of_light();
+			return (c > 1e-12) ? c : 1.0;
+		}
+		return 1.0;
+	}
+
 	[[nodiscard]] double mass_scale() const noexcept {
-		return std::max(orchestrator_.constants_engine().mass_scale(), 1e-300);
+		const double ms = orchestrator_.constants_engine().mass_scale();
+		return (ms > 1e-30 && ms < 1e50 && std::abs(ms - 1.0) > 1e-12) ? ms : 1.98847e30;
 	}
 
 	[[nodiscard]] double length_scale() const noexcept {
-		return std::max(orchestrator_.constants_engine().length_scale(), 1e-300);
+		const double ls = orchestrator_.constants_engine().length_scale();
+		return (ls > 1e-30 && ls < 1e50 && std::abs(ls - 1.0) > 1e-12) ? ls : 1476.62506;
 	}
 
 	[[nodiscard]] double speed_scale() const noexcept {
-		return engine_speed_scale(orchestrator_.constants_engine());
+		return 299792458.0;
 	}
 
 	[[nodiscard]] int selected_object_id() const noexcept {
@@ -491,78 +511,109 @@ public:
 	}
 
 	[[nodiscard]] std::string generate_source_name() noexcept {
-		static constexpr std::array<const char*, 24> kSourceNames{
-			"Cygnus X-1", "V404 Cygni", "GRO J1655-40", "MAXI J1820+070", "GRS 1915+105",
-			"XTE J1550-564", "A0620-00", "LMC X-1", "GS 2000+25", "V4641 Sgr",
-			"GX 339-4", "SS 433", "Sgr A*", "M87*", "Ton 618",
-			"OJ 287", "HLX-1", "M82 X-1", "Centaurus A*", "NGC 1277*",
-			"Holmberg 15A*", "3C 273*", "PKS 1302-102", "Markarian 231*"
-		};
-		const size_t idx = static_cast<size_t>(random_int(0, static_cast<int>(kSourceNames.size() - 1)));
-		return std::string(kSourceNames[idx]);
+		char buf[48];
+		const int hh = random_int(0, 23);
+		const int mm = random_int(0, 59);
+		const char s = (random_int(0, 1) == 0) ? '+' : '-';
+		const int dd = random_int(0, 89);
+		const int dm = random_int(0, 59);
+		switch (random_int(0, 5)) {
+			case 0:
+				std::snprintf(buf, sizeof(buf), "MAXI J%02d%02d%c%02d%01d", hh, mm, s, dd, dm / 6);
+				break;
+			case 1:
+				std::snprintf(buf, sizeof(buf), "Swift J%02d%02d.%01d%c%02d%02d", hh, mm, random_int(0, 9), s, dd, dm);
+				break;
+			case 2:
+				std::snprintf(buf, sizeof(buf), "XTE J%02d%02d%c%03d", hh, mm, s, dd * 10 + dm / 6);
+				break;
+			case 3:
+				std::snprintf(buf, sizeof(buf), "IGR J%02d%02d%01d%c%02d%02d", hh, mm, random_int(0, 9), s, dd, dm);
+				break;
+			case 4:
+				std::snprintf(buf, sizeof(buf), "CXOGC J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
+				break;
+			case 5:
+			default:
+				std::snprintf(buf, sizeof(buf), "SDSS J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
+				break;
+		}
+		return std::string(buf);
 	}
 
 	[[nodiscard]] std::string generate_object_name(Dynamics::Body3DPreset preset = Dynamics::Body3DPreset::Custom) noexcept {
-		static constexpr std::array<const char*, 20> kStarNames{
-			"Alpha Centauri", "Tau Ceti", "Epsilon Eridani", "Delta Pavonis", "Beta Pictoris",
-			"Zeta Reticuli", "Mu Arae", "Gamma Trianguli", "HD 209458", "HIP 65426",
-			"HR 8799", "GJ 1214", "WASP-12", "TOI-700", "K2-18", "Kepler-452",
-			"Ross 128", "Wolf 359", "Gliese 667", "Barnard's Star"
-		};
-		static constexpr std::array<const char*, 20> kTerrestrialNames{
-			"Kepler-442 b", "Trappist-1 e", "Gliese 667 C c", "LHS 1140 b", "Ross 128 b",
-			"Proxima b", "Wolf 1061 c", "TOI-700 d", "Aurelia", "Cyrene",
-			"Vespera", "Themis", "Elysia", "Thalassa", "Hesperia", "Zephyra",
-			"Aegle", "Melita", "Arete", "Veritas"
-		};
-		static constexpr std::array<const char*, 16> kGasGiantNames{
-			"51 Pegasi b", "HD 189733 b", "WASP-17 b", "HAT-P-7 b", "TrES-4 b",
-			"KELT-9 b", "CoRoT-2 b", "XO-3 b", "Kepler-16 b", "Hyperion",
-			"Titanus", "Oceanus", "Kronos", "Aegaeon", "Phaethon", "Typhon"
-		};
-		static constexpr std::array<const char*, 14> kIceGiantNames{
-			"Gliese 436 b", "HAT-P-26 b", "Kepler-413 b", "HIP 41378 f", "Nephthys",
-			"Caelus", "Boreas", "Ymir", "Njord", "Aeolus",
-			"Glacies", "Hyperborea", "Hiemal", "Frost"
-		};
-		static constexpr std::array<const char*, 20> kSmallBodyNames{
-			"1 Ceres", "4 Vesta", "2 Pallas", "10 Hygiea", "16 Psyche",
-			"433 Eros", "243 Ida", "951 Gaspra", "2060 Chiron", "99942 Apophis",
-			"101955 Bennu", "162173 Ryugu", "Phobos", "Deimos", "Europa",
-			"Titan", "Ganymede", "Callisto", "Io", "Enceladus"
-		};
-		static constexpr std::array<const char*, 12> kCompactNames{
-			"PSR B1919+21", "PSR J0737-3039", "PSR B1257+12", "PSR J1748-2446", "PSR J0437-4715",
-			"Vela Pulsar", "Crab Pulsar", "Geminga", "SGR 1806-20", "1E 1048.1-5937",
-			"CXOU J0100-72", "XTE J1810-197"
-		};
-
+		char buf[48];
 		switch (preset) {
-			case Dynamics::Body3DPreset::Star:
-				return std::string(kStarNames[static_cast<size_t>(random_int(0, static_cast<int>(kStarNames.size() - 1)))]);
-			case Dynamics::Body3DPreset::TerrestrialPlanet:
-				return std::string(kTerrestrialNames[static_cast<size_t>(random_int(0, static_cast<int>(kTerrestrialNames.size() - 1)))]);
-			case Dynamics::Body3DPreset::GasGiant:
-				return std::string(kGasGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kGasGiantNames.size() - 1)))]);
-			case Dynamics::Body3DPreset::IceGiant:
-				return std::string(kIceGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kIceGiantNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::Star: {
+				const int mode = random_int(0, 3);
+				if (mode == 0) {
+					std::snprintf(buf, sizeof(buf), "HD %d", random_int(1000, 225000));
+				} else if (mode == 1) {
+					std::snprintf(buf, sizeof(buf), "HIP %d", random_int(1000, 120000));
+				} else if (mode == 2) {
+					std::snprintf(buf, sizeof(buf), "TOI-%d", random_int(100, 4500));
+				} else {
+					static constexpr const char* const kGreek[] = {"Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Tau"};
+					static constexpr const char* const kConst[] = {"Cen", "Eri", "Pav", "Pic", "Ret", "Cru", "Cyg", "Sgr"};
+					std::snprintf(buf, sizeof(buf), "%s %s", kGreek[random_int(0, 6)], kConst[random_int(0, 7)]);
+				}
+				break;
+			}
+			case Dynamics::Body3DPreset::TerrestrialPlanet: {
+				const char sub = static_cast<char>('b' + random_int(0, 4));
+				const int mode = random_int(0, 2);
+				if (mode == 0) {
+					std::snprintf(buf, sizeof(buf), "Kepler-%d %c", random_int(20, 1650), sub);
+				} else if (mode == 1) {
+					std::snprintf(buf, sizeof(buf), "TOI-%d %c", random_int(100, 2500), sub);
+				} else {
+					std::snprintf(buf, sizeof(buf), "GJ %d %c", random_int(100, 4000), sub);
+				}
+				break;
+			}
+			case Dynamics::Body3DPreset::GasGiant: {
+				const char sub = static_cast<char>('b' + random_int(0, 2));
+				const int mode = random_int(0, 2);
+				if (mode == 0) {
+					std::snprintf(buf, sizeof(buf), "WASP-%d %c", random_int(1, 190), sub);
+				} else if (mode == 1) {
+					std::snprintf(buf, sizeof(buf), "HAT-P-%d %c", random_int(1, 70), sub);
+				} else {
+					std::snprintf(buf, sizeof(buf), "HD %d %c", random_int(10000, 220000), sub);
+				}
+				break;
+			}
+			case Dynamics::Body3DPreset::IceGiant: {
+				const char sub = static_cast<char>('b' + random_int(0, 3));
+				std::snprintf(buf, sizeof(buf), "HIP %d %c", random_int(1000, 110000), sub);
+				break;
+			}
 			case Dynamics::Body3DPreset::Metallic:
-			case Dynamics::Body3DPreset::Asteroid:
-				return std::string(kSmallBodyNames[static_cast<size_t>(random_int(0, static_cast<int>(kSmallBodyNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::Asteroid: {
+				static constexpr const char* const kL1 = "ABCDEFGHJKLMNPQRSTUVXYZ";
+				const char c1 = kL1[random_int(0, 22)];
+				const char c2 = kL1[random_int(0, 22)];
+				std::snprintf(buf, sizeof(buf), "(%d) %04d %c%c%d", random_int(1, 99999), random_int(2000, 2025), c1, c2, random_int(1, 99));
+				break;
+			}
 			case Dynamics::Body3DPreset::NeutronStar:
-			case Dynamics::Body3DPreset::Pulsar:
-				return std::string(kCompactNames[static_cast<size_t>(random_int(0, static_cast<int>(kCompactNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::Pulsar: {
+				const int hh = random_int(0, 23);
+				const int mm = random_int(0, 59);
+				const char s = (random_int(0, 1) == 0) ? '+' : '-';
+				const int dd = random_int(0, 89);
+				const int dm = random_int(0, 59);
+				std::snprintf(buf, sizeof(buf), "PSR J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
+				break;
+			}
 			case Dynamics::Body3DPreset::BlackHole:
 				return generate_source_name();
 			case Dynamics::Body3DPreset::Custom:
-			default: {
-				const int pick = random_int(0, 3);
-				if (pick == 0) return std::string(kTerrestrialNames[static_cast<size_t>(random_int(0, static_cast<int>(kTerrestrialNames.size() - 1)))]);
-				if (pick == 1) return std::string(kStarNames[static_cast<size_t>(random_int(0, static_cast<int>(kStarNames.size() - 1)))]);
-				if (pick == 2) return std::string(kGasGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kGasGiantNames.size() - 1)))]);
-				return std::string(kSmallBodyNames[static_cast<size_t>(random_int(0, static_cast<int>(kSmallBodyNames.size() - 1)))]);
-			}
+			default:
+				std::snprintf(buf, sizeof(buf), "OBJ-%06d", random_int(100000, 999999));
+				break;
 		}
+		return std::string(buf);
 	}
 
 	[[nodiscard]] std::string generate_procedural_name(const Dynamics::PostNewtonianBody& body) noexcept {
@@ -1062,7 +1113,7 @@ public:
 	[[nodiscard]] std::array<double, 3> compute_circular_orbit_velocity(const std::array<double, 3>& pos, double central_mass) const noexcept {
 		const double r2 = pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2];
 		const double r = std::sqrt(std::max(r2, 1e-12));
-		const double speed = std::sqrt(std::max(orchestrator_.physical_gravitational_constant() * central_mass, 0.0) / r);
+		const double speed = std::sqrt(std::max(simulation_g() * central_mass, 0.0) / r);
 		const std::array<double, 3> up{0.0, 0.0, 1.0};
 		std::array<double, 3> tangent{
 			up[1] * pos[2] - up[2] * pos[1],
@@ -1093,7 +1144,7 @@ public:
 		const double d = std::sqrt(r_rel[0] * r_rel[0] + r_rel[1] * r_rel[1] + r_rel[2] * r_rel[2]);
 		if (d < 1e-9) return parent_vel;
 		const std::array<double, 3> v_rel{sat_vel[0] - parent_vel[0], sat_vel[1] - parent_vel[1], sat_vel[2] - parent_vel[2]};
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (parent_mass + sat_mass), 1e-14);
+		const double mu = std::max(simulation_g() * (parent_mass + sat_mass), 1e-14);
 		const double v_circ = std::sqrt(mu / d);
 
 		std::array<double, 3> h{
@@ -1125,7 +1176,7 @@ public:
 	[[nodiscard]] std::array<double, 3> compute_escape_velocity(const std::array<double, 3>& pos, const std::array<double, 3>& current_vel, double central_mass) const noexcept {
 		const double r = std::sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
 		if (r < 1e-12) return {0.0, 0.0, 0.0};
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * central_mass, 0.0);
+		const double mu = std::max(simulation_g() * central_mass, 0.0);
 		const double v_esc = std::sqrt(2.0 * mu / r);
 		const double cur_v = std::sqrt(current_vel[0] * current_vel[0] + current_vel[1] * current_vel[1] + current_vel[2] * current_vel[2]);
 		if (cur_v > 1e-9) {
@@ -1138,7 +1189,11 @@ public:
 			const double scale = v_esc / pro_v;
 			return {prograde[0] * scale, prograde[1] * scale, prograde[2] * scale};
 		}
-		return {0.0, v_esc, 0.0};
+		return {0.0, v_peri_fallback(v_esc)};
+	}
+
+	[[nodiscard]] static double v_peri_fallback(double v) noexcept {
+		return v;
 	}
 
 	[[nodiscard]] std::array<double, 3> compute_target_eccentricity_velocity(
@@ -1149,7 +1204,7 @@ public:
 	) const noexcept {
 		const double r = std::sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
 		if (r < 1e-12) return current_vel;
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * central_mass, 1e-14);
+		const double mu = std::max(simulation_g() * central_mass, 1e-14);
 		const double clamped_ecc = std::max(target_ecc, 0.0);
 		const double v_peri = std::sqrt(mu * (1.0 + clamped_ecc) / r);
 
@@ -1315,11 +1370,13 @@ public:
 		const double dot_s1_s2 = s1_hat[0] * s2_hat[0] + s1_hat[1] * s2_hat[1] + s1_hat[2] * s2_hat[2];
 		conf.mutual_spin_angle_deg = std::acos(std::clamp(dot_s1_s2, -1.0, 1.0)) * (180.0 / std::numbers::pi);
 
-		const double g_sim = orchestrator_.physical_gravitational_constant();
+		const double g_sim = simulation_g();
+		const double c_sim = simulation_c();
 		const double d4 = d * d * d * d;
 		const double denom = 256.0 * (g_sim * g_sim * g_sim) * m1 * m2 * m_tot;
 		if (denom > 1e-30) {
-			const double t_sim = (5.0 * d4) / denom;
+			const double c5 = c_sim * c_sim * c_sim * c_sim * c_sim;
+			const double t_sim = (5.0 * c5 * d4) / denom;
 			const double time_scale = length_scale() / speed_scale();
 			const auto el = compute_keplerian_elements(secondary.position, secondary.velocity, m_tot);
 			const double ecc = el.valid ? std::clamp(el.eccentricity, 0.0, 0.999) : 0.0;
@@ -1395,7 +1452,7 @@ public:
 		RelativeOrbitalPlaneState st;
 		st.reference_id = reference_id;
 		const double safe_central_mass = std::max(orchestrator_.parameters().mass, 1e-12);
-		const double safe_g = std::max(orchestrator_.physical_gravitational_constant(), 1e-14);
+		const double safe_g = std::max(simulation_g(), 1e-14);
 		const double length_scale_val = length_scale();
 		const double speed_scale_val = speed_scale();
 		const double time_scale_val = length_scale_val / std::max(speed_scale_val, 1e-9);
@@ -1781,7 +1838,7 @@ public:
 	void circularize_around_reference(Dynamics::PostNewtonianBody& target, int reference_id) noexcept {
 		const auto st = compute_relative_orbital_plane_state(target, reference_id);
 		if (!st.valid || st.relative_distance < 1e-12) return;
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (st.reference_mass + target.mass), 1e-14);
+		const double mu = std::max(simulation_g() * (st.reference_mass + target.mass), 1e-14);
 		const double v_circ = std::sqrt(mu / st.relative_distance);
 
 		std::array<double, 3> r_hat{
@@ -1859,7 +1916,7 @@ public:
 			fr.tangential_hat = {0.0, 1.0, 0.0};
 		}
 
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (plane_st.reference_mass + body.mass), 1e-14);
+		const double mu = std::max(simulation_g() * (plane_st.reference_mass + body.mass), 1e-14);
 		fr.circular_speed = std::sqrt(mu / fr.distance);
 		fr.escape_speed = std::sqrt(2.0 * mu / fr.distance);
 
@@ -1986,7 +2043,7 @@ public:
 
 		const double r1 = fr.distance;
 		const double r2 = std::max(target_radius_sim, 1e-6);
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (plane_st.reference_mass + body.mass), 1e-14);
+		const double mu = std::max(simulation_g() * (plane_st.reference_mass + body.mass), 1e-14);
 
 		const double a_hohmann = 0.5 * (r1 + r2);
 		const double v_req = std::sqrt(std::max(mu * (2.0 / r1 - 1.0 / a_hohmann), 1e-14));

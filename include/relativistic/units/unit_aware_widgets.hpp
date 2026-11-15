@@ -133,6 +133,8 @@ enum class UnitCategory : uint32_t {
 		if (dl_min > dl_max) {
 			std::swap(dl_min, dl_max);
 		}
+		dl_min = std::clamp(dl_min, 1e-30, 1e35);
+		dl_max = std::clamp(dl_max, 1e-30, 1e35);
 		log_min_f = static_cast<float>(dl_min);
 		log_max_f = static_cast<float>(dl_max);
 	}

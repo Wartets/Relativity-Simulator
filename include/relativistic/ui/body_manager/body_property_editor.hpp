@@ -172,14 +172,14 @@ namespace Relativistic::UI {
 
 	render_group_title("Mass, Size & Charge", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	double mass_kg = b.mass * mass_scale_kg;
-	if (unit_aware_slider_double("Mass", &mass_kg, 0.001 * mass_scale_kg, 1.0e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-12 * mass_scale_kg, 1e60 * mass_scale_kg)) {
+	if (unit_aware_slider_double("Mass", &mass_kg, 0.001 * mass_scale_kg, 1.0e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-12 * mass_scale_kg, 1e30)) {
 		b.mass = std::max(0.0, mass_kg / mass_scale_kg);
 		changed = true;
 	}
 	render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(prefs.mass)) + ".").c_str());
 
 	double radius_m = b.radius * length_scale_m;
-	if (unit_aware_slider_double("Physical Radius", &radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.radius_log_mode, 1e-6 * length_scale_m, 1e50 * length_scale_m)) {
+	if (unit_aware_slider_double("Physical Radius", &radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.radius_log_mode, 1e-6 * length_scale_m, 1e30)) {
 		b.radius = std::max(1e-6, radius_m / length_scale_m);
 		changed = true;
 	}
@@ -233,19 +233,19 @@ namespace Relativistic::UI {
 	}
 
 	ImGui::Spacing();
-	if (ImGui::Button("Circular Prograde Orbit", ImVec2(175.0f, 24.0f))) {
+	const float half_btn_w = std::max((ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f, 60.0f);
+	if (ImGui::Button("Circular Prograde", ImVec2(half_btn_w, 24.0f))) {
 		b.velocity = ctx.compute_circular_orbit_velocity(b.position, central_mass);
 		changed = true;
 	}
 	render_setting_tooltip("Overwrites the velocity with the circular prograde Keplerian orbit velocity.");
 	ImGui::SameLine();
-	if (ImGui::Button("Circular Retrograde Orbit", ImVec2(185.0f, 24.0f))) {
+	if (ImGui::Button("Circular Retrograde", ImVec2(half_btn_w, 24.0f))) {
 		b.velocity = ctx.compute_retrograde_circular_orbit_velocity(b.position, central_mass);
 		changed = true;
 	}
 	render_setting_tooltip("Overwrites the velocity with the circular retrograde Keplerian orbit velocity.");
-	ImGui::SameLine();
-	if (ImGui::Button("Escape Velocity", ImVec2(130.0f, 24.0f))) {
+	if (ImGui::Button("Escape Velocity", ImVec2(-1.0f, 24.0f))) {
 		b.velocity = ctx.compute_escape_velocity(b.position, b.velocity, central_mass);
 		changed = true;
 	}
@@ -256,8 +256,7 @@ namespace Relativistic::UI {
 		view.target_eccentricity = target_ecc;
 	}
 	render_setting_tooltip("Select a target eccentricity to re-scale the tangential velocity while keeping the current distance as periapsis.");
-	ImGui::SameLine();
-	if (ImGui::Button("Apply Eccentricity", ImVec2(140.0f, 24.0f))) {
+	if (ImGui::Button("Apply Target Eccentricity", ImVec2(-1.0f, 24.0f))) {
 		b.velocity = ctx.compute_target_eccentricity_velocity(b.position, b.velocity, central_mass, static_cast<double>(view.target_eccentricity));
 		changed = true;
 	}
@@ -297,7 +296,7 @@ namespace Relativistic::UI {
 	const auto& prefs = ctx.orchestrator().unit_preferences();
 	const double length_scale_m = ctx.length_scale();
 	double reference_radius_m = b.reference_radius * length_scale_m;
-	if (unit_aware_slider_double("Multipole Reference Radius", &reference_radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.reference_radius_log_mode, 1e-6 * length_scale_m, 1e50 * length_scale_m)) {
+	if (unit_aware_slider_double("Multipole Reference Radius", &reference_radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.reference_radius_log_mode, 1e-6 * length_scale_m, 1e30)) {
 		b.reference_radius = std::max(1e-6, reference_radius_m / length_scale_m);
 		changed = true;
 	}
@@ -583,23 +582,47 @@ inline void render_body_surface_section(Dynamics::PostNewtonianBody& b, Dynamics
 	} else {
 		sections &= ~BodyEditorSection::AccretionDisk;
 	}
-	if ((sections & BodyEditorSection::Identity) != 0U && ImGui::CollapsingHeader("Identity & State", ImGuiTreeNodeFlags_DefaultOpen)) {
-		result.body_changed = render_body_identity_section(ctx, b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
+	if ((sections & BodyEditorSection::Identity) != 0U) {
+		ImGui::SetNextItemOpen(view.sec_identity_open);
+		view.sec_identity_open = ImGui::CollapsingHeader("Identity & State");
+		if (view.sec_identity_open) {
+			result.body_changed = render_body_identity_section(ctx, b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
+		}
 	}
-	if ((sections & BodyEditorSection::Physical) != 0U && ImGui::CollapsingHeader(b.is_spacetime_source ? "Spacetime & Metric Parameters" : "Physical State & Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
-		result.body_changed = (b.is_spacetime_source ? render_source_parameters_section(ctx, b, view) : render_body_physical_section(ctx, b, view)) || result.body_changed;
+	if ((sections & BodyEditorSection::Physical) != 0U) {
+		ImGui::SetNextItemOpen(view.sec_motion_open);
+		view.sec_motion_open = ImGui::CollapsingHeader(b.is_spacetime_source ? "Spacetime & Metric Parameters" : "Physical State & Motion");
+		if (view.sec_motion_open) {
+			result.body_changed = (b.is_spacetime_source ? render_source_parameters_section(ctx, b, view) : render_body_physical_section(ctx, b, view)) || result.body_changed;
+		}
 	}
-	if ((sections & BodyEditorSection::AccretionDisk) != 0U && ImGui::CollapsingHeader("Accretion Disk", ImGuiTreeNodeFlags_DefaultOpen)) {
-		result.body_changed = render_source_disk_section(b, view) || result.body_changed;
+	if ((sections & BodyEditorSection::AccretionDisk) != 0U) {
+		ImGui::SetNextItemOpen(view.sec_accretion_disk_open);
+		view.sec_accretion_disk_open = ImGui::CollapsingHeader("Accretion Disk");
+		if (view.sec_accretion_disk_open) {
+			result.body_changed = render_source_disk_section(b, view) || result.body_changed;
+		}
 	}
-	if ((sections & BodyEditorSection::Multipoles) != 0U && ImGui::CollapsingHeader("Gravitational Multipoles")) {
-		result.body_changed = render_body_multipole_section(ctx, b, view) || result.body_changed;
+	if ((sections & BodyEditorSection::Multipoles) != 0U) {
+		ImGui::SetNextItemOpen(view.sec_multipoles_open);
+		view.sec_multipoles_open = ImGui::CollapsingHeader("Gravitational Multipoles");
+		if (view.sec_multipoles_open) {
+			result.body_changed = render_body_multipole_section(ctx, b, view) || result.body_changed;
+		}
 	}
-	if ((sections & BodyEditorSection::Material) != 0U && ImGui::CollapsingHeader("Material, Thermal & Electromagnetic")) {
-		result.body_changed = render_body_material_section(ctx, b, view) || result.body_changed;
+	if ((sections & BodyEditorSection::Material) != 0U) {
+		ImGui::SetNextItemOpen(view.sec_material_open);
+		view.sec_material_open = ImGui::CollapsingHeader("Material, Thermal & Electromagnetic");
+		if (view.sec_material_open) {
+			result.body_changed = render_body_material_section(ctx, b, view) || result.body_changed;
+		}
 	}
-	if ((sections & BodyEditorSection::Surface) != 0U && layers != nullptr && ImGui::CollapsingHeader("Surface Appearance & Layers")) {
-		render_body_surface_section(b, *layers, view, result);
+	if ((sections & BodyEditorSection::Surface) != 0U && layers != nullptr) {
+		ImGui::SetNextItemOpen(view.sec_surface_open);
+		view.sec_surface_open = ImGui::CollapsingHeader("Surface Appearance & Layers");
+		if (view.sec_surface_open) {
+			render_body_surface_section(b, *layers, view, result);
+		}
 	}
 	return result;
 }

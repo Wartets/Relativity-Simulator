@@ -92,48 +92,51 @@ private:
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Object Draft");
 		render_hint_text("Configure every property of a new orbiting body in the editor on the right, then spawn it into the running system. Independent black holes are created in the Create Source tab.");
 
-		render_group_title("Starting Point", ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
-		int template_idx = template_index_;
-		ImGui::SetNextItemWidth(-1.0f);
-		if (ImGui::Combo("##ObjectTemplate", &template_idx, kBodyTemplateNames.data(), static_cast<int>(kBodyTemplateNames.size()))) {
-			template_index_ = template_idx;
-			apply_template(ctx, static_cast<BodyPresetTemplate>(template_index_));
-		}
-		render_setting_tooltip("Fills the draft with realistic physical values, appearance and texture layers for a known body type. Real-world values are converted to the active simulation units. Position and velocity are kept.");
-		render_hint_text("Template presets load realistic values; Custom Body generates a random coherent draft.");
-		if (template_index_ == 7 || template_index_ == 8) {
-			render_caution_text("Notice: This template creates an ordinary body rendered as a black hole visual artifact. To create an active Kerr spacetime source with its own event horizon that participates in N-body gravity, absorbs matter and merges with other sources, use the 'Create Source' tab.");
-			if (ImGui::SmallButton("Switch To Create Source Tab")) {
-				ctx.request_tab(BodyManagerTab::SourceCreation);
+		ImGui::SetNextItemOpen(view_.sec_identity_open);
+		view_.sec_identity_open = ImGui::CollapsingHeader("Starting Point & Archetype Preset");
+		if (view_.sec_identity_open) {
+			int template_idx = template_index_;
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::Combo("##ObjectTemplate", &template_idx, kBodyTemplateNames.data(), static_cast<int>(kBodyTemplateNames.size()))) {
+				template_index_ = template_idx;
+				apply_template(ctx, static_cast<BodyPresetTemplate>(template_index_));
 			}
-		}
+			render_setting_tooltip("Fills the draft with realistic physical values, appearance and texture layers for a known body type. Real-world values are converted to the active simulation units. Position and velocity are kept.");
+			render_hint_text("Template presets load realistic values; Custom Body generates a random coherent draft.");
+			if (template_index_ == 7 || template_index_ == 8) {
+				render_caution_text("Notice: This template creates an ordinary body rendered as a black hole visual artifact. To create an active Kerr spacetime source with its own event horizon that participates in N-body gravity, absorbs matter and merges with other sources, use the 'Create Source' tab.");
+				if (ImGui::SmallButton("Switch To Create Source Tab")) {
+					ctx.request_tab(BodyManagerTab::SourceCreation);
+				}
+			}
 
-		if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
-			reset_draft(ctx);
-		}
-		render_setting_tooltip("Generates a coherent body profile by sampling correlated mass, radius, orbit, spin, multipoles, appearance and name.");
+			if (ImGui::Button("Randomize Intelligent Defaults", ImVec2(-1.0f, 24.0f))) {
+				reset_draft(ctx);
+			}
+			render_setting_tooltip("Generates a coherent body profile by sampling correlated mass, radius, orbit, spin, multipoles, appearance and name.");
 
-		const Dynamics::PostNewtonianBody* selected = nullptr;
-		{
-			auto& sys = ctx.orchestrator().nbody_system();
-			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
-			const Dynamics::PostNewtonianBody* candidate = ctx.find_body(static_cast<uint32_t>(std::max(ctx.selected_object_id(), 0)));
-			if (ctx.selected_object_id() >= 0 && candidate != nullptr && !candidate->is_spacetime_source) {
-				selected = candidate;
+			const Dynamics::PostNewtonianBody* selected = nullptr;
+			{
+				auto& sys = ctx.orchestrator().nbody_system();
+				std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+				const Dynamics::PostNewtonianBody* candidate = ctx.find_body(static_cast<uint32_t>(std::max(ctx.selected_object_id(), 0)));
+				if (ctx.selected_object_id() >= 0 && candidate != nullptr && !candidate->is_spacetime_source) {
+					selected = candidate;
+				}
+				ImGui::BeginDisabled(selected == nullptr);
+				if (ImGui::Button("Copy Settings From Selected Object", ImVec2(-1.0f, 24.0f)) && selected != nullptr) {
+					layers_ = ctx.orchestrator().surface_layers().get(selected->id);
+					draft_ = *selected;
+					draft_.id = 0;
+					draft_.acceleration = {0.0, 0.0, 0.0};
+					draft_.set_name(ctx.unique_name(BodyManagerContext::display_name(*selected)));
+					template_index_ = static_cast<int>(BodyPresetTemplate::Custom);
+					pristine_ = false;
+				}
+				ImGui::EndDisabled();
 			}
-			ImGui::BeginDisabled(selected == nullptr);
-			if (ImGui::Button("Copy Settings From Selected Object", ImVec2(-1.0f, 24.0f)) && selected != nullptr) {
-				layers_ = ctx.orchestrator().surface_layers().get(selected->id);
-				draft_ = *selected;
-				draft_.id = 0;
-				draft_.acceleration = {0.0, 0.0, 0.0};
-				draft_.set_name(ctx.unique_name(BodyManagerContext::display_name(*selected)));
-				template_index_ = static_cast<int>(BodyPresetTemplate::Custom);
-				pristine_ = false;
-			}
-			ImGui::EndDisabled();
+			render_setting_tooltip("Loads every property, the appearance and all texture layers of the object selected in the Object Catalog into the draft.");
 		}
-		render_setting_tooltip("Loads every property, the appearance and all texture layers of the object selected in the Object Catalog into the draft.");
 
 		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 		const auto& prefs = ctx.orchestrator().unit_preferences();
@@ -179,8 +182,10 @@ private:
 			}
 		}
 
-		render_group_title("Orbital Plane & Parent Alignment", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
-		render_hint_text("Specify the reference parent attractor and tilt the draft orbital plane relative to the central equator or a parent's orbit.");
+		ImGui::SetNextItemOpen(view_.sec_orbital_plane_open);
+		view_.sec_orbital_plane_open = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment");
+		if (view_.sec_orbital_plane_open) {
+			render_hint_text("Specify the reference parent attractor and tilt the draft orbital plane relative to the central equator or a parent's orbit.");
 
 		std::vector<int> creation_ref_ids{BodyManagerContext::kCentralSourceId};
 		std::vector<std::string> creation_ref_labels{"Central Spacetime Attractor (Origin #0)"};
@@ -286,6 +291,7 @@ private:
 				view_.plane_angles_initialized = false;
 				pristine_ = false;
 			}
+		}
 		}
 
 		render_group_title("Anti-Collision & Hazard Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
@@ -399,7 +405,7 @@ public:
 		}
 		const double speed_scale = ctx.random_real(0.82, 1.18);
 		d.velocity = {velocity[0] * speed_scale, velocity[1] * speed_scale, velocity[2] * speed_scale};
-		const double breakup_rate = std::sqrt(std::max(ctx.orchestrator().physical_gravitational_constant() * d.mass / (d.radius * d.radius * d.radius), 0.0));
+		const double breakup_rate = std::sqrt(std::max(ctx.simulation_g() * d.mass / (d.radius * d.radius * d.radius), 0.0));
 		const double spin_rate = breakup_rate * profile.breakup_spin_fraction * ctx.random_real(0.1, 1.0);
 		const double axis_tilt = ctx.random_real(0.0, 0.5);
 		const double axis_azimuth = ctx.random_real(0.0, 2.0 * std::numbers::pi);

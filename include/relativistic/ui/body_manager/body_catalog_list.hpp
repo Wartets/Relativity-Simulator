@@ -178,6 +178,7 @@ struct CatalogFilterState {
 	int view_mode{0};
 	std::vector<uint32_t> collapsed_parents{};
 	CatalogRangeFilters ranges{};
+	bool physical_ranges_open{false};
 
 	[[nodiscard]] bool is_parent_collapsed(uint32_t id) const noexcept {
 		return std::find(collapsed_parents.begin(), collapsed_parents.end(), id) != collapsed_parents.end();
@@ -614,7 +615,9 @@ inline void flatten_tree_branch(
 		std::snprintf(header_label, sizeof(header_label), "Physical Attribute Range Filters###PhysicalRanges");
 	}
 
+	ImGui::SetNextItemOpen(filter.physical_ranges_open);
 	const bool header_open = ImGui::CollapsingHeader(header_label);
+	filter.physical_ranges_open = header_open;
 	render_setting_tooltip("Filters bodies dynamically by continuous physical parameter intervals (mass, radius, temperature, orbital eccentricity, and distance from center).");
 
 	if (!header_open && active_criteria_count > 0) {
@@ -724,7 +727,7 @@ inline void flatten_tree_branch(
 		ImGui::Separator();
 	}
 
-	const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+	const double g_sim = ctx.simulation_g();
 	const auto hierarchy = build_gravitational_hierarchy(bodies, central_mass, g_sim);
 
 	std::vector<uint8_t> self_matches(bodies.size(), 0U);

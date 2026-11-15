@@ -31,7 +31,7 @@ struct SpacetimeSourcePanelOptions {
 	double mass_slider_minimum{0.01};
 	double mass_slider_maximum{100.0};
 	double mass_log_minimum{0.01};
-	double mass_log_maximum{100.0};
+	double mass_log_maximum{1.0e30};
 	double charge_limit{0.0};
 };
 

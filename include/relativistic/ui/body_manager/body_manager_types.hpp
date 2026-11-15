@@ -199,6 +199,15 @@ struct BodyEditorViewState {
 	float frenet_target_hohmann_radius{50.0f};
 	float frenet_plane_change_deg{5.0f};
 	bool frenet_hohmann_radius_log_mode{false};
+	bool sec_identity_open{true};
+	bool sec_motion_open{true};
+	bool sec_orbital_plane_open{false};
+	bool sec_frenet_open{false};
+	bool sec_orientation_open{false};
+	bool sec_multipoles_open{false};
+	bool sec_material_open{false};
+	bool sec_surface_open{true};
+	bool sec_accretion_disk_open{true};
 };
 
 struct BodyEditResult {

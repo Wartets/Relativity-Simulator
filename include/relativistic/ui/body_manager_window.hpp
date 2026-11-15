@@ -67,6 +67,20 @@ public:
 		object_catalog_tab_.view().show_relative_coordinates = settings.body_manager_relative_coords_mode;
 		source_catalog_tab_.view().reference_frame_body_id = settings.body_manager_reference_body_id;
 		source_catalog_tab_.view().show_relative_coordinates = settings.body_manager_relative_coords_mode;
+		object_catalog_tab_.view().sec_identity_open = settings.body_sec_identity_open;
+		object_catalog_tab_.view().sec_motion_open = settings.body_sec_motion_open;
+		object_catalog_tab_.view().sec_orbital_plane_open = settings.body_sec_orbital_plane_open;
+		object_catalog_tab_.view().sec_frenet_open = settings.body_sec_frenet_open;
+		object_catalog_tab_.view().sec_orientation_open = settings.body_sec_orientation_open;
+		object_catalog_tab_.view().sec_multipoles_open = settings.body_sec_multipoles_open;
+		object_catalog_tab_.view().sec_material_open = settings.body_sec_material_open;
+		object_catalog_tab_.view().sec_surface_open = settings.body_sec_surface_open;
+		object_catalog_tab_.view().sec_accretion_disk_open = settings.body_sec_accretion_disk_open;
+		object_creation_tab_.view().sec_identity_open = settings.body_creation_sec_template_open;
+		object_creation_tab_.view().sec_orbital_plane_open = settings.body_creation_sec_plane_open;
+		source_creation_tab_.view().sec_identity_open = settings.source_creation_sec_template_open;
+		source_creation_tab_.view().sec_orbital_plane_open = settings.source_creation_sec_plane_open;
+		object_catalog_tab_.filter().physical_ranges_open = settings.catalog_filter_ranges_open;
 	}
 
 	void sync_persisted_settings() noexcept {
@@ -87,6 +101,20 @@ public:
 		persisted_settings_->body_manager_new_source_mass_log_mode = source_creation_tab_.view().mass_log_mode;
 		persisted_settings_->body_manager_reference_body_id = object_catalog_tab_.view().reference_frame_body_id;
 		persisted_settings_->body_manager_relative_coords_mode = object_catalog_tab_.view().show_relative_coordinates;
+		persisted_settings_->body_sec_identity_open = object_catalog_tab_.view().sec_identity_open;
+		persisted_settings_->body_sec_motion_open = object_catalog_tab_.view().sec_motion_open;
+		persisted_settings_->body_sec_orbital_plane_open = object_catalog_tab_.view().sec_orbital_plane_open;
+		persisted_settings_->body_sec_frenet_open = object_catalog_tab_.view().sec_frenet_open;
+		persisted_settings_->body_sec_orientation_open = object_catalog_tab_.view().sec_orientation_open;
+		persisted_settings_->body_sec_multipoles_open = object_catalog_tab_.view().sec_multipoles_open;
+		persisted_settings_->body_sec_material_open = object_catalog_tab_.view().sec_material_open;
+		persisted_settings_->body_sec_surface_open = object_catalog_tab_.view().sec_surface_open;
+		persisted_settings_->body_sec_accretion_disk_open = object_catalog_tab_.view().sec_accretion_disk_open;
+		persisted_settings_->body_creation_sec_template_open = object_creation_tab_.view().sec_identity_open;
+		persisted_settings_->body_creation_sec_plane_open = object_creation_tab_.view().sec_orbital_plane_open;
+		persisted_settings_->source_creation_sec_template_open = source_creation_tab_.view().sec_identity_open;
+		persisted_settings_->source_creation_sec_plane_open = source_creation_tab_.view().sec_orbital_plane_open;
+		persisted_settings_->catalog_filter_ranges_open = object_catalog_tab_.filter().physical_ranges_open;
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {

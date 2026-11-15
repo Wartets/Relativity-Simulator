@@ -591,23 +591,41 @@ namespace Detail {
 }
 
 [[nodiscard]] inline std::string format_distance(double meters, DistanceUnit unit, int precision = 3) noexcept {
+	const double val = convert_distance_from_meters(meters, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_distance_from_meters(meters, unit) << " " << distance_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << distance_unit_suffix(unit);
 	return ss.str();
 }
 
 [[nodiscard]] inline std::string format_mass(double kilograms, MassUnit unit, int precision = 3) noexcept {
+	const double val = convert_mass_from_kg(kilograms, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_mass_from_kg(kilograms, unit) << " " << mass_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << mass_unit_suffix(unit);
 	return ss.str();
 }
 
 [[nodiscard]] inline std::string format_velocity(double meters_per_second, VelocityUnit unit, int precision = 3) noexcept {
+	const double val = convert_velocity_from_mps(meters_per_second, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_velocity_from_mps(meters_per_second, unit) << " " << velocity_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << velocity_unit_suffix(unit);
 	return ss.str();
 }
 
@@ -696,9 +714,15 @@ namespace Detail {
 }
 
 [[nodiscard]] inline std::string format_time(double seconds, TimeUnit unit, int precision = 3) noexcept {
+	const double val = convert_time_from_seconds(seconds, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_time_from_seconds(seconds, unit) << " " << time_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << time_unit_suffix(unit);
 	return ss.str();
 }
 
@@ -738,9 +762,15 @@ namespace Detail {
 }
 
 [[nodiscard]] inline std::string format_acceleration(double mps2, AccelerationUnit unit, int precision = 3) noexcept {
+	const double val = convert_acceleration_from_mps2(mps2, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_acceleration_from_mps2(mps2, unit) << " " << acceleration_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << acceleration_unit_suffix(unit);
 	return ss.str();
 }
 
@@ -777,9 +807,15 @@ namespace Detail {
 }
 
 [[nodiscard]] inline std::string format_angular_velocity(double radps, AngularVelocityUnit unit, int precision = 3) noexcept {
+	const double val = convert_angular_velocity_from_radps(radps, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_angular_velocity_from_radps(radps, unit) << " " << angular_velocity_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << angular_velocity_unit_suffix(unit);
 	return ss.str();
 }
 
@@ -816,9 +852,15 @@ namespace Detail {
 }
 
 [[nodiscard]] inline std::string format_density(double kg_m3, DensityUnit unit, int precision = 3) noexcept {
+	const double val = convert_density_from_kg_m3(kg_m3, unit);
 	std::ostringstream ss;
-	ss << std::fixed << std::setprecision(std::clamp(precision, 0, 8));
-	ss << convert_density_from_kg_m3(kg_m3, unit) << " " << density_unit_suffix(unit);
+	const double abs_val = std::abs(val);
+	if (abs_val >= 1.0e6 || (abs_val > 0.0 && abs_val < 1.0e-3)) {
+		ss << std::scientific << std::setprecision(std::clamp(precision, 1, 6));
+	} else {
+		ss << std::fixed << std::setprecision(std::clamp(precision, 0, 6));
+	}
+	ss << val << " " << density_unit_suffix(unit);
 	return ss.str();
 }
 

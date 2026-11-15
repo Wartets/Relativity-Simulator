@@ -50,51 +50,54 @@ private:
 		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Black Hole Draft");
 		render_hint_text("Configure an independent Kerr black hole in the editor on the right, then spawn it. It is fully N-body integrated: it can orbit, drift, merge with other sources on contact and absorb ordinary bodies crossing its horizon.");
 
-		render_group_title("Starting Point", ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
-		int template_idx = template_index_;
-		ImGui::SetNextItemWidth(-1.0f);
-		if (ImGui::Combo("##SourceTemplate", &template_idx, kSourceTemplateNames.data(), static_cast<int>(kSourceTemplateNames.size()))) {
-			template_index_ = template_idx;
-			apply_template(ctx, static_cast<SourcePresetTemplate>(template_index_));
-		}
-		render_setting_tooltip("Fills the draft with realistic mass, spin, charge, and accretion disk profile for observed black holes.");
-		if (template_index_ > 0 && static_cast<size_t>(template_index_ - 1) < kSourceTemplateSpecs.size()) {
-			render_hint_text(kSourceTemplateSpecs[static_cast<size_t>(template_index_ - 1)].description.data());
-		}
+		ImGui::SetNextItemOpen(view_.sec_identity_open);
+		view_.sec_identity_open = ImGui::CollapsingHeader("Starting Point & Astrophysical Template");
+		if (view_.sec_identity_open) {
+			int template_idx = template_index_;
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::Combo("##SourceTemplate", &template_idx, kSourceTemplateNames.data(), static_cast<int>(kSourceTemplateNames.size()))) {
+				template_index_ = template_idx;
+				apply_template(ctx, static_cast<SourcePresetTemplate>(template_index_));
+			}
+			render_setting_tooltip("Fills the draft with realistic mass, spin, charge, and accretion disk profile for observed black holes.");
+			if (template_index_ > 0 && static_cast<size_t>(template_index_ - 1) < kSourceTemplateSpecs.size()) {
+				render_hint_text(kSourceTemplateSpecs[static_cast<size_t>(template_index_ - 1)].description.data());
+			}
 
-		if (ImGui::Button("Reset Draft To Defaults", ImVec2(-1.0f, 24.0f))) {
-			template_index_ = static_cast<int>(SourcePresetTemplate::Custom);
-			reset_draft(ctx);
-		}
-		render_setting_tooltip("Restores a quarter-mass black hole on a wide circular orbit around the primary source.");
+			if (ImGui::Button("Reset Draft To Defaults", ImVec2(-1.0f, 24.0f))) {
+				template_index_ = static_cast<int>(SourcePresetTemplate::Custom);
+				reset_draft(ctx);
+			}
+			render_setting_tooltip("Restores a quarter-mass black hole on a wide circular orbit around the primary source.");
 
-		const Dynamics::PostNewtonianBody* selected = nullptr;
-		{
-			auto& sys = ctx.orchestrator().nbody_system();
-			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
-			if (ctx.selected_source_id() >= 0) {
-				const Dynamics::PostNewtonianBody* candidate = ctx.find_body(static_cast<uint32_t>(ctx.selected_source_id()));
-				if (candidate != nullptr && candidate->is_spacetime_source) {
-					selected = candidate;
+			const Dynamics::PostNewtonianBody* selected = nullptr;
+			{
+				auto& sys = ctx.orchestrator().nbody_system();
+				std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+				if (ctx.selected_source_id() >= 0) {
+					const Dynamics::PostNewtonianBody* candidate = ctx.find_body(static_cast<uint32_t>(ctx.selected_source_id()));
+					if (candidate != nullptr && candidate->is_spacetime_source) {
+						selected = candidate;
+					}
 				}
+				ImGui::BeginDisabled(selected == nullptr);
+				if (ImGui::Button("Copy Settings From Selected Source", ImVec2(-1.0f, 24.0f)) && selected != nullptr) {
+					draft_ = *selected;
+					draft_.id = 0;
+					draft_.acceleration = {0.0, 0.0, 0.0};
+					draft_.set_name(ctx.unique_name(BodyManagerContext::display_name(*selected)));
+					pristine_ = false;
+				}
+				ImGui::EndDisabled();
 			}
-			ImGui::BeginDisabled(selected == nullptr);
-			if (ImGui::Button("Copy Settings From Selected Source", ImVec2(-1.0f, 24.0f)) && selected != nullptr) {
-				draft_ = *selected;
-				draft_.id = 0;
-				draft_.acceleration = {0.0, 0.0, 0.0};
-				draft_.set_name(ctx.unique_name(BodyManagerContext::display_name(*selected)));
-				pristine_ = false;
-			}
-			ImGui::EndDisabled();
-		}
-		render_setting_tooltip("Loads every property and the accretion disk appearance of the black hole selected in the Source Catalog into the draft.");
+			render_setting_tooltip("Loads every property and the accretion disk appearance of the black hole selected in the Source Catalog into the draft.");
 
-		if (ImGui::Button("Spawn Companion In Wide Orbit (Randomized)", ImVec2(-1.0f, 24.0f))) {
-			ctx.spawn_companion_source();
-			ctx.request_tab(BodyManagerTab::SourceCatalog);
+			if (ImGui::Button("Spawn Companion In Wide Orbit (Randomized)", ImVec2(-1.0f, 24.0f))) {
+				ctx.spawn_companion_source();
+				ctx.request_tab(BodyManagerTab::SourceCatalog);
+			}
+			render_setting_tooltip("Immediately creates a black hole roughly half the mass of the primary source on a wide, randomly inclined circular orbit.");
 		}
-		render_setting_tooltip("Immediately creates a black hole roughly half the mass of the primary source on a wide, randomly inclined circular orbit.");
 
 		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 		const auto& prefs = ctx.orchestrator().unit_preferences();
@@ -140,8 +143,10 @@ private:
 			render_wrapped_disabled_format("Binary Metrics: q = %.4f | eta = %.4f | GW Coalescence: %s", draft_binary.mass_ratio, draft_binary.symmetric_mass_ratio, Units::format_time(draft_binary.peters_coalescence_time_seconds, prefs.time).c_str());
 		}
 
-		render_group_title("Orbital Plane & Parent Alignment", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
-		render_hint_text("Specify the reference parent attractor and tilt the black hole orbital plane relative to the central equator or a parent's orbit.");
+		ImGui::SetNextItemOpen(view_.sec_orbital_plane_open);
+		view_.sec_orbital_plane_open = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment");
+		if (view_.sec_orbital_plane_open) {
+			render_hint_text("Specify the reference parent attractor and tilt the black hole orbital plane relative to the central equator or a parent's orbit.");
 
 		std::vector<int> src_creation_ref_ids{BodyManagerContext::kCentralSourceId};
 		std::vector<std::string> src_creation_ref_labels{"Central Spacetime Attractor (Origin #0)"};
@@ -247,6 +252,7 @@ private:
 				view_.plane_angles_initialized = false;
 				pristine_ = false;
 			}
+		}
 		}
 
 		render_group_title("Anti-Collision & Separation Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));

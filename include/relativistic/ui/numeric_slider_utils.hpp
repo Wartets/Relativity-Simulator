@@ -53,15 +53,18 @@ inline bool smart_quantity_input(
 namespace Detail {
 
 [[nodiscard]] inline std::pair<float, float> default_log_slider_bounds(float min_val, float max_val) noexcept {
-	constexpr float kMinPositive = 1e-12f;
+	constexpr float kMinPositive = 1e-30f;
+	constexpr float kMaxPositive = 1e35f;
 	if (!(max_val > 0.0f)) {
 		return {min_val, max_val};
 	}
-	const float safe_min = std::max(min_val, kMinPositive);
-	const float safe_max = std::max(max_val, safe_min * 1.0001f);
-	const float lower = std::pow(10.0f, std::floor(std::log10(safe_min)) - 2.0f);
-	const float upper = std::pow(10.0f, std::ceil(std::log10(safe_max)) + 2.0f);
-	return {std::max(lower, kMinPositive), std::max(upper, safe_max * 1.0001f)};
+	const float safe_min = std::clamp(min_val, kMinPositive, kMaxPositive);
+	const float safe_max = std::clamp(max_val, safe_min * 1.0001f, kMaxPositive);
+	const float exp_min = std::clamp(std::floor(std::log10(safe_min)) - 1.0f, -30.0f, 35.0f);
+	const float exp_max = std::clamp(std::ceil(std::log10(safe_max)) + 1.0f, exp_min + 0.1f, 35.0f);
+	const float lower = std::pow(10.0f, exp_min);
+	const float upper = std::pow(10.0f, exp_max);
+	return {std::max(lower, kMinPositive), std::min(upper, kMaxPositive)};
 }
 
 [[nodiscard]] inline bool use_log_slider(const bool* log_mode, float min_val, float max_val) noexcept {
@@ -109,11 +112,16 @@ inline bool slider_float_with_input(
 	float visible_min = min_val;
 	float visible_max = max_val;
 	if (log_slider_enabled) {
-		const auto [resolved_log_min, resolved_log_max] = std::isfinite(log_min_override) && std::isfinite(log_max_override) && log_max_override > log_min_override
-			? std::pair<float, float>{log_min_override, log_max_override}
+		constexpr float kMaxSafeFloat = 1e35f;
+		constexpr float kMinSafeFloat = 1e-30f;
+		auto [resolved_log_min, resolved_log_max] = std::isfinite(log_min_override) && std::isfinite(log_max_override) && log_max_override > log_min_override
+			? std::pair<float, float>{std::clamp(log_min_override, kMinSafeFloat, kMaxSafeFloat), std::clamp(log_max_override, kMinSafeFloat * 1.0001f, kMaxSafeFloat)}
 			: Detail::default_log_slider_bounds(min_val, max_val);
-		visible_min = resolved_log_min;
-		visible_max = resolved_log_max;
+		if (resolved_log_min >= resolved_log_max) {
+			resolved_log_max = resolved_log_min * 10.0f;
+		}
+		visible_min = std::clamp(resolved_log_min, kMinSafeFloat, kMaxSafeFloat);
+		visible_max = std::clamp(resolved_log_max, visible_min * 1.0001f, kMaxSafeFloat);
 		float log_val = std::log10(std::clamp(*value, visible_min, visible_max));
 		const float log_min = std::log10(visible_min);
 		const float log_max = std::log10(visible_max);

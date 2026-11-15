@@ -201,8 +201,9 @@ public:
 			render_setting_tooltip("Removes scoped bodies that fall outside the primary camera's current field-of-view cone.");
 
 			ImGui::Spacing();
-			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Scoped Orbital Plane Alignment Actions:");
-			render_hint_text("Batch plane alignment actions applied across all scoped bodies relative to the selected reference attractor.");
+			ImGui::SetNextItemOpen(false, ImGuiCond_Once);
+			if (ImGui::CollapsingHeader("Scoped Orbital Plane Alignment Actions")) {
+				render_hint_text("Batch plane alignment actions applied across all scoped bodies relative to the selected reference attractor.");
 
 			static int sys_ref_id = BodyManagerContext::kCentralSourceId;
 			std::vector<int> sys_ref_ids{BodyManagerContext::kCentralSourceId};
@@ -281,6 +282,7 @@ public:
 				}
 				sys.update_accelerations();
 				orchestrator.notify_state_changed();
+			}
 			}
 
 			ImGui::Spacing();

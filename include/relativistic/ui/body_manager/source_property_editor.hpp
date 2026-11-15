@@ -603,19 +603,19 @@ namespace Relativistic::UI {
 	}
 
 	ImGui::Spacing();
-	if (ImGui::Button("Circular Prograde Orbit", ImVec2(175.0f, 24.0f))) {
+	const float half_btn_w = std::max((ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f, 60.0f);
+	if (ImGui::Button("Circular Prograde", ImVec2(half_btn_w, 24.0f))) {
 		b.velocity = ctx.compute_circular_orbit_velocity(b.position, effective_central_mass);
 		changed = true;
 	}
 	render_setting_tooltip("Overwrites coordinate velocity with the circular prograde Keplerian orbital velocity.");
 	ImGui::SameLine();
-	if (ImGui::Button("Circular Retrograde Orbit", ImVec2(185.0f, 24.0f))) {
+	if (ImGui::Button("Circular Retrograde", ImVec2(half_btn_w, 24.0f))) {
 		b.velocity = ctx.compute_retrograde_circular_orbit_velocity(b.position, effective_central_mass);
 		changed = true;
 	}
 	render_setting_tooltip("Overwrites coordinate velocity with the circular retrograde Keplerian orbital velocity.");
-	ImGui::SameLine();
-	if (ImGui::Button("Escape Velocity", ImVec2(130.0f, 24.0f))) {
+	if (ImGui::Button("Escape Velocity", ImVec2(-1.0f, 24.0f))) {
 		b.velocity = ctx.compute_escape_velocity(b.position, b.velocity, effective_central_mass);
 		changed = true;
 	}
@@ -626,8 +626,7 @@ namespace Relativistic::UI {
 		view.target_eccentricity = target_ecc;
 	}
 	render_setting_tooltip("Select a target eccentricity to re-scale the tangential velocity while keeping the current distance as periapsis.");
-	ImGui::SameLine();
-	if (ImGui::Button("Apply Eccentricity", ImVec2(140.0f, 24.0f))) {
+	if (ImGui::Button("Apply Target Eccentricity", ImVec2(-1.0f, 24.0f))) {
 		b.velocity = ctx.compute_target_eccentricity_velocity(b.position, b.velocity, effective_central_mass, static_cast<double>(view.target_eccentricity));
 		changed = true;
 	}

@@ -9,6 +9,7 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <span>
 #include <string>
 #include <vector>
@@ -50,6 +51,98 @@ inline constexpr std::array<const char*, 4> kCatalogDynamicsFilterNames{
 	"Near Horizon (r < 5 rs)"
 };
 
+struct PhysicalAttributeRangeFilter {
+	bool enabled{false};
+	float min_val{0.0f};
+	float max_val{1.0f};
+	float limit_min{0.0f};
+	float limit_max{1.0f};
+
+	[[nodiscard]] bool matches(double val) const noexcept {
+		if (!enabled) return true;
+		const float f = static_cast<float>(val);
+		const float lo = std::min(min_val, max_val);
+		const float hi = std::max(min_val, max_val);
+		return (f >= lo && f <= hi);
+	}
+
+	void set_limits(float l_min, float l_max) noexcept {
+		if (l_min > l_max) std::swap(l_min, l_max);
+		if (l_min == l_max) {
+			l_min = std::max(0.0f, l_min * 0.8f);
+			l_max = (l_max > 0.0f) ? (l_max * 1.2f) : 1.0f;
+		}
+		limit_min = l_min;
+		limit_max = l_max;
+		if (!enabled) {
+			min_val = limit_min;
+			max_val = limit_max;
+		} else {
+			min_val = std::clamp(min_val, limit_min, limit_max);
+			max_val = std::clamp(max_val, limit_min, limit_max);
+		}
+	}
+
+	void expand_limits(float val) noexcept {
+		if (val < limit_min) {
+			limit_min = std::max(0.0f, val * 0.9f);
+			if (!enabled) min_val = limit_min;
+		}
+		if (val > limit_max) {
+			limit_max = val * 1.1f;
+			if (!enabled) max_val = limit_max;
+		}
+	}
+
+	void reset_to_limits() noexcept {
+		min_val = limit_min;
+		max_val = limit_max;
+	}
+
+	void sanitize() noexcept {
+		if (limit_min > limit_max) std::swap(limit_min, limit_max);
+		min_val = std::clamp(min_val, limit_min, limit_max);
+		max_val = std::clamp(max_val, limit_min, limit_max);
+		if (min_val > max_val) std::swap(min_val, max_val);
+	}
+};
+
+struct CatalogRangeFilters {
+	bool initialized{false};
+	PhysicalAttributeRangeFilter mass{};
+	PhysicalAttributeRangeFilter radius{};
+	PhysicalAttributeRangeFilter temperature{};
+	PhysicalAttributeRangeFilter eccentricity{};
+	PhysicalAttributeRangeFilter distance{};
+
+	[[nodiscard]] bool any_active() const noexcept {
+		return mass.enabled || radius.enabled || temperature.enabled || eccentricity.enabled || distance.enabled;
+	}
+
+	[[nodiscard]] size_t active_count() const noexcept {
+		size_t count = 0;
+		if (mass.enabled) ++count;
+		if (radius.enabled) ++count;
+		if (temperature.enabled) ++count;
+		if (eccentricity.enabled) ++count;
+		if (distance.enabled) ++count;
+		return count;
+	}
+
+	void reset_all() noexcept {
+		mass.enabled = false;
+		mass.reset_to_limits();
+		radius.enabled = false;
+		radius.reset_to_limits();
+		temperature.enabled = false;
+		temperature.reset_to_limits();
+		eccentricity.enabled = false;
+		eccentricity.reset_to_limits();
+		distance.enabled = false;
+		distance.reset_to_limits();
+	}
+};
+
 struct CatalogFilterState {
 	char search[64]{};
 	int sort_mode{0};
@@ -59,6 +152,7 @@ struct CatalogFilterState {
 	int dynamics_filter{0};
 	int page{0};
 	int page_size_index{2};
+	CatalogRangeFilters ranges{};
 };
 
 struct CatalogListResult {
@@ -141,29 +235,225 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 	}
 	render_setting_tooltip("Number of entries displayed on one page. Large catalogs stay responsive because only the visible rows are drawn.");
 
-	std::vector<size_t> visible;
-	visible.reserve(bodies.size());
-	const std::string needle = catalog_lowercase(filter.search);
 	const double central_mass = ctx.orchestrator().parameters().mass;
 	const double rs = std::max(2.0 * central_mass, 1e-6);
 
+	struct BodyFilterMetric {
+		size_t body_index{0};
+		double mass{0.0};
+		double radius{0.0};
+		double temperature{0.0};
+		double eccentricity{0.0};
+		double distance{0.0};
+		bool bound_orbit{false};
+	};
+
+	std::vector<BodyFilterMetric> metrics;
+	metrics.reserve(bodies.size());
 	for (size_t i = 0; i < bodies.size(); ++i) {
 		const auto& b = bodies[i];
 		if (b.is_spacetime_source != sources) continue;
+		const double effective_central = central_mass + (b.is_spacetime_source ? b.mass : 0.0);
+		const auto el = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central);
+		metrics.push_back(BodyFilterMetric{
+			i,
+			b.mass,
+			b.radius,
+			b.temperature,
+			el.valid ? el.eccentricity : 0.0,
+			BodyManagerContext::distance_from_center(b),
+			el.valid && el.is_bound
+		});
+	}
+
+	if (!metrics.empty()) {
+		if (!filter.ranges.initialized) {
+			double min_m = metrics.front().mass, max_m = metrics.front().mass;
+			double min_r = metrics.front().radius, max_r = metrics.front().radius;
+			double min_t = metrics.front().temperature, max_t = metrics.front().temperature;
+			double min_e = metrics.front().eccentricity, max_e = metrics.front().eccentricity;
+			double min_d = metrics.front().distance, max_d = metrics.front().distance;
+			for (const auto& m : metrics) {
+				min_m = std::min(min_m, m.mass); max_m = std::max(max_m, m.mass);
+				min_r = std::min(min_r, m.radius); max_r = std::max(max_r, m.radius);
+				min_t = std::min(min_t, m.temperature); max_t = std::max(max_t, m.temperature);
+				min_e = std::min(min_e, m.eccentricity); max_e = std::max(max_e, m.eccentricity);
+				min_d = std::min(min_d, m.distance); max_d = std::max(max_d, m.distance);
+			}
+			filter.ranges.mass.set_limits(static_cast<float>(min_m * 0.95), static_cast<float>(max_m * 1.05));
+			filter.ranges.radius.set_limits(static_cast<float>(min_r * 0.95), static_cast<float>(max_r * 1.05));
+			filter.ranges.temperature.set_limits(static_cast<float>(std::max(0.0, min_t * 0.95)), static_cast<float>(max_t * 1.05));
+			filter.ranges.eccentricity.set_limits(0.0f, static_cast<float>(std::max(max_e * 1.1, 2.0)));
+			filter.ranges.distance.set_limits(static_cast<float>(min_d * 0.95), static_cast<float>(max_d * 1.05));
+			filter.ranges.initialized = true;
+		} else {
+			for (const auto& m : metrics) {
+				filter.ranges.mass.expand_limits(static_cast<float>(m.mass));
+				filter.ranges.radius.expand_limits(static_cast<float>(m.radius));
+				filter.ranges.temperature.expand_limits(static_cast<float>(m.temperature));
+				filter.ranges.eccentricity.expand_limits(static_cast<float>(m.eccentricity));
+				filter.ranges.distance.expand_limits(static_cast<float>(m.distance));
+			}
+		}
+	}
+
+	const size_t total_category_bodies = metrics.size();
+	size_t pass_mass_count = 0;
+	size_t pass_radius_count = 0;
+	size_t pass_temp_count = 0;
+	size_t pass_ecc_count = 0;
+	size_t pass_dist_count = 0;
+	size_t pass_all_range_count = 0;
+
+	for (const auto& m : metrics) {
+		const bool pm = filter.ranges.mass.matches(m.mass);
+		const bool pr = filter.ranges.radius.matches(m.radius);
+		const bool pt = filter.ranges.temperature.matches(m.temperature);
+		const bool pe = filter.ranges.eccentricity.matches(m.eccentricity);
+		const bool pd = filter.ranges.distance.matches(m.distance);
+		if (pm) ++pass_mass_count;
+		if (pr) ++pass_radius_count;
+		if (pt) ++pass_temp_count;
+		if (pe) ++pass_ecc_count;
+		if (pd) ++pass_dist_count;
+		if (pm && pr && pt && pe && pd) ++pass_all_range_count;
+	}
+
+	const size_t active_criteria_count = filter.ranges.active_count();
+	const double pass_pct = (total_category_bodies > 0) ? (100.0 * static_cast<double>(pass_all_range_count) / static_cast<double>(total_category_bodies)) : 0.0;
+	const ImVec4 badge_col = (pass_pct >= 75.0)
+		? ImVec4(0.35f, 0.95f, 0.45f, 1.0f)
+		: ((pass_pct >= 25.0) ? ImVec4(1.0f, 0.8f, 0.25f, 1.0f) : ImVec4(1.0f, 0.4f, 0.35f, 1.0f));
+
+	char header_label[96];
+	if (active_criteria_count > 0) {
+		std::snprintf(header_label, sizeof(header_label), "Physical Attribute Range Filters (%zu active)###PhysicalRanges", active_criteria_count);
+	} else {
+		std::snprintf(header_label, sizeof(header_label), "Physical Attribute Range Filters###PhysicalRanges");
+	}
+
+	const bool header_open = ImGui::CollapsingHeader(header_label);
+	render_setting_tooltip("Filters bodies dynamically by continuous physical parameter intervals (mass, radius, temperature, orbital eccentricity, and distance from center).");
+
+	if (!header_open && active_criteria_count > 0) {
+		ImGui::TextColored(badge_col, "Physical Filter Match: %zu / %zu (%.1f%% passing)", pass_all_range_count, total_category_bodies, pass_pct);
+	}
+
+	if (header_open) {
+		ImGui::Spacing();
+		if (ImGui::SmallButton("Auto-Fit Limits to Population")) {
+			filter.ranges.initialized = false;
+			filter.page = 0;
+		}
+		render_setting_tooltip("Recalibrates all slider bounds to tightly fit the current catalog population.");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Reset All Ranges")) {
+			filter.ranges.reset_all();
+			filter.page = 0;
+		}
+		render_setting_tooltip("Disables all physical range filters and resets sliders to their bounds.");
+
+		ImGui::Spacing();
+		ImGui::TextColored(badge_col, "Population Match: %zu / %zu (%.1f%%)", pass_all_range_count, total_category_bodies, pass_pct);
+		char progress_buf[48];
+		std::snprintf(progress_buf, sizeof(progress_buf), "%.1f%% (%zu/%zu)", pass_pct, pass_all_range_count, total_category_bodies);
+		ImGui::ProgressBar(static_cast<float>(pass_pct * 0.01), ImVec2(-1.0f, 14.0f), progress_buf);
+
+		if (active_criteria_count > 0) {
+			ImGui::TextDisabled("Active Criteria Pass Breakdown:");
+			const auto& prefs = ctx.orchestrator().unit_preferences();
+			if (filter.ranges.mass.enabled) {
+				const std::string s_min = Units::format_mass(static_cast<double>(filter.ranges.mass.min_val) * ctx.mass_scale(), prefs.mass, 2);
+				const std::string s_max = Units::format_mass(static_cast<double>(filter.ranges.mass.max_val) * ctx.mass_scale(), prefs.mass, 2);
+				ImGui::TextDisabled("  • Mass: %zu/%zu passing [%s .. %s]", pass_mass_count, total_category_bodies, s_min.c_str(), s_max.c_str());
+			}
+			if (filter.ranges.radius.enabled) {
+				const std::string s_min = Units::format_distance(static_cast<double>(filter.ranges.radius.min_val) * ctx.length_scale(), prefs.distance, 2);
+				const std::string s_max = Units::format_distance(static_cast<double>(filter.ranges.radius.max_val) * ctx.length_scale(), prefs.distance, 2);
+				ImGui::TextDisabled("  • Radius: %zu/%zu passing [%s .. %s]", pass_radius_count, total_category_bodies, s_min.c_str(), s_max.c_str());
+			}
+			if (filter.ranges.temperature.enabled) {
+				const std::string s_min = Units::format_temperature(static_cast<double>(filter.ranges.temperature.min_val), prefs.temperature);
+				const std::string s_max = Units::format_temperature(static_cast<double>(filter.ranges.temperature.max_val), prefs.temperature);
+				ImGui::TextDisabled("  • Temp: %zu/%zu passing [%s .. %s]", pass_temp_count, total_category_bodies, s_min.c_str(), s_max.c_str());
+			}
+			if (filter.ranges.eccentricity.enabled) {
+				ImGui::TextDisabled("  • Eccentricity: %zu/%zu passing [%.3f .. %.3f]", pass_ecc_count, total_category_bodies, static_cast<double>(filter.ranges.eccentricity.min_val), static_cast<double>(filter.ranges.eccentricity.max_val));
+			}
+			if (filter.ranges.distance.enabled) {
+				const std::string s_min = Units::format_distance(static_cast<double>(filter.ranges.distance.min_val) * ctx.length_scale(), prefs.distance, 2);
+				const std::string s_max = Units::format_distance(static_cast<double>(filter.ranges.distance.max_val) * ctx.length_scale(), prefs.distance, 2);
+				ImGui::TextDisabled("  • Distance: %zu/%zu passing [%s .. %s]", pass_dist_count, total_category_bodies, s_min.c_str(), s_max.c_str());
+			}
+			if (pass_all_range_count < total_category_bodies) {
+				ImGui::TextDisabled("  Excluded by active ranges: %zu bodies", total_category_bodies - pass_all_range_count);
+			}
+		} else {
+			ImGui::TextDisabled("All range filters are currently inactive (100%% passing).");
+		}
+
+		ImGui::Separator();
+
+		const auto render_range_row = [&](const char* id, const char* name, PhysicalAttributeRangeFilter& rf, const auto& formatter, const char* format) noexcept {
+			ImGui::PushID(id);
+			bool en = rf.enabled;
+			if (ImGui::Checkbox("##En", &en)) {
+				rf.enabled = en;
+				filter.page = 0;
+			}
+			ImGui::SameLine();
+			ImGui::TextColored(en ? ImVec4(0.4f, 0.85f, 1.0f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", name);
+			if (!en) {
+				ImGui::SameLine();
+				ImGui::TextDisabled("[%s .. %s]", formatter(rf.limit_min).c_str(), formatter(rf.limit_max).c_str());
+			} else {
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Reset")) {
+					rf.reset_to_limits();
+					filter.page = 0;
+				}
+				float speed = (rf.limit_max - rf.limit_min) * 0.005f;
+				if (speed <= 0.0f) speed = 0.01f;
+				ImGui::SetNextItemWidth(-1.0f);
+				if (ImGui::DragFloatRange2("##Range", &rf.min_val, &rf.max_val, speed, rf.limit_min, rf.limit_max, format, format, ImGuiSliderFlags_AlwaysClamp)) {
+					rf.sanitize();
+					filter.page = 0;
+				}
+				ImGui::TextDisabled("  Span: %s  ..  %s", formatter(rf.min_val).c_str(), formatter(rf.max_val).c_str());
+			}
+			ImGui::PopID();
+		};
+
+		const auto& prefs = ctx.orchestrator().unit_preferences();
+		render_range_row("RMass", "Mass Filter", filter.ranges.mass,
+			[&](float v) { return Units::format_mass(static_cast<double>(v) * ctx.mass_scale(), prefs.mass, 3); }, "Min: %.4g");
+		render_range_row("RRad", "Physical Radius Filter", filter.ranges.radius,
+			[&](float v) { return Units::format_distance(static_cast<double>(v) * ctx.length_scale(), prefs.distance, 3); }, "Min: %.4g");
+		render_range_row("RTemp", "Temperature Filter", filter.ranges.temperature,
+			[&](float v) { return Units::format_temperature(static_cast<double>(v), prefs.temperature); }, "Min: %.0f K");
+		render_range_row("REcc", "Eccentricity Filter", filter.ranges.eccentricity,
+			[&](float v) {
+				char buf[32];
+				std::snprintf(buf, sizeof(buf), "e = %.3f", static_cast<double>(v));
+				return std::string(buf);
+			}, "Min: %.3f");
+		render_range_row("RDist", "Distance from Center Filter", filter.ranges.distance,
+			[&](float v) { return Units::format_distance(static_cast<double>(v) * ctx.length_scale(), prefs.distance, 3); }, "Min: %.4g");
+		ImGui::Separator();
+	}
+
+	std::vector<size_t> visible;
+	visible.reserve(bodies.size());
+	const std::string needle = catalog_lowercase(filter.search);
+
+	for (const auto& m : metrics) {
+		const auto& b = bodies[m.body_index];
 		if (filter.enabled_filter == 1 && !b.enabled) continue;
 		if (filter.enabled_filter == 2 && b.enabled) continue;
 		if (filter.dynamics_filter > 0) {
-			const double effective_central = central_mass + (b.is_spacetime_source ? b.mass : 0.0);
-			if (filter.dynamics_filter == 1) {
-				const auto el = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central);
-				if (!el.valid || !el.is_bound) continue;
-			} else if (filter.dynamics_filter == 2) {
-				const auto el = ctx.compute_keplerian_elements(b.position, b.velocity, effective_central);
-				if (!el.valid || el.is_bound) continue;
-			} else if (filter.dynamics_filter == 3) {
-				const double dist = BodyManagerContext::distance_from_center(b);
-				if (dist >= 5.0 * rs) continue;
-			}
+			if (filter.dynamics_filter == 1 && !m.bound_orbit) continue;
+			if (filter.dynamics_filter == 2 && m.bound_orbit) continue;
+			if (filter.dynamics_filter == 3 && m.distance >= 5.0 * rs) continue;
 		}
 		if (!sources && filter.type_filter > 0) {
 			const auto cat = static_cast<CatalogTypeCategory>(filter.type_filter);
@@ -185,7 +475,13 @@ inline constexpr std::array<int, 5> kCatalogPageSizes{25, 50, 100, 250, 0};
 			const std::string id_text = std::to_string(b.id);
 			if (name.find(needle) == std::string::npos && id_text.find(needle) == std::string::npos) continue;
 		}
-		visible.push_back(i);
+		if (!filter.ranges.mass.matches(m.mass)) continue;
+		if (!filter.ranges.radius.matches(m.radius)) continue;
+		if (!filter.ranges.temperature.matches(m.temperature)) continue;
+		if (!filter.ranges.eccentricity.matches(m.eccentricity)) continue;
+		if (!filter.ranges.distance.matches(m.distance)) continue;
+
+		visible.push_back(m.body_index);
 	}
 
 	const auto key_less = [&](size_t a, size_t b) noexcept -> bool {

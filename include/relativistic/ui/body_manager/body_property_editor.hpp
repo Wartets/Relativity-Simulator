@@ -56,20 +56,29 @@ namespace Relativistic::UI {
 	char name_buffer[32]{};
 	const std::string_view current_name = b.name_view();
 	std::memcpy(name_buffer, current_name.data(), std::min(current_name.size(), sizeof(name_buffer) - 1));
-	if (ImGui::InputTextWithHint("Name", "Unnamed", name_buffer, sizeof(name_buffer))) {
+	const float reroll_btn_w = 58.0f;
+	const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+	ImGui::SetNextItemWidth(std::max(ImGui::CalcItemWidth() - reroll_btn_w - spacing, 80.0f));
+	if (ImGui::InputTextWithHint("##BodyNameInput", "Unnamed", name_buffer, sizeof(name_buffer))) {
 		b.set_name(std::string_view(name_buffer));
 		changed = true;
 	}
 	render_setting_tooltip("Human-readable label shown in the catalog, tags and saved scenarios instead of the numeric identifier.");
+	ImGui::SameLine(0.0f, spacing);
+	if (ImGui::Button("Reroll##Name", ImVec2(reroll_btn_w, 0.0f))) {
+		b.set_name(ctx.unique_name(ctx.generate_procedural_name(b)));
+		changed = true;
+	}
+	render_setting_tooltip("Generates a clean, realistic procedural name for this body.");
+	ImGui::SameLine();
+	ImGui::TextUnformatted("Name");
 	if (ImGui::Checkbox("Enabled", &b.enabled)) changed = true;
 	render_setting_tooltip("Disabled bodies remain in the catalog and scenario, but are excluded from rendering, prediction, gravity, integration, and horizon absorption.");
 
 	if (allow_source_toggle) {
 		ImGui::Spacing();
+		ImGui::Separator();
 		if (!b.is_spacetime_source) {
-			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 0.65f, 0.3f, 0.7f));
-			const float card_h = ImGui::GetTextLineHeightWithSpacing() * 2.2f + 32.0f;
-			ImGui::BeginChild("##PromoteCard", ImVec2(0.0f, card_h), true);
 			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Classification: Ordinary N-Body Celestial Body");
 			render_hint_text("Promote this body into an independent Kerr black hole with its own event horizon, capable of horizon absorption and mergers.");
 			if (ImGui::Button("Promote to Independent Black Hole (Spacetime Source)", ImVec2(-1.0f, 26.0f))) {
@@ -83,14 +92,9 @@ namespace Relativistic::UI {
 				changed = true;
 			}
 			render_setting_tooltip("Converts this body into a fully gravitating Kerr black hole. Its radius becomes the event horizon, its appearance switches to a black hole with optional accretion disk, and the inspector navigates to the Source Catalog.");
-			ImGui::EndChild();
-			ImGui::PopStyleColor();
 		} else {
-			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.4f, 0.8f, 1.0f, 0.7f));
-			const float card_h = ImGui::GetTextLineHeightWithSpacing() * 2.8f + 32.0f;
-			ImGui::BeginChild("##DemoteCard", ImVec2(0.0f, card_h), true);
 			ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.4f, 1.0f), "Classification: Independent Kerr Spacetime Source");
-			ImGui::TextDisabled("Outer Horizon: %.4f M | Kerr spin a/M: %.4f", b.kerr_outer_horizon_radius() / std::max(b.mass, 1e-9), b.kerr_spin_parameter());
+			render_wrapped_disabled_format("Outer Horizon: %.4f M | Kerr spin a/M: %.4f", b.kerr_outer_horizon_radius() / std::max(b.mass, 1e-9), b.kerr_spin_parameter());
 			render_hint_text("Demote this black hole into an ordinary celestial body. Disables horizon absorption and transfers the body to the Object Catalog.");
 			if (ImGui::Button("Demote to Ordinary Celestial Body", ImVec2(-1.0f, 26.0f))) {
 				b.is_spacetime_source = false;
@@ -102,9 +106,8 @@ namespace Relativistic::UI {
 				changed = true;
 			}
 			render_setting_tooltip("Converts this black hole back into a solid body with physical surface collision parameters, and navigates to the Object Catalog.");
-			ImGui::EndChild();
-			ImGui::PopStyleColor();
 		}
+		ImGui::Separator();
 	}
 	return changed;
 }

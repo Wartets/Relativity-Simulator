@@ -490,6 +490,88 @@ public:
 		return dist(rng_);
 	}
 
+	[[nodiscard]] std::string generate_source_name() noexcept {
+		static constexpr std::array<const char*, 24> kSourceNames{
+			"Cygnus X-1", "V404 Cygni", "GRO J1655-40", "MAXI J1820+070", "GRS 1915+105",
+			"XTE J1550-564", "A0620-00", "LMC X-1", "GS 2000+25", "V4641 Sgr",
+			"GX 339-4", "SS 433", "Sgr A*", "M87*", "Ton 618",
+			"OJ 287", "HLX-1", "M82 X-1", "Centaurus A*", "NGC 1277*",
+			"Holmberg 15A*", "3C 273*", "PKS 1302-102", "Markarian 231*"
+		};
+		const size_t idx = static_cast<size_t>(random_int(0, static_cast<int>(kSourceNames.size() - 1)));
+		return std::string(kSourceNames[idx]);
+	}
+
+	[[nodiscard]] std::string generate_object_name(Dynamics::Body3DPreset preset = Dynamics::Body3DPreset::Custom) noexcept {
+		static constexpr std::array<const char*, 20> kStarNames{
+			"Alpha Centauri", "Tau Ceti", "Epsilon Eridani", "Delta Pavonis", "Beta Pictoris",
+			"Zeta Reticuli", "Mu Arae", "Gamma Trianguli", "HD 209458", "HIP 65426",
+			"HR 8799", "GJ 1214", "WASP-12", "TOI-700", "K2-18", "Kepler-452",
+			"Ross 128", "Wolf 359", "Gliese 667", "Barnard's Star"
+		};
+		static constexpr std::array<const char*, 20> kTerrestrialNames{
+			"Kepler-442 b", "Trappist-1 e", "Gliese 667 C c", "LHS 1140 b", "Ross 128 b",
+			"Proxima b", "Wolf 1061 c", "TOI-700 d", "Aurelia", "Cyrene",
+			"Vespera", "Themis", "Elysia", "Thalassa", "Hesperia", "Zephyra",
+			"Aegle", "Melita", "Arete", "Veritas"
+		};
+		static constexpr std::array<const char*, 16> kGasGiantNames{
+			"51 Pegasi b", "HD 189733 b", "WASP-17 b", "HAT-P-7 b", "TrES-4 b",
+			"KELT-9 b", "CoRoT-2 b", "XO-3 b", "Kepler-16 b", "Hyperion",
+			"Titanus", "Oceanus", "Kronos", "Aegaeon", "Phaethon", "Typhon"
+		};
+		static constexpr std::array<const char*, 14> kIceGiantNames{
+			"Gliese 436 b", "HAT-P-26 b", "Kepler-413 b", "HIP 41378 f", "Nephthys",
+			"Caelus", "Boreas", "Ymir", "Njord", "Aeolus",
+			"Glacies", "Hyperborea", "Hiemal", "Frost"
+		};
+		static constexpr std::array<const char*, 20> kSmallBodyNames{
+			"1 Ceres", "4 Vesta", "2 Pallas", "10 Hygiea", "16 Psyche",
+			"433 Eros", "243 Ida", "951 Gaspra", "2060 Chiron", "99942 Apophis",
+			"101955 Bennu", "162173 Ryugu", "Phobos", "Deimos", "Europa",
+			"Titan", "Ganymede", "Callisto", "Io", "Enceladus"
+		};
+		static constexpr std::array<const char*, 12> kCompactNames{
+			"PSR B1919+21", "PSR J0737-3039", "PSR B1257+12", "PSR J1748-2446", "PSR J0437-4715",
+			"Vela Pulsar", "Crab Pulsar", "Geminga", "SGR 1806-20", "1E 1048.1-5937",
+			"CXOU J0100-72", "XTE J1810-197"
+		};
+
+		switch (preset) {
+			case Dynamics::Body3DPreset::Star:
+				return std::string(kStarNames[static_cast<size_t>(random_int(0, static_cast<int>(kStarNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::TerrestrialPlanet:
+				return std::string(kTerrestrialNames[static_cast<size_t>(random_int(0, static_cast<int>(kTerrestrialNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::GasGiant:
+				return std::string(kGasGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kGasGiantNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::IceGiant:
+				return std::string(kIceGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kIceGiantNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::Metallic:
+			case Dynamics::Body3DPreset::Asteroid:
+				return std::string(kSmallBodyNames[static_cast<size_t>(random_int(0, static_cast<int>(kSmallBodyNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::NeutronStar:
+			case Dynamics::Body3DPreset::Pulsar:
+				return std::string(kCompactNames[static_cast<size_t>(random_int(0, static_cast<int>(kCompactNames.size() - 1)))]);
+			case Dynamics::Body3DPreset::BlackHole:
+				return generate_source_name();
+			case Dynamics::Body3DPreset::Custom:
+			default: {
+				const int pick = random_int(0, 3);
+				if (pick == 0) return std::string(kTerrestrialNames[static_cast<size_t>(random_int(0, static_cast<int>(kTerrestrialNames.size() - 1)))]);
+				if (pick == 1) return std::string(kStarNames[static_cast<size_t>(random_int(0, static_cast<int>(kStarNames.size() - 1)))]);
+				if (pick == 2) return std::string(kGasGiantNames[static_cast<size_t>(random_int(0, static_cast<int>(kGasGiantNames.size() - 1)))]);
+				return std::string(kSmallBodyNames[static_cast<size_t>(random_int(0, static_cast<int>(kSmallBodyNames.size() - 1)))]);
+			}
+		}
+	}
+
+	[[nodiscard]] std::string generate_procedural_name(const Dynamics::PostNewtonianBody& body) noexcept {
+		if (body.is_spacetime_source) {
+			return generate_source_name();
+		}
+		return generate_object_name(body.preset_3d);
+	}
+
 	[[nodiscard]] double sample_log_uniform(double min_val, double max_val) noexcept {
 		return std::pow(10.0, random_real(std::log10(min_val), std::log10(max_val)));
 	}

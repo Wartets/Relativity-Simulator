@@ -44,36 +44,6 @@ private:
 	std::string last_pattern_notification_{};
 	bool pattern_notification_active_{false};
 
-	[[nodiscard]] std::string synthesize_name(BodyManagerContext& ctx, std::string_view label, double mass, double radius, double orbit_radius) {
-		static constexpr std::array<std::string_view, 28> prefixes{
-			"Astra", "Boreal", "Cinder", "Drift", "Echo", "Eon", "Flux", "Halo",
-			"Ion", "Kestrel", "Lumen", "Nova", "Nyx", "Orbit", "Quasar", "Rift",
-			"Solace", "Spectrum", "Titan", "Umbra", "Vanta", "Velvet", "Vesper",
-			"Warden", "Zenith", "Auric", "Kepler", "Morrow"
-		};
-		static constexpr std::array<std::string_view, 8> accents{
-			"Prime", "I", "II", "III", "Arc", "Node", "Field", "Halo"
-		};
-
-		const std::string_view prefix = prefixes[static_cast<size_t>(ctx.random_int(0, static_cast<int>(prefixes.size() - 1)))];
-		const std::string_view accent = accents[static_cast<size_t>(ctx.random_int(0, static_cast<int>(accents.size() - 1)))];
-		const uint32_t suffix = static_cast<uint32_t>(ctx.random_int(10, 999));
-
-		std::string name = std::string(prefix) + " " + std::string(label);
-		if (mass > 0.0 && radius > 0.0) {
-			if (orbit_radius > radius * 100.0) {
-				name += " Deep";
-			} else if (orbit_radius < radius * 20.0) {
-				name += " Inner";
-			}
-		}
-		name += " ";
-		name += std::string(accent);
-		name += " ";
-		name += std::to_string(suffix);
-		return name;
-	}
-
 	void apply_template(BodyManagerContext& ctx, BodyPresetTemplate preset) noexcept {
 		if (preset == BodyPresetTemplate::Custom) {
 			reset_draft(ctx);
@@ -174,19 +144,38 @@ private:
 		const double dist_m = BodyManagerContext::distance_from_center(draft_) * ctx.length_scale();
 		const double draft_dist = BodyManagerContext::distance_from_center(draft_);
 
-		ImGui::TextWrapped("Name: %s", BodyManagerContext::display_name(draft_).c_str());
-		ImGui::TextDisabled("Mass Ratio (M / M_central): %.4e (%.4f%%)", mass_ratio, mass_ratio * 100.0);
-		ImGui::TextDisabled("Astrophysical Mass: %.3e M_sun | %.3e M_earth", mass_kg / 1.98847e30, mass_kg / 5.9722e24);
-		ImGui::TextDisabled("Radius vs Reference: %.3f R_earth | %.4f R_jup | %.5f R_sun", radius_m / 6.378137e6, radius_m / 7.1492e7, radius_m / 6.9634e8);
-		ImGui::TextDisabled("Orbital Separation: %s (%.2f r_g)", Units::format_distance(dist_m, prefs.distance, 3).c_str(), draft_dist / central_m);
-		ImGui::TextDisabled("Instantaneous Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
-		ImGui::TextDisabled("Texture Layers Assigned: %u", layers_.count);
+		char draft_name_buf[32]{};
+		const std::string_view cur_draft_name = draft_.name_view();
+		std::memcpy(draft_name_buf, cur_draft_name.data(), std::min(cur_draft_name.size(), sizeof(draft_name_buf) - 1));
+		const float reroll_btn_w = 58.0f;
+		const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+		ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - reroll_btn_w - spacing - 48.0f, 60.0f));
+		if (ImGui::InputTextWithHint("##DraftNameInput", "Unnamed", draft_name_buf, sizeof(draft_name_buf))) {
+			draft_.set_name(std::string_view(draft_name_buf));
+			pristine_ = false;
+		}
+		render_setting_tooltip("Name of the draft body to be spawned.");
+		ImGui::SameLine(0.0f, spacing);
+		if (ImGui::Button("Reroll##DraftNameBtn", ImVec2(reroll_btn_w, 0.0f))) {
+			draft_.set_name(ctx.unique_name(ctx.generate_procedural_name(draft_)));
+			pristine_ = false;
+		}
+		render_setting_tooltip("Generates another realistic procedural name for this draft.");
+		ImGui::SameLine();
+		ImGui::TextUnformatted("Name");
+
+		render_wrapped_disabled_format("Mass Ratio (M / M_central): %.4e (%.4f%%)", mass_ratio, mass_ratio * 100.0);
+		render_wrapped_disabled_format("Astrophysical Mass: %.3e M_sun | %.3e M_earth", mass_kg / 1.98847e30, mass_kg / 5.9722e24);
+		render_wrapped_disabled_format("Radius vs Reference: %.3f R_earth | %.4f R_jup | %.5f R_sun", radius_m / 6.378137e6, radius_m / 7.1492e7, radius_m / 6.9634e8);
+		render_wrapped_disabled_format("Orbital Separation: %s (%.2f r_g)", Units::format_distance(dist_m, prefs.distance, 3).c_str(), draft_dist / central_m);
+		render_wrapped_disabled_format("Instantaneous Speed: %s", Units::format_velocity(draft_.speed() * ctx.speed_scale(), prefs.velocity).c_str());
+		render_wrapped_disabled_format("Texture Layers Assigned: %u", layers_.count);
 
 		const auto draft_orbit = ctx.compute_keplerian_elements(draft_.position, draft_.velocity, central_m);
 		if (draft_orbit.valid) {
-			ImGui::TextDisabled("Orbital Type: %s (%s) | e = %.4f | i = %.1f deg", draft_orbit.type_name, draft_orbit.is_prograde ? "Prograde" : "Retrograde", draft_orbit.eccentricity, draft_orbit.inclination_deg);
+			render_wrapped_disabled_format("Orbital Type: %s (%s) | e = %.4f | i = %.1f deg", draft_orbit.type_name, draft_orbit.is_prograde ? "Prograde" : "Retrograde", draft_orbit.eccentricity, draft_orbit.inclination_deg);
 			if (draft_orbit.is_bound) {
-				ImGui::TextDisabled("Keplerian Period: %s", Units::format_time(draft_orbit.period_seconds, prefs.time).c_str());
+				render_wrapped_disabled_format("Keplerian Period: %s", Units::format_time(draft_orbit.period_seconds, prefs.time).c_str());
 			}
 		}
 
@@ -217,7 +206,9 @@ private:
 		creation_ref_ptrs.reserve(creation_ref_labels.size());
 		for (const auto& s : creation_ref_labels) creation_ref_ptrs.push_back(s.c_str());
 
-		if (ImGui::Combo("Reference Parent Attractor##Draft", &creation_ref_idx, creation_ref_ptrs.data(), static_cast<int>(creation_ref_ptrs.size()))) {
+		ImGui::TextUnformatted("Reference Parent Attractor:");
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::Combo("##DraftRefParentCombo", &creation_ref_idx, creation_ref_ptrs.data(), static_cast<int>(creation_ref_ptrs.size()))) {
 			view_.reference_frame_body_id = creation_ref_ids[static_cast<size_t>(creation_ref_idx)];
 			view_.plane_angles_initialized = false;
 		}
@@ -230,10 +221,8 @@ private:
 				: ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
 			char tilt_buf[128];
 			std::snprintf(tilt_buf, sizeof(tilt_buf), "%+.*f deg", 2, signed_tilt);
-			ImGui::Text("Signed Tilt Offset: ");
-			ImGui::SameLine();
-			ImGui::TextColored(tilt_badge_col, "%s relative to %s", tilt_buf, draft_plane.reference_name.c_str());
-			ImGui::TextDisabled("Mutual Plane Angle: %.2f deg | Alignment: %s", draft_plane.relative_inclination_deg, draft_plane.alignment_category);
+			render_wrapped_colored_text(tilt_badge_col, ("Tilt: " + std::string(tilt_buf) + " relative to " + draft_plane.reference_name).c_str());
+			render_wrapped_disabled_format("Mutual Plane Angle: %.2f deg | Alignment: %s", draft_plane.relative_inclination_deg, draft_plane.alignment_category);
 
 			if (draft_plane.is_in_kozai_zone) {
 				render_caution_text(draft_plane.kozai_warning);
@@ -274,25 +263,25 @@ private:
 				pristine_ = false;
 			}
 
-			if (ImGui::SmallButton("Coplanar (0 deg)##Draft")) {
+			const float half_btn_w = std::max((ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f, 60.0f);
+			if (ImGui::Button("Coplanar (0 deg)##Draft", ImVec2(half_btn_w, 24.0f))) {
 				view_.plane_target_inclination_deg = 0.0f;
 				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 0.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
 				pristine_ = false;
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("Polar (90 deg)##Draft")) {
+			if (ImGui::Button("Polar (90 deg)##Draft", ImVec2(half_btn_w, 24.0f))) {
 				view_.plane_target_inclination_deg = 90.0f;
 				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 90.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
 				pristine_ = false;
 			}
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Retrograde (180 deg)##Draft")) {
+			if (ImGui::Button("Retrograde (180 deg)##Draft", ImVec2(half_btn_w, 24.0f))) {
 				view_.plane_target_inclination_deg = 180.0f;
 				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 180.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
 				pristine_ = false;
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("Circularize Around Parent##Draft")) {
+			if (ImGui::Button("Circularize##Draft", ImVec2(half_btn_w, 24.0f))) {
 				ctx.circularize_around_reference(draft_, view_.reference_frame_body_id);
 				view_.plane_angles_initialized = false;
 				pristine_ = false;
@@ -316,7 +305,7 @@ private:
 			}
 			render_setting_tooltip("Shifts the draft's orbital distance radially outward until it is completely clear of all celestial bodies and event horizons, and recomputes circular orbital velocity.");
 		} else {
-			ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Placement Status: Clear (No collision or horizon conflict)");
+			render_wrapped_colored_text(ImVec4(0.3f, 0.9f, 0.5f, 1.0f), "Placement Status: Clear (No collision or horizon conflict)");
 		}
 
 		const auto draft_hazard = ctx.evaluate_trajectory_hazard(draft_.position, draft_.velocity, draft_.mass, draft_.radius, central_m);
@@ -345,24 +334,22 @@ private:
 
 		if (spawn_notification_active_) {
 			ImGui::Spacing();
-			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.85f, 0.45f, 0.8f));
-			ImGui::BeginChild("##SpawnNotice", ImVec2(0.0f, 56.0f), true);
-			ImGui::TextColored(ImVec4(0.25f, 0.95f, 0.5f, 1.0f), "Body created successfully: %s (#%u)", last_spawned_name_.c_str(), last_spawned_id_);
-			if (ImGui::SmallButton("Inspect in Object Catalog")) {
+			ImGui::Separator();
+			render_wrapped_colored_text(ImVec4(0.25f, 0.95f, 0.5f, 1.0f), ("Body created successfully: " + last_spawned_name_ + " (#" + std::to_string(last_spawned_id_) + ")").c_str());
+			if (ImGui::SmallButton("Inspect in Catalog##Notice")) {
 				ctx.select_object(static_cast<int>(last_spawned_id_));
 				ctx.request_tab(BodyManagerTab::ObjectCatalog);
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("Look At")) {
+			if (ImGui::SmallButton("Look At##Notice")) {
 				const auto* b = ctx.find_body(last_spawned_id_);
 				if (b != nullptr) ctx.look_at(b->position);
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("Track")) {
+			if (ImGui::SmallButton("Track##Notice")) {
 				ctx.set_tracking(static_cast<int>(last_spawned_id_), true);
 			}
-			ImGui::EndChild();
-			ImGui::PopStyleColor();
+			ImGui::Separator();
 		}
 	}
 
@@ -448,7 +435,7 @@ public:
 		d.ring_system_enabled = is_giant && (ctx.random_int(0, 1) == 0);
 		d.set_orientation_euler_degrees(ctx.random_real(-8.0, 8.0), ctx.random_real(-30.0, 30.0), ctx.random_real(-180.0, 180.0));
 
-		d.set_name(ctx.unique_name(synthesize_name(ctx, profile.label, d.mass, d.radius, orbit_radius)));
+		d.set_name(ctx.unique_name(ctx.generate_object_name(profile.preset)));
 		pristine_ = true;
 		reference_mass_ = ctx.orchestrator().parameters().mass;
 		layers_ = Dynamics::BodySurfaceLayerSet{};

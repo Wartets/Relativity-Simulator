@@ -72,6 +72,19 @@ struct BinarySourceConfiguration {
 	double peters_coalescence_time_seconds{0.0};
 };
 
+struct PatternGenerationResult {
+	bool success{false};
+	size_t requested_count{0};
+	size_t generated_count{0};
+	size_t rejected_count{0};
+	double total_mass{0.0};
+	double min_distance{1e30};
+	double max_distance{0.0};
+	double min_speed{1e30};
+	double max_speed{0.0};
+	std::vector<uint32_t> injected_ids{};
+};
+
 class BodyManagerContext {
 public:
 	static constexpr int kCentralSourceId = -2;
@@ -87,6 +100,10 @@ private:
 	bool tracking_enabled_{false};
 	std::optional<BodyManagerTab> requested_tab_{};
 	std::mt19937_64 rng_{std::random_device{}()};
+	bool pattern_generator_requested_{false};
+	std::vector<uint32_t> last_injected_batch_ids_{};
+	PatternGenerationResult last_generation_result_{};
+	bool last_generation_active_{false};
 
 	template <typename Engine>
 	[[nodiscard]] static double engine_speed_scale(const Engine& engine) noexcept {
@@ -387,6 +404,416 @@ public:
 
 	[[nodiscard]] double sample_signed_uniform(double min_abs, double max_abs) noexcept {
 		return (random_int(0, 1) == 0 ? -1.0 : 1.0) * random_real(min_abs, max_abs);
+	}
+
+	[[nodiscard]] double sample_uniform(double min_val, double max_val) noexcept {
+		return random_real(min_val, max_val);
+	}
+
+	[[nodiscard]] double sample_gaussian(double mean, double stddev) noexcept {
+		const double u1 = std::max(random_real(0.0, 1.0), 1e-15);
+		const double u2 = random_real(0.0, 1.0);
+		const double z0 = std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * std::numbers::pi * u2);
+		return mean + stddev * z0;
+	}
+
+	[[nodiscard]] double sample_rayleigh(double sigma) noexcept {
+		const double u = std::max(random_real(0.0, 1.0), 1e-15);
+		return sigma * std::sqrt(-2.0 * std::log(u));
+	}
+
+	[[nodiscard]] double sample_maxwell_boltzmann(double a) noexcept {
+		const double x = sample_gaussian(0.0, a);
+		const double y = sample_gaussian(0.0, a);
+		const double z = sample_gaussian(0.0, a);
+		return std::sqrt(x * x + y * y + z * z);
+	}
+
+	[[nodiscard]] double sample_power_law(double min_val, double max_val, double alpha) noexcept {
+		const double safe_min = std::max(min_val, 1e-15);
+		const double safe_max = std::max(max_val, safe_min * 1.0001);
+		if (std::abs(alpha - 1.0) < 1e-5) {
+			return sample_log_uniform(safe_min, safe_max);
+		}
+		const double p = 1.0 - alpha;
+		const double u = random_real(0.0, 1.0);
+		const double v = std::pow(safe_min, p) + u * (std::pow(safe_max, p) - std::pow(safe_min, p));
+		return std::pow(std::max(v, 1e-300), 1.0 / p);
+	}
+
+	void request_pattern_generator() noexcept {
+		pattern_generator_requested_ = true;
+		request_tab(BodyManagerTab::ObjectCreation);
+	}
+
+	[[nodiscard]] bool consume_pattern_generator_request() noexcept {
+		const bool req = pattern_generator_requested_;
+		pattern_generator_requested_ = false;
+		return req;
+	}
+
+	[[nodiscard]] bool has_last_pattern_batch() const noexcept {
+		return !last_injected_batch_ids_.empty();
+	}
+
+	[[nodiscard]] size_t last_pattern_batch_size() const noexcept {
+		return last_injected_batch_ids_.size();
+	}
+
+	[[nodiscard]] const PatternGenerationResult& last_generation_result() const noexcept {
+		return last_generation_result_;
+	}
+
+	void select_last_pattern_batch() noexcept {
+		if (last_injected_batch_ids_.empty()) return;
+		std::vector<int> int_ids;
+		int_ids.reserve(last_injected_batch_ids_.size());
+		for (uint32_t id : last_injected_batch_ids_) {
+			int_ids.push_back(static_cast<int>(id));
+		}
+		set_selected_objects(int_ids);
+	}
+
+	void undo_last_pattern_injection() noexcept {
+		if (last_injected_batch_ids_.empty()) return;
+		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+		for (uint32_t id : last_injected_batch_ids_) {
+			orchestrator_.surface_layers().erase(id);
+			sys.remove_body(id);
+		}
+		sys.update_accelerations();
+		orchestrator_.notify_state_changed();
+		last_injected_batch_ids_.clear();
+		last_generation_active_ = false;
+	}
+
+	PatternGenerationResult inject_geometric_pattern(const GeometricPatternConfig& config) noexcept {
+		PatternGenerationResult result;
+		GeometricPatternConfig cfg = config;
+		cfg.sanitize();
+		result.requested_count = static_cast<size_t>(cfg.object_count);
+
+		if (cfg.seed > 0) {
+			rng_.seed(cfg.seed);
+		}
+
+		auto& sys = orchestrator_.nbody_system();
+		std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+
+		std::array<double, 3> parent_pos{0.0, 0.0, 0.0};
+		std::array<double, 3> parent_vel{0.0, 0.0, 0.0};
+		double parent_mass = std::max(orchestrator_.parameters().mass, 1e-12);
+		double parent_horizon = primary_horizon_radius();
+
+		if (cfg.parent_body_id != kCentralSourceId) {
+			const auto* p_body = find_body(static_cast<uint32_t>(cfg.parent_body_id));
+			if (p_body != nullptr) {
+				parent_pos = p_body->position;
+				parent_vel = p_body->velocity;
+				parent_mass = std::max(p_body->mass, 1e-12);
+				parent_horizon = p_body->is_spacetime_source ? p_body->kerr_outer_horizon_radius() : p_body->radius;
+			}
+		}
+
+		const std::array<double, 3> center{
+			parent_pos[0] + cfg.center_position[0],
+			parent_pos[1] + cfg.center_position[1],
+			parent_pos[2] + cfg.center_position[2]
+		};
+		const std::array<double, 3> center_v{
+			parent_vel[0] + cfg.center_velocity[0],
+			parent_vel[1] + cfg.center_velocity[1],
+			parent_vel[2] + cfg.center_velocity[2]
+		};
+
+		const double i_rad = cfg.plane_inclination_deg * (std::numbers::pi / 180.0);
+		const double omega_rad = cfg.plane_longitude_node_deg * (std::numbers::pi / 180.0);
+		const double w_rad = cfg.plane_argument_periapsis_deg * (std::numbers::pi / 180.0);
+		const double sin_i = std::sin(i_rad);
+		const double cos_i = std::cos(i_rad);
+		const double sin_omega = std::sin(omega_rad);
+		const double cos_omega = std::cos(omega_rad);
+
+		const std::array<double, 3> n_hat{sin_i * sin_omega, -sin_i * cos_omega, cos_i};
+		const std::array<double, 3> u_hat{cos_omega, sin_omega, 0.0};
+		const std::array<double, 3> v_hat{-cos_i * sin_omega, cos_i * cos_omega, sin_i};
+
+		const double g_sim = orchestrator_.physical_gravitational_constant();
+		const double m_scale = mass_scale();
+		const double l_scale = length_scale();
+		const double prim_h = primary_horizon_radius();
+
+		std::vector<Dynamics::PostNewtonianBody> generated_bodies;
+		generated_bodies.reserve(static_cast<size_t>(cfg.object_count));
+
+		for (int32_t k = 0; k < cfg.object_count; ++k) {
+			double r = cfg.mean_semi_major_axis;
+			if (cfg.pattern_type == PatternGeometryType::AsteroidBelt) {
+				if (cfg.radial_distribution == RadialDistributionLaw::Gaussian) {
+					r = cfg.mean_semi_major_axis + sample_gaussian(0.0, cfg.radial_gaussian_sigma);
+				} else if (cfg.radial_distribution == RadialDistributionLaw::PowerLaw) {
+					const double r_min = std::max(cfg.mean_semi_major_axis - 0.5 * cfg.radial_thickness, 0.5);
+					const double r_max = cfg.mean_semi_major_axis + 0.5 * cfg.radial_thickness;
+					r = sample_power_law(r_min, r_max, cfg.radial_power_law_index);
+				} else if (cfg.radial_distribution == RadialDistributionLaw::KirkwoodResonant) {
+					r = cfg.mean_semi_major_axis + sample_signed_uniform(0.0, 0.5 * cfg.radial_thickness);
+					if (cfg.kirkwood_gaps_enabled) {
+						for (int32_t g = 1; g <= cfg.kirkwood_gap_count; ++g) {
+							const double gap_frac = -0.38 + 0.76 * (static_cast<double>(g) / static_cast<double>(cfg.kirkwood_gap_count + 1));
+							const double gap_r = cfg.mean_semi_major_axis + gap_frac * cfg.radial_thickness;
+							if (std::abs(r - gap_r) < 0.035 * cfg.radial_thickness && random_real(0.0, 1.0) < cfg.kirkwood_resonance_depth) {
+								r = cfg.mean_semi_major_axis + sample_signed_uniform(0.0, 0.5 * cfg.radial_thickness);
+							}
+						}
+					}
+				} else {
+					r = cfg.mean_semi_major_axis + sample_signed_uniform(0.0, 0.5 * cfg.radial_thickness);
+				}
+			} else if (cfg.pattern_type == PatternGeometryType::DebrisSwarm) {
+				if (cfg.radial_distribution == RadialDistributionLaw::Gaussian) {
+					r = cfg.mean_semi_major_axis + sample_gaussian(0.0, cfg.radial_thickness * 0.35);
+				} else if (cfg.radial_distribution == RadialDistributionLaw::PowerLaw) {
+					const double r_min = std::max(cfg.mean_semi_major_axis - 0.5 * cfg.radial_thickness, 0.5);
+					const double r_max = cfg.mean_semi_major_axis + 0.5 * cfg.radial_thickness;
+					r = sample_power_law(r_min, r_max, cfg.radial_power_law_index);
+				} else {
+					r = cfg.mean_semi_major_axis + sample_signed_uniform(0.0, 0.5 * cfg.radial_thickness);
+				}
+			} else {
+				if (cfg.spherical_type == SphericalFormationType::ThinShell) {
+					r = cfg.thin_shell_radius + sample_gaussian(0.0, 0.01 * cfg.thin_shell_radius);
+				} else if (cfg.spherical_type == SphericalFormationType::ThickShell) {
+					r = sample_power_law(cfg.shell_inner_radius, cfg.shell_outer_radius, -cfg.spherical_power_law_gamma);
+				} else if (cfg.spherical_type == SphericalFormationType::PlummerSphere) {
+					const double q = sample_uniform(0.001, 0.995);
+					r = cfg.plummer_scale_radius * std::cbrt(q) / std::sqrt(std::max(1.0 - std::pow(q, 2.0 / 3.0), 1e-6));
+				} else if (cfg.spherical_type == SphericalFormationType::UniformSphere) {
+					const double q = sample_uniform(0.0001, 1.0);
+					r = cfg.uniform_sphere_radius * std::cbrt(q);
+				} else if (cfg.spherical_type == SphericalFormationType::FibonacciShell) {
+					r = cfg.thin_shell_radius;
+				} else {
+					r = sample_uniform(cfg.shell_inner_radius, cfg.shell_outer_radius);
+				}
+			}
+			r = std::max(r, 0.1);
+
+			std::array<double, 3> pos_rel{0.0, 0.0, 0.0};
+			double theta_orb = 0.0;
+
+			if (cfg.pattern_type == PatternGeometryType::SphericalFormation) {
+				if (cfg.spherical_type == SphericalFormationType::FibonacciShell) {
+					const double y_unit = 1.0 - (static_cast<double>(k) / static_cast<double>(std::max(cfg.object_count - 1, 1))) * 2.0;
+					const double rad_unit = std::sqrt(std::max(1.0 - y_unit * y_unit, 0.0));
+					const double phi_golden = std::numbers::pi * (3.0 - std::sqrt(5.0)) * static_cast<double>(k);
+					pos_rel = {r * rad_unit * std::cos(phi_golden), r * rad_unit * std::sin(phi_golden), r * y_unit};
+				} else {
+					const double cos_t = sample_uniform(-1.0, 1.0);
+					const double sin_t = std::sqrt(std::max(1.0 - cos_t * cos_t, 0.0));
+					const double phi_s = sample_uniform(0.0, 2.0 * std::numbers::pi);
+					pos_rel = {r * sin_t * std::cos(phi_s), r * sin_t * std::sin(phi_s), r * cos_t};
+				}
+			} else {
+				if (cfg.angular_distribution == AngularDistributionLaw::ClusteredLagrange) {
+					const double lagrange_base = (random_int(0, 1) == 0 ? 1.0 : -1.0) * (std::numbers::pi / 3.0);
+					theta_orb = lagrange_base + sample_gaussian(0.0, 0.3 * (1.0 - cfg.lagrangian_clustering_strength));
+				} else if (cfg.pattern_type == PatternGeometryType::DebrisSwarm && cfg.angular_opening_deg < 359.0) {
+					const double half_open = (cfg.angular_opening_deg * (std::numbers::pi / 180.0)) * 0.5;
+					theta_orb = (cfg.angular_center_deg * (std::numbers::pi / 180.0)) + sample_gaussian(0.0, half_open * 0.45);
+				} else {
+					theta_orb = sample_uniform(0.0, 2.0 * std::numbers::pi);
+				}
+
+				double z_off = 0.0;
+				if (cfg.vertical_distribution == DispersionDistributionLaw::Uniform) {
+					z_off = sample_signed_uniform(0.0, cfg.vertical_scale_height);
+				} else {
+					z_off = sample_gaussian(0.0, cfg.vertical_scale_height);
+				}
+
+				const double cos_th = std::cos(theta_orb);
+				const double sin_th = std::sin(theta_orb);
+				pos_rel = {
+					r * (cos_th * u_hat[0] + sin_th * v_hat[0]) + z_off * n_hat[0],
+					r * (cos_th * u_hat[1] + sin_th * v_hat[1]) + z_off * n_hat[1],
+					r * (cos_th * u_hat[2] + sin_th * v_hat[2]) + z_off * n_hat[2]
+				};
+			}
+
+			const std::array<double, 3> pos_world{
+				center[0] + pos_rel[0],
+				center[1] + pos_rel[1],
+				center[2] + pos_rel[2]
+			};
+
+			const double d_to_prim = std::sqrt(pos_world[0] * pos_world[0] + pos_world[1] * pos_world[1] + pos_world[2] * pos_world[2]);
+			if (cfg.avoid_horizon_overlap && prim_h > 0.0 && d_to_prim <= prim_h * 1.35) {
+				++result.rejected_count;
+				continue;
+			}
+			const double d_to_parent = std::sqrt(pos_rel[0] * pos_rel[0] + pos_rel[1] * pos_rel[1] + pos_rel[2] * pos_rel[2]);
+			if (cfg.avoid_horizon_overlap && parent_horizon > 0.0 && d_to_parent <= parent_horizon * 1.35) {
+				++result.rejected_count;
+				continue;
+			}
+
+			double m_body = cfg.fixed_mass;
+			if (cfg.mass_distribution == MassDistributionLaw::Uniform) {
+				m_body = sample_uniform(cfg.min_mass, cfg.max_mass);
+			} else if (cfg.mass_distribution == MassDistributionLaw::LogUniform) {
+				m_body = sample_log_uniform(cfg.min_mass, cfg.max_mass);
+			} else if (cfg.mass_distribution == MassDistributionLaw::PowerLaw) {
+				m_body = sample_power_law(cfg.min_mass, cfg.max_mass, cfg.mass_power_law_alpha);
+			}
+
+			double radius = cfg.fixed_radius;
+			if (cfg.radius_from_density) {
+				const double density = std::max(cfg.mean_density * (1.0 + sample_gaussian(0.0, 0.01 * cfg.density_dispersion_pct)), 10.0);
+				const double mass_kg = m_body * m_scale;
+				const double vol = mass_kg / density;
+				const double r_m = std::cbrt(3.0 * vol / (4.0 * std::numbers::pi));
+				radius = std::clamp(r_m / l_scale, cfg.min_radius, cfg.max_radius);
+			} else {
+				radius = sample_log_uniform(cfg.min_radius, cfg.max_radius);
+			}
+
+			if (cfg.avoid_mutual_collisions && !generated_bodies.empty()) {
+				bool collided = false;
+				for (const auto& prev : generated_bodies) {
+					const double dx = pos_world[0] - prev.position[0];
+					const double dy = pos_world[1] - prev.position[1];
+					const double dz = pos_world[2] - prev.position[2];
+					if (dx * dx + dy * dy + dz * dz < (radius + prev.radius) * (radius + prev.radius) * 1.3) {
+						collided = true;
+						break;
+					}
+				}
+				if (collided) {
+					++result.rejected_count;
+					continue;
+				}
+			}
+
+			const double mu = g_sim * (parent_mass + m_body);
+			std::array<double, 3> vel_rel{0.0, 0.0, 0.0};
+
+			if (cfg.velocity_mode == VelocityInjectionMode::KeplerianCircular || cfg.velocity_mode == VelocityInjectionMode::KeplerianEccentric) {
+				double e = 0.0;
+				if (cfg.velocity_mode == VelocityInjectionMode::KeplerianEccentric) {
+					if (cfg.eccentricity_distribution == DispersionDistributionLaw::Gaussian) {
+						e = std::clamp(cfg.mean_eccentricity + sample_gaussian(0.0, cfg.eccentricity_dispersion), 0.0, 0.99);
+					} else if (cfg.eccentricity_distribution == DispersionDistributionLaw::Uniform) {
+						e = std::clamp(cfg.mean_eccentricity + sample_signed_uniform(0.0, cfg.eccentricity_dispersion), 0.0, 0.99);
+					} else {
+						e = std::clamp(cfg.mean_eccentricity + sample_rayleigh(cfg.eccentricity_dispersion), 0.0, 0.99);
+					}
+				}
+
+				const double nu = theta_orb - w_rad;
+				const double cos_nu = std::cos(nu);
+				const double sin_nu = std::sin(nu);
+				const double semi_a = r * (1.0 + e * cos_nu) / std::max(1.0 - e * e, 1e-4);
+				const double h_orb = std::sqrt(std::max(mu * semi_a * (1.0 - e * e), 1e-12));
+
+				const double vr = (mu / h_orb) * e * sin_nu;
+				const double vt = (h_orb / r);
+				const double orb_sign = (random_real(0.0, 1.0) < cfg.prograde_fraction) ? 1.0 : -1.0;
+
+				const double cos_th = std::cos(theta_orb);
+				const double sin_th = std::sin(theta_orb);
+				const std::array<double, 3> e_r{cos_th * u_hat[0] + sin_th * v_hat[0], cos_th * u_hat[1] + sin_th * v_hat[1], cos_th * u_hat[2] + sin_th * v_hat[2]};
+				const std::array<double, 3> e_t{-sin_th * u_hat[0] + cos_th * v_hat[0], -sin_th * u_hat[1] + cos_th * v_hat[1], -sin_th * u_hat[2] + cos_th * v_hat[2]};
+
+				vel_rel = {
+					(vr * e_r[0] + (orb_sign * vt) * e_t[0]) * cfg.mean_velocity_multiplier,
+					(vr * e_r[1] + (orb_sign * vt) * e_t[1]) * cfg.mean_velocity_multiplier,
+					(vr * e_r[2] + (orb_sign * vt) * e_t[2]) * cfg.mean_velocity_multiplier
+				};
+
+				if (cfg.velocity_dispersion_fraction > 0.0) {
+					const double v_circ = std::sqrt(mu / r);
+					const double v_disp_mag = v_circ * cfg.velocity_dispersion_fraction;
+					vel_rel[0] += sample_gaussian(0.0, v_disp_mag * 0.577);
+					vel_rel[1] += sample_gaussian(0.0, v_disp_mag * 0.577);
+					vel_rel[2] += sample_gaussian(0.0, v_disp_mag * 0.577);
+				}
+			} else if (cfg.velocity_mode == VelocityInjectionMode::RadialExpansion) {
+				const double len = std::sqrt(pos_rel[0] * pos_rel[0] + pos_rel[1] * pos_rel[1] + pos_rel[2] * pos_rel[2]);
+				const double inv_len = (len > 1e-9) ? (1.0 / len) : 0.0;
+				vel_rel = {pos_rel[0] * inv_len * cfg.expansion_speed, pos_rel[1] * inv_len * cfg.expansion_speed, pos_rel[2] * inv_len * cfg.expansion_speed};
+			} else if (cfg.velocity_mode == VelocityInjectionMode::RadialCollapse) {
+				const double len = std::sqrt(pos_rel[0] * pos_rel[0] + pos_rel[1] * pos_rel[1] + pos_rel[2] * pos_rel[2]);
+				const double v_fall = std::sqrt(2.0 * mu / std::max(len, 1e-6));
+				const double inv_len = (len > 1e-9) ? (1.0 / len) : 0.0;
+				vel_rel = {-pos_rel[0] * inv_len * v_fall, -pos_rel[1] * inv_len * v_fall, -pos_rel[2] * inv_len * v_fall};
+			} else if (cfg.velocity_mode == VelocityInjectionMode::IsotropicVirial) {
+				const double v_rms = std::sqrt(mu / (2.0 * std::max(r, 1e-6)));
+				vel_rel = {sample_gaussian(0.0, v_rms * 0.577), sample_gaussian(0.0, v_rms * 0.577), sample_gaussian(0.0, v_rms * 0.577)};
+			} else if (cfg.velocity_mode == VelocityInjectionMode::SolidBodyRotation) {
+				const double rot_tilt = cfg.solid_body_axis_tilt_deg * (std::numbers::pi / 180.0);
+				const double rot_az = cfg.solid_body_axis_azimuth_deg * (std::numbers::pi / 180.0);
+				const std::array<double, 3> rot_axis{std::sin(rot_tilt) * std::cos(rot_az), std::sin(rot_tilt) * std::sin(rot_az), std::cos(rot_tilt)};
+				vel_rel = {
+					(rot_axis[1] * pos_rel[2] - rot_axis[2] * pos_rel[1]) * cfg.solid_body_rotation_speed,
+					(rot_axis[2] * pos_rel[0] - rot_axis[0] * pos_rel[2]) * cfg.solid_body_rotation_speed,
+					(rot_axis[0] * pos_rel[1] - rot_axis[1] * pos_rel[0]) * cfg.solid_body_rotation_speed
+				};
+			} else {
+				vel_rel = cfg.fixed_velocity_vector;
+			}
+
+			const std::array<double, 3> vel_world{
+				center_v[0] + vel_rel[0],
+				center_v[1] + vel_rel[1],
+				center_v[2] + vel_rel[2]
+			};
+
+			Dynamics::PostNewtonianBody b(0, m_body, radius, pos_world, vel_world, {0.0, 0.0, 0.0});
+			b.reference_radius = radius;
+			apply_body_appearance_preset(b, cfg.archetype);
+			apply_body_material_preset(b, cfg.archetype);
+
+			if (cfg.temperature_equilibrium) {
+				b.temperature = cfg.reference_temperature_k * std::pow(std::max(cfg.mean_semi_major_axis / r, 1e-4), cfg.temperature_falloff_exponent);
+			}
+
+			if (cfg.color_jitter > 0.0) {
+				const float hue_offset = static_cast<float>(sample_signed_uniform(0.0, cfg.color_jitter * 0.5));
+				const auto rgb = body_hsv_to_rgb(std::clamp(0.1f + hue_offset, 0.0f, 1.0f), 0.6f, 0.85f);
+				b.color = {rgb[0], rgb[1], rgb[2], 1.0f};
+			}
+			b.surface_noise_scale = static_cast<float>(sample_uniform(4.0, 16.0));
+			b.surface_roughness = static_cast<float>(sample_uniform(0.4, 0.95));
+
+			b.set_name(cfg.name_prefix + " " + std::to_string(k + 1));
+			generated_bodies.push_back(std::move(b));
+		}
+
+		result.injected_ids.reserve(generated_bodies.size());
+		for (auto& b : generated_bodies) {
+			const double speed = b.speed();
+			const double dist = distance_from_center(b);
+			result.total_mass += b.mass;
+			result.min_distance = std::min(result.min_distance, dist);
+			result.max_distance = std::max(result.max_distance, dist);
+			result.min_speed = std::min(result.min_speed, speed);
+			result.max_speed = std::max(result.max_speed, speed);
+
+			const uint32_t id = sys.add_body(std::move(b));
+			orchestrator_.surface_layers().set(id, Dynamics::BodySurfaceLayerSet{});
+			result.injected_ids.push_back(id);
+		}
+
+		sys.update_accelerations();
+		orchestrator_.notify_state_changed();
+
+		result.generated_count = result.injected_ids.size();
+		result.success = (result.generated_count > 0);
+		last_injected_batch_ids_ = result.injected_ids;
+		last_generation_result_ = result;
+		last_generation_active_ = true;
+		return result;
 	}
 
 	[[nodiscard]] static std::string display_name(const Dynamics::PostNewtonianBody& body) {

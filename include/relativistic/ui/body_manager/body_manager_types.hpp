@@ -5,6 +5,11 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <string>
+#include <vector>
+#include <cmath>
+#include <numbers>
+#include <algorithm>
 
 namespace Relativistic::UI {
 
@@ -322,6 +327,514 @@ inline constexpr std::array<const char*, 2> kEarthMapQualityNames{
 
 inline constexpr std::array<const char*, 6> kBodyAtmosphereModeNames{
 	"Rayleigh Limb Shell", "Volumetric Scattering", "Off", "Thick Haze", "Volumetric Mie", "Glowing Corona"
+};
+
+enum class PatternGeometryType : uint32_t {
+	AsteroidBelt = 0,
+	DebrisSwarm = 1,
+	SphericalFormation = 2
+};
+
+inline constexpr std::array<const char*, 3> kPatternGeometryNames{
+	"Annular Asteroid Belt",
+	"Coplanar Debris Swarm",
+	"Spherical Test Formation"
+};
+
+enum class RadialDistributionLaw : uint32_t {
+	Uniform = 0,
+	Gaussian = 1,
+	PowerLaw = 2,
+	KirkwoodResonant = 3
+};
+
+inline constexpr std::array<const char*, 4> kRadialDistributionNames{
+	"Uniform Radial Band",
+	"Gaussian Profile",
+	"Power-Law Radial Falloff",
+	"Kirkwood Resonances (Gapped)"
+};
+
+enum class AngularDistributionLaw : uint32_t {
+	Uniform = 0,
+	ClusteredLagrange = 1,
+	SpiralWave = 2,
+	FibonacciLattice = 3
+};
+
+inline constexpr std::array<const char*, 4> kAngularDistributionNames{
+	"Uniform Azimuthal (Full 360)",
+	"Lagrangian Clustered (L4/L5 Swarm)",
+	"Spiral Density Wave",
+	"Fibonacci Spherical Lattice"
+};
+
+enum class DispersionDistributionLaw : uint32_t {
+	Rayleigh = 0,
+	Gaussian = 1,
+	Uniform = 2,
+	HalfGaussian = 3,
+	PowerLaw = 4
+};
+
+inline constexpr std::array<const char*, 5> kDispersionDistributionNames{
+	"Rayleigh Distribution",
+	"Gaussian Distribution",
+	"Uniform Range",
+	"Half-Gaussian (Positive)",
+	"Power-Law Distribution"
+};
+
+enum class VelocityInjectionMode : uint32_t {
+	KeplerianCircular = 0,
+	KeplerianEccentric = 1,
+	RadialExpansion = 2,
+	RadialCollapse = 3,
+	IsotropicVirial = 4,
+	SolidBodyRotation = 5,
+	FixedVelocity = 6
+};
+
+inline constexpr std::array<const char*, 7> kVelocityInjectionModeNames{
+	"Keplerian Circular Velocity (v = v_k)",
+	"Keplerian Eccentric Orbit (Periapsis v = v_peri)",
+	"Radial Blast / Expansion (Hubble Flow)",
+	"Radial Collapse / Infall (Free Fall)",
+	"Isotropic Virialized Dispersion",
+	"Solid-Body Rotation (v = omega x r)",
+	"Uniform Directional Velocity Vector"
+};
+
+enum class VelocityDistributionLaw : uint32_t {
+	MaxwellBoltzmann = 0,
+	Gaussian = 1,
+	Uniform = 2,
+	PowerLaw = 3
+};
+
+inline constexpr std::array<const char*, 4> kVelocityDistributionNames{
+	"Maxwell-Boltzmann (Thermal Dispersion)",
+	"Gaussian Velocity Dispersion",
+	"Uniform Velocity Scatter",
+	"Power-Law High-Velocity Tail"
+};
+
+enum class MassDistributionLaw : uint32_t {
+	Fixed = 0,
+	Uniform = 1,
+	LogUniform = 2,
+	PowerLaw = 3,
+	DerivedFromDensity = 4
+};
+
+inline constexpr std::array<const char*, 5> kMassDistributionNames{
+	"Identical Fixed Mass",
+	"Uniform Interval [m_min, m_max]",
+	"Log-Uniform Range [m_min, m_max]",
+	"Power-Law (Salpeter / Dohnanyi)",
+	"Derived from Volume & Density"
+};
+
+enum class SphericalFormationType : uint32_t {
+	ThinShell = 0,
+	ThickShell = 1,
+	PlummerSphere = 2,
+	UniformSphere = 3,
+	FibonacciShell = 4,
+	InfallingBlast = 5
+};
+
+inline constexpr std::array<const char*, 6> kSphericalFormationNames{
+	"Thin Spherical Shell (Dyson Grid)",
+	"Thick Radial Shell (Hollow Core)",
+	"Plummer Polytropic Cluster",
+	"Uniform Solid Density Sphere",
+	"Fibonacci Geodesic Lattice Shell",
+	"Infalling / Collapsing Blast Wave"
+};
+
+enum class PatternPreset : uint32_t {
+	MainAsteroidBelt = 0,
+	KuiperBeltAnalogue = 1,
+	DenseTrojanSwarm = 2,
+	NarrowPlanetaryRing = 3,
+	TidalDisruptionStream = 4,
+	CollisionDebrisCloud = 5,
+	PlummerStarCluster = 6,
+	DysonGeodesicShell = 7,
+	SupernovaBlastExpansion = 8,
+	Custom = 9
+};
+
+inline constexpr std::array<const char*, 10> kPatternPresetNames{
+	"Main Asteroid Belt (Inner Solar System)",
+	"Kuiper Belt Analogue (Cold Classical)",
+	"Trojan Asteroid Swarm (Lagrangian L4/L5)",
+	"Narrow Dense Planetary Ring",
+	"Tidal Disruption Debris Stream",
+	"High-Speed Collision Fragment Cloud",
+	"Plummer Globular Star Cluster",
+	"Dyson Geodesic Shell (Fibonacci Lattice)",
+	"Supernova Blast Expansion Wave",
+	"Custom Configuration"
+};
+
+struct GeometricPatternConfig {
+	PatternGeometryType pattern_type{PatternGeometryType::AsteroidBelt};
+	PatternPreset preset{PatternPreset::MainAsteroidBelt};
+	int32_t object_count{150};
+	int32_t parent_body_id{-2};
+	std::array<double, 3> center_position{0.0, 0.0, 0.0};
+	std::array<double, 3> center_velocity{0.0, 0.0, 0.0};
+	double plane_inclination_deg{0.0};
+	double plane_longitude_node_deg{0.0};
+	double plane_argument_periapsis_deg{0.0};
+
+	double mean_semi_major_axis{32.0};
+	double radial_thickness{12.0};
+	RadialDistributionLaw radial_distribution{RadialDistributionLaw::Uniform};
+	double radial_gaussian_sigma{2.5};
+	double radial_power_law_index{-1.5};
+	bool kirkwood_gaps_enabled{false};
+	int32_t kirkwood_gap_count{3};
+	double kirkwood_resonance_depth{0.85};
+
+	double vertical_scale_height{1.0};
+	DispersionDistributionLaw vertical_distribution{DispersionDistributionLaw::Gaussian};
+
+	double mean_eccentricity{0.06};
+	double eccentricity_dispersion{0.035};
+	DispersionDistributionLaw eccentricity_distribution{DispersionDistributionLaw::Rayleigh};
+
+	double mean_inclination_dispersion_deg{3.5};
+	DispersionDistributionLaw inclination_distribution{DispersionDistributionLaw::Rayleigh};
+
+	AngularDistributionLaw angular_distribution{AngularDistributionLaw::Uniform};
+	double angular_opening_deg{360.0};
+	double angular_center_deg{0.0};
+	double lagrangian_clustering_strength{0.8};
+
+	VelocityInjectionMode velocity_mode{VelocityInjectionMode::KeplerianCircular};
+	double mean_velocity_multiplier{1.0};
+	double velocity_dispersion_fraction{0.03};
+	VelocityDistributionLaw velocity_distribution{VelocityDistributionLaw::MaxwellBoltzmann};
+	double prograde_fraction{1.0};
+	std::array<double, 3> fixed_velocity_vector{0.0, 0.0, 0.0};
+	double expansion_speed{0.05};
+
+	SphericalFormationType spherical_type{SphericalFormationType::PlummerSphere};
+	double thin_shell_radius{28.0};
+	double plummer_scale_radius{16.0};
+	double uniform_sphere_radius{25.0};
+	double shell_inner_radius{14.0};
+	double shell_outer_radius{42.0};
+	double spherical_power_law_gamma{-2.0};
+	double solid_body_rotation_speed{0.04};
+	double solid_body_axis_tilt_deg{0.0};
+	double solid_body_axis_azimuth_deg{0.0};
+
+	Dynamics::Body3DPreset archetype{Dynamics::Body3DPreset::Asteroid};
+	MassDistributionLaw mass_distribution{MassDistributionLaw::PowerLaw};
+	double fixed_mass{1.0e-7};
+	double min_mass{1.0e-9};
+	double max_mass{2.0e-6};
+	double mass_power_law_alpha{1.833};
+
+	bool radius_from_density{true};
+	double mean_density{2700.0};
+	double density_dispersion_pct{15.0};
+	double fixed_radius{0.05};
+	double min_radius{0.005};
+	double max_radius{0.4};
+
+	bool temperature_equilibrium{true};
+	double reference_temperature_k{250.0};
+	double temperature_falloff_exponent{0.5};
+
+	double color_jitter{0.2};
+	bool randomize_appearance{true};
+	std::string name_prefix{"Asteroid"};
+
+	bool avoid_horizon_overlap{true};
+	bool avoid_mutual_collisions{true};
+	uint64_t seed{1337};
+
+	void sanitize() noexcept {
+		object_count = std::clamp(object_count, 2, 2500);
+		mean_semi_major_axis = std::clamp(mean_semi_major_axis, 1.0, 50000.0);
+		radial_thickness = std::clamp(radial_thickness, 0.01, mean_semi_major_axis * 1.95);
+		radial_gaussian_sigma = std::clamp(radial_gaussian_sigma, 0.01, mean_semi_major_axis);
+		radial_power_law_index = std::clamp(radial_power_law_index, -5.0, 5.0);
+		kirkwood_gap_count = std::clamp(kirkwood_gap_count, 1, 8);
+		kirkwood_resonance_depth = std::clamp(kirkwood_resonance_depth, 0.0, 1.0);
+		vertical_scale_height = std::clamp(vertical_scale_height, 0.0, mean_semi_major_axis);
+		mean_eccentricity = std::clamp(mean_eccentricity, 0.0, 0.999);
+		eccentricity_dispersion = std::clamp(eccentricity_dispersion, 0.0, 0.5);
+		mean_inclination_dispersion_deg = std::clamp(mean_inclination_dispersion_deg, 0.0, 90.0);
+		angular_opening_deg = std::clamp(angular_opening_deg, 1.0, 360.0);
+		lagrangian_clustering_strength = std::clamp(lagrangian_clustering_strength, 0.0, 1.0);
+		mean_velocity_multiplier = std::clamp(mean_velocity_multiplier, 0.0, 10.0);
+		velocity_dispersion_fraction = std::clamp(velocity_dispersion_fraction, 0.0, 2.0);
+		prograde_fraction = std::clamp(prograde_fraction, 0.0, 1.0);
+		expansion_speed = std::clamp(expansion_speed, 0.0, 10.0);
+		thin_shell_radius = std::clamp(thin_shell_radius, 0.1, 50000.0);
+		plummer_scale_radius = std::clamp(plummer_scale_radius, 0.1, 50000.0);
+		uniform_sphere_radius = std::clamp(uniform_sphere_radius, 0.1, 50000.0);
+		shell_inner_radius = std::clamp(shell_inner_radius, 0.1, 50000.0);
+		shell_outer_radius = std::clamp(shell_outer_radius, shell_inner_radius * 1.01, 50000.0);
+		spherical_power_law_gamma = std::clamp(spherical_power_law_gamma, -5.0, 5.0);
+		solid_body_rotation_speed = std::clamp(solid_body_rotation_speed, -10.0, 10.0);
+		min_mass = std::max(min_mass, 0.0);
+		max_mass = std::max(max_mass, min_mass);
+		fixed_mass = std::max(fixed_mass, 0.0);
+		mass_power_law_alpha = std::clamp(mass_power_law_alpha, 0.1, 5.0);
+		mean_density = std::clamp(mean_density, 10.0, 1.0e6);
+		density_dispersion_pct = std::clamp(density_dispersion_pct, 0.0, 100.0);
+		min_radius = std::clamp(min_radius, 1e-6, 1000.0);
+		max_radius = std::clamp(max_radius, min_radius, 5000.0);
+		fixed_radius = std::clamp(fixed_radius, 1e-6, 5000.0);
+		reference_temperature_k = std::clamp(reference_temperature_k, 0.0, 1.0e6);
+		temperature_falloff_exponent = std::clamp(temperature_falloff_exponent, 0.0, 2.0);
+		color_jitter = std::clamp(color_jitter, 0.0, 1.0);
+	}
+
+	void apply_preset(PatternPreset p) noexcept {
+		preset = p;
+		switch (p) {
+			case PatternPreset::MainAsteroidBelt:
+				pattern_type = PatternGeometryType::AsteroidBelt;
+				object_count = 150;
+				mean_semi_major_axis = 32.0;
+				radial_thickness = 12.0;
+				radial_distribution = RadialDistributionLaw::Uniform;
+				vertical_scale_height = 0.9;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.06;
+				eccentricity_dispersion = 0.035;
+				eccentricity_distribution = DispersionDistributionLaw::Rayleigh;
+				mean_inclination_dispersion_deg = 3.5;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::Uniform;
+				velocity_mode = VelocityInjectionMode::KeplerianCircular;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.025;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::Asteroid;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 1.833;
+				min_mass = 1.0e-9;
+				max_mass = 2.0e-6;
+				radius_from_density = true;
+				mean_density = 2700.0;
+				density_dispersion_pct = 15.0;
+				temperature_equilibrium = true;
+				reference_temperature_k = 250.0;
+				name_prefix = "Asteroid";
+				break;
+			case PatternPreset::KuiperBeltAnalogue:
+				pattern_type = PatternGeometryType::AsteroidBelt;
+				object_count = 200;
+				mean_semi_major_axis = 65.0;
+				radial_thickness = 24.0;
+				radial_distribution = RadialDistributionLaw::Gaussian;
+				radial_gaussian_sigma = 6.0;
+				vertical_scale_height = 2.2;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.08;
+				eccentricity_dispersion = 0.05;
+				eccentricity_distribution = DispersionDistributionLaw::Rayleigh;
+				mean_inclination_dispersion_deg = 6.0;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::Uniform;
+				velocity_mode = VelocityInjectionMode::KeplerianCircular;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.03;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::IceGiant;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 1.95;
+				min_mass = 2.0e-9;
+				max_mass = 8.0e-6;
+				radius_from_density = true;
+				mean_density = 1500.0;
+				density_dispersion_pct = 20.0;
+				temperature_equilibrium = true;
+				reference_temperature_k = 70.0;
+				name_prefix = "KBO";
+				break;
+			case PatternPreset::DenseTrojanSwarm:
+				pattern_type = PatternGeometryType::DebrisSwarm;
+				object_count = 120;
+				mean_semi_major_axis = 35.0;
+				radial_thickness = 4.5;
+				radial_distribution = RadialDistributionLaw::Gaussian;
+				radial_gaussian_sigma = 1.2;
+				vertical_scale_height = 0.6;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.04;
+				eccentricity_dispersion = 0.02;
+				eccentricity_distribution = DispersionDistributionLaw::Rayleigh;
+				mean_inclination_dispersion_deg = 2.0;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::ClusteredLagrange;
+				angular_opening_deg = 40.0;
+				lagrangian_clustering_strength = 0.85;
+				velocity_mode = VelocityInjectionMode::KeplerianCircular;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.02;
+				velocity_distribution = VelocityDistributionLaw::Gaussian;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::Asteroid;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 1.833;
+				min_mass = 5.0e-10;
+				max_mass = 1.0e-6;
+				radius_from_density = true;
+				mean_density = 2400.0;
+				name_prefix = "Trojan";
+				break;
+			case PatternPreset::NarrowPlanetaryRing:
+				pattern_type = PatternGeometryType::AsteroidBelt;
+				object_count = 250;
+				mean_semi_major_axis = 18.0;
+				radial_thickness = 1.5;
+				radial_distribution = RadialDistributionLaw::Uniform;
+				vertical_scale_height = 0.08;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.003;
+				eccentricity_dispersion = 0.002;
+				eccentricity_distribution = DispersionDistributionLaw::Rayleigh;
+				mean_inclination_dispersion_deg = 0.35;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::Uniform;
+				velocity_mode = VelocityInjectionMode::KeplerianCircular;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.005;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::Metallic;
+				mass_distribution = MassDistributionLaw::LogUniform;
+				min_mass = 1.0e-11;
+				max_mass = 1.0e-8;
+				radius_from_density = true;
+				mean_density = 1000.0;
+				name_prefix = "Ring Particle";
+				break;
+			case PatternPreset::TidalDisruptionStream:
+				pattern_type = PatternGeometryType::DebrisSwarm;
+				object_count = 180;
+				mean_semi_major_axis = 22.0;
+				radial_thickness = 8.0;
+				radial_distribution = RadialDistributionLaw::PowerLaw;
+				radial_power_law_index = -2.0;
+				vertical_scale_height = 0.35;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.65;
+				eccentricity_dispersion = 0.12;
+				eccentricity_distribution = DispersionDistributionLaw::Gaussian;
+				mean_inclination_dispersion_deg = 1.2;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::Uniform;
+				angular_opening_deg = 160.0;
+				velocity_mode = VelocityInjectionMode::KeplerianEccentric;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.05;
+				velocity_distribution = VelocityDistributionLaw::Gaussian;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::Asteroid;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 2.1;
+				min_mass = 1.0e-10;
+				max_mass = 5.0e-7;
+				name_prefix = "Debris Shard";
+				break;
+			case PatternPreset::CollisionDebrisCloud:
+				pattern_type = PatternGeometryType::DebrisSwarm;
+				object_count = 100;
+				mean_semi_major_axis = 25.0;
+				radial_thickness = 4.0;
+				radial_distribution = RadialDistributionLaw::Gaussian;
+				radial_gaussian_sigma = 1.5;
+				vertical_scale_height = 1.8;
+				vertical_distribution = DispersionDistributionLaw::Gaussian;
+				mean_eccentricity = 0.15;
+				eccentricity_dispersion = 0.08;
+				eccentricity_distribution = DispersionDistributionLaw::Gaussian;
+				mean_inclination_dispersion_deg = 8.0;
+				inclination_distribution = DispersionDistributionLaw::Rayleigh;
+				angular_distribution = AngularDistributionLaw::Uniform;
+				angular_opening_deg = 60.0;
+				velocity_mode = VelocityInjectionMode::RadialExpansion;
+				expansion_speed = 0.08;
+				velocity_dispersion_fraction = 0.08;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				prograde_fraction = 1.0;
+				archetype = Dynamics::Body3DPreset::Metallic;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 2.2;
+				min_mass = 1.0e-10;
+				max_mass = 1.0e-6;
+				name_prefix = "Fragment";
+				break;
+			case PatternPreset::PlummerStarCluster:
+				pattern_type = PatternGeometryType::SphericalFormation;
+				spherical_type = SphericalFormationType::PlummerSphere;
+				object_count = 160;
+				plummer_scale_radius = 16.0;
+				velocity_mode = VelocityInjectionMode::IsotropicVirial;
+				mean_velocity_multiplier = 1.0;
+				velocity_dispersion_fraction = 0.25;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				archetype = Dynamics::Body3DPreset::Star;
+				mass_distribution = MassDistributionLaw::PowerLaw;
+				mass_power_law_alpha = 2.35;
+				min_mass = 1.0e-6;
+				max_mass = 1.0e-3;
+				radius_from_density = false;
+				min_radius = 0.05;
+				max_radius = 0.45;
+				name_prefix = "Cluster Star";
+				break;
+			case PatternPreset::DysonGeodesicShell:
+				pattern_type = PatternGeometryType::SphericalFormation;
+				spherical_type = SphericalFormationType::FibonacciShell;
+				object_count = 120;
+				thin_shell_radius = 28.0;
+				velocity_mode = VelocityInjectionMode::SolidBodyRotation;
+				solid_body_rotation_speed = 0.035;
+				velocity_dispersion_fraction = 0.0;
+				archetype = Dynamics::Body3DPreset::Metallic;
+				mass_distribution = MassDistributionLaw::Fixed;
+				fixed_mass = 1.0e-8;
+				radius_from_density = false;
+				fixed_radius = 0.2;
+				name_prefix = "Dyson Node";
+				break;
+			case PatternPreset::SupernovaBlastExpansion:
+				pattern_type = PatternGeometryType::SphericalFormation;
+				spherical_type = SphericalFormationType::InfallingBlast;
+				object_count = 150;
+				shell_inner_radius = 16.0;
+				shell_outer_radius = 24.0;
+				spherical_power_law_gamma = -1.0;
+				velocity_mode = VelocityInjectionMode::RadialExpansion;
+				expansion_speed = 0.22;
+				velocity_dispersion_fraction = 0.06;
+				velocity_distribution = VelocityDistributionLaw::MaxwellBoltzmann;
+				archetype = Dynamics::Body3DPreset::GasGiant;
+				mass_distribution = MassDistributionLaw::LogUniform;
+				min_mass = 1.0e-9;
+				max_mass = 5.0e-6;
+				name_prefix = "Blast Knot";
+				break;
+			case PatternPreset::Custom:
+			default:
+				break;
+		}
+		sanitize();
+	}
 };
 
 }

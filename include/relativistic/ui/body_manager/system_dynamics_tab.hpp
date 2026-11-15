@@ -53,6 +53,10 @@ public:
 			orchestrator.notify_state_changed();
 		}
 		render_setting_tooltip("Forces an immediate recomputation of accelerations and gravitational-wave emission from the current body states.");
+		if (ImGui::Button("Open Multi-Body Pattern Generator (Belts, Swarms, Shells)", ImVec2(-1.0f, 26.0f))) {
+			ctx.request_pattern_generator();
+		}
+		render_setting_tooltip("Switches to the Pattern Generator tool in the Object Creation tab to inject structured collections of bodies (annular asteroid belts, coplanar debris swarms, spherical test formations).");
 		if (ImGui::CollapsingHeader("Global Body Actions", ImGuiTreeNodeFlags_DefaultOpen)) {
 			const auto current_scope = static_cast<BulkActionScope>(bulk_scope_);
 			const auto current_cat = static_cast<CatalogTypeCategory>(bulk_category_);

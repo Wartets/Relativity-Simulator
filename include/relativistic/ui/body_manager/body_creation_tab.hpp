@@ -16,6 +16,11 @@ namespace Relativistic::UI {
 
 class BodyCreationTab {
 private:
+	enum class CreationSubMode : int {
+		SingleBodyDraft = 0,
+		GeometricPatternGenerator = 1
+	};
+	CreationSubMode creation_sub_mode_{CreationSubMode::SingleBodyDraft};
 	Dynamics::PostNewtonianBody draft_{};
 	Dynamics::BodySurfaceLayerSet layers_{};
 	BodyEditorViewState view_{};
@@ -27,6 +32,17 @@ private:
 	std::string last_spawned_name_{};
 	uint32_t last_spawned_id_{0};
 	bool spawn_notification_active_{false};
+
+	GeometricPatternConfig pattern_config_{};
+	int pattern_preset_index_{0};
+	bool pattern_radial_thickness_log_mode_{false};
+	bool pattern_scale_height_log_mode_{false};
+	bool pattern_min_mass_log_mode_{true};
+	bool pattern_max_mass_log_mode_{true};
+	bool pattern_fixed_mass_log_mode_{true};
+	bool pattern_density_log_mode_{false};
+	std::string last_pattern_notification_{};
+	bool pattern_notification_active_{false};
 
 	[[nodiscard]] std::string synthesize_name(BodyManagerContext& ctx, std::string_view label, double mass, double radius, double orbit_radius) {
 		static constexpr std::array<std::string_view, 28> prefixes{
@@ -333,7 +349,367 @@ public:
 		view_.reference_radius_log_mode = true;
 	}
 
+	void render_pattern_generator(BodyManagerContext& ctx) noexcept {
+		const float font = ImGui::GetFontSize();
+		auto& orchestrator = ctx.orchestrator();
+		const auto& prefs = orchestrator.unit_preferences();
+		const double length_scale_m = ctx.length_scale();
+		const double mass_scale_kg = ctx.mass_scale();
+
+		split_pane_begin_primary("PatternGeneratorSetup", split_, font * 17.0f, font * 30.0f);
+
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Pattern Geometry Architecture");
+		int geom_type_idx = static_cast<int>(pattern_config_.pattern_type);
+		if (ImGui::Combo("Pattern Type", &geom_type_idx, kPatternGeometryNames.data(), static_cast<int>(kPatternGeometryNames.size()))) {
+			pattern_config_.pattern_type = static_cast<PatternGeometryType>(geom_type_idx);
+		}
+		render_setting_tooltip("Selects the geometric macro-structure to generate: annular toroidal belts, coplanar orbital debris swarms, or 3D spherical test formations.");
+
+		int preset_idx = static_cast<int>(pattern_config_.preset);
+		if (ImGui::Combo("Pattern Presets", &preset_idx, kPatternPresetNames.data(), static_cast<int>(kPatternPresetNames.size()))) {
+			pattern_config_.apply_preset(static_cast<PatternPreset>(preset_idx));
+		}
+		render_setting_tooltip("Applies coherent astrophysical defaults tailored to real astronomical systems.");
+
+		ImGui::Separator();
+		render_group_title("Centroid & Attractor Origin", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+
+		auto& sys = orchestrator.nbody_system();
+		std::vector<int> parent_ids{-2};
+		std::vector<std::string> parent_labels{"Central Spacetime Attractor (Origin)"};
+
+		for (const auto& b : sys.bodies()) {
+			if (!b.enabled) continue;
+			parent_ids.push_back(static_cast<int>(b.id));
+			parent_labels.push_back(BodyManagerContext::display_name(b) + " (#" + std::to_string(b.id) + ")");
+		}
+
+		int parent_combo_idx = 0;
+		for (size_t i = 0; i < parent_ids.size(); ++i) {
+			if (parent_ids[i] == pattern_config_.parent_body_id) {
+				parent_combo_idx = static_cast<int>(i);
+				break;
+			}
+		}
+
+		std::vector<const char*> parent_ptrs;
+		parent_ptrs.reserve(parent_labels.size());
+		for (const auto& s : parent_labels) parent_ptrs.push_back(s.c_str());
+
+		if (ImGui::Combo("Parent Attractor", &parent_combo_idx, parent_ptrs.data(), static_cast<int>(parent_ptrs.size()))) {
+			pattern_config_.parent_body_id = parent_ids[static_cast<size_t>(parent_combo_idx)];
+		}
+		render_setting_tooltip("Select which body acts as the gravitational center of the generated formation and defines the orbital reference frame.");
+
+		slider_int_with_input("Object Count", &pattern_config_.object_count, 2, 2500);
+		render_setting_tooltip("Total number of celestial bodies to generate and inject into the simulation in a single batch.");
+
+		if (coordinate_aware_input_position("Center Position Offset", pattern_config_.center_position, orchestrator)) {
+		}
+		render_setting_tooltip("Cartesian offset added to the parent attractor position to shift the formation centroid.");
+
+		render_group_title("Batch Execution & Management", ImVec4(0.35f, 0.95f, 0.45f, 1.0f));
+
+		if (ImGui::Button("Generate and Inject Pattern Bodies", ImVec2(-1.0f, 32.0f))) {
+			const auto res = ctx.inject_geometric_pattern(pattern_config_);
+			if (res.success) {
+				char buf[128];
+				std::snprintf(buf, sizeof(buf), "Successfully injected %zu bodies (%zu filtered)", res.generated_count, res.rejected_count);
+				last_pattern_notification_ = buf;
+				pattern_notification_active_ = true;
+			}
+		}
+		render_setting_tooltip("Executes random distribution sampling and spawns all generated bodies into the post-Newtonian N-body system.");
+
+		if (ctx.has_last_pattern_batch()) {
+			if (ImGui::Button("Select Last Injected Batch", ImVec2(-1.0f, 24.0f))) {
+				ctx.select_last_pattern_batch();
+			}
+			render_setting_tooltip("Selects all bodies belonging to the last pattern injection for batch editing in the Object Catalog tab.");
+
+			if (ImGui::Button("Undo / Delete Last Injected Batch", ImVec2(-1.0f, 24.0f))) {
+				ctx.undo_last_pattern_injection();
+				last_pattern_notification_ = "Last injected batch deleted successfully";
+				pattern_notification_active_ = true;
+			}
+			render_setting_tooltip("Permanently removes every body spawned during the last pattern injection.");
+		}
+
+		if (pattern_notification_active_) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.85f, 0.45f, 0.8f));
+			ImGui::BeginChild("##PatternNotice", ImVec2(0.0f, 48.0f), true);
+			ImGui::TextColored(ImVec4(0.25f, 0.95f, 0.5f, 1.0f), "%s", last_pattern_notification_.c_str());
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
+		}
+
+		if (ctx.has_last_pattern_batch()) {
+			const auto& r = ctx.last_generation_result();
+			ImGui::Spacing();
+			render_group_title("Last Generation Summary", ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+			ImGui::TextDisabled("Bodies Spawned: %zu / %zu", r.generated_count, r.requested_count);
+			ImGui::TextDisabled("Total Mass: %s", Units::format_mass(r.total_mass * mass_scale_kg, prefs.mass, 3).c_str());
+			ImGui::TextDisabled("Radial Span: %s .. %s", Units::format_distance(r.min_distance * length_scale_m, prefs.distance, 2).c_str(), Units::format_distance(r.max_distance * length_scale_m, prefs.distance, 2).c_str());
+			ImGui::TextDisabled("Velocity Span: %s .. %s", Units::format_velocity(r.min_speed * ctx.speed_scale(), prefs.velocity).c_str(), Units::format_velocity(r.max_speed * ctx.speed_scale(), prefs.velocity).c_str());
+		}
+
+		split_pane_end_primary(split_);
+
+		split_pane_begin_secondary("PatternGeneratorDetails", split_);
+		ImGui::PushID("PatternDetailsTab");
+
+		if (ImGui::BeginTabBar("PatternConfigTabs")) {
+			if (ImGui::BeginTabItem("Spatial Geometry")) {
+				render_group_title("Radial Geometry & Dispersion", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+
+				if (pattern_config_.pattern_type != PatternGeometryType::SphericalFormation) {
+					double semi_a_m = pattern_config_.mean_semi_major_axis * length_scale_m;
+					if (unit_aware_slider_double("Mean Semi-Major Axis", &semi_a_m, 1.0 * length_scale_m, 500.0 * length_scale_m, UnitCategory::Distance, prefs, "%.2f")) {
+						pattern_config_.mean_semi_major_axis = std::max(semi_a_m / length_scale_m, 1.0);
+					}
+					render_setting_tooltip("Mean orbital radius or semi-major axis of the annular ring / debris swarm.");
+
+					double rad_thick_m = pattern_config_.radial_thickness * length_scale_m;
+					if (unit_aware_slider_double("Radial Thickness", &rad_thick_m, 0.1 * length_scale_m, 200.0 * length_scale_m, UnitCategory::Distance, prefs, "%.2f", &pattern_radial_thickness_log_mode_)) {
+						pattern_config_.radial_thickness = std::clamp(rad_thick_m / length_scale_m, 0.01, pattern_config_.mean_semi_major_axis * 1.95);
+					}
+					render_setting_tooltip("Radial belt width / swarm radial thickness.");
+
+					int rad_dist_idx = static_cast<int>(pattern_config_.radial_distribution);
+					if (ImGui::Combo("Radial Distribution Law", &rad_dist_idx, kRadialDistributionNames.data(), static_cast<int>(kRadialDistributionNames.size()))) {
+						pattern_config_.radial_distribution = static_cast<RadialDistributionLaw>(rad_dist_idx);
+					}
+					render_setting_tooltip("Spatial probability distribution governing radial placement of bodies.");
+
+					if (pattern_config_.radial_distribution == RadialDistributionLaw::Gaussian) {
+						slider_double_with_input("Radial Gaussian Sigma", &pattern_config_.radial_gaussian_sigma, 0.01, pattern_config_.radial_thickness);
+					} else if (pattern_config_.radial_distribution == RadialDistributionLaw::PowerLaw) {
+						slider_double_with_input("Power-Law Exponent (alpha)", &pattern_config_.radial_power_law_index, -4.0, 4.0, "%.2f");
+					} else if (pattern_config_.radial_distribution == RadialDistributionLaw::KirkwoodResonant) {
+						ImGui::Checkbox("Simulate Kirkwood Resonant Gaps", &pattern_config_.kirkwood_gaps_enabled);
+						if (pattern_config_.kirkwood_gaps_enabled) {
+							slider_int_with_input("Gap Count", &pattern_config_.kirkwood_gap_count, 1, 8);
+							slider_double_with_input("Resonance Depletion Depth", &pattern_config_.kirkwood_resonance_depth, 0.1, 1.0, "%.2f");
+						}
+					}
+
+					render_group_title("Vertical Scale Height", ImVec4(0.5f, 0.9f, 0.85f, 1.0f));
+					double v_scale_m = pattern_config_.vertical_scale_height * length_scale_m;
+					if (unit_aware_slider_double("Vertical Thickness / Scale Height", &v_scale_m, 0.01 * length_scale_m, 50.0 * length_scale_m, UnitCategory::Distance, prefs, "%.2f", &pattern_scale_height_log_mode_)) {
+						pattern_config_.vertical_scale_height = std::max(v_scale_m / length_scale_m, 0.0);
+					}
+
+					render_group_title("Common Plane Orientation", ImVec4(0.8f, 0.6f, 1.0f, 1.0f));
+					slider_double_with_input("Plane Inclination (i)", &pattern_config_.plane_inclination_deg, -90.0, 90.0, "%.1f deg");
+					slider_double_with_input("Longitude of Ascending Node (Omega)", &pattern_config_.plane_longitude_node_deg, 0.0, 360.0, "%.1f deg");
+					slider_double_with_input("Argument of Periapsis (omega)", &pattern_config_.plane_argument_periapsis_deg, 0.0, 360.0, "%.1f deg");
+
+					if (ImGui::SmallButton("Equatorial (0 deg)")) {
+						pattern_config_.plane_inclination_deg = 0.0;
+						pattern_config_.plane_longitude_node_deg = 0.0;
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Polar (90 deg)")) {
+						pattern_config_.plane_inclination_deg = 90.0;
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Retrograde (180 deg)")) {
+						pattern_config_.plane_inclination_deg = 180.0;
+					}
+				} else {
+					int sph_type_idx = static_cast<int>(pattern_config_.spherical_type);
+					if (ImGui::Combo("Spherical Geometry Model", &sph_type_idx, kSphericalFormationNames.data(), static_cast<int>(kSphericalFormationNames.size()))) {
+						pattern_config_.spherical_type = static_cast<SphericalFormationType>(sph_type_idx);
+					}
+					render_setting_tooltip("Selects the 3D spherical configuration: Plummer star cluster, uniform solid sphere, Dyson shell, or expanding blast.");
+
+					if (pattern_config_.spherical_type == SphericalFormationType::PlummerSphere) {
+						slider_double_with_input("Plummer Scale Radius", &pattern_config_.plummer_scale_radius, 0.5, 200.0, "%.2f");
+						render_setting_tooltip("Scale parameter 'b' of the Plummer sphere density profile rho(r) = (3M / 4pi b^3) * (1 + r^2/b^2)^(-5/2).");
+					} else if (pattern_config_.spherical_type == SphericalFormationType::UniformSphere) {
+						slider_double_with_input("Uniform Sphere Radius", &pattern_config_.uniform_sphere_radius, 0.5, 200.0, "%.2f");
+					} else if (pattern_config_.spherical_type == SphericalFormationType::ThinShell || pattern_config_.spherical_type == SphericalFormationType::FibonacciShell) {
+						slider_double_with_input("Shell Radius", &pattern_config_.thin_shell_radius, 0.5, 200.0, "%.2f");
+					} else {
+						slider_double_with_input("Inner Shell Radius", &pattern_config_.shell_inner_radius, 0.5, 200.0, "%.2f");
+						slider_double_with_input("Outer Shell Radius", &pattern_config_.shell_outer_radius, pattern_config_.shell_inner_radius * 1.05, 500.0, "%.2f");
+						slider_double_with_input("Radial Density Falloff (gamma)", &pattern_config_.spherical_power_law_gamma, -4.0, 4.0, "%.2f");
+					}
+
+					render_group_title("Spherical Formation Rotation", ImVec4(0.8f, 0.6f, 1.0f, 1.0f));
+					slider_double_with_input("Solid-Body Angular Speed", &pattern_config_.solid_body_rotation_speed, -1.0, 1.0, "%.3f rad/s");
+					slider_double_with_input("Rotation Axis Tilt", &pattern_config_.solid_body_axis_tilt_deg, 0.0, 180.0, "%.1f deg");
+					slider_double_with_input("Rotation Axis Azimuth", &pattern_config_.solid_body_axis_azimuth_deg, 0.0, 360.0, "%.1f deg");
+				}
+
+				if (pattern_config_.pattern_type == PatternGeometryType::DebrisSwarm) {
+					render_group_title("Debris Sector & Anomaly Spread", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+					slider_double_with_input("Angular Opening (Spread)", &pattern_config_.angular_opening_deg, 2.0, 360.0, "%.1f deg");
+					slider_double_with_input("Angular Center Position", &pattern_config_.angular_center_deg, 0.0, 360.0, "%.1f deg");
+				}
+
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Kinematics & Orbits")) {
+				render_group_title("Orbital Velocity Injection", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
+				int vel_mode_idx = static_cast<int>(pattern_config_.velocity_mode);
+				if (ImGui::Combo("Velocity Mode", &vel_mode_idx, kVelocityInjectionModeNames.data(), static_cast<int>(kVelocityInjectionModeNames.size()))) {
+					pattern_config_.velocity_mode = static_cast<VelocityInjectionMode>(vel_mode_idx);
+				}
+				render_setting_tooltip("Specifies how initial velocity vectors are computed for each member of the formation.");
+
+				slider_double_with_input("Mean Velocity Multiplier", &pattern_config_.mean_velocity_multiplier, 0.0, 3.0, "%.3fx");
+				render_setting_tooltip("Multiplier applied to the ideal orbital velocity (1.0 = exact equilibrium circular orbit).");
+
+				slider_double_with_input("Velocity Dispersion Fraction", &pattern_config_.velocity_dispersion_fraction, 0.0, 0.5, "%.3f");
+				render_setting_tooltip("Fractional spread delta_v / v_mean representing random kinematic velocity dispersion.");
+
+				int vel_dist_idx = static_cast<int>(pattern_config_.velocity_distribution);
+				if (ImGui::Combo("Velocity Dispersion Law", &vel_dist_idx, kVelocityDistributionNames.data(), static_cast<int>(kVelocityDistributionNames.size()))) {
+					pattern_config_.velocity_distribution = static_cast<VelocityDistributionLaw>(vel_dist_idx);
+				}
+
+				slider_double_with_input("Prograde Velocity Fraction", &pattern_config_.prograde_fraction, 0.0, 1.0, "%.2f");
+				render_setting_tooltip("Fraction of bodies orbiting prograde vs retrograde (1.0 = 100% prograde, 0.0 = 100% retrograde, 0.5 = counter-rotating).");
+
+				if (pattern_config_.velocity_mode == VelocityInjectionMode::RadialExpansion) {
+					slider_double_with_input("Radial Blast Speed", &pattern_config_.expansion_speed, 0.001, 2.0, "%.4f c");
+				}
+
+				render_group_title("Eccentricity & Inclination Spreads", ImVec4(1.0f, 0.7f, 0.35f, 1.0f));
+				slider_double_with_input("Mean Orbital Eccentricity", &pattern_config_.mean_eccentricity, 0.0, 0.98, "%.3f");
+				slider_double_with_input("Eccentricity Dispersion", &pattern_config_.eccentricity_dispersion, 0.0, 0.4, "%.3f");
+
+				int ecc_dist_idx = static_cast<int>(pattern_config_.eccentricity_distribution);
+				if (ImGui::Combo("Eccentricity Distribution Law", &ecc_dist_idx, kDispersionDistributionNames.data(), static_cast<int>(kDispersionDistributionNames.size()))) {
+					pattern_config_.eccentricity_distribution = static_cast<DispersionDistributionLaw>(ecc_dist_idx);
+				}
+
+				slider_double_with_input("Inclination Dispersion", &pattern_config_.mean_inclination_dispersion_deg, 0.0, 45.0, "%.2f deg");
+				int inc_dist_idx = static_cast<int>(pattern_config_.inclination_distribution);
+				if (ImGui::Combo("Inclination Distribution Law", &inc_dist_idx, kDispersionDistributionNames.data(), static_cast<int>(kDispersionDistributionNames.size()))) {
+					pattern_config_.inclination_distribution = static_cast<DispersionDistributionLaw>(inc_dist_idx);
+				}
+
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Mass & Material")) {
+				render_group_title("Population Archetype & Appearance", ImVec4(0.6f, 0.85f, 1.0f, 1.0f));
+
+				int arch_idx = static_cast<int>(pattern_config_.archetype);
+				if (ImGui::Combo("Base Population Archetype", &arch_idx, kBodySurfacePresetNames.data(), static_cast<int>(kBodySurfacePresetNames.size()))) {
+					pattern_config_.archetype = static_cast<Dynamics::Body3DPreset>(arch_idx);
+				}
+				render_setting_tooltip("Physical material and surface shading archetype assigned across the generated batch.");
+
+				char name_prefix_buf[32];
+				std::strncpy(name_prefix_buf, pattern_config_.name_prefix.c_str(), sizeof(name_prefix_buf) - 1);
+				name_prefix_buf[sizeof(name_prefix_buf) - 1] = '\0';
+				if (ImGui::InputText("Name Prefix", name_prefix_buf, sizeof(name_prefix_buf))) {
+					pattern_config_.name_prefix = name_prefix_buf;
+				}
+
+				slider_double_with_input("Color Jitter (Hue Variance)", &pattern_config_.color_jitter, 0.0, 1.0, "%.2f");
+				render_setting_tooltip("Subtle chromatic variation applied across generated body surface palettes.");
+
+				render_group_title("Mass Distribution", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+				int mass_dist_idx = static_cast<int>(pattern_config_.mass_distribution);
+				if (ImGui::Combo("Mass Distribution Law", &mass_dist_idx, kMassDistributionNames.data(), static_cast<int>(kMassDistributionNames.size()))) {
+					pattern_config_.mass_distribution = static_cast<MassDistributionLaw>(mass_dist_idx);
+				}
+
+				if (pattern_config_.mass_distribution == MassDistributionLaw::Fixed) {
+					double m_fix_kg = pattern_config_.fixed_mass * mass_scale_kg;
+					if (unit_aware_slider_double("Fixed Body Mass", &m_fix_kg, 1e-12 * mass_scale_kg, 1e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4e", &pattern_fixed_mass_log_mode_)) {
+						pattern_config_.fixed_mass = std::max(m_fix_kg / mass_scale_kg, 0.0);
+					}
+				} else {
+					double m_min_kg = pattern_config_.min_mass * mass_scale_kg;
+					if (unit_aware_slider_double("Minimum Mass", &m_min_kg, 1e-14 * mass_scale_kg, 1e4 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4e", &pattern_min_mass_log_mode_)) {
+						pattern_config_.min_mass = std::max(m_min_kg / mass_scale_kg, 0.0);
+					}
+					double m_max_kg = pattern_config_.max_mass * mass_scale_kg;
+					if (unit_aware_slider_double("Maximum Mass", &m_max_kg, pattern_config_.min_mass * mass_scale_kg, 1e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4e", &pattern_max_mass_log_mode_)) {
+						pattern_config_.max_mass = std::max(m_max_kg / mass_scale_kg, pattern_config_.min_mass);
+					}
+					if (pattern_config_.mass_distribution == MassDistributionLaw::PowerLaw) {
+						slider_double_with_input("Mass Power-Law Exponent (alpha)", &pattern_config_.mass_power_law_alpha, 0.5, 4.0, "%.3f");
+						render_setting_tooltip("Differential mass function dN/dm ~ m^-alpha (Dohnanyi collisional cascade = 1.833, Salpeter IMF = 2.35).");
+					}
+				}
+
+				render_group_title("Physical Radius & Density Coupling", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
+				ImGui::Checkbox("Derive Physical Radius from Material Density", &pattern_config_.radius_from_density);
+				render_setting_tooltip("Computes physical body radius dynamically from mass and volumetric mass density via V = 4/3 pi r^3.");
+
+				if (pattern_config_.radius_from_density) {
+					slider_double_with_input("Mean Density (kg/m^3)", &pattern_config_.mean_density, 50.0, 20000.0, "%.0f", &pattern_density_log_mode_);
+					slider_double_with_input("Density Spread (+/- %)", &pattern_config_.density_dispersion_pct, 0.0, 50.0, "%.1f%%");
+				} else {
+					slider_double_with_input("Minimum Radius", &pattern_config_.min_radius, 1e-4, 10.0, "%.4f");
+					slider_double_with_input("Maximum Radius", &pattern_config_.max_radius, pattern_config_.min_radius, 50.0, "%.4f");
+				}
+
+				render_group_title("Thermodynamics", ImVec4(1.0f, 0.5f, 0.4f, 1.0f));
+				ImGui::Checkbox("Equilibrium Temperature from Central Radiation", &pattern_config_.temperature_equilibrium);
+				if (pattern_config_.temperature_equilibrium) {
+					slider_double_with_input("Reference Temperature at Mean Radius (K)", &pattern_config_.reference_temperature_k, 5.0, 20000.0, "%.1f K");
+					slider_double_with_input("Radial Falloff Exponent (beta)", &pattern_config_.temperature_falloff_exponent, 0.1, 1.0, "%.2f");
+				}
+
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Hazards & Seeds")) {
+				render_group_title("Anti-Collision & Horizon Safeguards", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+				ImGui::Checkbox("Avoid Central Event Horizon Overlap (r > 1.35 r_h)", &pattern_config_.avoid_horizon_overlap);
+				render_setting_tooltip("Rejects generated positions that fall within 1.35 horizon radii of the central black hole.");
+
+				ImGui::Checkbox("Avoid Mutual Batch Collisions", &pattern_config_.avoid_mutual_collisions);
+				render_setting_tooltip("Ensures generated members do not spawn physically overlapping one another.");
+
+				render_group_title("Deterministic PRNG Seed", ImVec4(0.7f, 0.7f, 1.0f, 1.0f));
+				int seed_i = static_cast<int>(pattern_config_.seed);
+				if (ImGui::InputInt("Pattern Generator Seed", &seed_i)) {
+					pattern_config_.seed = static_cast<uint64_t>(std::max(seed_i, 1));
+				}
+				if (ImGui::Button("Randomize Seed", ImVec2(160.0f, 24.0f))) {
+					pattern_config_.seed = static_cast<uint64_t>(ctx.random_int(1, 1000000));
+				}
+
+				ImGui::EndTabItem();
+			}
+
+			ImGui::EndTabBar();
+		}
+
+		ImGui::PopID();
+		split_pane_end_secondary();
+	}
+
 	void render(BodyManagerContext& ctx) noexcept {
+		if (ctx.consume_pattern_generator_request()) {
+			creation_sub_mode_ = CreationSubMode::GeometricPatternGenerator;
+		}
+
+		ImGui::PushID("CreationSubModeBar");
+		const char* sub_mode_names[] = {"Single Body Draft", "Multi-Body Geometric Pattern Generator"};
+		int mode_idx = static_cast<int>(creation_sub_mode_);
+		if (ImGui::Combo("Creation Workflow", &mode_idx, sub_mode_names, IM_ARRAYSIZE(sub_mode_names))) {
+			creation_sub_mode_ = static_cast<CreationSubMode>(mode_idx);
+		}
+		render_setting_tooltip("Switch between drafting an individual celestial body or mass-generating structured collections of bodies (annular asteroid belts, coplanar debris swarms, spherical test formations).");
+		ImGui::PopID();
+		ImGui::Separator();
+
+		if (creation_sub_mode_ == CreationSubMode::GeometricPatternGenerator) {
+			render_pattern_generator(ctx);
+			return;
+		}
+
 		if (pristine_ && std::abs(ctx.orchestrator().parameters().mass - reference_mass_) > 1e-9 * std::max(std::abs(reference_mass_), 1.0)) {
 			reset_draft(ctx);
 		}

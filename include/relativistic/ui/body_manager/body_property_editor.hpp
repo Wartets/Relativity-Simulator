@@ -264,6 +264,8 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms.");
 
+	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
+
 	if (render_body_orientation_controls(b)) {
 		changed = true;
 	}
@@ -796,6 +798,122 @@ inline bool render_batch_object_editor(
 			for (const auto* b : bodies) src_ids.push_back(static_cast<int>(b->id));
 			ctx.set_selected_sources(src_ids);
 			ctx.request_tab(BodyManagerTab::SourceCatalog);
+			changed = true;
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Batch Orbital Plane & Reference Alignment", ImGuiTreeNodeFlags_DefaultOpen)) {
+		render_group_title("Reference Attractor Selection", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+		render_hint_text("Select a common reference origin to evaluate or reorient the orbital planes of all selected bodies simultaneously.");
+
+		std::vector<int> b_ref_ids{BodyManagerContext::kCentralSourceId};
+		std::vector<std::string> b_ref_labels{"Central Spacetime Attractor (Origin #0)"};
+		for (const auto& other : sys.bodies()) {
+			if (!other.enabled) continue;
+			bool in_selection = false;
+			for (const auto* sel : bodies) {
+				if (sel->id == other.id) { in_selection = true; break; }
+			}
+			if (in_selection) continue;
+			b_ref_ids.push_back(static_cast<int>(other.id));
+			b_ref_labels.push_back(BodyManagerContext::display_name(other) + " (#" + std::to_string(other.id) + ")");
+		}
+
+		int b_ref_combo = 0;
+		for (size_t i = 0; i < b_ref_ids.size(); ++i) {
+			if (b_ref_ids[i] == view.reference_frame_body_id) {
+				b_ref_combo = static_cast<int>(i);
+				break;
+			}
+		}
+
+		std::vector<const char*> b_ref_ptrs;
+		b_ref_ptrs.reserve(b_ref_labels.size());
+		for (const auto& s : b_ref_labels) b_ref_ptrs.push_back(s.c_str());
+
+		if (ImGui::Combo("Common Reference Body##Batch", &b_ref_combo, b_ref_ptrs.data(), static_cast<int>(b_ref_ptrs.size()))) {
+			view.reference_frame_body_id = b_ref_ids[static_cast<size_t>(b_ref_combo)];
+		}
+
+		double min_tilt = 1e30, max_tilt = -1e30, sum_tilt = 0.0;
+		for (const auto* b_item : bodies) {
+			const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+			if (st.valid) {
+				min_tilt = std::min(min_tilt, st.signed_inclination_offset_deg);
+				max_tilt = std::max(max_tilt, st.signed_inclination_offset_deg);
+				sum_tilt += st.signed_inclination_offset_deg;
+			}
+		}
+		const double avg_tilt = bodies.empty() ? 0.0 : (sum_tilt / static_cast<double>(bodies.size()));
+		const bool is_uniform_tilt = (max_tilt - min_tilt < 0.01);
+		const ImVec4 tilt_badge_col = (avg_tilt >= 0.0) ? ImVec4(0.35f, 0.95f, 0.45f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+
+		if (is_uniform_tilt) {
+			ImGui::Text("Batch Tilt Offset: ");
+			ImGui::SameLine();
+			ImGui::TextColored(tilt_badge_col, "%+.*f deg", 2, avg_tilt);
+		} else {
+			ImGui::Text("Batch Tilt Span: ");
+			ImGui::SameLine();
+			ImGui::TextColored(tilt_badge_col, "[%+.*f deg .. %+.*f deg] (Mean: %+.*f deg)", 2, min_tilt, 2, max_tilt, 2, avg_tilt);
+		}
+
+		static float batch_uniform_inc = 0.0f;
+		if (slider_float_with_input("Set Uniform Inclination (All Selected)", &batch_uniform_inc, 0.0f, 180.0f, "%.2f deg")) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, static_cast<double>(batch_uniform_inc), st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+
+		static float batch_delta_inc = 0.0f;
+		ImGui::InputFloat("Inclination Delta (+/- deg)", &batch_delta_inc, 0.0f, 0.0f, "%.2f deg");
+		ImGui::SameLine();
+		if (ImGui::Button("Apply Tilt Offset##Batch")) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				const double new_inc = std::clamp(st.relative_inclination_deg + static_cast<double>(batch_delta_inc), 0.0, 180.0);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, new_inc, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("Align All Coplanar (0 deg)##Batch", ImVec2(180.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 0.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Set All Polar (90 deg)##Batch", ImVec2(180.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 90.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Invert All Retrograde (180 deg)##Batch", ImVec2(220.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 180.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("Circularize All Around Reference##Batch", ImVec2(240.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.circularize_around_reference(*b_item, view.reference_frame_body_id);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Zero Relative Drift (Match Velocity)##Batch", ImVec2(260.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.match_reference_velocity(*b_item, view.reference_frame_body_id);
+			}
 			changed = true;
 		}
 	}

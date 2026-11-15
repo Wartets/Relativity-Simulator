@@ -63,6 +63,10 @@ public:
 		object_creation_tab_.view().mass_log_mode = settings.body_manager_new_body_mass_log_mode;
 		object_creation_tab_.view().radius_log_mode = settings.body_manager_new_body_radius_log_mode;
 		source_creation_tab_.view().mass_log_mode = settings.body_manager_new_source_mass_log_mode;
+		object_catalog_tab_.view().reference_frame_body_id = settings.body_manager_reference_body_id;
+		object_catalog_tab_.view().show_relative_coordinates = settings.body_manager_relative_coords_mode;
+		source_catalog_tab_.view().reference_frame_body_id = settings.body_manager_reference_body_id;
+		source_catalog_tab_.view().show_relative_coordinates = settings.body_manager_relative_coords_mode;
 	}
 
 	void sync_persisted_settings() noexcept {
@@ -81,6 +85,8 @@ public:
 		persisted_settings_->body_manager_new_body_mass_log_mode = object_creation_tab_.view().mass_log_mode;
 		persisted_settings_->body_manager_new_body_radius_log_mode = object_creation_tab_.view().radius_log_mode;
 		persisted_settings_->body_manager_new_source_mass_log_mode = source_creation_tab_.view().mass_log_mode;
+		persisted_settings_->body_manager_reference_body_id = object_catalog_tab_.view().reference_frame_body_id;
+		persisted_settings_->body_manager_relative_coords_mode = object_catalog_tab_.view().show_relative_coordinates;
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {

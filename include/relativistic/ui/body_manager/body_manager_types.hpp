@@ -185,6 +185,13 @@ struct BodyEditorViewState {
 	float target_eccentricity{0.0f};
 	int layer_template_choice{0};
 	SpacetimeSourceEditState source_parameters{true};
+	int reference_frame_body_id{-2};
+	bool show_relative_coordinates{false};
+	float plane_target_inclination_deg{0.0f};
+	float plane_target_node_deg{0.0f};
+	float plane_target_periapsis_deg{0.0f};
+	bool plane_angles_initialized{false};
+	uint32_t plane_initialized_for_body{0};
 };
 
 struct BodyEditResult {

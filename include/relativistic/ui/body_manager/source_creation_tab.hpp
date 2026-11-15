@@ -121,6 +121,115 @@ private:
 			ImGui::TextDisabled("Binary Metrics: q = %.4f | eta = %.4f | GW Coalescence: %s", draft_binary.mass_ratio, draft_binary.symmetric_mass_ratio, Units::format_time(draft_binary.peters_coalescence_time_seconds, prefs.time).c_str());
 		}
 
+		render_group_title("Orbital Plane & Parent Alignment", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+		render_hint_text("Specify the reference parent attractor and tilt the black hole orbital plane relative to the central equator or a parent's orbit.");
+
+		std::vector<int> src_creation_ref_ids{BodyManagerContext::kCentralSourceId};
+		std::vector<std::string> src_creation_ref_labels{"Central Spacetime Attractor (Origin #0)"};
+		{
+			auto& sys = ctx.orchestrator().nbody_system();
+			std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());
+			for (const auto& b_item : sys.bodies()) {
+				if (!b_item.enabled) continue;
+				src_creation_ref_ids.push_back(static_cast<int>(b_item.id));
+				src_creation_ref_labels.push_back(BodyManagerContext::display_name(b_item) + " (#" + std::to_string(b_item.id) + ")");
+			}
+		}
+
+		int src_creation_ref_idx = 0;
+		for (size_t i = 0; i < src_creation_ref_ids.size(); ++i) {
+			if (src_creation_ref_ids[i] == view_.reference_frame_body_id) {
+				src_creation_ref_idx = static_cast<int>(i);
+				break;
+			}
+		}
+
+		std::vector<const char*> src_creation_ref_ptrs;
+		src_creation_ref_ptrs.reserve(src_creation_ref_labels.size());
+		for (const auto& s : src_creation_ref_labels) src_creation_ref_ptrs.push_back(s.c_str());
+
+		if (ImGui::Combo("Reference Parent Attractor##SourceDraft", &src_creation_ref_idx, src_creation_ref_ptrs.data(), static_cast<int>(src_creation_ref_ptrs.size()))) {
+			view_.reference_frame_body_id = src_creation_ref_ids[static_cast<size_t>(src_creation_ref_idx)];
+			view_.plane_angles_initialized = false;
+		}
+
+		const auto draft_src_plane = ctx.compute_relative_orbital_plane_state(draft_, view_.reference_frame_body_id);
+		if (draft_src_plane.valid) {
+			const double signed_tilt = draft_src_plane.signed_inclination_offset_deg;
+			const ImVec4 tilt_badge_col = (signed_tilt >= 0.0)
+				? ImVec4(0.35f, 0.95f, 0.45f, 1.0f)
+				: ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+			char tilt_buf[128];
+			std::snprintf(tilt_buf, sizeof(tilt_buf), "%+.*f deg", 2, signed_tilt);
+			ImGui::Text("Signed Tilt Offset: ");
+			ImGui::SameLine();
+			ImGui::TextColored(tilt_badge_col, "%s relative to %s", tilt_buf, draft_src_plane.reference_name.c_str());
+			ImGui::TextDisabled("Mutual Plane Angle: %.2f deg | Alignment: %s", draft_src_plane.relative_inclination_deg, draft_src_plane.alignment_category);
+
+			if (draft_src_plane.is_in_kozai_zone) {
+				render_caution_text(draft_src_plane.kozai_warning);
+			}
+
+			if (view_.plane_initialized_for_body != draft_.id || !view_.plane_angles_initialized) {
+				view_.plane_target_inclination_deg = static_cast<float>(draft_src_plane.relative_inclination_deg);
+				view_.plane_target_node_deg = static_cast<float>(draft_src_plane.relative_node_deg);
+				view_.plane_target_periapsis_deg = static_cast<float>(draft_src_plane.relative_periapsis_deg);
+				view_.plane_angles_initialized = true;
+				view_.plane_initialized_for_body = draft_.id;
+			}
+
+			bool src_plane_changed = false;
+			float d_inc = view_.plane_target_inclination_deg;
+			if (slider_float_with_input("Draft Inclination (i_rel)##SourceDraft", &d_inc, 0.0f, 180.0f, "%.2f deg")) {
+				view_.plane_target_inclination_deg = d_inc;
+				src_plane_changed = true;
+			}
+			float d_node = view_.plane_target_node_deg;
+			if (slider_float_with_input("Draft Node (Omega_rel)##SourceDraft", &d_node, 0.0f, 360.0f, "%.2f deg")) {
+				view_.plane_target_node_deg = d_node;
+				src_plane_changed = true;
+			}
+			float d_peri = view_.plane_target_periapsis_deg;
+			if (slider_float_with_input("Draft Periapsis (omega_rel)##SourceDraft", &d_peri, 0.0f, 360.0f, "%.2f deg")) {
+				view_.plane_target_periapsis_deg = d_peri;
+				src_plane_changed = true;
+			}
+
+			if (src_plane_changed) {
+				ctx.apply_relative_orbital_plane_rotation(
+					draft_, view_.reference_frame_body_id,
+					static_cast<double>(view_.plane_target_inclination_deg),
+					static_cast<double>(view_.plane_target_node_deg),
+					static_cast<double>(view_.plane_target_periapsis_deg)
+				);
+				pristine_ = false;
+			}
+
+			if (ImGui::SmallButton("Coplanar (0 deg)##SourceDraft")) {
+				view_.plane_target_inclination_deg = 0.0f;
+				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 0.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
+				pristine_ = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Polar (90 deg)##SourceDraft")) {
+				view_.plane_target_inclination_deg = 90.0f;
+				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 90.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
+				pristine_ = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Retrograde (180 deg)##SourceDraft")) {
+				view_.plane_target_inclination_deg = 180.0f;
+				ctx.apply_relative_orbital_plane_rotation(draft_, view_.reference_frame_body_id, 180.0, static_cast<double>(view_.plane_target_node_deg), static_cast<double>(view_.plane_target_periapsis_deg));
+				pristine_ = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Circularize Around Parent##SourceDraft")) {
+				ctx.circularize_around_reference(draft_, view_.reference_frame_body_id);
+				view_.plane_angles_initialized = false;
+				pristine_ = false;
+			}
+		}
+
 		render_group_title("Anti-Collision & Separation Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
 		const auto collision_diag = ctx.check_placement_collision(draft_.position, horizon, true);
 		if (collision_diag.has_collision) {

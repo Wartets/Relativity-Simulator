@@ -178,6 +178,10 @@ public:
 		return split_;
 	}
 
+	[[nodiscard]] BodyEditorViewState& view() noexcept {
+		return view_;
+	}
+
 	void render(BodyManagerContext& ctx) noexcept {
 		auto& sys = ctx.orchestrator().nbody_system();
 		std::lock_guard<std::recursive_mutex> lock(sys.bodies_mutex());

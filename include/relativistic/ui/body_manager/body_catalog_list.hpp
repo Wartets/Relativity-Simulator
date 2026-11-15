@@ -38,7 +38,10 @@ enum class CatalogRowAction : uint8_t {
 	SelectSubsystem,
 	SelectParent,
 	CircularizeAroundParent,
-	CircularizeSatellites
+	CircularizeSatellites,
+	AlignPlaneCoplanar,
+	AlignPlanePolar,
+	AlignPlaneRetrograde
 };
 
 enum class CatalogDynamicsFilter : uint32_t {
@@ -1068,6 +1071,22 @@ inline void flatten_tree_branch(
 				ImGui::TextUnformatted(("Position: " + describe_position(ctx.orchestrator().coordinate_preferences().widget_default, b.position, make_coordinate_frame(ctx.orchestrator()), length_scale, prefs, 4)).c_str());
 				ImGui::Text("Speed: %.6e", b.speed());
 
+				const auto rel_plane_info = ctx.compute_relative_orbital_plane_state(b, (tree_item != nullptr && tree_item->parent_id >= 0) ? tree_item->parent_id : BodyManagerContext::kCentralSourceId);
+				if (rel_plane_info.valid) {
+					ImGui::Separator();
+					const char* sign_str = (rel_plane_info.signed_inclination_offset_deg >= 0.0) ? "+" : "";
+					const ImVec4 tilt_col = (rel_plane_info.signed_inclination_offset_deg >= 0.0)
+						? ImVec4(0.35f, 0.95f, 0.45f, 1.0f)
+						: ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+					ImGui::Text("Orbital Plane Tilt: ");
+					ImGui::SameLine();
+					ImGui::TextColored(tilt_col, "%s%.2f deg relative to %s", sign_str, rel_plane_info.signed_inclination_offset_deg, (rel_plane_info.reference_id == BodyManagerContext::kCentralSourceId) ? "Central Equator" : rel_plane_info.reference_name.c_str());
+					ImGui::TextDisabled("  Mutual Angle: %.2f deg | Nodes: %.2f deg | Periapsis: %.2f deg", rel_plane_info.relative_inclination_deg, rel_plane_info.relative_node_deg, rel_plane_info.relative_periapsis_deg);
+					if (rel_plane_info.is_in_kozai_zone) {
+						ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.25f, 1.0f), "  [!] Kozai-Lidov Resonant Inclination Window");
+					}
+				}
+
 				if (tree_item != nullptr) {
 					if (tree_item->depth > 0) {
 						ImGui::Separator();
@@ -1159,6 +1178,32 @@ inline void flatten_tree_branch(
 						}
 						if (tree_item->parent_id >= 0 && ImGui::MenuItem("Set Circular Orbit Around Parent")) {
 							result.action = CatalogRowAction::CircularizeAroundParent;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Align Coplanar With Parent Plane (0 deg)")) {
+							result.action = CatalogRowAction::AlignPlaneCoplanar;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Set Polar to Parent Plane (90 deg)")) {
+							result.action = CatalogRowAction::AlignPlanePolar;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Invert to Retrograde Relative Plane (180 deg)")) {
+							result.action = CatalogRowAction::AlignPlaneRetrograde;
+							result.action_id = id;
+						}
+						ImGui::Separator();
+					} else {
+						if (ImGui::MenuItem("Align Coplanar With Central Equator (0 deg)")) {
+							result.action = CatalogRowAction::AlignPlaneCoplanar;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Set Polar to Central Equator (90 deg)")) {
+							result.action = CatalogRowAction::AlignPlanePolar;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Invert to Retrograde Central Plane (180 deg)")) {
+							result.action = CatalogRowAction::AlignPlaneRetrograde;
 							result.action_id = id;
 						}
 						ImGui::Separator();
@@ -1458,6 +1503,30 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 				sys.update_accelerations();
 				ctx.orchestrator().notify_state_changed();
 			}
+			break;
+		}
+		case CatalogRowAction::AlignPlaneCoplanar: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const auto st = ctx.compute_relative_orbital_plane_state(*body, p_id);
+			ctx.apply_relative_orbital_plane_rotation(*body, p_id, 0.0, st.relative_node_deg, st.relative_periapsis_deg);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::AlignPlanePolar: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const auto st = ctx.compute_relative_orbital_plane_state(*body, p_id);
+			ctx.apply_relative_orbital_plane_rotation(*body, p_id, 90.0, st.relative_node_deg, st.relative_periapsis_deg);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::AlignPlaneRetrograde: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const auto st = ctx.compute_relative_orbital_plane_state(*body, p_id);
+			ctx.apply_relative_orbital_plane_rotation(*body, p_id, 180.0, st.relative_node_deg, st.relative_periapsis_deg);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
 			break;
 		}
 		case CatalogRowAction::None:

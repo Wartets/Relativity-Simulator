@@ -18,6 +18,242 @@
 
 namespace Relativistic::UI {
 
+[[nodiscard]] inline bool render_relative_reference_and_orbital_plane_tool(
+	BodyManagerContext& ctx,
+	Dynamics::PostNewtonianBody& b,
+	BodyEditorViewState& view
+) noexcept {
+	bool changed = false;
+	auto& orchestrator = ctx.orchestrator();
+	auto& sys = orchestrator.nbody_system();
+
+	render_group_title("Orbital Plane & Relative Reference Alignment Tool", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+	render_hint_text("Designate a reference body (central origin or any orbiting body) to express positions, velocities, accelerations and orbital elements relative to it. Tilt and orient the orbital plane with exact critical angle diagnostics.");
+
+	std::vector<int> ref_ids{BodyManagerContext::kCentralSourceId};
+	std::vector<std::string> ref_labels{"Central Spacetime Attractor (Origin #0)"};
+
+	{
+		for (const auto& other : sys.bodies()) {
+			if (!other.enabled || other.id == b.id) continue;
+			ref_ids.push_back(static_cast<int>(other.id));
+			ref_labels.push_back(BodyManagerContext::display_name(other) + " (#" + std::to_string(other.id) + ")");
+		}
+	}
+
+	int current_ref_idx = 0;
+	for (size_t i = 0; i < ref_ids.size(); ++i) {
+		if (ref_ids[i] == view.reference_frame_body_id) {
+			current_ref_idx = static_cast<int>(i);
+			break;
+		}
+	}
+
+	std::vector<const char*> ref_ptrs;
+	ref_ptrs.reserve(ref_labels.size());
+	for (const auto& s : ref_labels) ref_ptrs.push_back(s.c_str());
+
+	if (ImGui::Combo("Reference Body / Origin", &current_ref_idx, ref_ptrs.data(), static_cast<int>(ref_ptrs.size()))) {
+		view.reference_frame_body_id = ref_ids[static_cast<size_t>(current_ref_idx)];
+		view.plane_angles_initialized = false;
+	}
+	render_setting_tooltip("Designate which celestial body serves as the relative origin and provides the reference equatorial/orbital plane.");
+
+	if (ImGui::SmallButton("Auto-Select Dominant Parent")) {
+		view.reference_frame_body_id = ctx.find_dominant_parent_id(b);
+		view.plane_angles_initialized = false;
+	}
+	render_setting_tooltip("Detects and selects the dominant gravitational parent attractor from Hill sphere and tidal dominance analysis.");
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Reset to Central Attractor")) {
+		view.reference_frame_body_id = BodyManagerContext::kCentralSourceId;
+		view.plane_angles_initialized = false;
+	}
+	render_setting_tooltip("Resets reference origin back to the central spacetime attractor at coordinate (0, 0, 0).");
+
+	const auto rel_state = ctx.compute_relative_orbital_plane_state(b, view.reference_frame_body_id);
+	if (!rel_state.valid) return false;
+
+	const double signed_offset = rel_state.signed_inclination_offset_deg;
+	const ImVec4 badge_color = (signed_offset >= 0.0)
+		? ImVec4(0.35f, 0.95f, 0.45f, 1.0f)
+		: ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+
+	const char* ref_short_name = (rel_state.reference_id == BodyManagerContext::kCentralSourceId)
+		? "Equatorial Plane of Central Source"
+		: rel_state.reference_name.c_str();
+
+	char offset_buf[128];
+	std::snprintf(offset_buf, sizeof(offset_buf), "%+.*f deg", 2, signed_offset);
+	ImGui::Text("Relative Tilt Offset: ");
+	ImGui::SameLine();
+	ImGui::TextColored(badge_color, "%s relative to %s", offset_buf, ref_short_name);
+	render_setting_tooltip("Signed angle difference between this body's orbital plane and the reference body's orbital/equatorial plane. Positive indicates a northward tilt; negative indicates a southward tilt.");
+
+	ImGui::TextDisabled("Mutual Plane Angle: %.2f deg | Alignment: %s", rel_state.relative_inclination_deg, rel_state.alignment_category);
+
+	if (rel_state.is_in_kozai_zone) {
+		render_caution_text(rel_state.kozai_warning);
+	}
+
+	if (view.plane_initialized_for_body != b.id || !view.plane_angles_initialized) {
+		view.plane_target_inclination_deg = static_cast<float>(rel_state.relative_inclination_deg);
+		view.plane_target_node_deg = static_cast<float>(rel_state.relative_node_deg);
+		view.plane_target_periapsis_deg = static_cast<float>(rel_state.relative_periapsis_deg);
+		view.plane_angles_initialized = true;
+		view.plane_initialized_for_body = b.id;
+	}
+
+	bool plane_modified = false;
+	float target_inc = view.plane_target_inclination_deg;
+	if (slider_float_with_input("Relative Inclination (i_rel)", &target_inc, 0.0f, 180.0f, "%.2f deg")) {
+		view.plane_target_inclination_deg = target_inc;
+		plane_modified = true;
+	}
+	render_setting_tooltip("Tilts the orbital plane around the line of nodes without altering the current distance from the reference body, orbital speed, or energy.");
+
+	float target_node = view.plane_target_node_deg;
+	if (slider_float_with_input("Longitude of Ascending Node (Omega_rel)", &target_node, 0.0f, 360.0f, "%.2f deg")) {
+		view.plane_target_node_deg = target_node;
+		plane_modified = true;
+	}
+	render_setting_tooltip("Pivots the line of nodes around the reference plane normal vector, rotating the entire orbit in azimuth.");
+
+	float target_peri = view.plane_target_periapsis_deg;
+	if (slider_float_with_input("Argument of Periapsis (omega_rel)", &target_peri, 0.0f, 360.0f, "%.2f deg")) {
+		view.plane_target_periapsis_deg = target_peri;
+		plane_modified = true;
+	}
+	render_setting_tooltip("Rotates the ellipse inside its orbital plane, moving the periapsis position around the orbit normal vector.");
+
+	if (plane_modified) {
+		ctx.apply_relative_orbital_plane_rotation(
+			b, view.reference_frame_body_id,
+			static_cast<double>(view.plane_target_inclination_deg),
+			static_cast<double>(view.plane_target_node_deg),
+			static_cast<double>(view.plane_target_periapsis_deg)
+		);
+		changed = true;
+	}
+
+	if (ImGui::Button("Coplanar (0 deg)", ImVec2(105.0f, 24.0f))) {
+		view.plane_target_inclination_deg = 0.0f;
+		ctx.apply_relative_orbital_plane_rotation(b, view.reference_frame_body_id, 0.0, static_cast<double>(view.plane_target_node_deg), static_cast<double>(view.plane_target_periapsis_deg));
+		changed = true;
+	}
+	render_setting_tooltip("Snaps the orbital plane to be perfectly coplanar with the reference plane (0 deg relative inclination).");
+	ImGui::SameLine();
+	if (ImGui::Button("Polar (90 deg)", ImVec2(95.0f, 24.0f))) {
+		view.plane_target_inclination_deg = 90.0f;
+		ctx.apply_relative_orbital_plane_rotation(b, view.reference_frame_body_id, 90.0, static_cast<double>(view.plane_target_node_deg), static_cast<double>(view.plane_target_periapsis_deg));
+		changed = true;
+	}
+	render_setting_tooltip("Snaps the orbital plane orthogonal (polar 90 deg) to the reference plane.");
+	ImGui::SameLine();
+	if (ImGui::Button("Retrograde (180 deg)", ImVec2(130.0f, 24.0f))) {
+		view.plane_target_inclination_deg = 180.0f;
+		ctx.apply_relative_orbital_plane_rotation(b, view.reference_frame_body_id, 180.0, static_cast<double>(view.plane_target_node_deg), static_cast<double>(view.plane_target_periapsis_deg));
+		changed = true;
+	}
+	render_setting_tooltip("Inverts the orbital plane to counter-rotating coplanar retrograde (180 deg relative inclination).");
+
+	if (ImGui::Button("Circularize Around Reference", ImVec2(190.0f, 24.0f))) {
+		ctx.circularize_around_reference(b, view.reference_frame_body_id);
+		view.plane_angles_initialized = false;
+		changed = true;
+	}
+	render_setting_tooltip("Calculates circular orbital speed and redirects relative velocity tangentially in the current orbital plane.");
+	ImGui::SameLine();
+	if (ImGui::Button("Zero Drift (Match Velocity)", ImVec2(185.0f, 24.0f))) {
+		ctx.match_reference_velocity(b, view.reference_frame_body_id);
+		view.plane_angles_initialized = false;
+		changed = true;
+	}
+	render_setting_tooltip("Sets relative velocity to zero, locking the body's motion to match the reference body's velocity vector.");
+	ImGui::SameLine();
+	if (ImGui::Button("Align Spin With Normal", ImVec2(160.0f, 24.0f))) {
+		b.set_spin_state(b.kerr_spin_parameter(), rel_state.orbit_normal);
+		changed = true;
+	}
+	render_setting_tooltip("Orients this body's intrinsic spin vector to point along the relative orbital plane normal.");
+
+	ImGui::Checkbox("Express Kinematics Relative to Reference Body", &view.show_relative_coordinates);
+	render_setting_tooltip("Toggles direct display and input of position, velocity, and acceleration vectors measured relative to the designated reference body.");
+
+	const auto& prefs = ctx.orchestrator().unit_preferences();
+	const double length_scale_m = ctx.length_scale();
+	const double speed_scale_mps = ctx.speed_scale();
+
+	if (view.show_relative_coordinates) {
+		double rel_pos_m[3] = {
+			rel_state.relative_position[0] * length_scale_m,
+			rel_state.relative_position[1] * length_scale_m,
+			rel_state.relative_position[2] * length_scale_m
+		};
+		if (unit_aware_input_double3("Relative Position (dx, dy, dz)", rel_pos_m, UnitCategory::Distance, prefs)) {
+			b.position = {
+				rel_state.reference_position[0] + rel_pos_m[0] / length_scale_m,
+				rel_state.reference_position[1] + rel_pos_m[1] / length_scale_m,
+				rel_state.reference_position[2] + rel_pos_m[2] / length_scale_m
+			};
+			view.plane_angles_initialized = false;
+			changed = true;
+		}
+
+		double rel_vel_mps[3] = {
+			rel_state.relative_velocity[0] * speed_scale_mps,
+			rel_state.relative_velocity[1] * speed_scale_mps,
+			rel_state.relative_velocity[2] * speed_scale_mps
+		};
+		if (unit_aware_input_double3("Relative Velocity (dvx, dvy, dvz)", rel_vel_mps, UnitCategory::Velocity, prefs)) {
+			b.velocity = {
+				rel_state.reference_velocity[0] + rel_vel_mps[0] / speed_scale_mps,
+				rel_state.reference_velocity[1] + rel_vel_mps[1] / speed_scale_mps,
+				rel_state.reference_velocity[2] + rel_vel_mps[2] / speed_scale_mps
+			};
+			view.plane_angles_initialized = false;
+			changed = true;
+		}
+
+		ImGui::TextDisabled("Relative Acceleration: (%.2e, %.2e, %.2e) | Mag: %s",
+			rel_state.relative_acceleration[0], rel_state.relative_acceleration[1], rel_state.relative_acceleration[2],
+			Units::format_acceleration(rel_state.relative_acceleration_mag, prefs.acceleration).c_str()
+		);
+	}
+
+	ImGui::TextDisabled("Distance to Reference: %s | Relative Speed: %s (v_r = %s, v_t = %s)",
+		Units::format_distance(rel_state.relative_distance * length_scale_m, prefs.distance).c_str(),
+		Units::format_velocity(rel_state.relative_speed * speed_scale_mps, prefs.velocity).c_str(),
+		Units::format_velocity(rel_state.relative_radial_speed * speed_scale_mps, prefs.velocity).c_str(),
+		Units::format_velocity(rel_state.relative_tangential_speed * speed_scale_mps, prefs.velocity).c_str()
+	);
+
+	if (rel_state.is_bound) {
+		ImGui::TextDisabled("Relative Orbit: a = %s | e = %.5f | T = %s | Peri = %s",
+			Units::format_distance(rel_state.semi_major_axis * length_scale_m, prefs.distance).c_str(),
+			rel_state.eccentricity,
+			Units::format_time(rel_state.orbital_period_seconds, prefs.time).c_str(),
+			Units::format_distance(rel_state.periapsis_distance * length_scale_m, prefs.distance).c_str()
+		);
+	} else {
+		ImGui::TextDisabled("Relative Orbit: Hyperbolic/Escape (e = %.5f) | Periapsis = %s",
+			rel_state.eccentricity,
+			Units::format_distance(rel_state.periapsis_distance * length_scale_m, prefs.distance).c_str()
+		);
+	}
+
+	if (rel_state.reference_id != BodyManagerContext::kCentralSourceId && rel_state.hill_radius > 0.0) {
+		ImGui::TextDisabled("Reference Hill Sphere: %s | Occupancy: %.1f%% (%s) | Dominance: %.1fx tide",
+			Units::format_distance(rel_state.hill_radius * length_scale_m, prefs.distance).c_str(),
+			rel_state.hill_occupancy_pct,
+			(rel_state.hill_occupancy_pct <= 50.0) ? "Deeply Stable Satellite" : ((rel_state.hill_occupancy_pct <= 100.0) ? "Stable Satellite Orbit" : "Near/Beyond Hill Limit"),
+			rel_state.tidal_dominance_ratio
+		);
+	}
+
+	return changed;
+}
+
 [[nodiscard]] inline bool render_source_parameters_section(BodyManagerContext& ctx, Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
 	bool changed = false;
 	auto& orchestrator = ctx.orchestrator();
@@ -207,6 +443,8 @@ namespace Relativistic::UI {
 		ImGui::TextDisabled("Binary configuration metrics unavailable.");
 	}
 
+	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
+
 	render_group_title("Derived Properties", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	const double horizon = b.kerr_outer_horizon_radius();
 	const double spin_length = b.kerr_spin_parameter() * b.mass;
@@ -382,6 +620,110 @@ inline bool render_batch_source_editor(
 			batch_hover_tooltip(bodies, [](const auto& b) {
 				return "(" + std::to_string(b.velocity[0]).substr(0, 6) + ", " + std::to_string(b.velocity[1]).substr(0, 6) + ", " + std::to_string(b.velocity[2]).substr(0, 6) + ")";
 			}, [](const std::string& s) { return s; }, "Velocity");
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Batch Orbital Plane & Reference Alignment", ImGuiTreeNodeFlags_DefaultOpen)) {
+		render_group_title("Reference Attractor Selection", ImVec4(0.4f, 0.85f, 1.0f, 1.0f));
+		render_hint_text("Select a common reference origin to evaluate or reorient the orbital planes of all selected black holes simultaneously.");
+
+		std::vector<int> src_b_ref_ids{BodyManagerContext::kCentralSourceId};
+		std::vector<std::string> src_b_ref_labels{"Central Spacetime Attractor (Origin #0)"};
+		for (const auto& other : sys.bodies()) {
+			if (!other.enabled) continue;
+			bool in_selection = false;
+			for (const auto* sel : bodies) {
+				if (sel->id == other.id) { in_selection = true; break; }
+			}
+			if (in_selection) continue;
+			src_b_ref_ids.push_back(static_cast<int>(other.id));
+			src_b_ref_labels.push_back(BodyManagerContext::display_name(other) + " (#" + std::to_string(other.id) + ")");
+		}
+
+		int src_b_ref_combo = 0;
+		for (size_t i = 0; i < src_b_ref_ids.size(); ++i) {
+			if (src_b_ref_ids[i] == view.reference_frame_body_id) {
+				src_b_ref_combo = static_cast<int>(i);
+				break;
+			}
+		}
+
+		std::vector<const char*> src_b_ref_ptrs;
+		src_b_ref_ptrs.reserve(src_b_ref_labels.size());
+		for (const auto& s : src_b_ref_labels) src_b_ref_ptrs.push_back(s.c_str());
+
+		if (ImGui::Combo("Common Reference Body##SourceBatch", &src_b_ref_combo, src_b_ref_ptrs.data(), static_cast<int>(src_b_ref_ptrs.size()))) {
+			view.reference_frame_body_id = src_b_ref_ids[static_cast<size_t>(src_b_ref_combo)];
+		}
+
+		double min_tilt = 1e30, max_tilt = -1e30, sum_tilt = 0.0;
+		for (const auto* b_item : bodies) {
+			const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+			if (st.valid) {
+				min_tilt = std::min(min_tilt, st.signed_inclination_offset_deg);
+				max_tilt = std::max(max_tilt, st.signed_inclination_offset_deg);
+				sum_tilt += st.signed_inclination_offset_deg;
+			}
+		}
+		const double avg_tilt = bodies.empty() ? 0.0 : (sum_tilt / static_cast<double>(bodies.size()));
+		const bool is_uniform_tilt = (max_tilt - min_tilt < 0.01);
+		const ImVec4 tilt_badge_col = (avg_tilt >= 0.0) ? ImVec4(0.35f, 0.95f, 0.45f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+
+		if (is_uniform_tilt) {
+			ImGui::Text("Batch Tilt Offset: ");
+			ImGui::SameLine();
+			ImGui::TextColored(tilt_badge_col, "%+.*f deg", 2, avg_tilt);
+		} else {
+			ImGui::Text("Batch Tilt Span: ");
+			ImGui::SameLine();
+			ImGui::TextColored(tilt_badge_col, "[%+.*f deg .. %+.*f deg] (Mean: %+.*f deg)", 2, min_tilt, 2, max_tilt, 2, avg_tilt);
+		}
+
+		static float src_batch_uniform_inc = 0.0f;
+		if (slider_float_with_input("Set Uniform Inclination##SourceBatch", &src_batch_uniform_inc, 0.0f, 180.0f, "%.2f deg")) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, static_cast<double>(src_batch_uniform_inc), st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("Align All Coplanar (0 deg)##SourceBatch", ImVec2(180.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 0.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Set All Polar (90 deg)##SourceBatch", ImVec2(180.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 90.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Invert All Retrograde (180 deg)##SourceBatch", ImVec2(220.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto st = ctx.compute_relative_orbital_plane_state(*b_item, view.reference_frame_body_id);
+				ctx.apply_relative_orbital_plane_rotation(*b_item, view.reference_frame_body_id, 180.0, st.relative_node_deg, st.relative_periapsis_deg);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("Circularize All Around Reference##SourceBatch", ImVec2(240.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.circularize_around_reference(*b_item, view.reference_frame_body_id);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Zero Relative Drift (Match Velocity)##SourceBatch", ImVec2(260.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.match_reference_velocity(*b_item, view.reference_frame_body_id);
+			}
+			changed = true;
 		}
 	}
 

@@ -72,6 +72,57 @@ struct BinarySourceConfiguration {
 	double peters_coalescence_time_seconds{0.0};
 };
 
+struct RelativeOrbitalPlaneState {
+	bool valid{false};
+	int reference_id{-2};
+	std::string reference_name{"Central Spacetime Attractor (Origin)"};
+	double reference_mass{1.0};
+	std::array<double, 3> reference_position{0.0, 0.0, 0.0};
+	std::array<double, 3> reference_velocity{0.0, 0.0, 0.0};
+	std::array<double, 3> reference_acceleration{0.0, 0.0, 0.0};
+	std::array<double, 3> reference_plane_normal{0.0, 0.0, 1.0};
+	double reference_inclination_world_deg{0.0};
+
+	std::array<double, 3> relative_position{0.0, 0.0, 0.0};
+	std::array<double, 3> relative_velocity{0.0, 0.0, 0.0};
+	std::array<double, 3> relative_acceleration{0.0, 0.0, 0.0};
+	double relative_distance{0.0};
+	double relative_speed{0.0};
+	double relative_radial_speed{0.0};
+	double relative_tangential_speed{0.0};
+	double relative_acceleration_mag{0.0};
+
+	std::array<double, 3> orbit_normal{0.0, 0.0, 1.0};
+	std::array<double, 3> node_vector{1.0, 0.0, 0.0};
+	std::array<double, 3> eccentricity_vector{0.0, 0.0, 0.0};
+
+	double target_inclination_world_deg{0.0};
+	double signed_inclination_offset_deg{0.0};
+	double relative_inclination_deg{0.0};
+	double relative_node_deg{0.0};
+	double relative_periapsis_deg{0.0};
+	double relative_true_anomaly_deg{0.0};
+
+	double semi_major_axis{0.0};
+	double eccentricity{0.0};
+	double periapsis_distance{0.0};
+	double apoapsis_distance{0.0};
+	double orbital_period_seconds{0.0};
+	double specific_energy{0.0};
+	double specific_angular_momentum{0.0};
+	bool is_bound{false};
+	bool is_prograde{true};
+
+	double hill_radius{0.0};
+	double hill_occupancy_pct{0.0};
+	double tidal_dominance_ratio{0.0};
+	bool is_satellite_of_reference{false};
+
+	const char* alignment_category{"Coplanar Prograde (Aligned)"};
+	bool is_in_kozai_zone{false};
+	const char* kozai_warning{""};
+};
+
 struct PatternGenerationResult {
 	bool success{false};
 	size_t requested_count{0};
@@ -1160,6 +1211,484 @@ public:
 		if (p.mass <= 0.0) return 0.0;
 		const double a = std::clamp(p.spin, -0.999 * p.mass, 0.999 * p.mass);
 		return p.mass + std::sqrt(std::max(p.mass * p.mass - a * a, 0.0));
+	}
+
+	[[nodiscard]] int find_dominant_parent_id(const Dynamics::PostNewtonianBody& target) const noexcept {
+		auto& sys = orchestrator_.nbody_system();
+		const auto& all_bodies = sys.bodies();
+		const double safe_central_mass = std::max(orchestrator_.parameters().mass, 1e-12);
+		const double safe_g = std::max(orchestrator_.physical_gravitational_constant(), 1e-14);
+		const double m_i = std::max(target.mass, 0.0);
+
+		int best_parent = kCentralSourceId;
+		double best_hill_ratio = 1e30;
+
+		for (const auto& b_j : all_bodies) {
+			if (b_j.id == target.id || !b_j.enabled) continue;
+			const double m_j = std::max(b_j.mass, 0.0);
+			if (m_j <= 0.0) continue;
+			if (m_i > 1e-9 && m_j < m_i * 1.05) continue;
+			if (m_i <= 1e-9 && m_j <= 1e-9) continue;
+
+			const double dx = target.position[0] - b_j.position[0];
+			const double dy = target.position[1] - b_j.position[1];
+			const double dz = target.position[2] - b_j.position[2];
+			const double d_ij = std::sqrt(dx * dx + dy * dy + dz * dz);
+			if (d_ij < 1e-9) continue;
+
+			const double r_j = std::max(distance_from_center(b_j), 1e-6);
+			const double r_hill_j = r_j * std::cbrt(m_j / (3.0 * (safe_central_mass + m_j)));
+			const double r_soi_j = r_j * std::pow(m_j / (safe_central_mass + m_j), 0.4);
+			const double r_dom = std::max(r_hill_j, r_soi_j);
+
+			if (d_ij > r_dom * 1.35) continue;
+
+			const double dvx = target.velocity[0] - b_j.velocity[0];
+			const double dvy = target.velocity[1] - b_j.velocity[1];
+			const double dvz = target.velocity[2] - b_j.velocity[2];
+			const double v_ij = std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
+
+			const double mu = safe_g * (m_j + m_i);
+			const double energy = 0.5 * v_ij * v_ij - mu / d_ij;
+			const double a_parent = mu / (d_ij * d_ij);
+			const double a_tide = 2.0 * safe_g * safe_central_mass * d_ij / (r_j * r_j * r_j);
+			const double dominance = a_parent / std::max(a_tide, 1e-12);
+
+			if (energy >= 0.0 && dominance < 1.0) continue;
+
+			const double hill_ratio = d_ij / std::max(r_dom, 1e-9);
+			if (hill_ratio < best_hill_ratio) {
+				best_hill_ratio = hill_ratio;
+				best_parent = static_cast<int>(b_j.id);
+			}
+		}
+		return best_parent;
+	}
+
+	[[nodiscard]] RelativeOrbitalPlaneState compute_relative_orbital_plane_state(
+		const Dynamics::PostNewtonianBody& target,
+		int reference_id
+	) const noexcept {
+		RelativeOrbitalPlaneState st;
+		st.reference_id = reference_id;
+		const double safe_central_mass = std::max(orchestrator_.parameters().mass, 1e-12);
+		const double safe_g = std::max(orchestrator_.physical_gravitational_constant(), 1e-14);
+		const double length_scale_val = length_scale();
+		const double speed_scale_val = speed_scale();
+		const double time_scale_val = length_scale_val / std::max(speed_scale_val, 1e-9);
+
+		const Dynamics::PostNewtonianBody* ref_body = nullptr;
+		if (reference_id >= 0) {
+			ref_body = find_body(static_cast<uint32_t>(reference_id));
+		}
+
+		if (ref_body != nullptr && ref_body->id != target.id) {
+			st.reference_id = static_cast<int>(ref_body->id);
+			st.reference_name = display_name(*ref_body);
+			st.reference_mass = std::max(ref_body->mass, 1e-12);
+			st.reference_position = ref_body->position;
+			st.reference_velocity = ref_body->velocity;
+			st.reference_acceleration = ref_body->acceleration;
+
+			const double rx = ref_body->position[0], ry = ref_body->position[1], rz = ref_body->position[2];
+			const double vx = ref_body->velocity[0], vy = ref_body->velocity[1], vz = ref_body->velocity[2];
+			const std::array<double, 3> h_p{ry * vz - rz * vy, rz * vx - rx * vz, rx * vy - ry * vx};
+			const double h_p_len = std::sqrt(h_p[0] * h_p[0] + h_p[1] * h_p[1] + h_p[2] * h_p[2]);
+			if (h_p_len > 1e-9) {
+				st.reference_plane_normal = {h_p[0] / h_p_len, h_p[1] / h_p_len, h_p[2] / h_p_len};
+			} else {
+				st.reference_plane_normal = ref_body->spin_axis_unit();
+			}
+			const double cos_i_ref = std::clamp(st.reference_plane_normal[2], -1.0, 1.0);
+			st.reference_inclination_world_deg = std::acos(cos_i_ref) * (180.0 / std::numbers::pi);
+		} else {
+			st.reference_id = kCentralSourceId;
+			st.reference_name = "Central Spacetime Attractor (Origin)";
+			st.reference_mass = safe_central_mass;
+			st.reference_position = {0.0, 0.0, 0.0};
+			st.reference_velocity = {0.0, 0.0, 0.0};
+			st.reference_acceleration = {0.0, 0.0, 0.0};
+			st.reference_plane_normal = {0.0, 0.0, 1.0};
+			st.reference_inclination_world_deg = 0.0;
+		}
+
+		st.relative_position = {
+			target.position[0] - st.reference_position[0],
+			target.position[1] - st.reference_position[1],
+			target.position[2] - st.reference_position[2]
+		};
+		st.relative_distance = std::sqrt(
+			st.relative_position[0] * st.relative_position[0] +
+			st.relative_position[1] * st.relative_position[1] +
+			st.relative_position[2] * st.relative_position[2]
+		);
+
+		st.relative_velocity = {
+			target.velocity[0] - st.reference_velocity[0],
+			target.velocity[1] - st.reference_velocity[1],
+			target.velocity[2] - st.reference_velocity[2]
+		};
+		st.relative_speed = std::sqrt(
+			st.relative_velocity[0] * st.relative_velocity[0] +
+			st.relative_velocity[1] * st.relative_velocity[1] +
+			st.relative_velocity[2] * st.relative_velocity[2]
+		);
+
+		st.relative_acceleration = {
+			target.acceleration[0] - st.reference_acceleration[0],
+			target.acceleration[1] - st.reference_acceleration[1],
+			target.acceleration[2] - st.reference_acceleration[2]
+		};
+		st.relative_acceleration_mag = std::sqrt(
+			st.relative_acceleration[0] * st.relative_acceleration[0] +
+			st.relative_acceleration[1] * st.relative_acceleration[1] +
+			st.relative_acceleration[2] * st.relative_acceleration[2]
+		);
+
+		if (st.relative_distance > 1e-12) {
+			const double inv_d = 1.0 / st.relative_distance;
+			st.relative_radial_speed = (st.relative_position[0] * st.relative_velocity[0] +
+				st.relative_position[1] * st.relative_velocity[1] +
+				st.relative_position[2] * st.relative_velocity[2]) * inv_d;
+			const double rad_vx = st.relative_radial_speed * st.relative_position[0] * inv_d;
+			const double rad_vy = st.relative_radial_speed * st.relative_position[1] * inv_d;
+			const double rad_vz = st.relative_radial_speed * st.relative_position[2] * inv_d;
+			const double tan_vx = st.relative_velocity[0] - rad_vx;
+			const double tan_vy = st.relative_velocity[1] - rad_vy;
+			const double tan_vz = st.relative_velocity[2] - rad_vz;
+			st.relative_tangential_speed = std::sqrt(tan_vx * tan_vx + tan_vy * tan_vy + tan_vz * tan_vz);
+		}
+
+		const std::array<double, 3> h_rel{
+			st.relative_position[1] * st.relative_velocity[2] - st.relative_position[2] * st.relative_velocity[1],
+			st.relative_position[2] * st.relative_velocity[0] - st.relative_position[0] * st.relative_velocity[2],
+			st.relative_position[0] * st.relative_velocity[1] - st.relative_position[1] * st.relative_velocity[0]
+		};
+		const double h_rel_len = std::sqrt(h_rel[0] * h_rel[0] + h_rel[1] * h_rel[1] + h_rel[2] * h_rel[2]);
+		st.specific_angular_momentum = h_rel_len;
+
+		if (h_rel_len > 1e-12) {
+			st.orbit_normal = {h_rel[0] / h_rel_len, h_rel[1] / h_rel_len, h_rel[2] / h_rel_len};
+		} else {
+			st.orbit_normal = st.reference_plane_normal;
+		}
+
+		const double cos_i_tgt = std::clamp(st.orbit_normal[2], -1.0, 1.0);
+		st.target_inclination_world_deg = std::acos(cos_i_tgt) * (180.0 / std::numbers::pi);
+		st.signed_inclination_offset_deg = st.target_inclination_world_deg - st.reference_inclination_world_deg;
+
+		const double dot_normals = std::clamp(
+			st.orbit_normal[0] * st.reference_plane_normal[0] +
+			st.orbit_normal[1] * st.reference_plane_normal[1] +
+			st.orbit_normal[2] * st.reference_plane_normal[2],
+			-1.0, 1.0
+		);
+		st.relative_inclination_deg = std::acos(dot_normals) * (180.0 / std::numbers::pi);
+		st.is_prograde = (st.relative_inclination_deg <= 90.0);
+
+		std::array<double, 3> u_ref{1.0, 0.0, 0.0};
+		std::array<double, 3> v_ref{0.0, 1.0, 0.0};
+		if (ref_body != nullptr) {
+			const double rx = ref_body->position[0], ry = ref_body->position[1], rz = ref_body->position[2];
+			const double dot_rn = rx * st.reference_plane_normal[0] + ry * st.reference_plane_normal[1] + rz * st.reference_plane_normal[2];
+			std::array<double, 3> r_proj{rx - dot_rn * st.reference_plane_normal[0], ry - dot_rn * st.reference_plane_normal[1], rz - dot_rn * st.reference_plane_normal[2]};
+			const double r_proj_len = std::sqrt(r_proj[0] * r_proj[0] + r_proj[1] * r_proj[1] + r_proj[2] * r_proj[2]);
+			if (r_proj_len > 1e-6) {
+				u_ref = {r_proj[0] / r_proj_len, r_proj[1] / r_proj_len, r_proj[2] / r_proj_len};
+			} else {
+				const std::array<double, 3> helper = (std::abs(st.reference_plane_normal[2]) > 0.9) ? std::array<double, 3>{1.0, 0.0, 0.0} : std::array<double, 3>{0.0, 0.0, 1.0};
+				const std::array<double, 3> cp{
+					helper[1] * st.reference_plane_normal[2] - helper[2] * st.reference_plane_normal[1],
+					helper[2] * st.reference_plane_normal[0] - helper[0] * st.reference_plane_normal[2],
+					helper[0] * st.reference_plane_normal[1] - helper[1] * st.reference_plane_normal[0]
+				};
+				const double cp_len = std::sqrt(cp[0] * cp[0] + cp[1] * cp[1] + cp[2] * cp[2]);
+				u_ref = {cp[0] / cp_len, cp[1] / cp_len, cp[2] / cp_len};
+			}
+			v_ref = {
+				st.reference_plane_normal[1] * u_ref[2] - st.reference_plane_normal[2] * u_ref[1],
+				st.reference_plane_normal[2] * u_ref[0] - st.reference_plane_normal[0] * u_ref[2],
+				st.reference_plane_normal[0] * u_ref[1] - st.reference_plane_normal[1] * u_ref[0]
+			};
+		}
+
+		const std::array<double, 3> n_node{
+			st.reference_plane_normal[1] * st.orbit_normal[2] - st.reference_plane_normal[2] * st.orbit_normal[1],
+			st.reference_plane_normal[2] * st.orbit_normal[0] - st.reference_plane_normal[0] * st.orbit_normal[2],
+			st.reference_plane_normal[0] * st.orbit_normal[1] - st.reference_plane_normal[1] * st.orbit_normal[0]
+		};
+		const double node_len = std::sqrt(n_node[0] * n_node[0] + n_node[1] * n_node[1] + n_node[2] * n_node[2]);
+		if (node_len > 1e-12) {
+			st.node_vector = {n_node[0] / node_len, n_node[1] / node_len, n_node[2] / node_len};
+			const double cos_node = st.node_vector[0] * u_ref[0] + st.node_vector[1] * u_ref[1] + st.node_vector[2] * u_ref[2];
+			const double sin_node = st.node_vector[0] * v_ref[0] + st.node_vector[1] * v_ref[1] + st.node_vector[2] * v_ref[2];
+			double node_deg = std::atan2(sin_node, cos_node) * (180.0 / std::numbers::pi);
+			if (node_deg < 0.0) node_deg += 360.0;
+			st.relative_node_deg = node_deg;
+		} else {
+			st.node_vector = u_ref;
+			st.relative_node_deg = 0.0;
+		}
+
+		const double mu = safe_g * (st.reference_mass + target.mass);
+		if (mu > 1e-14 && st.relative_distance > 1e-12) {
+			const double v_cross_h_x = st.relative_velocity[1] * h_rel[2] - st.relative_velocity[2] * h_rel[1];
+			const double v_cross_h_y = st.relative_velocity[2] * h_rel[0] - st.relative_velocity[0] * h_rel[2];
+			const double v_cross_h_z = st.relative_velocity[0] * h_rel[1] - st.relative_velocity[1] * h_rel[0];
+
+			const double inv_mu = 1.0 / mu;
+			const double inv_d = 1.0 / st.relative_distance;
+			st.eccentricity_vector = {
+				v_cross_h_x * inv_mu - st.relative_position[0] * inv_d,
+				v_cross_h_y * inv_mu - st.relative_position[1] * inv_d,
+				v_cross_h_z * inv_mu - st.relative_position[2] * inv_d
+			};
+			st.eccentricity = std::sqrt(
+				st.eccentricity_vector[0] * st.eccentricity_vector[0] +
+				st.eccentricity_vector[1] * st.eccentricity_vector[1] +
+				st.eccentricity_vector[2] * st.eccentricity_vector[2]
+			);
+
+			const double v2 = st.relative_speed * st.relative_speed;
+			st.specific_energy = 0.5 * v2 - mu * inv_d;
+
+			if (std::abs(st.specific_energy) > 1e-12) {
+				st.semi_major_axis = -mu / (2.0 * st.specific_energy);
+			} else {
+				st.semi_major_axis = 1e30;
+			}
+
+			if (st.eccentricity < 1.0) {
+				st.is_bound = true;
+				st.periapsis_distance = st.semi_major_axis * (1.0 - st.eccentricity);
+				st.apoapsis_distance = st.semi_major_axis * (1.0 + st.eccentricity);
+				if (st.semi_major_axis > 0.0) {
+					const double sim_t = 2.0 * std::numbers::pi * std::sqrt((st.semi_major_axis * st.semi_major_axis * st.semi_major_axis) / mu);
+					st.orbital_period_seconds = sim_t * time_scale_val;
+				}
+			} else {
+				st.is_bound = false;
+				st.periapsis_distance = (h_rel_len > 1e-12) ? (h_rel_len * h_rel_len / (mu * (1.0 + st.eccentricity))) : (0.5 * st.relative_distance);
+				st.apoapsis_distance = std::numeric_limits<double>::infinity();
+				st.orbital_period_seconds = 0.0;
+			}
+
+			if (st.eccentricity > 1e-5 && node_len > 1e-9) {
+				const double inv_e = 1.0 / st.eccentricity;
+				const double cos_peri = std::clamp((st.node_vector[0] * st.eccentricity_vector[0] + st.node_vector[1] * st.eccentricity_vector[1] + st.node_vector[2] * st.eccentricity_vector[2]) * inv_e, -1.0, 1.0);
+				const std::array<double, 3> node_cross_e{
+					st.node_vector[1] * st.eccentricity_vector[2] - st.node_vector[2] * st.eccentricity_vector[1],
+					st.node_vector[2] * st.eccentricity_vector[0] - st.node_vector[0] * st.eccentricity_vector[2],
+					st.node_vector[0] * st.eccentricity_vector[1] - st.node_vector[1] * st.eccentricity_vector[0]
+				};
+				const double sin_peri = std::clamp((node_cross_e[0] * st.orbit_normal[0] + node_cross_e[1] * st.orbit_normal[1] + node_cross_e[2] * st.orbit_normal[2]) * inv_e, -1.0, 1.0);
+				double peri_deg = std::atan2(sin_peri, cos_peri) * (180.0 / std::numbers::pi);
+				if (peri_deg < 0.0) peri_deg += 360.0;
+				st.relative_periapsis_deg = peri_deg;
+
+				const double cos_nu = std::clamp((st.eccentricity_vector[0] * st.relative_position[0] + st.eccentricity_vector[1] * st.relative_position[1] + st.eccentricity_vector[2] * st.relative_position[2]) * inv_e * inv_d, -1.0, 1.0);
+				const std::array<double, 3> e_cross_r{
+					st.eccentricity_vector[1] * st.relative_position[2] - st.eccentricity_vector[2] * st.relative_position[1],
+					st.eccentricity_vector[2] * st.relative_position[0] - st.eccentricity_vector[0] * st.relative_position[2],
+					st.eccentricity_vector[0] * st.relative_position[1] - st.eccentricity_vector[1] * st.relative_position[0]
+				};
+				const double sin_nu = std::clamp((e_cross_r[0] * st.orbit_normal[0] + e_cross_r[1] * st.orbit_normal[1] + e_cross_r[2] * st.orbit_normal[2]) * inv_e * inv_d, -1.0, 1.0);
+				double nu_deg = std::atan2(sin_nu, cos_nu) * (180.0 / std::numbers::pi);
+				if (nu_deg < 0.0) nu_deg += 360.0;
+				st.relative_true_anomaly_deg = nu_deg;
+			} else {
+				st.relative_periapsis_deg = 0.0;
+				st.relative_true_anomaly_deg = 0.0;
+			}
+		}
+
+		if (ref_body != nullptr && ref_body->mass > 0.0) {
+			const double r_ref_dist = std::max(distance_from_center(*ref_body), 1e-6);
+			st.hill_radius = r_ref_dist * std::cbrt(st.reference_mass / (3.0 * (safe_central_mass + st.reference_mass)));
+			st.hill_occupancy_pct = (st.relative_distance / std::max(st.hill_radius, 1e-9)) * 100.0;
+			const double a_parent = mu / std::max(st.relative_distance * st.relative_distance, 1e-12);
+			const double a_tide = 2.0 * safe_g * safe_central_mass * st.relative_distance / std::max(r_ref_dist * r_ref_dist * r_ref_dist, 1e-12);
+			st.tidal_dominance_ratio = a_parent / std::max(a_tide, 1e-12);
+			st.is_satellite_of_reference = (st.is_bound && st.hill_occupancy_pct <= 100.0) || (st.tidal_dominance_ratio >= 1.0);
+		}
+
+		if (st.relative_inclination_deg < 0.8) {
+			st.alignment_category = "Coplanar Prograde (Aligned)";
+		} else if (st.relative_inclination_deg < 15.0) {
+			st.alignment_category = "Low-Inclination Prograde";
+		} else if (st.relative_inclination_deg < 39.23) {
+			st.alignment_category = "Moderate Inclination (Sub-Kozai)";
+		} else if (st.relative_inclination_deg <= 140.77) {
+			st.alignment_category = "Kozai-Lidov Resonant Inclination";
+			st.is_in_kozai_zone = true;
+			st.kozai_warning = "Kozai-Lidov Resonance Zone: Relative inclination falls in [39.2 deg, 140.8 deg]. Coupled secular eccentricity-inclination oscillations may drive periapsis to collision or plunge!";
+		} else if (st.relative_inclination_deg < 165.0) {
+			st.alignment_category = "Moderate-Inclination Retrograde";
+		} else if (st.relative_inclination_deg < 179.2) {
+			st.alignment_category = "Low-Inclination Retrograde";
+		} else {
+			st.alignment_category = "Coplanar Retrograde (Counter-Rotating)";
+		}
+
+		st.valid = true;
+		return st;
+	}
+
+	void apply_relative_orbital_plane_rotation(
+		Dynamics::PostNewtonianBody& target,
+		int reference_id,
+		double target_inc_deg,
+		double target_node_deg,
+		double target_peri_deg
+	) const noexcept {
+		const auto st = compute_relative_orbital_plane_state(target, reference_id);
+		if (!st.valid || st.relative_distance < 1e-12) return;
+
+		std::array<double, 3> u_ref{1.0, 0.0, 0.0};
+		std::array<double, 3> v_ref{0.0, 1.0, 0.0};
+		const auto* ref_body = (reference_id >= 0) ? find_body(static_cast<uint32_t>(reference_id)) : nullptr;
+		if (ref_body != nullptr) {
+			const double rx = ref_body->position[0], ry = ref_body->position[1], rz = ref_body->position[2];
+			const double dot_rn = rx * st.reference_plane_normal[0] + ry * st.reference_plane_normal[1] + rz * st.reference_plane_normal[2];
+			std::array<double, 3> r_proj{rx - dot_rn * st.reference_plane_normal[0], ry - dot_rn * st.reference_plane_normal[1], rz - dot_rn * st.reference_plane_normal[2]};
+			const double r_proj_len = std::sqrt(r_proj[0] * r_proj[0] + r_proj[1] * r_proj[1] + r_proj[2] * r_proj[2]);
+			if (r_proj_len > 1e-6) {
+				u_ref = {r_proj[0] / r_proj_len, r_proj[1] / r_proj_len, r_proj[2] / r_proj_len};
+			} else {
+				const std::array<double, 3> helper = (std::abs(st.reference_plane_normal[2]) > 0.9) ? std::array<double, 3>{1.0, 0.0, 0.0} : std::array<double, 3>{0.0, 0.0, 1.0};
+				const std::array<double, 3> cp{
+					helper[1] * st.reference_plane_normal[2] - helper[2] * st.reference_plane_normal[1],
+					helper[2] * st.reference_plane_normal[0] - helper[0] * st.reference_plane_normal[2],
+					helper[0] * st.reference_plane_normal[1] - helper[1] * st.reference_plane_normal[0]
+				};
+				const double cp_len = std::sqrt(cp[0] * cp[0] + cp[1] * cp[1] + cp[2] * cp[2]);
+				u_ref = {cp[0] / cp_len, cp[1] / cp_len, cp[2] / cp_len};
+			}
+			v_ref = {
+				st.reference_plane_normal[1] * u_ref[2] - st.reference_plane_normal[2] * u_ref[1],
+				st.reference_plane_normal[2] * u_ref[0] - st.reference_plane_normal[0] * u_ref[2],
+				st.reference_plane_normal[0] * u_ref[1] - st.reference_plane_normal[1] * u_ref[0]
+			};
+		}
+
+		const double inc_rad = std::clamp(target_inc_deg, 0.0, 180.0) * (std::numbers::pi / 180.0);
+		const double node_rad = target_node_deg * (std::numbers::pi / 180.0);
+		const double peri_rad = target_peri_deg * (std::numbers::pi / 180.0);
+
+		const double sin_i = std::sin(inc_rad);
+		const double cos_i = std::cos(inc_rad);
+		const double sin_o = std::sin(node_rad);
+		const double cos_o = std::cos(node_rad);
+		const double sin_w = std::sin(peri_rad);
+		const double cos_w = std::cos(peri_rad);
+
+		const std::array<double, 3> n_node{
+			cos_o * u_ref[0] + sin_o * v_ref[0],
+			cos_o * u_ref[1] + sin_o * v_ref[1],
+			cos_o * u_ref[2] + sin_o * v_ref[2]
+		};
+
+		const std::array<double, 3> m_perp_ref{
+			-sin_o * u_ref[0] + cos_o * v_ref[0],
+			-sin_o * u_ref[1] + cos_o * v_ref[1],
+			-sin_o * u_ref[2] + cos_o * v_ref[2]
+		};
+
+		const std::array<double, 3> m_new{
+			cos_i * m_perp_ref[0] + sin_i * st.reference_plane_normal[0],
+			cos_i * m_perp_ref[1] + sin_i * st.reference_plane_normal[1],
+			cos_i * m_perp_ref[2] + sin_i * st.reference_plane_normal[2]
+		};
+
+		const std::array<double, 3> p_hat{
+			cos_w * n_node[0] + sin_w * m_new[0],
+			cos_w * n_node[1] + sin_w * m_new[1],
+			cos_w * n_node[2] + sin_w * m_new[2]
+		};
+
+		const std::array<double, 3> q_hat{
+			-sin_w * n_node[0] + cos_w * m_new[0],
+			-sin_w * n_node[1] + cos_w * m_new[1],
+			-sin_w * n_node[2] + cos_w * m_new[2]
+		};
+
+		const double nu_rad = st.relative_true_anomaly_deg * (std::numbers::pi / 180.0);
+		const double cos_nu = std::cos(nu_rad);
+		const double sin_nu = std::sin(nu_rad);
+
+		const std::array<double, 3> u_orb{
+			cos_nu * p_hat[0] + sin_nu * q_hat[0],
+			cos_nu * p_hat[1] + sin_nu * q_hat[1],
+			cos_nu * p_hat[2] + sin_nu * q_hat[2]
+		};
+
+		const std::array<double, 3> v_orb{
+			-sin_nu * p_hat[0] + cos_nu * q_hat[0],
+			-sin_nu * p_hat[1] + cos_nu * q_hat[1],
+			-sin_nu * p_hat[2] + cos_nu * q_hat[2]
+		};
+
+		const std::array<double, 3> new_rel_pos{
+			st.relative_distance * u_orb[0],
+			st.relative_distance * u_orb[1],
+			st.relative_distance * u_orb[2]
+		};
+
+		const double vr = st.relative_radial_speed;
+		const double vt = (st.is_prograde ? 1.0 : -1.0) * st.relative_tangential_speed;
+
+		const std::array<double, 3> new_rel_vel{
+			vr * u_orb[0] + vt * v_orb[0],
+			vr * u_orb[1] + vt * v_orb[1],
+			vr * u_orb[2] + vt * v_orb[2]
+		};
+
+		target.position = {
+			st.reference_position[0] + new_rel_pos[0],
+			st.reference_position[1] + new_rel_pos[1],
+			st.reference_position[2] + new_rel_pos[2]
+		};
+		target.velocity = {
+			st.reference_velocity[0] + new_rel_vel[0],
+			st.reference_velocity[1] + new_rel_vel[1],
+			st.reference_velocity[2] + new_rel_vel[2]
+		};
+	}
+
+	void circularize_around_reference(Dynamics::PostNewtonianBody& target, int reference_id) noexcept {
+		const auto st = compute_relative_orbital_plane_state(target, reference_id);
+		if (!st.valid || st.relative_distance < 1e-12) return;
+		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (st.reference_mass + target.mass), 1e-14);
+		const double v_circ = std::sqrt(mu / st.relative_distance);
+
+		std::array<double, 3> r_hat{
+			st.relative_position[0] / st.relative_distance,
+			st.relative_position[1] / st.relative_distance,
+			st.relative_position[2] / st.relative_distance
+		};
+		std::array<double, 3> tangent{
+			st.orbit_normal[1] * r_hat[2] - st.orbit_normal[2] * r_hat[1],
+			st.orbit_normal[2] * r_hat[0] - st.orbit_normal[0] * r_hat[2],
+			st.orbit_normal[0] * r_hat[1] - st.orbit_normal[1] * r_hat[0]
+		};
+		const double t_len = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1] + tangent[2] * tangent[2]);
+		if (t_len > 1e-9) {
+			tangent[0] /= t_len; tangent[1] /= t_len; tangent[2] /= t_len;
+		} else {
+			tangent = {0.0, 1.0, 0.0};
+		}
+		const double dir = st.is_prograde ? 1.0 : -1.0;
+		target.velocity = {
+			st.reference_velocity[0] + dir * v_circ * tangent[0],
+			st.reference_velocity[1] + dir * v_circ * tangent[1],
+			st.reference_velocity[2] + dir * v_circ * tangent[2]
+		};
+	}
+
+	void match_reference_velocity(Dynamics::PostNewtonianBody& target, int reference_id) noexcept {
+		const auto st = compute_relative_orbital_plane_state(target, reference_id);
+		if (!st.valid) return;
+		target.velocity = st.reference_velocity;
 	}
 
 	[[nodiscard]] std::string source_overlap_warning(const Dynamics::PostNewtonianBody& b) const {

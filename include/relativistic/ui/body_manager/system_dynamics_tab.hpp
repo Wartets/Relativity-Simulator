@@ -201,6 +201,89 @@ public:
 			render_setting_tooltip("Removes scoped bodies that fall outside the primary camera's current field-of-view cone.");
 
 			ImGui::Spacing();
+			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Scoped Orbital Plane Alignment Actions:");
+			render_hint_text("Batch plane alignment actions applied across all scoped bodies relative to the selected reference attractor.");
+
+			static int sys_ref_id = BodyManagerContext::kCentralSourceId;
+			std::vector<int> sys_ref_ids{BodyManagerContext::kCentralSourceId};
+			std::vector<std::string> sys_ref_labels{"Central Spacetime Attractor (Origin #0)"};
+			for (const auto& b_item : sys.bodies()) {
+				if (!b_item.enabled) continue;
+				sys_ref_ids.push_back(static_cast<int>(b_item.id));
+				sys_ref_labels.push_back(BodyManagerContext::display_name(b_item) + " (#" + std::to_string(b_item.id) + ")");
+			}
+
+			int sys_ref_combo = 0;
+			for (size_t i = 0; i < sys_ref_ids.size(); ++i) {
+				if (sys_ref_ids[i] == sys_ref_id) {
+					sys_ref_combo = static_cast<int>(i);
+					break;
+				}
+			}
+
+			std::vector<const char*> sys_ref_ptrs;
+			sys_ref_ptrs.reserve(sys_ref_labels.size());
+			for (const auto& s : sys_ref_labels) sys_ref_ptrs.push_back(s.c_str());
+
+			ImGui::SetNextItemWidth(260.0f);
+			if (ImGui::Combo("Reference Plane Attractor##SysDynamics", &sys_ref_combo, sys_ref_ptrs.data(), static_cast<int>(sys_ref_ptrs.size()))) {
+				sys_ref_id = sys_ref_ids[static_cast<size_t>(sys_ref_combo)];
+			}
+
+			if (ImGui::Button("Align Scoped Planes to Reference (0 deg Coplanar)")) {
+				for (auto& b_item : sys.bodies()) {
+					if (b_item.enabled && matches_bulk_scope(b_item, current_scope, current_cat)) {
+						const auto st = ctx.compute_relative_orbital_plane_state(b_item, sys_ref_id);
+						ctx.apply_relative_orbital_plane_rotation(b_item, sys_ref_id, 0.0, st.relative_node_deg, st.relative_periapsis_deg);
+					}
+				}
+				sys.update_accelerations();
+				orchestrator.notify_state_changed();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Set Scoped Planes Polar (90 deg)")) {
+				for (auto& b_item : sys.bodies()) {
+					if (b_item.enabled && matches_bulk_scope(b_item, current_scope, current_cat)) {
+						const auto st = ctx.compute_relative_orbital_plane_state(b_item, sys_ref_id);
+						ctx.apply_relative_orbital_plane_rotation(b_item, sys_ref_id, 90.0, st.relative_node_deg, st.relative_periapsis_deg);
+					}
+				}
+				sys.update_accelerations();
+				orchestrator.notify_state_changed();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Invert Scoped to Retrograde (180 deg)")) {
+				for (auto& b_item : sys.bodies()) {
+					if (b_item.enabled && matches_bulk_scope(b_item, current_scope, current_cat)) {
+						const auto st = ctx.compute_relative_orbital_plane_state(b_item, sys_ref_id);
+						ctx.apply_relative_orbital_plane_rotation(b_item, sys_ref_id, 180.0, st.relative_node_deg, st.relative_periapsis_deg);
+					}
+				}
+				sys.update_accelerations();
+				orchestrator.notify_state_changed();
+			}
+
+			if (ImGui::Button("Circularize Scoped Bodies Around Reference")) {
+				for (auto& b_item : sys.bodies()) {
+					if (b_item.enabled && matches_bulk_scope(b_item, current_scope, current_cat)) {
+						ctx.circularize_around_reference(b_item, sys_ref_id);
+					}
+				}
+				sys.update_accelerations();
+				orchestrator.notify_state_changed();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Zero Scoped Velocity Relative to Reference")) {
+				for (auto& b_item : sys.bodies()) {
+					if (b_item.enabled && matches_bulk_scope(b_item, current_scope, current_cat)) {
+						ctx.match_reference_velocity(b_item, sys_ref_id);
+					}
+				}
+				sys.update_accelerations();
+				orchestrator.notify_state_changed();
+			}
+
+			ImGui::Spacing();
 			ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Generalized Parameter Actions (Scoped)");
 			const char* bulk_param_names[] = {
 				"Mass", "Radius", "Charge", "Magnetic Moment", "Rotation Speed", "Friction Coefficient",

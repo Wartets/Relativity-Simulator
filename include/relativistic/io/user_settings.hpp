@@ -78,6 +78,8 @@ struct UserSettings {
 	bool body_manager_new_body_mass_log_mode{true};
 	bool body_manager_new_body_radius_log_mode{true};
 	bool body_manager_new_source_mass_log_mode{true};
+	int body_manager_reference_body_id{-2};
+	bool body_manager_relative_coords_mode{false};
 
 	UI::WindowChromeSettings window_chrome{};
 	std::unordered_map<std::string, std::string> session_values{};
@@ -316,6 +318,8 @@ struct UserSettings {
 		result.body_manager_new_body_mass_log_mode = get_bool("body_manager_new_body_mass_log_mode", result.body_manager_new_body_mass_log_mode);
 		result.body_manager_new_body_radius_log_mode = get_bool("body_manager_new_body_radius_log_mode", result.body_manager_new_body_radius_log_mode);
 		result.body_manager_new_source_mass_log_mode = get_bool("body_manager_new_source_mass_log_mode", result.body_manager_new_source_mass_log_mode);
+		result.body_manager_reference_body_id = get_i32("body_manager_reference_body_id", result.body_manager_reference_body_id);
+		result.body_manager_relative_coords_mode = get_bool("body_manager_relative_coords_mode", result.body_manager_relative_coords_mode);
 
 		result.unit_preferences.distance = static_cast<Units::DistanceUnit>(get_u32("unit_distance", static_cast<uint32_t>(result.unit_preferences.distance)));
 		result.unit_preferences.velocity = static_cast<Units::VelocityUnit>(get_u32("unit_velocity", static_cast<uint32_t>(result.unit_preferences.velocity)));
@@ -578,6 +582,8 @@ struct UserSettings {
 		out << "body_manager_new_body_mass_log_mode=" << (body_manager_new_body_mass_log_mode ? 1 : 0) << "\n";
 		out << "body_manager_new_body_radius_log_mode=" << (body_manager_new_body_radius_log_mode ? 1 : 0) << "\n";
 		out << "body_manager_new_source_mass_log_mode=" << (body_manager_new_source_mass_log_mode ? 1 : 0) << "\n";
+		out << "body_manager_reference_body_id=" << body_manager_reference_body_id << "\n";
+		out << "body_manager_relative_coords_mode=" << (body_manager_relative_coords_mode ? 1 : 0) << "\n";
 		out << "unit_distance=" << static_cast<uint32_t>(unit_preferences.distance) << "\n";
 		out << "unit_velocity=" << static_cast<uint32_t>(unit_preferences.velocity) << "\n";
 		out << "unit_mass=" << static_cast<uint32_t>(unit_preferences.mass) << "\n";

@@ -123,6 +123,47 @@ struct RelativeOrbitalPlaneState {
 	const char* kozai_warning{""};
 };
 
+struct LocalFrenetFrameState {
+	bool valid{false};
+	int reference_id{-2};
+	std::string reference_name{"Central Spacetime Attractor (Origin)"};
+	double distance{0.0};
+	double speed{0.0};
+	double v_radial{0.0};
+	double v_tangential{0.0};
+	double v_normal{0.0};
+	double circular_speed{0.0};
+	double escape_speed{0.0};
+	double flight_path_angle_deg{0.0};
+	std::array<double, 3> radial_hat{1.0, 0.0, 0.0};
+	std::array<double, 3> tangential_hat{0.0, 1.0, 0.0};
+	std::array<double, 3> normal_hat{0.0, 0.0, 1.0};
+};
+
+struct FrenetManeuverPreview {
+	bool valid{false};
+	double delta_v_magnitude{0.0};
+	double current_speed{0.0};
+	double predicted_speed{0.0};
+	double current_eccentricity{0.0};
+	double predicted_eccentricity{0.0};
+	double current_semi_major_axis{0.0};
+	double predicted_semi_major_axis{0.0};
+	double current_periapsis{0.0};
+	double predicted_periapsis{0.0};
+	double current_apoapsis{0.0};
+	double predicted_apoapsis{0.0};
+	double current_inclination_deg{0.0};
+	double predicted_inclination_deg{0.0};
+	double current_period_seconds{0.0};
+	double predicted_period_seconds{0.0};
+	bool current_is_bound{false};
+	bool predicted_is_bound{false};
+	const char* predicted_orbit_type{"Unknown"};
+	bool causes_plunge{false};
+	bool causes_escape{false};
+};
+
 struct PatternGenerationResult {
 	bool success{false};
 	size_t requested_count{0};
@@ -1689,6 +1730,206 @@ public:
 		const auto st = compute_relative_orbital_plane_state(target, reference_id);
 		if (!st.valid) return;
 		target.velocity = st.reference_velocity;
+	}
+
+	[[nodiscard]] LocalFrenetFrameState compute_local_frenet_frame(
+		const Dynamics::PostNewtonianBody& body,
+		int reference_id
+	) const noexcept {
+		LocalFrenetFrameState fr;
+		fr.reference_id = reference_id;
+
+		const auto plane_st = compute_relative_orbital_plane_state(body, reference_id);
+		if (!plane_st.valid || plane_st.relative_distance < 1e-12) return fr;
+
+		fr.valid = true;
+		fr.reference_name = plane_st.reference_name;
+		fr.distance = plane_st.relative_distance;
+		fr.speed = plane_st.relative_speed;
+		fr.v_radial = plane_st.relative_radial_speed;
+		fr.v_tangential = (plane_st.is_prograde ? 1.0 : -1.0) * plane_st.relative_tangential_speed;
+		fr.v_normal = 0.0;
+
+		const double inv_r = 1.0 / fr.distance;
+		fr.radial_hat = {
+			plane_st.relative_position[0] * inv_r,
+			plane_st.relative_position[1] * inv_r,
+			plane_st.relative_position[2] * inv_r
+		};
+
+		fr.normal_hat = plane_st.orbit_normal;
+
+		fr.tangential_hat = {
+			fr.normal_hat[1] * fr.radial_hat[2] - fr.normal_hat[2] * fr.radial_hat[1],
+			fr.normal_hat[2] * fr.radial_hat[0] - fr.normal_hat[0] * fr.radial_hat[2],
+			fr.normal_hat[0] * fr.radial_hat[1] - fr.normal_hat[1] * fr.radial_hat[0]
+		};
+		const double t_len = std::sqrt(
+			fr.tangential_hat[0] * fr.tangential_hat[0] +
+			fr.tangential_hat[1] * fr.tangential_hat[1] +
+			fr.tangential_hat[2] * fr.tangential_hat[2]
+		);
+		if (t_len > 1e-9) {
+			fr.tangential_hat[0] /= t_len;
+			fr.tangential_hat[1] /= t_len;
+			fr.tangential_hat[2] /= t_len;
+		} else {
+			fr.tangential_hat = {0.0, 1.0, 0.0};
+		}
+
+		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (plane_st.reference_mass + body.mass), 1e-14);
+		fr.circular_speed = std::sqrt(mu / fr.distance);
+		fr.escape_speed = std::sqrt(2.0 * mu / fr.distance);
+
+		if (fr.speed > 1e-12) {
+			const double sin_gamma = std::clamp(fr.v_radial / fr.speed, -1.0, 1.0);
+			fr.flight_path_angle_deg = std::asin(sin_gamma) * (180.0 / std::numbers::pi);
+		} else {
+			fr.flight_path_angle_deg = 0.0;
+		}
+
+		return fr;
+	}
+
+	[[nodiscard]] FrenetManeuverPreview preview_frenet_maneuver(
+		const Dynamics::PostNewtonianBody& body,
+		int reference_id,
+		double delta_vr_sim,
+		double delta_vt_sim,
+		double delta_vn_sim
+	) const noexcept {
+		FrenetManeuverPreview prev;
+		const auto fr = compute_local_frenet_frame(body, reference_id);
+		if (!fr.valid) return prev;
+
+		const auto plane_st = compute_relative_orbital_plane_state(body, reference_id);
+		if (!plane_st.valid) return prev;
+
+		const auto curr_orbit = compute_keplerian_elements(plane_st.relative_position, plane_st.relative_velocity, plane_st.reference_mass + body.mass);
+
+		const std::array<double, 3> dv_cart{
+			delta_vr_sim * fr.radial_hat[0] + delta_vt_sim * fr.tangential_hat[0] + delta_vn_sim * fr.normal_hat[0],
+			delta_vr_sim * fr.radial_hat[1] + delta_vt_sim * fr.tangential_hat[1] + delta_vn_sim * fr.normal_hat[1],
+			delta_vr_sim * fr.radial_hat[2] + delta_vt_sim * fr.tangential_hat[2] + delta_vn_sim * fr.normal_hat[2]
+		};
+
+		const std::array<double, 3> v_pred_rel{
+			plane_st.relative_velocity[0] + dv_cart[0],
+			plane_st.relative_velocity[1] + dv_cart[1],
+			plane_st.relative_velocity[2] + dv_cart[2]
+		};
+
+		const auto pred_orbit = compute_keplerian_elements(plane_st.relative_position, v_pred_rel, plane_st.reference_mass + body.mass);
+		if (!curr_orbit.valid || !pred_orbit.valid) return prev;
+
+		prev.valid = true;
+		prev.delta_v_magnitude = std::sqrt(delta_vr_sim * delta_vr_sim + delta_vt_sim * delta_vt_sim + delta_vn_sim * delta_vn_sim);
+		prev.current_speed = fr.speed;
+		prev.predicted_speed = std::sqrt(v_pred_rel[0] * v_pred_rel[0] + v_pred_rel[1] * v_pred_rel[1] + v_pred_rel[2] * v_pred_rel[2]);
+
+		prev.current_eccentricity = curr_orbit.eccentricity;
+		prev.predicted_eccentricity = pred_orbit.eccentricity;
+		prev.current_semi_major_axis = curr_orbit.semi_major_axis;
+		prev.predicted_semi_major_axis = pred_orbit.semi_major_axis;
+		prev.current_periapsis = curr_orbit.periapsis;
+		prev.predicted_periapsis = pred_orbit.periapsis;
+		prev.current_apoapsis = curr_orbit.apoapsis;
+		prev.predicted_apoapsis = pred_orbit.apoapsis;
+		prev.current_inclination_deg = curr_orbit.inclination_deg;
+		prev.predicted_inclination_deg = pred_orbit.inclination_deg;
+		prev.current_period_seconds = curr_orbit.period_seconds;
+		prev.predicted_period_seconds = pred_orbit.period_seconds;
+		prev.current_is_bound = curr_orbit.is_bound;
+		prev.predicted_is_bound = pred_orbit.is_bound;
+		prev.predicted_orbit_type = pred_orbit.type_name;
+
+		const double horizon_r = primary_horizon_radius();
+		prev.causes_plunge = (horizon_r > 0.0 && pred_orbit.periapsis <= horizon_r * 1.05);
+		prev.causes_escape = (!curr_orbit.valid || curr_orbit.is_bound) && !pred_orbit.is_bound;
+
+		return prev;
+	}
+
+	void apply_frenet_delta_v(
+		Dynamics::PostNewtonianBody& body,
+		int reference_id,
+		double delta_vr_sim,
+		double delta_vt_sim,
+		double delta_vn_sim
+	) const noexcept {
+		const auto fr = compute_local_frenet_frame(body, reference_id);
+		if (!fr.valid) return;
+
+		const double dvx = delta_vr_sim * fr.radial_hat[0] + delta_vt_sim * fr.tangential_hat[0] + delta_vn_sim * fr.normal_hat[0];
+		const double dvy = delta_vr_sim * fr.radial_hat[1] + delta_vt_sim * fr.tangential_hat[1] + delta_vn_sim * fr.normal_hat[1];
+		const double dvz = delta_vr_sim * fr.radial_hat[2] + delta_vt_sim * fr.tangential_hat[2] + delta_vn_sim * fr.normal_hat[2];
+
+		body.velocity[0] += dvx;
+		body.velocity[1] += dvy;
+		body.velocity[2] += dvz;
+	}
+
+	void set_frenet_velocity_components(
+		Dynamics::PostNewtonianBody& body,
+		int reference_id,
+		double target_vr_sim,
+		double target_vt_sim,
+		double target_vn_sim
+	) const noexcept {
+		const auto fr = compute_local_frenet_frame(body, reference_id);
+		if (!fr.valid) return;
+
+		const auto plane_st = compute_relative_orbital_plane_state(body, reference_id);
+		if (!plane_st.valid) return;
+
+		const double vx_rel = target_vr_sim * fr.radial_hat[0] + target_vt_sim * fr.tangential_hat[0] + target_vn_sim * fr.normal_hat[0];
+		const double vy_rel = target_vr_sim * fr.radial_hat[1] + target_vt_sim * fr.tangential_hat[1] + target_vn_sim * fr.normal_hat[1];
+		const double vz_rel = target_vr_sim * fr.radial_hat[2] + target_vt_sim * fr.tangential_hat[2] + target_vn_sim * fr.normal_hat[2];
+
+		body.velocity[0] = plane_st.reference_velocity[0] + vx_rel;
+		body.velocity[1] = plane_st.reference_velocity[1] + vy_rel;
+		body.velocity[2] = plane_st.reference_velocity[2] + vz_rel;
+	}
+
+	void apply_frenet_hohmann_transfer(
+		Dynamics::PostNewtonianBody& body,
+		int reference_id,
+		double target_radius_sim
+	) const noexcept {
+		const auto fr = compute_local_frenet_frame(body, reference_id);
+		if (!fr.valid || fr.distance < 1e-12) return;
+
+		const auto plane_st = compute_relative_orbital_plane_state(body, reference_id);
+		if (!plane_st.valid) return;
+
+		const double r1 = fr.distance;
+		const double r2 = std::max(target_radius_sim, 1e-6);
+		const double mu = std::max(orchestrator_.physical_gravitational_constant() * (plane_st.reference_mass + body.mass), 1e-14);
+
+		const double a_hohmann = 0.5 * (r1 + r2);
+		const double v_req = std::sqrt(std::max(mu * (2.0 / r1 - 1.0 / a_hohmann), 1e-14));
+		const double sign = (fr.v_tangential >= 0.0) ? 1.0 : -1.0;
+
+		set_frenet_velocity_components(body, reference_id, 0.0, sign * v_req, 0.0);
+	}
+
+	void apply_frenet_plane_change_burn(
+		Dynamics::PostNewtonianBody& body,
+		int reference_id,
+		double delta_inclination_deg
+	) const noexcept {
+		const auto fr = compute_local_frenet_frame(body, reference_id);
+		if (!fr.valid) return;
+
+		const double di_rad = delta_inclination_deg * (std::numbers::pi / 180.0);
+		const double sin_half = std::sin(0.5 * di_rad);
+		const double cos_di = std::cos(di_rad);
+
+		const double current_vt = fr.v_tangential;
+		const double new_vt = current_vt * cos_di;
+		const double new_vn = 2.0 * std::abs(current_vt) * sin_half * (delta_inclination_deg >= 0.0 ? 1.0 : -1.0);
+
+		set_frenet_velocity_components(body, reference_id, fr.v_radial, new_vt, new_vn);
 	}
 
 	[[nodiscard]] std::string source_overlap_warning(const Dynamics::PostNewtonianBody& b) const {

@@ -254,6 +254,218 @@ namespace Relativistic::UI {
 	return changed;
 }
 
+[[nodiscard]] inline bool render_frenet_serret_velocity_injector(
+	BodyManagerContext& ctx,
+	Dynamics::PostNewtonianBody& b,
+	BodyEditorViewState& view
+) noexcept {
+	bool changed = false;
+	const auto& prefs = ctx.orchestrator().unit_preferences();
+	const double speed_scale_mps = ctx.speed_scale();
+	const double length_scale_m = ctx.length_scale();
+	const auto fr = ctx.compute_local_frenet_frame(b, view.reference_frame_body_id);
+	if (!fr.valid) return false;
+
+	render_group_title("Frenet-Serret Local Velocity Vector Injector (RTN Frame)", ImVec4(0.35f, 0.95f, 0.75f, 1.0f));
+	render_hint_text("Manipulate instantaneous velocity directly in the local orbital Frenet-Serret RTN frame (Radial, Tangential Prograde, Normal Out-of-plane) relative to the designated reference attractor. Preview predicted orbital alterations in real time before committing burns.");
+
+	const std::string vr_str = Units::format_velocity(fr.v_radial * speed_scale_mps, prefs.velocity);
+	const std::string vt_str = Units::format_velocity(fr.v_tangential * speed_scale_mps, prefs.velocity);
+	const std::string vn_str = Units::format_velocity(fr.v_normal * speed_scale_mps, prefs.velocity);
+	const std::string v_tot_str = Units::format_velocity(fr.speed * speed_scale_mps, prefs.velocity);
+	const std::string v_circ_str = Units::format_velocity(fr.circular_speed * speed_scale_mps, prefs.velocity);
+	const std::string v_esc_str = Units::format_velocity(fr.escape_speed * speed_scale_mps, prefs.velocity);
+
+	ImGui::Text("Current RTN Frame Components (Relative to %s):", fr.reference_name.c_str());
+	ImGui::TextDisabled("  • Radial v_r: %s (%s, gamma = %+.2f deg)", vr_str.c_str(), (fr.v_radial >= 0.0 ? "Outward Expansion" : "Inward Descent"), fr.flight_path_angle_deg);
+	ImGui::TextDisabled("  • Tangential v_t: %s (%s, v_circ = %s)", vt_str.c_str(), (fr.v_tangential >= 0.0 ? "Prograde Motion" : "Retrograde Motion"), v_circ_str.c_str());
+	ImGui::TextDisabled("  • Normal v_n: %s (Cross-Track Drift)", vn_str.c_str());
+	ImGui::TextDisabled("  • Net Speed: %s | Parabolic Escape Threshold: %s", v_tot_str.c_str(), v_esc_str.c_str());
+
+	ImGui::Spacing();
+	ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "Staged Delta-V Maneuver Inputs:");
+
+	double d_vr = Units::convert_velocity_from_mps(static_cast<double>(view.frenet_delta_radial_mps), prefs.velocity);
+	if (unit_aware_slider_double("Delta v_r (Radial +/-)", &d_vr, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+		view.frenet_delta_radial_mps = static_cast<float>(Units::convert_velocity_to_mps(d_vr, prefs.velocity));
+	}
+	render_setting_tooltip("Velocity increment directed along the local radial unit vector. Positive points away from the central attractor (radial boost), negative points inward.");
+
+	double d_vt = Units::convert_velocity_from_mps(static_cast<double>(view.frenet_delta_tangential_mps), prefs.velocity);
+	if (unit_aware_slider_double("Delta v_t (Tangential Prograde +/-)", &d_vt, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+		view.frenet_delta_tangential_mps = static_cast<float>(Units::convert_velocity_to_mps(d_vt, prefs.velocity));
+	}
+	render_setting_tooltip("Velocity increment directed along the in-plane tangential vector. Positive accelerates prograde (raises opposite apoapsis), negative decelerates retrograde (lowers opposite periapsis).");
+
+	double d_vn = Units::convert_velocity_from_mps(static_cast<double>(view.frenet_delta_normal_mps), prefs.velocity);
+	if (unit_aware_slider_double("Delta v_n (Normal Plane Tilt +/-)", &d_vn, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+		view.frenet_delta_normal_mps = static_cast<float>(Units::convert_velocity_to_mps(d_vn, prefs.velocity));
+	}
+	render_setting_tooltip("Velocity increment directed along the cross-track normal vector (angular momentum axis). Rotates the inclination and tilts the orbital plane.");
+
+	const double dv_r_sim = static_cast<double>(view.frenet_delta_radial_mps) / speed_scale_mps;
+	const double dv_t_sim = static_cast<double>(view.frenet_delta_tangential_mps) / speed_scale_mps;
+	const double dv_n_sim = static_cast<double>(view.frenet_delta_normal_mps) / speed_scale_mps;
+
+	const auto preview = ctx.preview_frenet_maneuver(b, view.reference_frame_body_id, dv_r_sim, dv_t_sim, dv_n_sim);
+
+	if (preview.valid) {
+		ImGui::Spacing();
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Pre-Burn Orbit Prediction Diagnostics:");
+		const double dv_mag_mps = preview.delta_v_magnitude * speed_scale_mps;
+		ImGui::TextDisabled("  • Staged Total Delta-V: %s", Units::format_velocity(dv_mag_mps, prefs.velocity).c_str());
+
+		const std::string curr_spd_str = Units::format_velocity(preview.current_speed * speed_scale_mps, prefs.velocity);
+		const std::string pred_spd_str = Units::format_velocity(preview.predicted_speed * speed_scale_mps, prefs.velocity);
+		ImGui::TextDisabled("  • Speed: %s -> %s", curr_spd_str.c_str(), pred_spd_str.c_str());
+
+		ImGui::TextDisabled("  • Eccentricity: %.5f -> %.5f (%s)", preview.current_eccentricity, preview.predicted_eccentricity, preview.predicted_orbit_type);
+
+		if (preview.predicted_is_bound) {
+			const std::string curr_a = Units::format_distance(preview.current_semi_major_axis * length_scale_m, prefs.distance, 2);
+			const std::string pred_a = Units::format_distance(preview.predicted_semi_major_axis * length_scale_m, prefs.distance, 2);
+			const std::string curr_p = Units::format_distance(preview.current_periapsis * length_scale_m, prefs.distance, 2);
+			const std::string pred_p = Units::format_distance(preview.predicted_periapsis * length_scale_m, prefs.distance, 2);
+			const std::string curr_ap = Units::format_distance(preview.current_apoapsis * length_scale_m, prefs.distance, 2);
+			const std::string pred_ap = Units::format_distance(preview.predicted_apoapsis * length_scale_m, prefs.distance, 2);
+			ImGui::TextDisabled("  • Semi-Major Axis: %s -> %s", curr_a.c_str(), pred_a.c_str());
+			ImGui::TextDisabled("  • Periapsis: %s -> %s | Apoapsis: %s -> %s", curr_p.c_str(), pred_p.c_str(), curr_ap.c_str(), pred_ap.c_str());
+			ImGui::TextDisabled("  • Period: %s -> %s", Units::format_time(preview.current_period_seconds, prefs.time).c_str(), Units::format_time(preview.predicted_period_seconds, prefs.time).c_str());
+		} else {
+			const std::string pred_p = Units::format_distance(preview.predicted_periapsis * length_scale_m, prefs.distance, 2);
+			ImGui::TextDisabled("  • Unbound Orbit: Predicted Periapsis = %s", pred_p.c_str());
+		}
+		ImGui::TextDisabled("  • Inclination: %.2f deg -> %.2f deg", preview.current_inclination_deg, preview.predicted_inclination_deg);
+
+		if (preview.causes_plunge) {
+			render_caution_text("Warning: Burn will drive periapsis inside the event horizon (Plunge Hazard)!");
+		}
+		if (preview.causes_escape) {
+			render_caution_text("Notice: Burn will unbind the orbit onto an escape trajectory (Hyperbolic Drift)!");
+		}
+	}
+
+	ImGui::Spacing();
+	const bool has_staged_dv = (std::abs(view.frenet_delta_radial_mps) > 1e-4f ||
+		std::abs(view.frenet_delta_tangential_mps) > 1e-4f ||
+		std::abs(view.frenet_delta_normal_mps) > 1e-4f);
+
+	ImGui::BeginDisabled(!has_staged_dv);
+	if (ImGui::Button("Execute Burn / Apply Delta-V", ImVec2(220.0f, 26.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, dv_r_sim, dv_t_sim, dv_n_sim);
+		view.frenet_delta_radial_mps = 0.0f;
+		view.frenet_delta_tangential_mps = 0.0f;
+		view.frenet_delta_normal_mps = 0.0f;
+		changed = true;
+	}
+	render_setting_tooltip("Applies the staged RTN delta-V vector to the body velocity and resets staged values to zero.");
+	ImGui::SameLine();
+	if (ImGui::Button("Zero Staged Delta-V", ImVec2(150.0f, 26.0f))) {
+		view.frenet_delta_radial_mps = 0.0f;
+		view.frenet_delta_tangential_mps = 0.0f;
+		view.frenet_delta_normal_mps = 0.0f;
+	}
+	render_setting_tooltip("Discards currently staged delta-V values without altering body velocity.");
+	ImGui::EndDisabled();
+
+	render_group_title("Canonical Orbital Maneuver Shortcuts", ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+	double step_disp = Units::convert_velocity_from_si(static_cast<double>(view.frenet_step_magnitude_mps), prefs.velocity);
+	if (unit_aware_slider_double("Impulse Step Delta-V", &step_disp, 0.1, 10000.0, UnitCategory::Velocity, prefs, "%.2f")) {
+		view.frenet_step_magnitude_mps = static_cast<float>(Units::convert_velocity_to_si(step_disp, prefs.velocity));
+	}
+	render_setting_tooltip("Magnitude of velocity increment applied by the quick impulse buttons below.");
+
+	const double step_sim = static_cast<double>(view.frenet_step_magnitude_mps) / speed_scale_mps;
+
+	if (ImGui::Button("+Prograde", ImVec2(100.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, 0.0, step_sim, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Applies instantaneous positive tangential acceleration (+v_t), raising orbital energy and apoapsis.");
+	ImGui::SameLine();
+	if (ImGui::Button("-Retrograde", ImVec2(105.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, 0.0, -step_sim, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Applies instantaneous negative tangential acceleration (-v_t), braking the orbit and lowering periapsis.");
+	ImGui::SameLine();
+	if (ImGui::Button("+Radial Out", ImVec2(105.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, step_sim, 0.0, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Applies radial impulse pointing outward away from the central attractor.");
+	ImGui::SameLine();
+	if (ImGui::Button("-Radial In", ImVec2(100.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, -step_sim, 0.0, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Applies radial impulse pointing inward toward the central attractor.");
+
+	if (ImGui::Button("+Normal North", ImVec2(110.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, 0.0, 0.0, step_sim);
+		changed = true;
+	}
+	render_setting_tooltip("Applies normal impulse along angular momentum vector (+v_n), tilting the orbital plane northward.");
+	ImGui::SameLine();
+	if (ImGui::Button("-Anti-Normal South", ImVec2(145.0f, 24.0f))) {
+		ctx.apply_frenet_delta_v(b, view.reference_frame_body_id, 0.0, 0.0, -step_sim);
+		changed = true;
+	}
+	render_setting_tooltip("Applies anti-normal impulse opposing angular momentum vector (-v_n), tilting the orbital plane southward.");
+	ImGui::SameLine();
+	if (ImGui::Button("Circularize (Zero v_r, v_n)", ImVec2(175.0f, 24.0f))) {
+		const double dir_sign = (fr.v_tangential >= 0.0) ? 1.0 : -1.0;
+		ctx.set_frenet_velocity_components(b, view.reference_frame_body_id, 0.0, dir_sign * fr.circular_speed, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Sets radial and normal velocity to zero and sets tangential speed to the circular orbit velocity at the current radius.");
+
+	if (ImGui::Button("Zero Radial Drift (Cancel v_r)", ImVec2(200.0f, 24.0f))) {
+		ctx.set_frenet_velocity_components(b, view.reference_frame_body_id, 0.0, fr.v_tangential, fr.v_normal);
+		changed = true;
+	}
+	render_setting_tooltip("Cancels only radial motion, locking current tangential and normal velocities.");
+	ImGui::SameLine();
+	if (ImGui::Button("Zero Normal Drift (Cancel v_n)", ImVec2(200.0f, 24.0f))) {
+		ctx.set_frenet_velocity_components(b, view.reference_frame_body_id, fr.v_radial, fr.v_tangential, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Cancels cross-track out-of-plane velocity, confining motion strictly to the in-plane tangential-radial disk.");
+
+	if (ImGui::Button("Parabolic Escape (v_t = v_esc)", ImVec2(205.0f, 24.0f))) {
+		const double dir_sign = (fr.v_tangential >= 0.0) ? 1.0 : -1.0;
+		ctx.set_frenet_velocity_components(b, view.reference_frame_body_id, 0.0, dir_sign * fr.escape_speed, 0.0);
+		changed = true;
+	}
+	render_setting_tooltip("Sets tangential velocity to exact local parabolic escape velocity, placing the body onto an escape parabola.");
+
+	double r_hohmann_disp = static_cast<double>(view.frenet_target_hohmann_radius) * length_scale_m;
+	if (unit_aware_slider_double("Hohmann Target Radius", &r_hohmann_disp, 0.1 * length_scale_m, 2000.0 * length_scale_m, UnitCategory::Distance, prefs, "%.2f", &view.frenet_hohmann_radius_log_mode)) {
+		view.frenet_target_hohmann_radius = static_cast<float>(r_hohmann_disp / length_scale_m);
+	}
+	render_setting_tooltip("Destination radius for the transfer orbit departure burn.");
+	ImGui::SameLine();
+	if (ImGui::Button("Inject Hohmann Burn", ImVec2(150.0f, 24.0f))) {
+		ctx.apply_frenet_hohmann_transfer(b, view.reference_frame_body_id, static_cast<double>(view.frenet_target_hohmann_radius));
+		changed = true;
+	}
+	render_setting_tooltip("Computes and executes the tangential departure impulse for a two-impulse transfer orbit to the target radius.");
+
+	float p_change = view.frenet_plane_change_deg;
+	if (ImGui::SliderFloat("Plane Change Angle", &p_change, -90.0f, 90.0f, "%+.2f deg")) {
+		view.frenet_plane_change_deg = p_change;
+	}
+	render_setting_tooltip("Target inclination change angle for a pure isokinetic out-of-plane burn.");
+	ImGui::SameLine();
+	if (ImGui::Button("Execute Plane Change", ImVec2(150.0f, 24.0f))) {
+		ctx.apply_frenet_plane_change_burn(b, view.reference_frame_body_id, static_cast<double>(view.frenet_plane_change_deg));
+		changed = true;
+	}
+	render_setting_tooltip("Executes an isokinetic burn rotating the orbital plane without modifying total speed or mechanical energy.");
+
+	return changed;
+}
+
 [[nodiscard]] inline bool render_source_parameters_section(BodyManagerContext& ctx, Dynamics::PostNewtonianBody& b, BodyEditorViewState& view) noexcept {
 	bool changed = false;
 	auto& orchestrator = ctx.orchestrator();
@@ -444,6 +656,8 @@ namespace Relativistic::UI {
 	}
 
 	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
+
+	changed = render_frenet_serret_velocity_injector(ctx, b, view) || changed;
 
 	render_group_title("Derived Properties", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	const double horizon = b.kerr_outer_horizon_radius();
@@ -798,6 +1012,108 @@ inline bool render_batch_source_editor(
 			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.2f", v); return std::string(buf); },
 			0.0f, 2.0f, "%.2f"
 		) || changed;
+	}
+
+	if (ImGui::CollapsingHeader("Batch Frenet-Serret Local Velocity Vector Injection (RTN)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		render_group_title("Batch Local RTN Maneuver Injection", ImVec4(0.35f, 0.95f, 0.75f, 1.0f));
+		render_hint_text("Apply velocity impulses decomposed in each individual black hole's own local Frenet-Serret RTN frame (Radial, Tangential Prograde, Normal Out-of-plane) relative to the common reference body.");
+
+		static float batch_src_d_vr_mps = 0.0f;
+		static float batch_src_d_vt_mps = 0.0f;
+		static float batch_src_d_vn_mps = 0.0f;
+		static float batch_src_step_mps = 50.0f;
+
+		double b_dvr = Units::convert_velocity_from_mps(static_cast<double>(batch_src_d_vr_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_r (Radial +/-)##SourceBatch", &b_dvr, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_src_d_vr_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvr, prefs.velocity));
+		}
+		double b_dvt = Units::convert_velocity_from_mps(static_cast<double>(batch_src_d_vt_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_t (Tangential Prograde +/-)##SourceBatch", &b_dvt, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_src_d_vt_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvt, prefs.velocity));
+		}
+		double b_dvn = Units::convert_velocity_from_mps(static_cast<double>(batch_src_d_vn_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_n (Normal Plane Tilt +/-)##SourceBatch", &b_dvn, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_src_d_vn_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvn, prefs.velocity));
+		}
+
+		const double b_dvr_sim = static_cast<double>(batch_src_d_vr_mps) / speed_scale_mps;
+		const double b_dvt_sim = static_cast<double>(batch_src_d_vt_mps) / speed_scale_mps;
+		const double b_dvn_sim = static_cast<double>(batch_src_d_vn_mps) / speed_scale_mps;
+
+		if (ImGui::Button("Execute Batch RTN Burn on All Selected Sources", ImVec2(330.0f, 26.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, b_dvr_sim, b_dvt_sim, b_dvn_sim);
+			}
+			batch_src_d_vr_mps = 0.0f;
+			batch_src_d_vt_mps = 0.0f;
+			batch_src_d_vn_mps = 0.0f;
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Zero Staged Batch Delta-V##SourceBatch", ImVec2(190.0f, 26.0f))) {
+			batch_src_d_vr_mps = 0.0f;
+			batch_src_d_vt_mps = 0.0f;
+			batch_src_d_vn_mps = 0.0f;
+		}
+
+		double b_step_disp = Units::convert_velocity_from_mps(static_cast<double>(batch_src_step_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Impulse Step##SourceBatch", &b_step_disp, 0.1, 10000.0, UnitCategory::Velocity, prefs, "%.2f")) {
+			batch_src_step_mps = static_cast<float>(Units::convert_velocity_to_mps(b_step_disp, prefs.velocity));
+		}
+
+		const double b_step_sim = static_cast<double>(batch_src_step_mps) / speed_scale_mps;
+		if (ImGui::Button("+Prograde All##SourceBatchRTN", ImVec2(120.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, b_step_sim, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Retrograde All##SourceBatchRTN", ImVec2(125.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, -b_step_sim, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("+Radial Out All##SourceBatchRTN", ImVec2(125.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, b_step_sim, 0.0, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Radial In All##SourceBatchRTN", ImVec2(120.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, -b_step_sim, 0.0, 0.0);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("+Normal North All##SourceBatchRTN", ImVec2(150.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, 0.0, b_step_sim);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Anti-Normal South All##SourceBatchRTN", ImVec2(175.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, 0.0, -b_step_sim);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Circularize All in Respective Local Frames##SourceBatchRTN", ImVec2(290.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto fr_item = ctx.compute_local_frenet_frame(*b_item, view.reference_frame_body_id);
+				if (fr_item.valid) {
+					const double dir_sign = (fr_item.v_tangential >= 0.0) ? 1.0 : -1.0;
+					ctx.set_frenet_velocity_components(*b_item, view.reference_frame_body_id, 0.0, dir_sign * fr_item.circular_speed, 0.0);
+				}
+			}
+			changed = true;
+		}
 	}
 
 	if (changed) {

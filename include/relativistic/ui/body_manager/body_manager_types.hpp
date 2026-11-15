@@ -192,6 +192,13 @@ struct BodyEditorViewState {
 	float plane_target_periapsis_deg{0.0f};
 	bool plane_angles_initialized{false};
 	uint32_t plane_initialized_for_body{0};
+	float frenet_delta_radial_mps{0.0f};
+	float frenet_delta_tangential_mps{0.0f};
+	float frenet_delta_normal_mps{0.0f};
+	float frenet_step_magnitude_mps{50.0f};
+	float frenet_target_hohmann_radius{50.0f};
+	float frenet_plane_change_deg{5.0f};
+	bool frenet_hohmann_radius_log_mode{false};
 };
 
 struct BodyEditResult {

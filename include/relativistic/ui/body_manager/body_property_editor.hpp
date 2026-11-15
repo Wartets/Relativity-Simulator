@@ -266,6 +266,8 @@ namespace Relativistic::UI {
 
 	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
 
+	changed = render_frenet_serret_velocity_injector(ctx, b, view) || changed;
+
 	if (render_body_orientation_controls(b)) {
 		changed = true;
 	}
@@ -1117,6 +1119,108 @@ inline bool render_batch_object_editor(
 			[](double v) { char buf[32]; std::snprintf(buf, sizeof(buf), "%.3f", v); return std::string(buf); },
 			0.0f, 0.5f, "%.3f"
 		) || changed;
+	}
+
+	if (ImGui::CollapsingHeader("Batch Frenet-Serret Local Velocity Vector Injection (RTN)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		render_group_title("Batch Local RTN Maneuver Injection", ImVec4(0.35f, 0.95f, 0.75f, 1.0f));
+		render_hint_text("Apply velocity impulses decomposed in each individual body's own local Frenet-Serret RTN frame (Radial, Tangential Prograde, Normal Out-of-plane) relative to the common reference body.");
+
+		static float batch_d_vr_mps = 0.0f;
+		static float batch_d_vt_mps = 0.0f;
+		static float batch_d_vn_mps = 0.0f;
+		static float batch_step_mps = 50.0f;
+
+		double b_dvr = Units::convert_velocity_from_mps(static_cast<double>(batch_d_vr_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_r (Radial +/-)", &b_dvr, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_d_vr_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvr, prefs.velocity));
+		}
+		double b_dvt = Units::convert_velocity_from_mps(static_cast<double>(batch_d_vt_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_t (Tangential Prograde +/-)", &b_dvt, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_d_vt_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvt, prefs.velocity));
+		}
+		double b_dvn = Units::convert_velocity_from_mps(static_cast<double>(batch_d_vn_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Delta v_n (Normal Plane Tilt +/-)", &b_dvn, -50000.0, 50000.0, UnitCategory::Velocity, prefs, "%.3f")) {
+			batch_d_vn_mps = static_cast<float>(Units::convert_velocity_to_mps(b_dvn, prefs.velocity));
+		}
+
+		const double b_dvr_sim = static_cast<double>(batch_d_vr_mps) / speed_scale_mps;
+		const double b_dvt_sim = static_cast<double>(batch_d_vt_mps) / speed_scale_mps;
+		const double b_dvn_sim = static_cast<double>(batch_d_vn_mps) / speed_scale_mps;
+
+		if (ImGui::Button("Execute Batch RTN Burn on All Selected Bodies", ImVec2(320.0f, 26.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, b_dvr_sim, b_dvt_sim, b_dvn_sim);
+			}
+			batch_d_vr_mps = 0.0f;
+			batch_d_vt_mps = 0.0f;
+			batch_d_vn_mps = 0.0f;
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Zero Staged Batch Delta-V", ImVec2(190.0f, 26.0f))) {
+			batch_d_vr_mps = 0.0f;
+			batch_d_vt_mps = 0.0f;
+			batch_d_vn_mps = 0.0f;
+		}
+
+		double b_step_disp = Units::convert_velocity_from_mps(static_cast<double>(batch_step_mps), prefs.velocity);
+		if (unit_aware_slider_double("Batch Impulse Step", &b_step_disp, 0.1, 10000.0, UnitCategory::Velocity, prefs, "%.2f")) {
+			batch_step_mps = static_cast<float>(Units::convert_velocity_to_mps(b_step_disp, prefs.velocity));
+		}
+
+		const double b_step_sim = static_cast<double>(batch_step_mps) / speed_scale_mps;
+		if (ImGui::Button("+Prograde All##BatchRTN", ImVec2(120.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, b_step_sim, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Retrograde All##BatchRTN", ImVec2(125.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, -b_step_sim, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("+Radial Out All##BatchRTN", ImVec2(125.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, b_step_sim, 0.0, 0.0);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Radial In All##BatchRTN", ImVec2(120.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, -b_step_sim, 0.0, 0.0);
+			}
+			changed = true;
+		}
+
+		if (ImGui::Button("+Normal North All##BatchRTN", ImVec2(150.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, 0.0, b_step_sim);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("-Anti-Normal South All##BatchRTN", ImVec2(175.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				ctx.apply_frenet_delta_v(*b_item, view.reference_frame_body_id, 0.0, 0.0, -b_step_sim);
+			}
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Circularize All in Respective Local Frames##BatchRTN", ImVec2(290.0f, 24.0f))) {
+			for (auto* b_item : bodies) {
+				const auto fr_item = ctx.compute_local_frenet_frame(*b_item, view.reference_frame_body_id);
+				if (fr_item.valid) {
+					const double dir_sign = (fr_item.v_tangential >= 0.0) ? 1.0 : -1.0;
+					ctx.set_frenet_velocity_components(*b_item, view.reference_frame_body_id, 0.0, dir_sign * fr_item.circular_speed, 0.0);
+				}
+			}
+			changed = true;
+		}
 	}
 
 	if (changed) {

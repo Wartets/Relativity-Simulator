@@ -376,6 +376,14 @@ namespace Detail {
 	}
 }
 
+[[nodiscard]] inline double convert_velocity_from_si(double meters_per_second, VelocityUnit unit) noexcept {
+	return convert_velocity_from_mps(meters_per_second, unit);
+}
+
+[[nodiscard]] inline double convert_velocity_to_si(double value, VelocityUnit unit) noexcept {
+	return convert_velocity_to_mps(value, unit);
+}
+
 [[nodiscard]] inline const char* energy_unit_suffix(EnergyUnit unit) noexcept {
 	switch (unit) {
 		case EnergyUnit::Joules: return "J";

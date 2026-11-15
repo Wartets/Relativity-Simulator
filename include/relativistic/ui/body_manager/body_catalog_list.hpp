@@ -41,7 +41,13 @@ enum class CatalogRowAction : uint8_t {
 	CircularizeSatellites,
 	AlignPlaneCoplanar,
 	AlignPlanePolar,
-	AlignPlaneRetrograde
+	AlignPlaneRetrograde,
+	ApplyFrenetProgradeBurn,
+	ApplyFrenetRetrogradeBurn,
+	ApplyFrenetRadialOutwardBurn,
+	ApplyFrenetRadialInwardBurn,
+	ApplyFrenetNormalNorthBurn,
+	ApplyFrenetNormalSouthBurn
 };
 
 enum class CatalogDynamicsFilter : uint32_t {
@@ -1208,6 +1214,33 @@ inline void flatten_tree_branch(
 						}
 						ImGui::Separator();
 					}
+					if (ImGui::BeginMenu("Local RTN Maneuver Impulses")) {
+						if (ImGui::MenuItem("Prograde Burn (+Delta V_t)")) {
+							result.action = CatalogRowAction::ApplyFrenetProgradeBurn;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Retrograde Burn (-Delta V_t)")) {
+							result.action = CatalogRowAction::ApplyFrenetRetrogradeBurn;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Radial Outward (+Delta V_r)")) {
+							result.action = CatalogRowAction::ApplyFrenetRadialOutwardBurn;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Radial Inward (-Delta V_r)")) {
+							result.action = CatalogRowAction::ApplyFrenetRadialInwardBurn;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Normal North (+Delta V_n)")) {
+							result.action = CatalogRowAction::ApplyFrenetNormalNorthBurn;
+							result.action_id = id;
+						}
+						if (ImGui::MenuItem("Anti-Normal South (-Delta V_n)")) {
+							result.action = CatalogRowAction::ApplyFrenetNormalSouthBurn;
+							result.action_id = id;
+						}
+						ImGui::EndMenu();
+					}
 					if (ImGui::MenuItem("Look At")) {
 						result.action = CatalogRowAction::LookAt;
 						result.action_id = id;
@@ -1525,6 +1558,54 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 			const int p_id = ctx.find_dominant_parent_id(*body);
 			const auto st = ctx.compute_relative_orbital_plane_state(*body, p_id);
 			ctx.apply_relative_orbital_plane_rotation(*body, p_id, 180.0, st.relative_node_deg, st.relative_periapsis_deg);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetProgradeBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, 0.0, dv_sim, 0.0);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetRetrogradeBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, 0.0, -dv_sim, 0.0);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetRadialOutwardBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, dv_sim, 0.0, 0.0);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetRadialInwardBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, -dv_sim, 0.0, 0.0);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetNormalNorthBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, 0.0, 0.0, dv_sim);
+			sys.update_accelerations();
+			ctx.orchestrator().notify_state_changed();
+			break;
+		}
+		case CatalogRowAction::ApplyFrenetNormalSouthBurn: {
+			const int p_id = ctx.find_dominant_parent_id(*body);
+			const double dv_sim = 50.0 / ctx.speed_scale();
+			ctx.apply_frenet_delta_v(*body, p_id, 0.0, 0.0, -dv_sim);
 			sys.update_accelerations();
 			ctx.orchestrator().notify_state_changed();
 			break;

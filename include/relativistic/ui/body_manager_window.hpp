@@ -5,6 +5,8 @@
 #include "relativistic/io/user_settings.hpp"
 #include "relativistic/ui/body_manager/body_manager_types.hpp"
 #include "relativistic/ui/body_manager/body_manager_context.hpp"
+#include "relativistic/ui/body_manager/body_randomizer_config.hpp"
+#include "relativistic/ui/body_manager/system_presets.hpp"
 #include "relativistic/ui/body_manager/body_catalog_tab.hpp"
 #include "relativistic/ui/body_manager/source_catalog_tab.hpp"
 #include "relativistic/ui/body_manager/body_creation_tab.hpp"
@@ -99,6 +101,7 @@ public:
 		interactions_tab_.sec_frag_open() = settings.interactions_sec_frag_open;
 		interactions_tab_.sec_annihilation_open() = settings.interactions_sec_annihilation_open;
 		object_catalog_tab_.filter().physical_ranges_open = settings.catalog_filter_ranges_open;
+		object_creation_tab_.randomizer_config() = settings.body_randomizer;
 	}
 
 	void sync_persisted_settings() noexcept {
@@ -146,6 +149,7 @@ public:
 		persisted_settings_->interactions_sec_frag_open = interactions_tab_.sec_frag_open();
 		persisted_settings_->interactions_sec_annihilation_open = interactions_tab_.sec_annihilation_open();
 		persisted_settings_->catalog_filter_ranges_open = object_catalog_tab_.filter().physical_ranges_open;
+		persisted_settings_->body_randomizer = object_creation_tab_.randomizer_config();
 	}
 
 	[[nodiscard]] bool& open_state() noexcept {
@@ -195,10 +199,21 @@ public:
 		}
 		render_setting_tooltip("Permanently removes every object and independent black hole from the system. The primary central mass at the origin is unaffected.");
 		ImGui::SameLine();
-		if (ImGui::Button("Spawn Reference System")) {
-			context_.populate_reference_system();
+		const auto& all_presets = SystemPresetCatalog::presets();
+		static int top_preset_idx = 0;
+		std::vector<const char*> top_preset_labels;
+		top_preset_labels.reserve(all_presets.size());
+		for (const auto& p : all_presets) top_preset_labels.push_back(p.name.c_str());
+
+		ImGui::SetNextItemWidth(260.0f);
+		ImGui::Combo("##TopSystemPresetCombo", &top_preset_idx, top_preset_labels.data(), static_cast<int>(top_preset_labels.size()));
+		ImGui::SameLine();
+		if (ImGui::Button("Load System Preset")) {
+			if (top_preset_idx >= 0 && static_cast<size_t>(top_preset_idx) < all_presets.size()) {
+				apply_system_preset(context_, all_presets[static_cast<size_t>(top_preset_idx)]);
+			}
 		}
-		render_setting_tooltip("Populates the system with a simplified two-planet configuration to quickly exercise N-body dynamics.");
+		render_setting_tooltip("Spawns the selected system preset (including the full real Solar System) with exact physical scales converted through the active constants engine.");
 		ImGui::SameLine();
 		if (ImGui::Button("Spawn Companion BH")) {
 			context_.spawn_companion_source();
@@ -234,11 +249,150 @@ public:
 				interactions_tab_.render(context_);
 				ImGui::EndTabItem();
 			}
+			if (ImGui::BeginTabItem("Randomizer Controls", nullptr, tab_flags(requested_tab, BodyManagerTab::RandomizerSettings))) {
+				render_randomizer_controls_tab();
+				ImGui::EndTabItem();
+			}
 			ImGui::EndTabBar();
 		}
 
 		sync_persisted_settings();
 		ImGui::End();
+	}
+
+private:
+	void render_randomizer_controls_tab() noexcept {
+		auto& cfg = object_creation_tab_.randomizer_config();
+
+		ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Procedural Randomizer Bounds & Distribution Controls");
+		render_hint_text("Configure the physical bounds, probability distributions, and mass-radius models that govern the 'Randomize Intelligent Defaults' button.");
+		ImGui::Separator();
+
+		if (ImGui::CollapsingHeader("Mass & Volumetric Density Models", ImGuiTreeNodeFlags_DefaultOpen)) {
+			int mass_dist_idx = static_cast<int>(cfg.mass_distribution);
+			if (ImGui::Combo("Mass Distribution Law", &mass_dist_idx, kRandomizerDistributionNames.data(), static_cast<int>(kRandomizerDistributionNames.size()))) {
+				cfg.mass_distribution = static_cast<RandomizerDistributionLaw>(mass_dist_idx);
+			}
+
+			static bool min_m_log = true;
+			static bool max_m_log = true;
+			float min_m_flt = static_cast<float>(cfg.min_mass_ratio);
+			if (slider_float_with_input("Min Mass Ratio (M / M_central)", &min_m_flt, 1e-15f, 1e-1f, "%.4e", &min_m_log, 1e-15f, 1.0f)) {
+				cfg.min_mass_ratio = static_cast<double>(min_m_flt);
+			}
+			float max_m_flt = static_cast<float>(cfg.max_mass_ratio);
+			if (slider_float_with_input("Max Mass Ratio (M / M_central)", &max_m_flt, 1e-12f, 1.0f, "%.4e", &max_m_log, 1e-12f, 1.0f)) {
+				cfg.max_mass_ratio = static_cast<double>(max_m_flt);
+			}
+
+			if (cfg.mass_distribution == RandomizerDistributionLaw::PowerLaw) {
+				float alpha = static_cast<float>(cfg.mass_power_law_alpha);
+				if (ImGui::SliderFloat("Mass Power-Law Exponent (alpha)", &alpha, 0.5f, 4.0f, "%.2f")) {
+					cfg.mass_power_law_alpha = static_cast<double>(alpha);
+				}
+			}
+
+			ImGui::Separator();
+			int rad_mode_idx = static_cast<int>(cfg.radius_mode);
+			if (ImGui::Combo("Radius Determination Model", &rad_mode_idx, kRandomizerRadiusModeNames.data(), static_cast<int>(kRandomizerRadiusModeNames.size()))) {
+				cfg.radius_mode = static_cast<RandomizerRadiusMode>(rad_mode_idx);
+			}
+
+			if (cfg.radius_mode == RandomizerRadiusMode::PhysicalDensity) {
+				float min_rho = static_cast<float>(cfg.min_density_kg_m3);
+				float max_rho = static_cast<float>(cfg.max_density_kg_m3);
+				if (ImGui::DragFloatRange2("Volumetric Density Range (kg/m^3)", &min_rho, &max_rho, 10.0f, 50.0f, 25000.0f, "Min: %.0f", "Max: %.0f")) {
+					cfg.min_density_kg_m3 = static_cast<double>(min_rho);
+					cfg.max_density_kg_m3 = static_cast<double>(max_rho);
+				}
+			} else if (cfg.radius_mode == RandomizerRadiusMode::ExplicitBounds) {
+				float min_rad_flt = static_cast<float>(cfg.min_explicit_radius_rg);
+				float max_rad_flt = static_cast<float>(cfg.max_explicit_radius_rg);
+				if (ImGui::DragFloatRange2("Radius Range (Gravitational Radii r_g)", &min_rad_flt, &max_rad_flt, 0.05f, 1e-4f, 50.0f, "Min: %.3f", "Max: %.3f")) {
+					cfg.min_explicit_radius_rg = static_cast<double>(min_rad_flt);
+					cfg.max_explicit_radius_rg = static_cast<double>(max_rad_flt);
+				}
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Orbital Geometry & Kinematics Bounds", ImGuiTreeNodeFlags_DefaultOpen)) {
+			int orb_dist_idx = static_cast<int>(cfg.orbit_distribution);
+			if (ImGui::Combo("Orbital Distance Distribution", &orb_dist_idx, kRandomizerDistributionNames.data(), static_cast<int>(kRandomizerDistributionNames.size()))) {
+				cfg.orbit_distribution = static_cast<RandomizerDistributionLaw>(orb_dist_idx);
+			}
+
+			float min_orb_flt = static_cast<float>(cfg.min_orbit_rg);
+			float max_orb_flt = static_cast<float>(cfg.max_orbit_rg);
+			if (ImGui::DragFloatRange2("Orbital Distance Range (r_g)", &min_orb_flt, &max_orb_flt, 1.0f, 2.5f, 10000.0f, "Min: %.1f", "Max: %.1f")) {
+				cfg.min_orbit_rg = static_cast<double>(min_orb_flt);
+				cfg.max_orbit_rg = static_cast<double>(max_orb_flt);
+			}
+
+			float min_ecc_flt = static_cast<float>(cfg.min_eccentricity);
+			float max_ecc_flt = static_cast<float>(cfg.max_eccentricity);
+			if (ImGui::DragFloatRange2("Orbital Eccentricity Range (e)", &min_ecc_flt, &max_ecc_flt, 0.01f, 0.0f, 0.99f, "Min: %.3f", "Max: %.3f")) {
+				cfg.min_eccentricity = static_cast<double>(min_ecc_flt);
+				cfg.max_eccentricity = static_cast<double>(max_ecc_flt);
+			}
+
+			float max_inc_flt = static_cast<float>(cfg.max_inclination_deg);
+			if (ImGui::SliderFloat("Maximum Inclination (deg)", &max_inc_flt, 0.0f, 90.0f, "%.1f deg")) {
+				cfg.max_inclination_deg = static_cast<double>(max_inc_flt);
+			}
+
+			float prog_frac = static_cast<float>(cfg.prograde_fraction);
+			if (ImGui::SliderFloat("Prograde Probability", &prog_frac, 0.0f, 1.0f, "%.2f")) {
+				cfg.prograde_fraction = static_cast<double>(prog_frac);
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Thermodynamics & Rotation Bounds")) {
+			ImGui::Checkbox("Derive Equilibrium Temperature From Central Attractor", &cfg.radiative_equilibrium_temperature);
+			if (!cfg.radiative_equilibrium_temperature) {
+				float min_t = static_cast<float>(cfg.min_temperature_k);
+				float max_t = static_cast<float>(cfg.max_temperature_k);
+				if (ImGui::DragFloatRange2("Temperature Range (K)", &min_t, &max_t, 10.0f, 2.7f, 50000.0f, "Min: %.0f K", "Max: %.0f K")) {
+					cfg.min_temperature_k = static_cast<double>(min_t);
+					cfg.max_temperature_k = static_cast<double>(max_t);
+				}
+			}
+
+			float min_spin = static_cast<float>(cfg.min_spin_period_hours);
+			float max_spin = static_cast<float>(cfg.max_spin_period_hours);
+			if (ImGui::DragFloatRange2("Rotation Period Range (hours)", &min_spin, &max_spin, 1.0f, 0.1f, 10000.0f, "Min: %.1f h", "Max: %.1f h")) {
+				cfg.min_spin_period_hours = static_cast<double>(min_spin);
+				cfg.max_spin_period_hours = static_cast<double>(max_spin);
+			}
+
+			float max_tilt = static_cast<float>(cfg.max_axial_tilt_deg);
+			if (ImGui::SliderFloat("Maximum Axial Tilt", &max_tilt, 0.0f, 90.0f, "%.1f deg")) {
+				cfg.max_axial_tilt_deg = static_cast<double>(max_tilt);
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Allowed Population Archetypes")) {
+			ImGui::Checkbox("Terrestrial Worlds", &cfg.archetypes.allow_terrestrial);
+			ImGui::SameLine();
+			ImGui::Checkbox("Gas Giants", &cfg.archetypes.allow_gas_giant);
+			ImGui::SameLine();
+			ImGui::Checkbox("Ice Giants", &cfg.archetypes.allow_ice_giant);
+			ImGui::Checkbox("Stars", &cfg.archetypes.allow_star);
+			ImGui::SameLine();
+			ImGui::Checkbox("Compact Remnants", &cfg.archetypes.allow_compact);
+			ImGui::SameLine();
+			ImGui::Checkbox("Asteroids / Moons", &cfg.archetypes.allow_asteroid);
+		}
+
+		ImGui::Spacing();
+		if (ImGui::Button("Reset Randomizer Bounds To Astrophysical Defaults", ImVec2(-1.0f, 26.0f))) {
+			cfg = BodyRandomizerConfig{};
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Test Random Draft Generation", ImVec2(-1.0f, 26.0f))) {
+			object_creation_tab_.reset_draft(context_);
+		}
+
+		cfg.sanitize();
 	}
 };
 

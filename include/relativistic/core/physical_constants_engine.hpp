@@ -9,8 +9,9 @@ namespace Relativistic::Core {
 
 enum class ConstantsPreset : uint32_t {
 	SI = 0,
-	Planck = 1,
-	Custom = 2
+	Geometrized = 1,
+	Planck = 2,
+	Custom = 3
 };
 
 struct SIReferenceConstants {
@@ -66,7 +67,8 @@ struct SimBaseConstants {
 class ConstantsEngine {
 private:
 	SimBaseConstants sim_{};
-	ConstantsPreset active_preset_{ConstantsPreset::SI};
+	ConstantsPreset active_preset_{ConstantsPreset::Geometrized};
+	double reference_mass_{SIReferenceConstants::SOLAR_MASS};
 
 	static double clamp_positive(double v) noexcept {
 		return (v > 1e-300) ? v : 1e-300;
@@ -80,7 +82,15 @@ public:
 	static constexpr double FINE_STRUCTURE_CONSTANT = SIReferenceConstants::FINE_STRUCTURE_CONSTANT;
 
 	ConstantsEngine() noexcept {
-		apply_preset(ConstantsPreset::Planck);
+		apply_preset(ConstantsPreset::Geometrized);
+	}
+
+	void set_reference_mass(double m) noexcept {
+		reference_mass_ = std::max(m, 1e-30);
+	}
+
+	[[nodiscard]] double reference_mass() const noexcept {
+		return reference_mass_;
 	}
 
 	[[nodiscard]] constexpr ConstantsPreset active_preset() const noexcept { return active_preset_; }
@@ -113,6 +123,15 @@ public:
 				sim_.ke = SIReferenceConstants::coulomb_constant();
 				sim_.kcd = SIReferenceConstants::LUMINOUS_EFFICACY_KCD;
 				break;
+			case ConstantsPreset::Geometrized:
+				sim_.c = 1.0;
+				sim_.g = 1.0;
+				sim_.h = 2.0 * std::numbers::pi;
+				sim_.kb = 1.0;
+				sim_.na = SIReferenceConstants::AVOGADRO_CONSTANT;
+				sim_.ke = 1.0;
+				sim_.kcd = 1.0;
+				break;
 			case ConstantsPreset::Planck:
 				sim_.c = 1.0;
 				sim_.g = 1.0;
@@ -129,7 +148,7 @@ public:
 	}
 
 	void apply_preset_by_index(uint32_t idx) noexcept {
-		apply_preset(static_cast<ConstantsPreset>(std::min(idx, 2u)));
+		apply_preset(static_cast<ConstantsPreset>(std::min(idx, 3u)));
 	}
 
 	[[nodiscard]] double sim_reduced_planck() const noexcept {
@@ -155,20 +174,45 @@ public:
 		return (4.0 * std::numbers::pi * sim_.ke) / (sim_.c * sim_.c);
 	}
 
-	[[nodiscard]] double time_scale() const noexcept {
-		const double ratio_g_h = (SIReferenceConstants::GRAVITATIONAL_CONSTANT / sim_.g) * (SIReferenceConstants::PLANCK_CONSTANT / sim_.h);
-		const double c_ratio = SIReferenceConstants::SPEED_OF_LIGHT / sim_.c;
-		return std::sqrt(ratio_g_h / std::pow(c_ratio, 5.0));
-	}
-
 	[[nodiscard]] double length_scale() const noexcept {
+		if (active_preset_ == ConstantsPreset::SI) {
+			return 1.0;
+		}
+		if (active_preset_ == ConstantsPreset::Geometrized || (sim_.c == 1.0 && sim_.g == 1.0 && active_preset_ != ConstantsPreset::Planck)) {
+			return (SIReferenceConstants::GRAVITATIONAL_CONSTANT * reference_mass_) / (SIReferenceConstants::SPEED_OF_LIGHT * SIReferenceConstants::SPEED_OF_LIGHT);
+		}
 		return (SIReferenceConstants::SPEED_OF_LIGHT * time_scale()) / sim_.c;
 	}
 
 	[[nodiscard]] double mass_scale() const noexcept {
+		if (active_preset_ == ConstantsPreset::SI) {
+			return 1.0;
+		}
+		if (active_preset_ == ConstantsPreset::Geometrized || (sim_.c == 1.0 && sim_.g == 1.0 && active_preset_ != ConstantsPreset::Planck)) {
+			return reference_mass_;
+		}
 		const double t0 = time_scale();
 		const double l0 = length_scale();
 		return (sim_.g / SIReferenceConstants::GRAVITATIONAL_CONSTANT) * (l0 * l0 * l0) / (t0 * t0);
+	}
+
+	[[nodiscard]] double speed_scale() const noexcept {
+		if (active_preset_ == ConstantsPreset::SI) {
+			return 1.0;
+		}
+		return SIReferenceConstants::SPEED_OF_LIGHT / sim_.c;
+	}
+
+	[[nodiscard]] double time_scale() const noexcept {
+		if (active_preset_ == ConstantsPreset::SI) {
+			return 1.0;
+		}
+		if (active_preset_ == ConstantsPreset::Geometrized || (sim_.c == 1.0 && sim_.g == 1.0 && active_preset_ != ConstantsPreset::Planck)) {
+			return length_scale() / SIReferenceConstants::SPEED_OF_LIGHT;
+		}
+		const double ratio_g_h = (SIReferenceConstants::GRAVITATIONAL_CONSTANT / sim_.g) * (SIReferenceConstants::PLANCK_CONSTANT / sim_.h);
+		const double c_ratio = SIReferenceConstants::SPEED_OF_LIGHT / sim_.c;
+		return std::sqrt(ratio_g_h / std::pow(c_ratio, 5.0));
 	}
 
 	[[nodiscard]] double charge_scale() const noexcept {

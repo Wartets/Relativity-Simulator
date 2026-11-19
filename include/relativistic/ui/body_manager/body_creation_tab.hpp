@@ -3,6 +3,8 @@
 #include <imgui.h>
 #include "relativistic/ui/body_manager/body_manager_context.hpp"
 #include "relativistic/ui/body_manager/body_property_editor.hpp"
+#include "relativistic/ui/body_manager/body_randomizer_config.hpp"
+#include "relativistic/ui/body_manager/system_presets.hpp"
 #include "relativistic/ui/split_pane_layout.hpp"
 #include "relativistic/ui/panel_text_helpers.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
@@ -25,6 +27,7 @@ private:
 	Dynamics::BodySurfaceLayerSet layers_{};
 	BodyEditorViewState view_{};
 	SplitPaneState split_{320.0f, 320.0f, 0.0f};
+	BodyRandomizerConfig randomizer_config_{};
 	int template_index_{0};
 	bool pristine_{true};
 	double reference_mass_{-1.0};
@@ -66,6 +69,20 @@ private:
 		d.mass = spec.native_units ? spec.mass : spec.mass / ctx.mass_scale();
 		d.radius = spec.native_units ? spec.radius : spec.radius / ctx.length_scale();
 		d.reference_radius = d.radius;
+
+		if (!spec.native_units && spec.semi_major_axis_m > 0.0) {
+			const double dist_sim = spec.semi_major_axis_m / ctx.length_scale();
+			const double cur_dist = std::sqrt(d.position[0] * d.position[0] + d.position[1] * d.position[1] + d.position[2] * d.position[2]);
+			if (cur_dist > 1e-6) {
+				const double scale = dist_sim / cur_dist;
+				d.position[0] *= scale;
+				d.position[1] *= scale;
+				d.position[2] *= scale;
+			} else {
+				d.position = {dist_sim, 0.0, 0.0};
+			}
+		}
+
 		d.j2 = spec.j2;
 		d.j4 = spec.j4;
 		d.temperature = spec.temperature_kelvin;
@@ -383,81 +400,127 @@ public:
 	[[nodiscard]] bool& sec_comparator_open() noexcept { return sec_comparator_open_; }
 	[[nodiscard]] bool& sec_plane_open() noexcept { return sec_plane_open_; }
 	[[nodiscard]] bool& sec_hazard_open() noexcept { return sec_hazard_open_; }
+	[[nodiscard]] BodyRandomizerConfig& randomizer_config() noexcept { return randomizer_config_; }
+	[[nodiscard]] const BodyRandomizerConfig& randomizer_config() const noexcept { return randomizer_config_; }
 
 	void reset_draft(BodyManagerContext& ctx) noexcept {
-		const auto& profile = kCreationArchetypes[static_cast<size_t>(ctx.random_int(0, static_cast<int>(kCreationArchetypes.size()) - 1))];
+		randomizer_config_.sanitize();
+		std::vector<Dynamics::Body3DPreset> allowed_presets;
+		if (randomizer_config_.archetypes.allow_terrestrial) allowed_presets.push_back(Dynamics::Body3DPreset::TerrestrialPlanet);
+		if (randomizer_config_.archetypes.allow_gas_giant) allowed_presets.push_back(Dynamics::Body3DPreset::GasGiant);
+		if (randomizer_config_.archetypes.allow_ice_giant) allowed_presets.push_back(Dynamics::Body3DPreset::IceGiant);
+		if (randomizer_config_.archetypes.allow_star) allowed_presets.push_back(Dynamics::Body3DPreset::Star);
+		if (randomizer_config_.archetypes.allow_compact) allowed_presets.push_back(Dynamics::Body3DPreset::NeutronStar);
+		if (randomizer_config_.archetypes.allow_asteroid) allowed_presets.push_back(Dynamics::Body3DPreset::Asteroid);
+		if (allowed_presets.empty()) allowed_presets.push_back(Dynamics::Body3DPreset::TerrestrialPlanet);
+
+		const auto chosen_preset = allowed_presets[static_cast<size_t>(ctx.random_int(0, static_cast<int>(allowed_presets.size()) - 1))];
 		const double central_mass = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		const double length_scale_m = ctx.length_scale();
+		const double mass_scale_kg = ctx.mass_scale();
+
 		auto& d = draft_;
 		d = Dynamics::PostNewtonianBody{};
-		apply_body_appearance_preset(d, profile.preset);
+		apply_body_appearance_preset(d, chosen_preset);
 
-		const double reference_mass = std::max(central_mass, 1.0);
-		const double orbit_radius = reference_mass * ctx.sample_log_uniform(profile.orbit_gravitational_radii_min, profile.orbit_gravitational_radii_max);
-		const double mass_ratio = ctx.sample_log_uniform(profile.mass_ratio_min, profile.mass_ratio_max);
-		const double mass_percentile = std::clamp(std::log(mass_ratio / profile.mass_ratio_min) / std::log(profile.mass_ratio_max / profile.mass_ratio_min), 0.0, 1.0);
-		d.mass = reference_mass * mass_ratio;
-		if (profile.preset == Dynamics::Body3DPreset::NeutronStar) {
-			d.radius = d.mass * ctx.random_real(profile.size_factor_min, profile.size_factor_max);
+		double mass_ratio = 1e-6;
+		if (randomizer_config_.mass_distribution == RandomizerDistributionLaw::LogUniform) {
+			mass_ratio = ctx.sample_log_uniform(randomizer_config_.min_mass_ratio, randomizer_config_.max_mass_ratio);
+		} else if (randomizer_config_.mass_distribution == RandomizerDistributionLaw::Uniform) {
+			mass_ratio = ctx.sample_uniform(randomizer_config_.min_mass_ratio, randomizer_config_.max_mass_ratio);
+		} else if (randomizer_config_.mass_distribution == RandomizerDistributionLaw::PowerLaw) {
+			mass_ratio = ctx.sample_power_law(randomizer_config_.min_mass_ratio, randomizer_config_.max_mass_ratio, randomizer_config_.mass_power_law_alpha);
 		} else {
-			const double size_fraction = profile.size_factor_min * std::pow(profile.size_factor_max / profile.size_factor_min, mass_percentile) * ctx.random_real(0.85, 1.15);
-			d.radius = std::max(orbit_radius * size_fraction, 4.0 * d.mass);
+			const double mean_ratio = 0.5 * (randomizer_config_.min_mass_ratio + randomizer_config_.max_mass_ratio);
+			const double sigma = 0.25 * (randomizer_config_.max_mass_ratio - randomizer_config_.min_mass_ratio);
+			mass_ratio = std::clamp(ctx.sample_gaussian(mean_ratio, sigma), randomizer_config_.min_mass_ratio, randomizer_config_.max_mass_ratio);
 		}
-		d.radius = std::max(d.radius, 1e-6);
-		d.reference_radius = d.radius;
-		d.quadrupole_moment = ctx.sample_signed_uniform(profile.quadrupole_min, profile.quadrupole_max);
-		d.j2 = ctx.sample_log_uniform(profile.j2_min, profile.j2_max);
-		d.j3 = ctx.sample_signed_uniform(profile.j3_min, profile.j3_max);
-		d.j4 = ctx.sample_signed_uniform(profile.j4_min, profile.j4_max);
+		d.mass = central_mass * mass_ratio;
 
-		const double inclination = ctx.random_real(-0.35, 0.35);
+		if (randomizer_config_.radius_mode == RandomizerRadiusMode::PhysicalDensity) {
+			const double density = ctx.sample_uniform(randomizer_config_.min_density_kg_m3, randomizer_config_.max_density_kg_m3);
+			const double mass_kg = d.mass * mass_scale_kg;
+			const double volume_m3 = mass_kg / std::max(density, 1.0);
+			const double radius_m = std::cbrt(3.0 * volume_m3 / (4.0 * std::numbers::pi));
+			d.radius = std::max(radius_m / length_scale_m, 1e-6);
+		} else if (randomizer_config_.radius_mode == RandomizerRadiusMode::ExplicitBounds) {
+			const double rad_rg = ctx.sample_uniform(randomizer_config_.min_explicit_radius_rg, randomizer_config_.max_explicit_radius_rg);
+			d.radius = std::max(rad_rg * central_mass, 1e-6);
+		} else {
+			d.radius = std::max(4.0 * d.mass, 1e-6);
+		}
+		d.reference_radius = d.radius;
+
+		double orbit_rg = 30.0;
+		if (randomizer_config_.orbit_distribution == RandomizerDistributionLaw::LogUniform) {
+			orbit_rg = ctx.sample_log_uniform(randomizer_config_.min_orbit_rg, randomizer_config_.max_orbit_rg);
+		} else if (randomizer_config_.orbit_distribution == RandomizerDistributionLaw::Uniform) {
+			orbit_rg = ctx.sample_uniform(randomizer_config_.min_orbit_rg, randomizer_config_.max_orbit_rg);
+		} else {
+			orbit_rg = std::clamp(ctx.sample_gaussian(0.5 * (randomizer_config_.min_orbit_rg + randomizer_config_.max_orbit_rg), 0.25 * (randomizer_config_.max_orbit_rg - randomizer_config_.min_orbit_rg)), randomizer_config_.min_orbit_rg, randomizer_config_.max_orbit_rg);
+		}
+		const double orbit_radius = central_mass * orbit_rg;
+
+		const double max_inc_rad = randomizer_config_.max_inclination_deg * (std::numbers::pi / 180.0);
+		const double inclination = ctx.sample_signed_uniform(0.0, max_inc_rad);
 		const double theta = std::numbers::pi * 0.5 - inclination;
-		const double phi = ctx.random_real(0.0, 2.0 * std::numbers::pi);
+		const double phi = ctx.sample_uniform(0.0, 2.0 * std::numbers::pi);
 		const double sin_theta = std::sin(theta);
 		d.position = {orbit_radius * sin_theta * std::cos(phi), orbit_radius * sin_theta * std::sin(phi), orbit_radius * std::cos(theta)};
 
-		auto velocity = ctx.compute_circular_orbit_velocity(d.position, central_mass);
-		if (std::abs(velocity[0]) < 1e-12 && std::abs(velocity[1]) < 1e-12 && std::abs(velocity[2]) < 1e-12) {
-			velocity = {0.0, std::sqrt(central_mass / std::max(orbit_radius, 1e-9)), 0.0};
+		const bool is_prograde = (ctx.random_real(0.0, 1.0) < randomizer_config_.prograde_fraction);
+		auto velocity = is_prograde ? ctx.compute_circular_orbit_velocity(d.position, central_mass) : ctx.compute_retrograde_circular_orbit_velocity(d.position, central_mass);
+		const double ecc = ctx.sample_uniform(randomizer_config_.min_eccentricity, randomizer_config_.max_eccentricity);
+		if (ecc > 0.001) {
+			velocity = ctx.compute_target_eccentricity_velocity(d.position, velocity, central_mass, ecc);
 		}
-		const double speed_scale = ctx.random_real(0.82, 1.18);
-		d.velocity = {velocity[0] * speed_scale, velocity[1] * speed_scale, velocity[2] * speed_scale};
-		const double breakup_rate = std::sqrt(std::max(ctx.simulation_g() * d.mass / (d.radius * d.radius * d.radius), 0.0));
-		const double spin_rate = breakup_rate * profile.breakup_spin_fraction * ctx.random_real(0.1, 1.0);
-		const double axis_tilt = ctx.random_real(0.0, 0.5);
-		const double axis_azimuth = ctx.random_real(0.0, 2.0 * std::numbers::pi);
-		const double angular_momentum = 0.4 * d.mass * d.radius * d.radius * spin_rate;
+		d.velocity = velocity;
+
+		const double tilt_rad = ctx.sample_uniform(0.0, randomizer_config_.max_axial_tilt_deg * (std::numbers::pi / 180.0));
+		const double spin_h = ctx.sample_uniform(randomizer_config_.min_spin_period_hours, randomizer_config_.max_spin_period_hours);
+		const double spin_rate = (2.0 * std::numbers::pi) / (spin_h * 3600.0) * (length_scale_m / ctx.speed_scale());
 		d.rotation_speed = spin_rate;
-		d.spin = {
-			angular_momentum * std::sin(axis_tilt) * std::cos(axis_azimuth),
-			angular_momentum * std::sin(axis_tilt) * std::sin(axis_azimuth),
-			angular_momentum * std::cos(axis_tilt)
-		};
-		apply_body_material_preset(d, profile.preset);
+		d.rotation_speed_3d = static_cast<float>(spin_rate);
+		d.set_orientation_euler_degrees(0.0, tilt_rad * (180.0 / std::numbers::pi), ctx.random_real(0.0, 360.0));
 
-		const float primary_hue = static_cast<float>(std::fmod(profile.hue_center + ctx.random_real(-profile.hue_spread, profile.hue_spread) + 1.0, 1.0));
-		const auto primary_rgb = body_hsv_to_rgb(primary_hue, static_cast<float>(profile.saturation), static_cast<float>(profile.value));
-		d.color = {primary_rgb[0], primary_rgb[1], primary_rgb[2], 1.0f};
-		const float secondary_hue = std::fmod(primary_hue + static_cast<float>(ctx.random_real(0.03, 0.12)) + 1.0f, 1.0f);
-		const auto secondary_rgb = body_hsv_to_rgb(secondary_hue, static_cast<float>(std::clamp(profile.saturation * 1.2, 0.0, 1.0)), static_cast<float>(std::clamp(profile.value * 0.7, 0.0, 1.0)));
-		d.color_secondary = {secondary_rgb[0], secondary_rgb[1], secondary_rgb[2], 1.0f};
-		const float tertiary_hue = std::fmod(primary_hue + static_cast<float>(ctx.random_real(0.25, 0.55)) + 1.0f, 1.0f);
-		const auto tertiary_rgb = body_hsv_to_rgb(tertiary_hue, static_cast<float>(std::clamp(profile.saturation * 0.6, 0.0, 1.0)), static_cast<float>(std::clamp(profile.value * 1.1, 0.0, 1.0)));
-		d.color_tertiary = {tertiary_rgb[0], tertiary_rgb[1], tertiary_rgb[2], 1.0f};
+		if (randomizer_config_.radiative_equilibrium_temperature) {
+			const double t_ref = 300.0;
+			const double r_ref = 50.0;
+			d.temperature = std::clamp(t_ref * std::sqrt(r_ref / std::max(orbit_rg, 1.0)), randomizer_config_.min_temperature_k, randomizer_config_.max_temperature_k);
+		} else {
+			d.temperature = ctx.sample_uniform(randomizer_config_.min_temperature_k, randomizer_config_.max_temperature_k);
+		}
 
-		d.surface_noise_scale = static_cast<float>(ctx.random_real(profile.noise_min, profile.noise_max));
-		d.surface_roughness = static_cast<float>(ctx.random_real(profile.roughness_min, profile.roughness_max));
-		d.atmosphere_thickness = static_cast<float>(ctx.random_real(profile.atmosphere_min, profile.atmosphere_max));
-		d.emission_intensity = static_cast<float>(ctx.random_real(profile.emission_min, profile.emission_max));
-		d.rotation_speed_3d = static_cast<float>(ctx.random_real(profile.rotation_min, profile.rotation_max));
-		d.texture_detail_scale = static_cast<float>(ctx.random_real(0.6, 2.2));
-		const bool is_world = profile.preset == Dynamics::Body3DPreset::TerrestrialPlanet;
-		const bool is_giant = profile.preset == Dynamics::Body3DPreset::GasGiant;
-		d.polar_cap_strength = (is_world || is_giant) ? static_cast<float>(ctx.random_real(0.1, 0.5)) : 0.0f;
-		d.night_side_light_intensity = is_world ? static_cast<float>(ctx.random_real(0.0, 0.6)) : 0.0f;
-		d.ring_system_enabled = is_giant && (ctx.random_int(0, 1) == 0);
-		d.set_orientation_euler_degrees(ctx.random_real(-8.0, 8.0), ctx.random_real(-30.0, 30.0), ctx.random_real(-180.0, 180.0));
+		apply_body_material_preset(d, chosen_preset);
 
-		d.set_name(ctx.unique_name(ctx.generate_object_name(profile.preset)));
+		const float jitter = static_cast<float>(randomizer_config_.appearance_color_jitter);
+		if (jitter > 0.0f) {
+			const float base_hue = static_cast<float>(ctx.random_real(0.0, 1.0));
+			const auto rgb = body_hsv_to_rgb(base_hue, 0.65f, 0.85f);
+			d.color[0] = std::clamp(d.color[0] * (1.0f - jitter) + rgb[0] * jitter, 0.0f, 1.0f);
+			d.color[1] = std::clamp(d.color[1] * (1.0f - jitter) + rgb[1] * jitter, 0.0f, 1.0f);
+			d.color[2] = std::clamp(d.color[2] * (1.0f - jitter) + rgb[2] * jitter, 0.0f, 1.0f);
+		}
+
+		d.surface_noise_scale = static_cast<float>(ctx.random_real(2.0, 18.0));
+		d.surface_roughness = static_cast<float>(ctx.random_real(0.2, 0.85));
+		d.texture_detail_scale = static_cast<float>(ctx.random_real(0.75, 2.0));
+
+		const bool is_terrestrial = (chosen_preset == Dynamics::Body3DPreset::TerrestrialPlanet);
+		const bool is_giant = (chosen_preset == Dynamics::Body3DPreset::GasGiant || chosen_preset == Dynamics::Body3DPreset::IceGiant);
+
+		if (randomizer_config_.allow_atmospheres && (ctx.random_real(0.0, 1.0) < randomizer_config_.atmosphere_probability)) {
+			d.atmosphere_thickness = static_cast<float>(ctx.random_real(0.05, 0.35));
+		} else {
+			d.atmosphere_thickness = 0.0f;
+			d.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
+		}
+
+		d.polar_cap_strength = (is_terrestrial || is_giant) ? static_cast<float>(ctx.random_real(0.1, 0.5)) : 0.0f;
+		d.night_side_light_intensity = is_terrestrial ? static_cast<float>(ctx.random_real(0.0, 0.5)) : 0.0f;
+		d.ring_system_enabled = is_giant && randomizer_config_.allow_ring_systems && (ctx.random_real(0.0, 1.0) < randomizer_config_.ring_system_probability);
+
+		d.set_name(ctx.unique_name(ctx.generate_object_name(chosen_preset)));
 		pristine_ = true;
 		reference_mass_ = ctx.orchestrator().parameters().mass;
 		layers_ = Dynamics::BodySurfaceLayerSet{};

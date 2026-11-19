@@ -11,6 +11,7 @@
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/observer/coordinate_systems.hpp"
+#include "relativistic/ui/body_manager/body_randomizer_config.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -164,6 +165,8 @@ struct UserSettings {
 	double interaction_collision_stiffness_scale{1.0e-9};
 	double interaction_collision_position_correction_factor{0.2};
 	bool interaction_fragmentation_tidal_stress_enabled{false};
+	std::string system_preset_selected{"solar_system_real"};
+	UI::BodyRandomizerConfig body_randomizer{};
 	bool cluster_enabled{false};
 	uint32_t cluster_node_role{1};
 	uint32_t cluster_listen_port{42425};
@@ -317,6 +320,8 @@ struct UserSettings {
 		result.interaction_collision_stiffness_scale = get_dbl("interaction_collision_stiffness_scale", result.interaction_collision_stiffness_scale);
 		result.interaction_collision_position_correction_factor = get_dbl("interaction_collision_position_correction_factor", result.interaction_collision_position_correction_factor);
 		result.interaction_fragmentation_tidal_stress_enabled = get_bool("interaction_fragmentation_tidal_stress_enabled", result.interaction_fragmentation_tidal_stress_enabled);
+		result.system_preset_selected = get_str("system_preset_selected", result.system_preset_selected);
+		result.body_randomizer.read_settings(kv);
 		result.cluster_enabled = get_bool("cluster_enabled", result.cluster_enabled);
 		result.cluster_node_role = get_u32("cluster_node_role", result.cluster_node_role);
 		result.cluster_listen_port = get_u32("cluster_listen_port", result.cluster_listen_port);
@@ -610,6 +615,14 @@ struct UserSettings {
 		out << "interaction_collision_stiffness_scale=" << interaction_collision_stiffness_scale << "\n";
 		out << "interaction_collision_position_correction_factor=" << interaction_collision_position_correction_factor << "\n";
 		out << "interaction_fragmentation_tidal_stress_enabled=" << (interaction_fragmentation_tidal_stress_enabled ? 1 : 0) << "\n";
+		out << "system_preset_selected=" << system_preset_selected << "\n";
+		{
+			std::unordered_map<std::string, std::string> rnd_kv;
+			body_randomizer.write_settings(rnd_kv);
+			for (const auto& [rk, rv] : rnd_kv) {
+				out << rk << "=" << rv << "\n";
+			}
+		}
 		out << "cluster_enabled=" << (cluster_enabled ? 1 : 0) << "\n";
 		out << "cluster_node_role=" << cluster_node_role << "\n";
 		out << "cluster_listen_port=" << cluster_listen_port << "\n";

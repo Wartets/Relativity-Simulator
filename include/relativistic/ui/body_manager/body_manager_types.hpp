@@ -154,7 +154,8 @@ enum class BodyManagerTab : uint32_t {
 	ObjectCreation = 2,
 	SourceCreation = 3,
 	SystemDynamics = 4,
-	Interactions = 5
+	Interactions = 5,
+	RandomizerSettings = 6
 };
 
 namespace BodyEditorSection {
@@ -220,6 +221,7 @@ struct BodyTemplateSpec {
 	bool native_units;
 	double mass;
 	double radius;
+	double semi_major_axis_m;
 	double j2;
 	double j4;
 	double temperature_kelvin;
@@ -240,31 +242,31 @@ struct BodyTemplateSpec {
 };
 
 inline constexpr std::array<BodyTemplateSpec, 9> kBodyTemplateSpecs{{
-	BodyTemplateSpec{"Sun", false, 1.98847e30, 6.9634e8, 2.2e-7, 0.0, 5772.0, Dynamics::Body3DPreset::Star,
+	BodyTemplateSpec{"Sun", false, 1.98847e30, 6.9634e8, 0.0, 2.2e-7, 0.0, 5772.0, Dynamics::Body3DPreset::Star,
 		{1.0f, 0.85f, 0.5f, 1.0f}, {1.0f, 0.55f, 0.15f, 1.0f}, {1.0f, 0.95f, 0.7f, 1.0f},
 		8.0f, 0.6f, 0.0f, 2.5f, 0.05f, 0.0f, 0.0f, false, -1, -1},
-	BodyTemplateSpec{"Earth", false, 5.9722e24, 6.378137e6, 1.08263e-3, 0.0, 288.0, Dynamics::Body3DPreset::TerrestrialPlanet,
+	BodyTemplateSpec{"Earth", false, 5.9722e24, 6.378137e6, 1.4959787e11, 1.08263e-3, 0.0, 288.0, Dynamics::Body3DPreset::TerrestrialPlanet,
 		{0.10f, 0.35f, 0.65f, 1.0f}, {0.20f, 0.50f, 0.22f, 1.0f}, {0.95f, 0.95f, 0.98f, 1.0f},
 		5.0f, 0.45f, 0.18f, 0.0f, 0.12f, 0.45f, 0.4f, false, 2, -1},
-	BodyTemplateSpec{"Moon", false, 7.342e22, 1.7374e6, 2.0335e-4, 0.0, 250.0, Dynamics::Body3DPreset::Metallic,
+	BodyTemplateSpec{"Moon", false, 7.342e22, 1.7374e6, 3.844e8, 2.0335e-4, 0.0, 250.0, Dynamics::Body3DPreset::Metallic,
 		{0.55f, 0.55f, 0.58f, 1.0f}, {0.32f, 0.32f, 0.35f, 1.0f}, {0.75f, 0.75f, 0.78f, 1.0f},
 		7.0f, 0.75f, 0.0f, 0.0f, 0.03f, 0.0f, 0.0f, false, 3, -1},
-	BodyTemplateSpec{"Jupiter", false, 1.89813e27, 7.1492e7, 1.469657e-2, -5.86609e-4, 165.0, Dynamics::Body3DPreset::GasGiant,
+	BodyTemplateSpec{"Jupiter", false, 1.89813e27, 7.1492e7, 7.7841e11, 1.469657e-2, -5.86609e-4, 165.0, Dynamics::Body3DPreset::GasGiant,
 		{0.82f, 0.65f, 0.45f, 1.0f}, {0.62f, 0.40f, 0.24f, 1.0f}, {0.92f, 0.85f, 0.75f, 1.0f},
 		3.5f, 0.3f, 0.32f, 0.0f, 0.35f, 0.2f, 0.0f, true, 5, -1},
-	BodyTemplateSpec{"Mars", false, 6.4171e23, 3.3895e6, 1.96045e-3, 0.0, 210.0, Dynamics::Body3DPreset::TerrestrialPlanet,
+	BodyTemplateSpec{"Mars", false, 6.4171e23, 3.3895e6, 2.279e11, 1.96045e-3, 0.0, 210.0, Dynamics::Body3DPreset::TerrestrialPlanet,
 		{0.72f, 0.35f, 0.20f, 1.0f}, {0.48f, 0.24f, 0.15f, 1.0f}, {0.95f, 0.95f, 0.98f, 1.0f},
 		6.0f, 0.65f, 0.05f, 0.0f, 0.11f, 0.0f, 0.0f, false, 0, 6},
-	BodyTemplateSpec{"Neutron Star", false, 2.8e30, 12000.0, 0.0, 0.0, 1.0e6, Dynamics::Body3DPreset::NeutronStar,
+	BodyTemplateSpec{"Neutron Star", false, 2.8e30, 12000.0, 5.0e10, 0.0, 0.0, 1.0e6, Dynamics::Body3DPreset::NeutronStar,
 		{0.85f, 0.90f, 1.0f, 1.0f}, {0.55f, 0.72f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f},
 		1.5f, 0.15f, 0.0f, 3.0f, 1.8f, 0.0f, 0.0f, false, -1, -1},
-	BodyTemplateSpec{"Supermassive BH", false, 8.0e36, 1.2e10, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
+	BodyTemplateSpec{"Supermassive BH", false, 8.0e36, 1.2e10, 1.0e12, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
 		{0.02f, 0.02f, 0.03f, 1.0f}, {0.06f, 0.05f, 0.08f, 1.0f}, {0.04f, 0.04f, 0.03f, 1.0f},
 		1.0f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, -1, -1},
-	BodyTemplateSpec{"Stellar Black Hole", false, 2.0e31, 30000.0, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
+	BodyTemplateSpec{"Stellar Black Hole", false, 2.0e31, 30000.0, 2.0e11, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::BlackHole,
 		{0.02f, 0.02f, 0.03f, 1.0f}, {0.06f, 0.05f, 0.08f, 1.0f}, {0.04f, 0.04f, 0.03f, 1.0f},
 		1.0f, 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, -1, -1},
-	BodyTemplateSpec{"Test Particle", true, 0.0, 1.0, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::Asteroid,
+	BodyTemplateSpec{"Test Particle", true, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, Dynamics::Body3DPreset::Asteroid,
 		{1.0f, 1.0f, 1.0f, 1.0f}, {0.7f, 0.7f, 0.7f, 1.0f}, {0.85f, 0.85f, 0.85f, 1.0f},
 		4.0f, 0.5f, 0.0f, 0.0f, 0.1f, 0.0f, 0.0f, false, -1, -1}
 }};

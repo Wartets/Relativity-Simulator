@@ -4,6 +4,7 @@
 #include "relativistic/ui/body_manager/body_manager_context.hpp"
 #include "relativistic/ui/body_manager/body_catalog_list.hpp"
 #include "relativistic/ui/body_manager/body_property_editor.hpp"
+#include "relativistic/ui/body_manager/system_presets.hpp"
 #include "relativistic/ui/split_pane_layout.hpp"
 #include "relativistic/ui/panel_text_helpers.hpp"
 #include "relativistic/ui/tooltip_utils.hpp"
@@ -27,10 +28,20 @@ private:
 		}
 		render_setting_tooltip("Opens the Create Object tab so you can configure and spawn a new orbiting body.");
 		ImGui::Spacing();
-		if (ImGui::Button("Spawn Reference System", ImVec2(-1.0f, 26.0f))) {
-			ctx.populate_reference_system();
+		const auto& presets = SystemPresetCatalog::presets();
+		static int empty_preset_idx = 0;
+		std::vector<const char*> preset_names;
+		preset_names.reserve(presets.size());
+		for (const auto& p : presets) preset_names.push_back(p.name.c_str());
+
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::Combo("##EmptyPresetCombo", &empty_preset_idx, preset_names.data(), static_cast<int>(preset_names.size()));
+		if (ImGui::Button("Spawn System Preset", ImVec2(-1.0f, 28.0f))) {
+			if (empty_preset_idx >= 0 && static_cast<size_t>(empty_preset_idx) < presets.size()) {
+				apply_system_preset(ctx, presets[static_cast<size_t>(empty_preset_idx)]);
+			}
 		}
-		render_setting_tooltip("Replaces the catalog with a simplified two-planet configuration to quickly exercise N-body dynamics.");
+		render_setting_tooltip("Applies the selected astrophysical system preset, automatically scaling all masses, radii, and positions to the engine constants.");
 	}
 
 	void render_object_detail(BodyManagerContext& ctx, Dynamics::PostNewtonianSystem& sys, Dynamics::PostNewtonianBody& b, CatalogListResult& pending) noexcept {

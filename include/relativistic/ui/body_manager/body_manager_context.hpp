@@ -224,35 +224,23 @@ public:
 	}
 
 	[[nodiscard]] double simulation_g() const noexcept {
-		const auto preset = orchestrator_.constants_engine().active_preset();
-		if (preset == Core::ConstantsPreset::Custom) {
-			const double g = orchestrator_.constants_engine().sim_gravitational_constant();
-			return (g > 1e-12) ? g : 1.0;
-		}
-		return 1.0;
+		return orchestrator_.constants_engine().sim_gravitational_constant();
 	}
 
 	[[nodiscard]] double simulation_c() const noexcept {
-		const auto preset = orchestrator_.constants_engine().active_preset();
-		if (preset == Core::ConstantsPreset::Custom) {
-			const double c = orchestrator_.constants_engine().sim_speed_of_light();
-			return (c > 1e-12) ? c : 1.0;
-		}
-		return 1.0;
+		return orchestrator_.constants_engine().sim_speed_of_light();
 	}
 
 	[[nodiscard]] double mass_scale() const noexcept {
-		const double ms = orchestrator_.constants_engine().mass_scale();
-		return (ms > 1e-30 && ms < 1e50 && std::abs(ms - 1.0) > 1e-12) ? ms : 1.98847e30;
+		return orchestrator_.constants_engine().mass_scale();
 	}
 
 	[[nodiscard]] double length_scale() const noexcept {
-		const double ls = orchestrator_.constants_engine().length_scale();
-		return (ls > 1e-30 && ls < 1e50 && std::abs(ls - 1.0) > 1e-12) ? ls : 1476.62506;
+		return orchestrator_.constants_engine().length_scale();
 	}
 
 	[[nodiscard]] double speed_scale() const noexcept {
-		return 299792458.0;
+		return orchestrator_.constants_engine().speed_scale();
 	}
 
 	[[nodiscard]] int selected_object_id() const noexcept {

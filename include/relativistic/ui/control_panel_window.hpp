@@ -707,7 +707,7 @@ private:
 
 		{
 			const auto& speed_ce = orchestrator_.constants_engine();
-			const double speed_scale_mps = speed_ce.length_scale() / speed_ce.time_scale();
+			const double speed_scale_mps = speed_ce.speed_scale();
 			double speed_disp = static_cast<double>(camera_speed_) * speed_scale_mps;
 			const double speed_min_disp = 0.1 * speed_scale_mps;
 			const double speed_max_disp = 100.0 * speed_scale_mps;
@@ -803,7 +803,7 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Free Fly 6-DOF Axis Speeds:");
-		const double ff_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
+		const double ff_speed_scale_mps = orchestrator_.constants_engine().speed_scale();
 		double ff_fwd = cfg.free_fly.forward_speed * ff_speed_scale_mps;
 		if (unit_aware_slider_double("Forward/Back Speed", &ff_fwd, 0.1 * ff_speed_scale_mps, 200.0 * ff_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.free_fly.forward_speed = ff_fwd / ff_speed_scale_mps;
 		render_setting_tooltip("Observer translational velocity along the forward/backward camera direction.");
@@ -829,7 +829,7 @@ private:
 
 		ImGui::Separator();
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Orbit Center Mode:");
-		const double orbit_speed_scale_mps = orchestrator_.constants_engine().length_scale() / orchestrator_.constants_engine().time_scale();
+		const double orbit_speed_scale_mps = orchestrator_.constants_engine().speed_scale();
 		double orb_dist = cfg.orbit.orbit_distance_speed * orbit_speed_scale_mps;
 		if (unit_aware_slider_double("Zoom Speed", &orb_dist, 0.1 * orbit_speed_scale_mps, 200.0 * orbit_speed_scale_mps, UnitCategory::Velocity, orchestrator_.unit_preferences(), "%.1f")) cfg.orbit.orbit_distance_speed = orb_dist / orbit_speed_scale_mps;
 		render_setting_tooltip("Radial camera distance adjustment speed during orbit navigation.");

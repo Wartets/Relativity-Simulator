@@ -76,10 +76,28 @@ public:
 		object_catalog_tab_.view().sec_material_open = settings.body_sec_material_open;
 		object_catalog_tab_.view().sec_surface_open = settings.body_sec_surface_open;
 		object_catalog_tab_.view().sec_accretion_disk_open = settings.body_sec_accretion_disk_open;
-		object_creation_tab_.view().sec_identity_open = settings.body_creation_sec_template_open;
-		object_creation_tab_.view().sec_orbital_plane_open = settings.body_creation_sec_plane_open;
-		source_creation_tab_.view().sec_identity_open = settings.source_creation_sec_template_open;
-		source_creation_tab_.view().sec_orbital_plane_open = settings.source_creation_sec_plane_open;
+		source_catalog_tab_.view().sec_identity_open = settings.body_sec_identity_open;
+		source_catalog_tab_.view().sec_motion_open = settings.body_sec_motion_open;
+		source_catalog_tab_.view().sec_orbital_plane_open = settings.body_sec_orbital_plane_open;
+		source_catalog_tab_.view().sec_frenet_open = settings.body_sec_frenet_open;
+		source_catalog_tab_.view().sec_accretion_disk_open = settings.body_sec_accretion_disk_open;
+		object_creation_tab_.sec_template_open() = settings.body_creation_sec_template_open;
+		object_creation_tab_.sec_comparator_open() = settings.body_creation_sec_comparator_open;
+		object_creation_tab_.sec_plane_open() = settings.body_creation_sec_plane_open;
+		object_creation_tab_.sec_hazard_open() = settings.body_creation_sec_hazard_open;
+		source_creation_tab_.sec_template_open() = settings.source_creation_sec_template_open;
+		source_creation_tab_.sec_comparator_open() = settings.source_creation_sec_comparator_open;
+		source_creation_tab_.sec_plane_open() = settings.source_creation_sec_plane_open;
+		source_creation_tab_.sec_hazard_open() = settings.source_creation_sec_hazard_open;
+		system_dynamics_tab_.sec_bulk_actions_open() = settings.sys_dyn_sec_bulk_actions_open;
+		system_dynamics_tab_.sec_plane_align_open() = settings.sys_dyn_sec_plane_align_open;
+		system_dynamics_tab_.sec_generalized_open() = settings.sys_dyn_sec_generalized_open;
+		system_dynamics_tab_.sec_sources_open() = settings.sys_dyn_sec_sources_open;
+		interactions_tab_.sec_em_open() = settings.interactions_sec_em_open;
+		interactions_tab_.sec_collisions_open() = settings.interactions_sec_collisions_open;
+		interactions_tab_.sec_thermo_open() = settings.interactions_sec_thermo_open;
+		interactions_tab_.sec_frag_open() = settings.interactions_sec_frag_open;
+		interactions_tab_.sec_annihilation_open() = settings.interactions_sec_annihilation_open;
 		object_catalog_tab_.filter().physical_ranges_open = settings.catalog_filter_ranges_open;
 	}
 
@@ -110,10 +128,23 @@ public:
 		persisted_settings_->body_sec_material_open = object_catalog_tab_.view().sec_material_open;
 		persisted_settings_->body_sec_surface_open = object_catalog_tab_.view().sec_surface_open;
 		persisted_settings_->body_sec_accretion_disk_open = object_catalog_tab_.view().sec_accretion_disk_open;
-		persisted_settings_->body_creation_sec_template_open = object_creation_tab_.view().sec_identity_open;
-		persisted_settings_->body_creation_sec_plane_open = object_creation_tab_.view().sec_orbital_plane_open;
-		persisted_settings_->source_creation_sec_template_open = source_creation_tab_.view().sec_identity_open;
-		persisted_settings_->source_creation_sec_plane_open = source_creation_tab_.view().sec_orbital_plane_open;
+		persisted_settings_->body_creation_sec_template_open = object_creation_tab_.sec_template_open();
+		persisted_settings_->body_creation_sec_comparator_open = object_creation_tab_.sec_comparator_open();
+		persisted_settings_->body_creation_sec_plane_open = object_creation_tab_.sec_plane_open();
+		persisted_settings_->body_creation_sec_hazard_open = object_creation_tab_.sec_hazard_open();
+		persisted_settings_->source_creation_sec_template_open = source_creation_tab_.sec_template_open();
+		persisted_settings_->source_creation_sec_comparator_open = source_creation_tab_.sec_comparator_open();
+		persisted_settings_->source_creation_sec_plane_open = source_creation_tab_.sec_plane_open();
+		persisted_settings_->source_creation_sec_hazard_open = source_creation_tab_.sec_hazard_open();
+		persisted_settings_->sys_dyn_sec_bulk_actions_open = system_dynamics_tab_.sec_bulk_actions_open();
+		persisted_settings_->sys_dyn_sec_plane_align_open = system_dynamics_tab_.sec_plane_align_open();
+		persisted_settings_->sys_dyn_sec_generalized_open = system_dynamics_tab_.sec_generalized_open();
+		persisted_settings_->sys_dyn_sec_sources_open = system_dynamics_tab_.sec_sources_open();
+		persisted_settings_->interactions_sec_em_open = interactions_tab_.sec_em_open();
+		persisted_settings_->interactions_sec_collisions_open = interactions_tab_.sec_collisions_open();
+		persisted_settings_->interactions_sec_thermo_open = interactions_tab_.sec_thermo_open();
+		persisted_settings_->interactions_sec_frag_open = interactions_tab_.sec_frag_open();
+		persisted_settings_->interactions_sec_annihilation_open = interactions_tab_.sec_annihilation_open();
 		persisted_settings_->catalog_filter_ranges_open = object_catalog_tab_.filter().physical_ranges_open;
 	}
 

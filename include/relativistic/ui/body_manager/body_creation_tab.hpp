@@ -32,6 +32,10 @@ private:
 	std::string last_spawned_name_{};
 	uint32_t last_spawned_id_{0};
 	bool spawn_notification_active_{false};
+	bool sec_template_open_{true};
+	bool sec_comparator_open_{false};
+	bool sec_plane_open_{false};
+	bool sec_hazard_open_{false};
 
 	GeometricPatternConfig pattern_config_{};
 	int pattern_preset_index_{0};
@@ -89,12 +93,14 @@ private:
 	}
 
 	void render_setup_pane(BodyManagerContext& ctx) noexcept {
+		const auto& prefs = ctx.orchestrator().unit_preferences();
+		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
 		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Object Draft");
 		render_hint_text("Configure every property of a new orbiting body in the editor on the right, then spawn it into the running system. Independent black holes are created in the Create Source tab.");
 
-		ImGui::SetNextItemOpen(view_.sec_identity_open);
-		view_.sec_identity_open = ImGui::CollapsingHeader("Starting Point & Archetype Preset");
-		if (view_.sec_identity_open) {
+		ImGui::SetNextItemOpen(sec_template_open_);
+		sec_template_open_ = ImGui::CollapsingHeader("Starting Point & Archetype Preset###BodyCreationTemplate");
+		if (sec_template_open_) {
 			int template_idx = template_index_;
 			ImGui::SetNextItemWidth(-1.0f);
 			if (ImGui::Combo("##ObjectTemplate", &template_idx, kBodyTemplateNames.data(), static_cast<int>(kBodyTemplateNames.size()))) {
@@ -138,9 +144,9 @@ private:
 			render_setting_tooltip("Loads every property, the appearance and all texture layers of the object selected in the Object Catalog into the draft.");
 		}
 
-		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
-		const auto& prefs = ctx.orchestrator().unit_preferences();
-		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		ImGui::SetNextItemOpen(sec_comparator_open_);
+		sec_comparator_open_ = ImGui::CollapsingHeader("Draft vs System Comparator###BodyCreationComparator");
+		if (sec_comparator_open_) {
 		const double mass_ratio = draft_.mass / central_m;
 		const double mass_kg = draft_.mass * ctx.mass_scale();
 		const double radius_m = draft_.radius * ctx.length_scale();
@@ -181,10 +187,11 @@ private:
 				render_wrapped_disabled_format("Keplerian Period: %s", Units::format_time(draft_orbit.period_seconds, prefs.time).c_str());
 			}
 		}
+		}
 
-		ImGui::SetNextItemOpen(view_.sec_orbital_plane_open);
-		view_.sec_orbital_plane_open = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment");
-		if (view_.sec_orbital_plane_open) {
+		ImGui::SetNextItemOpen(sec_plane_open_);
+		sec_plane_open_ = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment###BodyCreationPlane");
+		if (sec_plane_open_) {
 			render_hint_text("Specify the reference parent attractor and tilt the draft orbital plane relative to the central equator or a parent's orbit.");
 
 		std::vector<int> creation_ref_ids{BodyManagerContext::kCentralSourceId};
@@ -294,7 +301,9 @@ private:
 		}
 		}
 
-		render_group_title("Anti-Collision & Hazard Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+		ImGui::SetNextItemOpen(sec_hazard_open_);
+		sec_hazard_open_ = ImGui::CollapsingHeader("Anti-Collision & Hazard Diagnostics###BodyCreationHazard");
+		if (sec_hazard_open_) {
 		const auto collision_diag = ctx.check_placement_collision(draft_.position, draft_.radius, false);
 		if (collision_diag.has_collision) {
 			if (collision_diag.inside_primary_horizon) {
@@ -320,13 +329,15 @@ private:
 		} else if (draft_hazard.roche_hazard) {
 			render_caution_text("Trajectory Hazard: Periapsis crosses the central Roche tidal disruption limit.");
 		}
+		}
 
 		render_group_title("Spawn", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
 		ImGui::Checkbox("Randomize Draft After Spawn", &randomize_after_spawn_);
 		render_setting_tooltip("When enabled, a new random draft is generated after each spawn. When disabled, the draft is kept so several similar bodies can be spawned in a row.");
 		if (ImGui::Button("Spawn and Inject into System", ImVec2(-1.0f, 32.0f))) {
-			last_spawned_name_ = BodyManagerContext::display_name(draft_);
 			const uint32_t new_id = ctx.spawn_body(draft_, layers_);
+			const auto* spawned = ctx.find_body(new_id);
+			last_spawned_name_ = (spawned != nullptr) ? BodyManagerContext::display_name(*spawned) : BodyManagerContext::display_name(draft_);
 			last_spawned_id_ = new_id;
 			spawn_notification_active_ = true;
 			ctx.select_object(static_cast<int>(new_id));
@@ -367,6 +378,11 @@ public:
 	[[nodiscard]] SplitPaneState& split() noexcept {
 		return split_;
 	}
+
+	[[nodiscard]] bool& sec_template_open() noexcept { return sec_template_open_; }
+	[[nodiscard]] bool& sec_comparator_open() noexcept { return sec_comparator_open_; }
+	[[nodiscard]] bool& sec_plane_open() noexcept { return sec_plane_open_; }
+	[[nodiscard]] bool& sec_hazard_open() noexcept { return sec_hazard_open_; }
 
 	void reset_draft(BodyManagerContext& ctx) noexcept {
 		const auto& profile = kCreationArchetypes[static_cast<size_t>(ctx.random_int(0, static_cast<int>(kCreationArchetypes.size()) - 1))];

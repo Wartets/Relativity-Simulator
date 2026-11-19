@@ -21,8 +21,19 @@ private:
 	bool fragmentation_min_mass_log_mode_{true};
 	bool fragmentation_energy_integrity_log_mode_{true};
 	bool fragmentation_tidal_integrity_log_mode_{true};
+	bool sec_em_open_{true};
+	bool sec_collisions_open_{true};
+	bool sec_thermo_open_{false};
+	bool sec_frag_open_{false};
+	bool sec_annihilation_open_{false};
 
 public:
+	[[nodiscard]] bool& sec_em_open() noexcept { return sec_em_open_; }
+	[[nodiscard]] bool& sec_collisions_open() noexcept { return sec_collisions_open_; }
+	[[nodiscard]] bool& sec_thermo_open() noexcept { return sec_thermo_open_; }
+	[[nodiscard]] bool& sec_frag_open() noexcept { return sec_frag_open_; }
+	[[nodiscard]] bool& sec_annihilation_open() noexcept { return sec_annihilation_open_; }
+
 	void render(BodyManagerContext& ctx) noexcept {
 		auto& orchestrator = ctx.orchestrator();
 		auto& cfg = orchestrator.interaction_config();
@@ -67,7 +78,9 @@ public:
 		ImGui::Columns(1);
 		ImGui::Separator();
 
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Electromagnetic Interactions");
+		ImGui::SetNextItemOpen(sec_em_open_);
+		sec_em_open_ = ImGui::CollapsingHeader("Electromagnetic Interactions###InteractionsEM");
+		if (sec_em_open_) {
 		bool electricity = cfg.electromagnetic.electricity_enabled;
 		if (ImGui::Checkbox("Enable Electricity (Coulomb Force)", &electricity)) {
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionElectricityEnabled, electricity ? 1.0 : 0.0)));
@@ -121,9 +134,12 @@ public:
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionElectricityEnabled, 0.0)));
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionMagnetismEnabled, 0.0)));
 		}
+		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.2f, 1.0f), "Collisions (Mechanical Contact Dynamics)");
+		ImGui::SetNextItemOpen(sec_collisions_open_);
+		sec_collisions_open_ = ImGui::CollapsingHeader("Collisions (Mechanical Contact Dynamics)###InteractionsCollisions");
+		if (sec_collisions_open_) {
 		render_hint_text("Physical Contact Dynamics: Simulates non-destructive mechanical collisions that conserve rest mass, resolving surface contact through Hertzian elasticity, Baumgarte stabilization, restitution, and Coulomb friction.");
 		bool collisions = cfg.collisions.enabled;
 		if (ImGui::Checkbox("Enable Collisions", &collisions)) {
@@ -172,9 +188,12 @@ public:
 				static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionCollisionsEnabled, 0.0)));
 			}
 		}
+		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Thermodynamics");
+		ImGui::SetNextItemOpen(sec_thermo_open_);
+		sec_thermo_open_ = ImGui::CollapsingHeader("Thermodynamics###InteractionsThermo");
+		if (sec_thermo_open_) {
 		bool thermo = cfg.thermodynamics.enabled;
 		if (ImGui::Checkbox("Enable Thermodynamics", &thermo)) {
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionThermodynamicsEnabled, thermo ? 1.0 : 0.0)));
@@ -199,9 +218,12 @@ public:
 			}
 			render_setting_tooltip("Multiplies the Stefan-Boltzmann radiative exchange rate, letting the ambient coupling be sped up or slowed down without touching the physical Stefan-Boltzmann constant itself.");
 		}
+		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Fragmentation");
+		ImGui::SetNextItemOpen(sec_frag_open_);
+		sec_frag_open_ = ImGui::CollapsingHeader("Fragmentation###InteractionsFrag");
+		if (sec_frag_open_) {
 		bool fragmentation = cfg.fragmentation.enabled;
 		if (ImGui::Checkbox("Enable Fragmentation", &fragmentation)) {
 			static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionFragmentationEnabled, fragmentation ? 1.0 : 0.0)));
@@ -239,9 +261,12 @@ public:
 				render_setting_tooltip("Conversion factor from tidal stress energy density into lost Integrity per second.");
 			}
 		}
+		}
 
 		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.7f, 0.5f, 1.0f, 1.0f), "Annihilation (Matter-Antimatter Rest-Mass Conversion)");
+		ImGui::SetNextItemOpen(sec_annihilation_open_);
+		sec_annihilation_open_ = ImGui::CollapsingHeader("Annihilation (Matter-Antimatter Rest-Mass Conversion)###InteractionsAnnihilation");
+		if (sec_annihilation_open_) {
 		render_hint_text("Matter-Antimatter Annihilation: In contrast to mechanical collisions which conserve mass and cause bodies to bounce, annihilation converts overlapping rest mass into radiant energy, destroying or eroding both bodies when opposite charges meet.");
 		bool annihilation = cfg.annihilation.enabled;
 		if (ImGui::Checkbox("Enable Annihilation", &annihilation)) {
@@ -266,6 +291,7 @@ public:
 				cfg.annihilation = Dynamics::AnnihilationInteractionConfig{};
 				static_cast<void>(orchestrator.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::InteractionAnnihilationEnabled, 0.0)));
 			}
+		}
 		}
 	}
 };

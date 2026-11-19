@@ -25,6 +25,10 @@ private:
 	std::string last_spawned_name_{};
 	uint32_t last_spawned_id_{0};
 	bool spawn_notification_active_{false};
+	bool sec_template_open_{true};
+	bool sec_comparator_open_{false};
+	bool sec_plane_open_{false};
+	bool sec_hazard_open_{false};
 
 	void apply_template(BodyManagerContext& ctx, SourcePresetTemplate preset) noexcept {
 		if (preset == SourcePresetTemplate::Custom) {
@@ -47,12 +51,16 @@ private:
 	}
 
 	void render_setup_pane(BodyManagerContext& ctx) noexcept {
+		const auto& prefs = ctx.orchestrator().unit_preferences();
+		const double length_scale_m = ctx.length_scale();
+		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		const double horizon = draft_.kerr_outer_horizon_radius();
 		ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Black Hole Draft");
 		render_hint_text("Configure an independent Kerr black hole in the editor on the right, then spawn it. It is fully N-body integrated: it can orbit, drift, merge with other sources on contact and absorb ordinary bodies crossing its horizon.");
 
-		ImGui::SetNextItemOpen(view_.sec_identity_open);
-		view_.sec_identity_open = ImGui::CollapsingHeader("Starting Point & Astrophysical Template");
-		if (view_.sec_identity_open) {
+		ImGui::SetNextItemOpen(sec_template_open_);
+		sec_template_open_ = ImGui::CollapsingHeader("Starting Point & Astrophysical Template###SourceCreationTemplate");
+		if (sec_template_open_) {
 			int template_idx = template_index_;
 			ImGui::SetNextItemWidth(-1.0f);
 			if (ImGui::Combo("##SourceTemplate", &template_idx, kSourceTemplateNames.data(), static_cast<int>(kSourceTemplateNames.size()))) {
@@ -99,14 +107,12 @@ private:
 			render_setting_tooltip("Immediately creates a black hole roughly half the mass of the primary source on a wide, randomly inclined circular orbit.");
 		}
 
-		render_group_title("Draft vs System Comparator", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
-		const auto& prefs = ctx.orchestrator().unit_preferences();
-		const double length_scale_m = ctx.length_scale();
-		const double central_m = std::max(ctx.orchestrator().parameters().mass, 1e-12);
+		ImGui::SetNextItemOpen(sec_comparator_open_);
+		sec_comparator_open_ = ImGui::CollapsingHeader("Draft vs System Comparator###SourceCreationComparator");
+		if (sec_comparator_open_) {
 		const double mass_ratio = draft_.mass / central_m;
 		const double mass_kg = draft_.mass * ctx.mass_scale();
 		const double draft_dist = BodyManagerContext::distance_from_center(draft_);
-		const double horizon = draft_.kerr_outer_horizon_radius();
 		const double primary_h = ctx.primary_horizon_radius();
 
 		char src_draft_name_buf[32]{};
@@ -142,10 +148,11 @@ private:
 		if (draft_binary.valid) {
 			render_wrapped_disabled_format("Binary Metrics: q = %.4f | eta = %.4f | GW Coalescence: %s", draft_binary.mass_ratio, draft_binary.symmetric_mass_ratio, Units::format_time(draft_binary.peters_coalescence_time_seconds, prefs.time).c_str());
 		}
+		}
 
-		ImGui::SetNextItemOpen(view_.sec_orbital_plane_open);
-		view_.sec_orbital_plane_open = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment");
-		if (view_.sec_orbital_plane_open) {
+		ImGui::SetNextItemOpen(sec_plane_open_);
+		sec_plane_open_ = ImGui::CollapsingHeader("Orbital Plane & Parent Alignment###SourceCreationPlane");
+		if (sec_plane_open_) {
 			render_hint_text("Specify the reference parent attractor and tilt the black hole orbital plane relative to the central equator or a parent's orbit.");
 
 		std::vector<int> src_creation_ref_ids{BodyManagerContext::kCentralSourceId};
@@ -255,7 +262,9 @@ private:
 		}
 		}
 
-		render_group_title("Anti-Collision & Separation Diagnostics", ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+		ImGui::SetNextItemOpen(sec_hazard_open_);
+		sec_hazard_open_ = ImGui::CollapsingHeader("Anti-Collision & Separation Diagnostics###SourceCreationHazard");
+		if (sec_hazard_open_) {
 		const auto collision_diag = ctx.check_placement_collision(draft_.position, horizon, true);
 		if (collision_diag.has_collision) {
 			if (collision_diag.inside_primary_horizon) {
@@ -279,12 +288,14 @@ private:
 		if (draft_hazard.plunge_hazard) {
 			render_caution_text("Trajectory Hazard: Periapsis falls inside the primary event horizon (direct plunge orbit).");
 		}
+		}
 
 		render_group_title("Spawn", ImVec4(0.4f, 0.9f, 0.6f, 1.0f));
 		if (ImGui::Button("Spawn Black Hole", ImVec2(-1.0f, 32.0f))) {
 			draft_.is_spacetime_source = true;
-			last_spawned_name_ = BodyManagerContext::display_name(draft_);
 			const uint32_t new_id = ctx.spawn_body(draft_, Dynamics::BodySurfaceLayerSet{});
+			const auto* spawned = ctx.find_body(new_id);
+			last_spawned_name_ = (spawned != nullptr) ? BodyManagerContext::display_name(*spawned) : BodyManagerContext::display_name(draft_);
 			last_spawned_id_ = new_id;
 			spawn_notification_active_ = true;
 			ctx.select_source(static_cast<int>(new_id));
@@ -321,6 +332,11 @@ public:
 	[[nodiscard]] SplitPaneState& split() noexcept {
 		return split_;
 	}
+
+	[[nodiscard]] bool& sec_template_open() noexcept { return sec_template_open_; }
+	[[nodiscard]] bool& sec_comparator_open() noexcept { return sec_comparator_open_; }
+	[[nodiscard]] bool& sec_plane_open() noexcept { return sec_plane_open_; }
+	[[nodiscard]] bool& sec_hazard_open() noexcept { return sec_hazard_open_; }
 
 	void reset_draft(BodyManagerContext& ctx) noexcept {
 		auto& d = draft_;

@@ -1375,6 +1375,7 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 			clone.position[0] += std::max(clone.radius, 1e-6) * 4.0;
 			const Dynamics::BodySurfaceLayerSet layers = ctx.orchestrator().surface_layers().get(id);
 			const bool is_source = clone.is_spacetime_source;
+			clone.set_name(ctx.unique_name(body->name_view()));
 			const uint32_t new_id = ctx.spawn_body(clone, layers);
 			if (is_source) {
 				ctx.select_source(static_cast<int>(new_id));
@@ -1436,6 +1437,7 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 					Dynamics::PostNewtonianBody clone = *b;
 					clone.position[0] += std::max(clone.radius, 1e-6) * 4.0;
 					const Dynamics::BodySurfaceLayerSet layers = ctx.orchestrator().surface_layers().get(static_cast<uint32_t>(sid));
+					clone.set_name(ctx.unique_name(b->name_view()));
 					const uint32_t new_id = ctx.spawn_body(clone, layers);
 					new_selected.push_back(static_cast<int>(new_id));
 				}
@@ -1462,7 +1464,7 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 		}
 		case CatalogRowAction::SelectSubsystem: {
 			const double central_mass = ctx.orchestrator().parameters().mass;
-			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const double g_sim = ctx.simulation_g();
 			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
 			std::vector<int> subsystem_ids{static_cast<int>(id)};
 			std::vector<size_t> queue;
@@ -1497,7 +1499,7 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 		}
 		case CatalogRowAction::CircularizeAroundParent: {
 			const double central_mass = ctx.orchestrator().parameters().mass;
-			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const double g_sim = ctx.simulation_g();
 			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
 			for (const auto& node : hierarchy) {
 				if (node.body_id == id && node.parent_body_index >= 0) {
@@ -1516,7 +1518,7 @@ inline void apply_catalog_row_action(BodyManagerContext& ctx, const CatalogListR
 		}
 		case CatalogRowAction::CircularizeSatellites: {
 			const double central_mass = ctx.orchestrator().parameters().mass;
-			const double g_sim = ctx.orchestrator().physical_gravitational_constant();
+			const double g_sim = ctx.simulation_g();
 			const auto hierarchy = build_gravitational_hierarchy(sys.bodies(), central_mass, g_sim);
 			size_t parent_idx = hierarchy.size();
 			for (size_t i = 0; i < hierarchy.size(); ++i) {

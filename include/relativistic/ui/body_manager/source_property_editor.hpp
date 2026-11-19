@@ -654,10 +654,6 @@ namespace Relativistic::UI {
 		ImGui::TextDisabled("Binary configuration metrics unavailable.");
 	}
 
-	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
-
-	changed = render_frenet_serret_velocity_injector(ctx, b, view) || changed;
-
 	render_group_title("Derived Properties", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	const double horizon = b.kerr_outer_horizon_radius();
 	const double spin_length = b.kerr_spin_parameter() * b.mass;

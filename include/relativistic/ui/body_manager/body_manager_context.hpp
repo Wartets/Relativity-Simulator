@@ -512,105 +512,154 @@ public:
 
 	[[nodiscard]] std::string generate_source_name() noexcept {
 		char buf[48];
-		const int hh = random_int(0, 23);
-		const int mm = random_int(0, 59);
-		const char s = (random_int(0, 1) == 0) ? '+' : '-';
-		const int dd = random_int(0, 89);
-		const int dm = random_int(0, 59);
-		switch (random_int(0, 5)) {
-			case 0:
-				std::snprintf(buf, sizeof(buf), "MAXI J%02d%02d%c%02d%01d", hh, mm, s, dd, dm / 6);
-				break;
-			case 1:
-				std::snprintf(buf, sizeof(buf), "Swift J%02d%02d.%01d%c%02d%02d", hh, mm, random_int(0, 9), s, dd, dm);
-				break;
-			case 2:
-				std::snprintf(buf, sizeof(buf), "XTE J%02d%02d%c%03d", hh, mm, s, dd * 10 + dm / 6);
-				break;
-			case 3:
-				std::snprintf(buf, sizeof(buf), "IGR J%02d%02d%01d%c%02d%02d", hh, mm, random_int(0, 9), s, dd, dm);
-				break;
-			case 4:
-				std::snprintf(buf, sizeof(buf), "CXOGC J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
-				break;
-			case 5:
-			default:
-				std::snprintf(buf, sizeof(buf), "SDSS J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
-				break;
+		static constexpr const char* const kConstellations[] = {
+			"Cyg", "Sgr", "Vela", "Sco", "Mus", "LMC", "SMC", "Cir", "Her", "Mon", "Cep", "Per", "Oph", "Cru", "Car", "Carina", "Pup", "Pav", "Ara", "Aql", "Aur", "Cam", "Cas", "Cen", "Col", "Com", "CrB", "Crv", "Del", "Dor"
+		};
+		static constexpr const char* const kSurveys[] = {
+			"MAXI", "XTE", "Swift", "GRS", "GRO", "Gaia", "RX", "CXO", "XMM", "INTEGRAL", "Fermi", "HESS", "VERITAS", "MAGIC", "CTA"
+		};
+		const int mode = random_int(0, 4);
+		if (mode == 0) {
+			const char* c = kConstellations[static_cast<size_t>(random_int(0, 14))];
+			std::snprintf(buf, sizeof(buf), "%s X-%d", c, random_int(1, 9));
+		} else if (mode == 1) {
+			const char* c = kConstellations[static_cast<size_t>(random_int(0, 14))];
+			std::snprintf(buf, sizeof(buf), "V%d %s", random_int(300, 4900), c);
+		} else if (mode == 2) {
+			const char* s = kSurveys[static_cast<size_t>(random_int(0, 7))];
+			if (std::string_view(s) == "Gaia") {
+				std::snprintf(buf, sizeof(buf), "Gaia BH%d", random_int(1, 40));
+			} else {
+				const char sign = (random_int(0, 1) == 0) ? '+' : '-';
+				std::snprintf(buf, sizeof(buf), "%s J%02d%02d%c%02d", s, random_int(0, 23), random_int(0, 59), sign, random_int(0, 89));
+			}
+		} else if (mode == 3) {
+			const int cat = random_int(0, 5);
+			if (cat == 0) std::snprintf(buf, sizeof(buf), "M%d*", random_int(31, 105));
+			else if (cat == 1) std::snprintf(buf, sizeof(buf), "NGC %d-BH", random_int(100, 7800));
+			else if (cat == 2) std::snprintf(buf, sizeof(buf), "Mrk %d*", random_int(100, 999));
+			else if (cat == 3) std::snprintf(buf, sizeof(buf), "PKS %02d%02d-%02d", random_int(0, 23), random_int(0, 59), random_int(0, 89));
+			else if (cat == 4) std::snprintf(buf, sizeof(buf), "3C %d", random_int(48, 454));
+			else std::snprintf(buf, sizeof(buf), "TON %d", random_int(100, 900));
+		} else {
+			const char sign = (random_int(0, 1) == 0) ? '+' : '-';
+			std::snprintf(buf, sizeof(buf), "BH-J%02d%02d%c%02d", random_int(0, 23), random_int(0, 59), sign, random_int(0, 89));
 		}
 		return std::string(buf);
 	}
 
 	[[nodiscard]] std::string generate_object_name(Dynamics::Body3DPreset preset = Dynamics::Body3DPreset::Custom) noexcept {
 		char buf[48];
+		static constexpr const char* const kGreek[] = {
+			"Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi", "Chi", "Psi", "Omega"
+		};
+		static constexpr const char* const kConst[] = {
+			"Cen", "Eri", "Pav", "Pic", "Ret", "Cru", "Cyg", "Sgr", "Ori", "Lyr", "Sco", "Car", "Cet", "And", "Cas", "Leo", "UMa", "Dra", "Aql", "Peg", "Pup", "Vel", "CMa", "Boo", "Mus", "Tuc", "Dor"
+		};
 		switch (preset) {
 			case Dynamics::Body3DPreset::Star: {
-				const int mode = random_int(0, 3);
+				const int mode = random_int(0, 4);
 				if (mode == 0) {
-					std::snprintf(buf, sizeof(buf), "HD %d", random_int(1000, 225000));
+					std::snprintf(buf, sizeof(buf), "%s %s", kGreek[static_cast<size_t>(random_int(0, 22))], kConst[static_cast<size_t>(random_int(0, 26))]);
 				} else if (mode == 1) {
-					std::snprintf(buf, sizeof(buf), "HIP %d", random_int(1000, 120000));
+					std::snprintf(buf, sizeof(buf), "HD %d", random_int(1000, 225000));
 				} else if (mode == 2) {
-					std::snprintf(buf, sizeof(buf), "TOI-%d", random_int(100, 4500));
+					std::snprintf(buf, sizeof(buf), "HIP %d", random_int(1000, 120000));
+				} else if (mode == 3) {
+					std::snprintf(buf, sizeof(buf), "GJ %d", random_int(10, 4200));
 				} else {
-					static constexpr const char* const kGreek[] = {"Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Tau"};
-					static constexpr const char* const kConst[] = {"Cen", "Eri", "Pav", "Pic", "Ret", "Cru", "Cyg", "Sgr"};
-					std::snprintf(buf, sizeof(buf), "%s %s", kGreek[random_int(0, 6)], kConst[random_int(0, 7)]);
+					std::snprintf(buf, sizeof(buf), "TOI-%d", random_int(100, 4500));
 				}
 				break;
 			}
 			case Dynamics::Body3DPreset::TerrestrialPlanet: {
-				const char sub = static_cast<char>('b' + random_int(0, 4));
-				const int mode = random_int(0, 2);
+				const char sub = static_cast<char>('b' + random_int(0, 5));
+				const int mode = random_int(0, 4);
 				if (mode == 0) {
-					std::snprintf(buf, sizeof(buf), "Kepler-%d %c", random_int(20, 1650), sub);
+					std::snprintf(buf, sizeof(buf), "Kepler-%d %c", random_int(20, 1700), sub);
 				} else if (mode == 1) {
-					std::snprintf(buf, sizeof(buf), "TOI-%d %c", random_int(100, 2500), sub);
+					std::snprintf(buf, sizeof(buf), "TOI-%d %c", random_int(100, 3500), sub);
+				} else if (mode == 2) {
+					std::snprintf(buf, sizeof(buf), "GJ %d %c", random_int(100, 3500), sub);
+				} else if (mode == 3) {
+					std::snprintf(buf, sizeof(buf), "K2-%d %c", random_int(10, 350), sub);
 				} else {
-					std::snprintf(buf, sizeof(buf), "GJ %d %c", random_int(100, 4000), sub);
+					std::snprintf(buf, sizeof(buf), "LHS %d %c", random_int(100, 3900), sub);
 				}
 				break;
 			}
 			case Dynamics::Body3DPreset::GasGiant: {
-				const char sub = static_cast<char>('b' + random_int(0, 2));
-				const int mode = random_int(0, 2);
+				const char sub = static_cast<char>('b' + random_int(0, 3));
+				const int mode = random_int(0, 4);
 				if (mode == 0) {
 					std::snprintf(buf, sizeof(buf), "WASP-%d %c", random_int(1, 190), sub);
 				} else if (mode == 1) {
 					std::snprintf(buf, sizeof(buf), "HAT-P-%d %c", random_int(1, 70), sub);
-				} else {
+				} else if (mode == 2) {
 					std::snprintf(buf, sizeof(buf), "HD %d %c", random_int(10000, 220000), sub);
+				} else if (mode == 3) {
+					std::snprintf(buf, sizeof(buf), "KELT-%d %c", random_int(1, 26), sub);
+				} else {
+					std::snprintf(buf, sizeof(buf), "CoRoT-%d %c", random_int(1, 35), sub);
 				}
 				break;
 			}
 			case Dynamics::Body3DPreset::IceGiant: {
 				const char sub = static_cast<char>('b' + random_int(0, 3));
-				std::snprintf(buf, sizeof(buf), "HIP %d %c", random_int(1000, 110000), sub);
+				const int mode = random_int(0, 2);
+				if (mode == 0) {
+					std::snprintf(buf, sizeof(buf), "HIP %d %c", random_int(1000, 110000), sub);
+				} else if (mode == 1) {
+					std::snprintf(buf, sizeof(buf), "GJ %d %c", random_int(100, 3500), sub);
+				} else {
+					std::snprintf(buf, sizeof(buf), "K2-%d %c", random_int(10, 300), sub);
+				}
 				break;
 			}
 			case Dynamics::Body3DPreset::Metallic:
 			case Dynamics::Body3DPreset::Asteroid: {
-				static constexpr const char* const kL1 = "ABCDEFGHJKLMNPQRSTUVXYZ";
-				const char c1 = kL1[random_int(0, 22)];
-				const char c2 = kL1[random_int(0, 22)];
-				std::snprintf(buf, sizeof(buf), "(%d) %04d %c%c%d", random_int(1, 99999), random_int(2000, 2025), c1, c2, random_int(1, 99));
+				static constexpr const char* const kAsteroidNames[] = {
+					"Ceres", "Pallas", "Juno", "Vesta", "Astraea", "Hebe", "Iris", "Flora", "Metis", "Hygiea",
+					"Parthenope", "Victoria", "Egeria", "Irene", "Eunomia", "Psyche", "Thetis", "Melpomene", "Fortuna",
+					"Massalia", "Lutetia", "Kalliope", "Thalia", "Themis", "Proserpina", "Bellona", "Amphitrite",
+					"Urania", "Euphrosyne", "Pomona", "Polyhymnia", "Circe", "Leukothea", "Atalante", "Fides", "Leda",
+					"Laetitia", "Harmonia", "Daphne", "Isis", "Ariadne", "Nysa", "Eugenia", "Hestia", "Aglaia", "Doris",
+					"Pales", "Virginia", "Nemausa", "Europa", "Kalypso", "Alexandra", "Pandora", "Melete", "Mnemosyne",
+					"Concordia", "Olympia", "Erato", "Ausonia", "Danae", "Niobe", "Feronia", "Klytia", "Galatea", "Euridike",
+					"Freia", "Frigga", "Diana", "Eurynome", "Sappho", "Terpsichore", "Alkmene", "Clio", "Io", "Semele"
+				};
+				const int mode = random_int(0, 2);
+				if (mode == 0) {
+					const size_t idx = static_cast<size_t>(random_int(0, 74));
+					std::snprintf(buf, sizeof(buf), "(%d) %s", random_int(1, 9999), kAsteroidNames[idx]);
+				} else if (mode == 1) {
+					static constexpr const char* const kLetters = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+					const char l1 = kLetters[static_cast<size_t>(random_int(0, 24))];
+					const char l2 = kLetters[static_cast<size_t>(random_int(0, 24))];
+					std::snprintf(buf, sizeof(buf), "%d %c%c%d", random_int(1995, 2025), l1, l2, random_int(1, 99));
+				} else {
+					std::snprintf(buf, sizeof(buf), "Ast-%d", random_int(100, 9999));
+				}
 				break;
 			}
 			case Dynamics::Body3DPreset::NeutronStar:
 			case Dynamics::Body3DPreset::Pulsar: {
-				const int hh = random_int(0, 23);
-				const int mm = random_int(0, 59);
-				const char s = (random_int(0, 1) == 0) ? '+' : '-';
-				const int dd = random_int(0, 89);
-				const int dm = random_int(0, 59);
-				std::snprintf(buf, sizeof(buf), "PSR J%02d%02d%c%02d%02d", hh, mm, s, dd, dm);
+				const char sign = (random_int(0, 1) == 0) ? '+' : '-';
+				const int mode = random_int(0, 2);
+				if (mode == 0) {
+					std::snprintf(buf, sizeof(buf), "PSR J%02d%02d%c%02d", random_int(0, 23), random_int(0, 59), sign, random_int(0, 89));
+				} else if (mode == 1) {
+					std::snprintf(buf, sizeof(buf), "PSR B%02d%02d%c%02d", random_int(0, 23), random_int(0, 59), sign, random_int(0, 89));
+				} else {
+					std::snprintf(buf, sizeof(buf), "SGR %02d%02d%c%02d", random_int(0, 23), random_int(0, 59), sign, random_int(0, 89));
+				}
 				break;
 			}
 			case Dynamics::Body3DPreset::BlackHole:
 				return generate_source_name();
 			case Dynamics::Body3DPreset::Custom:
 			default:
-				std::snprintf(buf, sizeof(buf), "OBJ-%06d", random_int(100000, 999999));
+				std::snprintf(buf, sizeof(buf), "EXO-%04d", random_int(100, 9999));
 				break;
 		}
 		return std::string(buf);
@@ -1080,32 +1129,42 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::string unique_name(std::string_view base) const {
+	[[nodiscard]] std::string unique_name(std::string_view base, uint32_t ignore_id = 0) const {
 		std::string original = base.empty() ? "Body" : std::string(base);
 		std::lock_guard<std::recursive_mutex> naming_lock(orchestrator_.nbody_system().bodies_mutex());
 		const auto& bodies = orchestrator_.nbody_system().bodies();
 		auto exists = [&](std::string_view name) {
-			return std::any_of(bodies.begin(), bodies.end(), [&](const auto& body) { return body.name_view() == name; });
+			return std::any_of(bodies.begin(), bodies.end(), [&](const auto& b) {
+				return b.id != ignore_id && b.name_view() == name;
+			});
 		};
+
+		if (!exists(original)) return original;
 
 		std::string stem = original;
 		uint32_t start_suffix = 2;
-		const size_t space_pos = original.find_last_of(' ');
-		if (space_pos != std::string::npos && space_pos + 1 < original.size()) {
-			const std::string_view tail = std::string_view(original).substr(space_pos + 1);
-			if (!tail.empty() && std::all_of(tail.begin(), tail.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
-				const uint32_t parsed = static_cast<uint32_t>(std::strtoul(std::string(tail).c_str(), nullptr, 10));
+		const size_t last_space = original.find_last_of(' ');
+		if (last_space != std::string::npos && last_space + 1 < original.size()) {
+			bool all_digits = true;
+			for (size_t i = last_space + 1; i < original.size(); ++i) {
+				if (!std::isdigit(static_cast<unsigned char>(original[i]))) {
+					all_digits = false;
+					break;
+				}
+			}
+			if (all_digits) {
+				char* endp = nullptr;
+				const unsigned long parsed = std::strtoul(original.c_str() + last_space + 1, &endp, 10);
 				if (parsed > 0) {
-					stem = original.substr(0, space_pos);
-					start_suffix = parsed + 1;
+					stem = original.substr(0, last_space);
+					start_suffix = static_cast<uint32_t>(parsed + 1);
 				}
 			}
 		}
 
-		if (!exists(original)) return original;
 		for (uint32_t suffix = start_suffix; suffix < 1000000; ++suffix) {
-			const std::string numbered = stem + " " + std::to_string(suffix);
-			if (!exists(numbered)) return numbered;
+			const std::string candidate = stem + " " + std::to_string(suffix);
+			if (!exists(candidate)) return candidate;
 		}
 		return original;
 	}
@@ -1189,7 +1248,7 @@ public:
 			const double scale = v_esc / pro_v;
 			return {prograde[0] * scale, prograde[1] * scale, prograde[2] * scale};
 		}
-		return {0.0, v_peri_fallback(v_esc)};
+		return {0.0, v_esc, 0.0};
 	}
 
 	[[nodiscard]] static double v_peri_fallback(double v) noexcept {
@@ -1236,7 +1295,7 @@ public:
 		const double r = std::sqrt(r2);
 		if (r < 1e-12) return el;
 		const double v2 = vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
-		const double mu = std::max(orchestrator_.physical_gravitational_constant() * central_mass, 1e-14);
+		const double mu = std::max(simulation_g() * central_mass, 1e-14);
 
 		const std::array<double, 3> h_vec{
 			pos[1] * vel[2] - pos[2] * vel[1],
@@ -1263,24 +1322,23 @@ public:
 		const double ecc = std::sqrt(e_vec[0] * e_vec[0] + e_vec[1] * e_vec[1] + e_vec[2] * e_vec[2]);
 		el.eccentricity = ecc;
 
-		if (std::abs(energy) > 1e-12) {
+		const bool bound = (energy < -1e-14) && (ecc < 0.999999);
+		el.is_bound = bound;
+
+		if (std::abs(energy) > 1e-14) {
 			el.semi_major_axis = -mu / (2.0 * energy);
 		} else {
 			el.semi_major_axis = 1e30;
 		}
 
-		if (ecc < 1.0) {
-			el.is_bound = true;
+		if (bound && el.semi_major_axis > 0.0) {
 			el.periapsis = el.semi_major_axis * (1.0 - ecc);
 			el.apoapsis = el.semi_major_axis * (1.0 + ecc);
-			if (el.semi_major_axis > 0.0) {
-				const double sim_period = 2.0 * std::numbers::pi * std::sqrt((el.semi_major_axis * el.semi_major_axis * el.semi_major_axis) / mu);
-				const double time_scale = length_scale() / speed_scale();
-				el.period_seconds = sim_period * time_scale;
-			}
+			const double sim_period = 2.0 * std::numbers::pi * std::sqrt((el.semi_major_axis * el.semi_major_axis * el.semi_major_axis) / mu);
+			const double time_scale = length_scale() / speed_scale();
+			el.period_seconds = sim_period * time_scale;
 		} else {
-			el.is_bound = false;
-			el.periapsis = (h2 > 1e-12) ? (h2 / (mu * (1.0 + ecc))) : std::max(r * 0.5, 1e-6);
+			el.periapsis = (h2 > 1e-12) ? (h2 / (mu * (1.0 + ecc))) : (r / (1.0 + ecc));
 			el.apoapsis = std::numeric_limits<double>::infinity();
 			el.period_seconds = 0.0;
 		}
@@ -1372,13 +1430,14 @@ public:
 
 		const double g_sim = simulation_g();
 		const double c_sim = simulation_c();
-		const double d4 = d * d * d * d;
+		const auto el = compute_keplerian_elements(secondary.position, secondary.velocity, m_tot);
+		const double a_orb = (el.valid && el.is_bound && el.semi_major_axis > 0.0) ? el.semi_major_axis : d;
+		const double a4 = a_orb * a_orb * a_orb * a_orb;
 		const double denom = 256.0 * (g_sim * g_sim * g_sim) * m1 * m2 * m_tot;
 		if (denom > 1e-30) {
 			const double c5 = c_sim * c_sim * c_sim * c_sim * c_sim;
-			const double t_sim = (5.0 * c5 * d4) / denom;
+			const double t_sim = (5.0 * c5 * a4) / denom;
 			const double time_scale = length_scale() / speed_scale();
-			const auto el = compute_keplerian_elements(secondary.position, secondary.velocity, m_tot);
 			const double ecc = el.valid ? std::clamp(el.eccentricity, 0.0, 0.999) : 0.0;
 			const double ecc_factor = std::pow(std::max(1.0 - ecc * ecc, 1e-4), 3.5);
 			conf.peters_coalescence_time_seconds = t_sim * time_scale * ecc_factor;

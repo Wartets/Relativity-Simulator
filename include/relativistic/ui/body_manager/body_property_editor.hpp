@@ -63,6 +63,10 @@ namespace Relativistic::UI {
 		b.set_name(std::string_view(name_buffer));
 		changed = true;
 	}
+	if (ImGui::IsItemDeactivatedAfterEdit()) {
+		b.set_name(ctx.unique_name(b.name_view(), b.id));
+		changed = true;
+	}
 	render_setting_tooltip("Human-readable label shown in the catalog, tags and saved scenarios instead of the numeric identifier.");
 	ImGui::SameLine(0.0f, spacing);
 	if (ImGui::Button("Reroll##Name", ImVec2(reroll_btn_w, 0.0f))) {
@@ -265,14 +269,6 @@ namespace Relativistic::UI {
 		changed = true;
 	}
 	render_setting_tooltip("Intrinsic angular momentum vector, feeding spin-orbit and spin-spin post-Newtonian coupling terms.");
-
-	changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || changed;
-
-	changed = render_frenet_serret_velocity_injector(ctx, b, view) || changed;
-
-	if (render_body_orientation_controls(b)) {
-		changed = true;
-	}
 
 	const double kinetic_energy_joules = b.kinetic_energy() * mass_scale_kg * speed_scale_mps * speed_scale_mps;
 	ImGui::Spacing();
@@ -584,42 +580,59 @@ inline void render_body_surface_section(Dynamics::PostNewtonianBody& b, Dynamics
 	}
 	if ((sections & BodyEditorSection::Identity) != 0U) {
 		ImGui::SetNextItemOpen(view.sec_identity_open);
-		view.sec_identity_open = ImGui::CollapsingHeader("Identity & State");
+		view.sec_identity_open = ImGui::CollapsingHeader("Identity & State###BodySecIdentity");
 		if (view.sec_identity_open) {
 			result.body_changed = render_body_identity_section(ctx, b, (sections & BodyEditorSection::SourceToggle) != 0U) || result.body_changed;
 		}
 	}
 	if ((sections & BodyEditorSection::Physical) != 0U) {
 		ImGui::SetNextItemOpen(view.sec_motion_open);
-		view.sec_motion_open = ImGui::CollapsingHeader(b.is_spacetime_source ? "Spacetime & Metric Parameters" : "Physical State & Motion");
+		view.sec_motion_open = ImGui::CollapsingHeader(b.is_spacetime_source ? "Spacetime & Metric Parameters###BodySecMotion" : "Physical State & Motion###BodySecMotion");
 		if (view.sec_motion_open) {
 			result.body_changed = (b.is_spacetime_source ? render_source_parameters_section(ctx, b, view) : render_body_physical_section(ctx, b, view)) || result.body_changed;
+		}
+		ImGui::SetNextItemOpen(view.sec_orbital_plane_open);
+		view.sec_orbital_plane_open = ImGui::CollapsingHeader("Orbital Plane & Relative Alignment###BodySecOrbitalPlane");
+		if (view.sec_orbital_plane_open) {
+			result.body_changed = render_relative_reference_and_orbital_plane_tool(ctx, b, view) || result.body_changed;
+		}
+		ImGui::SetNextItemOpen(view.sec_frenet_open);
+		view.sec_frenet_open = ImGui::CollapsingHeader("Frenet-Serret RTN Maneuver Injector###BodySecFrenet");
+		if (view.sec_frenet_open) {
+			result.body_changed = render_frenet_serret_velocity_injector(ctx, b, view) || result.body_changed;
+		}
+		if (!b.is_spacetime_source) {
+			ImGui::SetNextItemOpen(view.sec_orientation_open);
+			view.sec_orientation_open = ImGui::CollapsingHeader("Orientation & Rotation Axis###BodySecOrientation");
+			if (view.sec_orientation_open) {
+				result.body_changed = render_body_orientation_controls(b) || result.body_changed;
+			}
 		}
 	}
 	if ((sections & BodyEditorSection::AccretionDisk) != 0U) {
 		ImGui::SetNextItemOpen(view.sec_accretion_disk_open);
-		view.sec_accretion_disk_open = ImGui::CollapsingHeader("Accretion Disk");
+		view.sec_accretion_disk_open = ImGui::CollapsingHeader("Accretion Disk###BodySecAccretionDisk");
 		if (view.sec_accretion_disk_open) {
 			result.body_changed = render_source_disk_section(b, view) || result.body_changed;
 		}
 	}
 	if ((sections & BodyEditorSection::Multipoles) != 0U) {
 		ImGui::SetNextItemOpen(view.sec_multipoles_open);
-		view.sec_multipoles_open = ImGui::CollapsingHeader("Gravitational Multipoles");
+		view.sec_multipoles_open = ImGui::CollapsingHeader("Gravitational Multipoles###BodySecMultipoles");
 		if (view.sec_multipoles_open) {
 			result.body_changed = render_body_multipole_section(ctx, b, view) || result.body_changed;
 		}
 	}
 	if ((sections & BodyEditorSection::Material) != 0U) {
 		ImGui::SetNextItemOpen(view.sec_material_open);
-		view.sec_material_open = ImGui::CollapsingHeader("Material, Thermal & Electromagnetic");
+		view.sec_material_open = ImGui::CollapsingHeader("Material, Thermal & Electromagnetic###BodySecMaterial");
 		if (view.sec_material_open) {
 			result.body_changed = render_body_material_section(ctx, b, view) || result.body_changed;
 		}
 	}
 	if ((sections & BodyEditorSection::Surface) != 0U && layers != nullptr) {
 		ImGui::SetNextItemOpen(view.sec_surface_open);
-		view.sec_surface_open = ImGui::CollapsingHeader("Surface Appearance & Layers");
+		view.sec_surface_open = ImGui::CollapsingHeader("Surface Appearance & Layers###BodySecSurface");
 		if (view.sec_surface_open) {
 			render_body_surface_section(b, *layers, view, result);
 		}

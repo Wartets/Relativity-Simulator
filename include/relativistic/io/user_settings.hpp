@@ -88,8 +88,8 @@ struct UserSettings {
 	bool body_sec_orientation_open{false};
 	bool body_sec_multipoles_open{false};
 	bool body_sec_material_open{false};
-	bool body_sec_surface_open{true};
-	bool body_sec_accretion_disk_open{true};
+	bool body_sec_surface_open{false};
+	bool body_sec_accretion_disk_open{false};
 	bool body_creation_sec_template_open{true};
 	bool body_creation_sec_comparator_open{false};
 	bool body_creation_sec_plane_open{false};

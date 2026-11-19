@@ -27,6 +27,10 @@ private:
 	bool bulk_parameter_value_log_mode_{false};
 	int bulk_scope_{0};
 	int bulk_category_{0};
+	bool sec_bulk_actions_open_{true};
+	bool sec_plane_align_open_{false};
+	bool sec_generalized_open_{false};
+	bool sec_sources_open_{false};
 
 public:
 	[[nodiscard]] int bulk_parameter_index() const noexcept {
@@ -36,6 +40,11 @@ public:
 	void set_bulk_parameter_index(int index) noexcept {
 		bulk_parameter_index_ = index;
 	}
+
+	[[nodiscard]] bool& sec_bulk_actions_open() noexcept { return sec_bulk_actions_open_; }
+	[[nodiscard]] bool& sec_plane_align_open() noexcept { return sec_plane_align_open_; }
+	[[nodiscard]] bool& sec_generalized_open() noexcept { return sec_generalized_open_; }
+	[[nodiscard]] bool& sec_sources_open() noexcept { return sec_sources_open_; }
 
 	void render(BodyManagerContext& ctx) noexcept {
 		auto& orchestrator = ctx.orchestrator();
@@ -57,7 +66,9 @@ public:
 			ctx.request_pattern_generator();
 		}
 		render_setting_tooltip("Switches to the Pattern Generator tool in the Object Creation tab to inject structured collections of bodies (annular asteroid belts, coplanar debris swarms, spherical test formations).");
-		if (ImGui::CollapsingHeader("Global Body Actions", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::SetNextItemOpen(sec_bulk_actions_open_);
+		sec_bulk_actions_open_ = ImGui::CollapsingHeader("Global Body Actions###SysDynBulkActions");
+		if (sec_bulk_actions_open_) {
 			const auto current_scope = static_cast<BulkActionScope>(bulk_scope_);
 			const auto current_cat = static_cast<CatalogTypeCategory>(bulk_category_);
 
@@ -201,8 +212,9 @@ public:
 			render_setting_tooltip("Removes scoped bodies that fall outside the primary camera's current field-of-view cone.");
 
 			ImGui::Spacing();
-			ImGui::SetNextItemOpen(false, ImGuiCond_Once);
-			if (ImGui::CollapsingHeader("Scoped Orbital Plane Alignment Actions")) {
+			ImGui::SetNextItemOpen(sec_plane_align_open_);
+			sec_plane_align_open_ = ImGui::CollapsingHeader("Scoped Orbital Plane Alignment Actions###SysDynPlaneAlign");
+			if (sec_plane_align_open_) {
 				render_hint_text("Batch plane alignment actions applied across all scoped bodies relative to the selected reference attractor.");
 
 			static int sys_ref_id = BodyManagerContext::kCentralSourceId;
@@ -286,7 +298,9 @@ public:
 			}
 
 			ImGui::Spacing();
-			ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Generalized Parameter Actions (Scoped)");
+			ImGui::SetNextItemOpen(sec_generalized_open_);
+			sec_generalized_open_ = ImGui::CollapsingHeader("Generalized Parameter Actions (Scoped)###SysDynGenParams");
+			if (sec_generalized_open_) {
 			const char* bulk_param_names[] = {
 				"Mass", "Radius", "Charge", "Magnetic Moment", "Rotation Speed", "Friction Coefficient",
 				"Restitution", "Integrity", "Lifetime", "Temperature", "Heat Capacity",
@@ -389,10 +403,13 @@ public:
 				}
 			}
 			render_setting_tooltip("Applies to the selected physical parameter across every scoped enabled body.");
+			}
 		}
 
 		ImGui::Separator();
-		if (ImGui::CollapsingHeader("Spacetime Sources (Black Holes)", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::SetNextItemOpen(sec_sources_open_);
+		sec_sources_open_ = ImGui::CollapsingHeader("Spacetime Sources (Black Holes)###SysDynSources");
+		if (sec_sources_open_) {
 			size_t objects = 0;
 			size_t enabled_objects = 0;
 			size_t sources = 0;

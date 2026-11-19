@@ -379,6 +379,8 @@ public:
 		constants.time = orchestrator_.scheduler().snapshot().logical_time;
 		orchestrator_.apply_dark_matter_constants(constants);
 		orchestrator_.apply_cosmology_constants(constants);
+		constants.sky = params.sky;
+		constants.sky.time_seconds = constants.time;
 		constants.disk_temperature_scale_k = params.disk_temperature_scale_k;
 		constants.disk_temperature_floor_k = params.disk_temperature_floor_k;
 		constants.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
@@ -842,35 +844,63 @@ public:
 			if (params.body_disk_occlusion_enabled) {
 				cam_consts.render_flags |= Render::RenderFlags::ENABLE_BODY_DISK_OCCLUSION;
 			}
+			const auto& sky = params.sky;
+			cam_consts.sky = sky;
+			const auto snap = orchestrator_.scheduler().snapshot();
+			cam_consts.sky.time_seconds = snap.logical_time;
 			cam_consts.interlace_mode = params.interlace_rendering_enabled ? 1U : 0U;
 			cam_consts.interlace_phase = interlace_phase_;
-			cam_consts.sky_rotation_rad = params.sky_rotation_deg * (std::numbers::pi / 180.0);
-			cam_consts.sky_hue_shift_rad = params.sky_hue_shift_deg * (std::numbers::pi / 180.0);
-			cam_consts.sky_saturation = params.sky_saturation;
-			cam_consts.sky_star_density = params.sky_star_density;
-			cam_consts.sky_star_brightness = params.sky_star_brightness;
-			cam_consts.sky_nebula_intensity = params.sky_nebula_intensity;
-			cam_consts.sky_grid_opacity = params.sky_grid_opacity;
-			cam_consts.sky_background_r = params.sky_background_r;
-			cam_consts.sky_background_g = params.sky_background_g;
-			cam_consts.sky_background_b = params.sky_background_b;
-			cam_consts.sky_star_brightness_variation = params.sky_star_brightness_variation;
-			cam_consts.sky_star_size_variation = params.sky_star_size_variation;
-			cam_consts.sky_star_color_variation = params.sky_star_color_variation;
-			cam_consts.sky_star_temperature_bias = params.sky_star_temperature_bias;
-			cam_consts.sky_procedural_seed = params.sky_procedural_seed;
+			cam_consts.sky_rotation_rad = sky.orientation_yaw_deg * (std::numbers::pi / 180.0);
+			cam_consts.sky_hue_shift_rad = sky.hue_shift_deg * (std::numbers::pi / 180.0);
+			cam_consts.sky_saturation = sky.saturation;
+			cam_consts.sky_procedural_seed = sky.seed;
 			cam_consts.sky_background_source = params.sky_background_source;
 			cam_consts.sky_panorama_id = params.sky_panorama_id;
 			cam_consts.sky_panorama_quality = params.sky_panorama_quality;
-			cam_consts.sky_galaxy_density = params.sky_galaxy_density;
-			cam_consts.sky_galaxy_brightness = params.sky_galaxy_brightness;
-			cam_consts.sky_galaxy_size_scale = params.sky_galaxy_size_scale;
-			cam_consts.sky_dust_density = params.sky_dust_density;
-			cam_consts.sky_dust_intensity = params.sky_dust_intensity;
-			cam_consts.sky_dust_scale = params.sky_dust_scale;
-			cam_consts.sky_cluster_density = params.sky_cluster_density;
-			cam_consts.sky_cluster_brightness = params.sky_cluster_brightness;
-			cam_consts.sky_cluster_size_scale = params.sky_cluster_size_scale;
+
+			if (!sky.enabled) {
+				cam_consts.sky_star_density = 0.0;
+				cam_consts.sky_star_brightness = 0.0;
+				cam_consts.sky_nebula_intensity = 0.0;
+				cam_consts.sky_grid_opacity = 0.0;
+				cam_consts.sky_background_r = 0.0;
+				cam_consts.sky_background_g = 0.0;
+				cam_consts.sky_background_b = 0.0;
+				cam_consts.sky_star_brightness_variation = 0.0;
+				cam_consts.sky_star_size_variation = 0.0;
+				cam_consts.sky_star_color_variation = 0.0;
+				cam_consts.sky_star_temperature_bias = 0.0;
+				cam_consts.sky_galaxy_density = 0.0;
+				cam_consts.sky_galaxy_brightness = 0.0;
+				cam_consts.sky_galaxy_size_scale = 0.0;
+				cam_consts.sky_dust_density = 0.0;
+				cam_consts.sky_dust_intensity = 0.0;
+				cam_consts.sky_dust_scale = 0.0;
+				cam_consts.sky_cluster_density = 0.0;
+				cam_consts.sky_cluster_brightness = 0.0;
+				cam_consts.sky_cluster_size_scale = 0.0;
+			} else {
+				cam_consts.sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
+				cam_consts.sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
+				cam_consts.sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
+				cam_consts.sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
+				cam_consts.sky_background_r = static_cast<double>(sky.background_color[0]);
+				cam_consts.sky_background_g = static_cast<double>(sky.background_color[1]);
+				cam_consts.sky_background_b = static_cast<double>(sky.background_color[2]);
+				cam_consts.sky_star_brightness_variation = sky.star_brightness_variation;
+				cam_consts.sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
+				cam_consts.sky_star_color_variation = sky.star_color_variation;
+				cam_consts.sky_star_temperature_bias = sky.star_temperature_bias;
+				cam_consts.sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
+				cam_consts.sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+				cam_consts.sky_galaxy_size_scale = sky.galaxy_size_scale;
+				cam_consts.sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
+				cam_consts.sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+				cam_consts.sky_dust_scale = sky.dust_scale;
+				cam_consts.sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
+				cam_consts.sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+				cam_consts.sky_cluster_size_scale = sky.cluster_size_scale;
+			}
 			cam_consts.disk_temperature_scale_k = params.disk_temperature_scale_k;
 			cam_consts.disk_temperature_floor_k = params.disk_temperature_floor_k;
 			cam_consts.disk_doppler_beaming_exponent = params.disk_doppler_beaming_exponent;
@@ -1526,13 +1556,12 @@ public:
 
 		if (tb.skybox_cycle) {
 			ImGui::SameLine();
-			if (ImGui::Button("Skybox", ImVec2(66.0f, 24.0f))) {
-				const uint32_t current_style = orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK;
-				const uint32_t next_style = (current_style + 1) % 6;
-				const uint32_t next_flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | next_style;
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
+			if (ImGui::Button("Sky", ImVec2(66.0f, 24.0f))) {
+				auto& sky_ref = orchestrator_.parameters().sky;
+				sky_ref.enabled = !sky_ref.enabled;
+				orchestrator_.notify_state_changed();
 			}
-			render_setting_tooltip("Cycles celestial background modes (Stars, Grid, Composite, Void, Grid+Stars).");
+			render_setting_tooltip("Toggles celestial sky rendering on and off.");
 		}
 
 		if (tb.metric_cycle) {

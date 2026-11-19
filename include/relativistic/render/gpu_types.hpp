@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/render/skybox_renderer.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <array>
@@ -408,6 +409,7 @@ struct alignas(16) GpuCameraPushConstants {
 	uint32_t tile_origin_y{0};
 	uint32_t tile_extent_x{0};
 	uint32_t tile_extent_y{0};
+	ProceduralSkySettings sky{};
 
 	[[nodiscard]] bool operator==(const GpuCameraPushConstants&) const noexcept = default;
 };

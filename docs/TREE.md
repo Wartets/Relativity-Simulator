@@ -618,6 +618,7 @@ Relativity-Simulator/
 │       │   ├── geodesic_compute_pipeline.hpp
 │       │   ├── gpu_types.hpp
 │       │   ├── render_diagnostics.hpp
+│       │   ├── skybox_renderer.hpp
 │       │   ├── software_compute_engine.hpp
 │       │   ├── vulkan_compute_executor.hpp
 │       │   ├── vulkan_context.hpp
@@ -703,6 +704,7 @@ Relativity-Simulator/
 │       │   ├── secondary_view_roles.hpp
 │       │   ├── secondary_view_window.hpp
 │       │   ├── secondary_viewport_manager.hpp
+│       │   ├── skybox_editor.hpp
 │       │   ├── spacetime_source_panel.hpp
 │       │   ├── spacetime_source_state.hpp
 │       │   ├── spectrograph_window.hpp

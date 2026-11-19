@@ -10,6 +10,7 @@
 #include "relativistic/io/scenario/scenario_locator.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include "relativistic/render/bodies/body_lighting.hpp"
+#include "relativistic/render/skybox_renderer.hpp"
 #include "relativistic/render/accretion_disk/accretion_disk_settings.hpp"
 #include "relativistic/render/accretion_disk/hydro_disk_settings.hpp"
 #include "relativistic/render/accretion_disk/hydro_disk_shading.hpp"
@@ -104,6 +105,35 @@ struct PhysicalParameters {
 	double sky_cluster_density{1.06};
 	double sky_cluster_brightness{1.0};
 	double sky_cluster_size_scale{0.74};
+	Render::ProceduralSkySettings sky{};
+
+	void sync_sky_fields() noexcept {
+		sky_rotation_deg = sky.orientation_yaw_deg;
+		sky_hue_shift_deg = sky.hue_shift_deg;
+		sky_saturation = sky.saturation;
+		sky_procedural_seed = sky.seed;
+		sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
+		sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
+		sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
+		sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
+		sky_background_r = static_cast<double>(sky.background_color[0]);
+		sky_background_g = static_cast<double>(sky.background_color[1]);
+		sky_background_b = static_cast<double>(sky.background_color[2]);
+		sky_star_brightness_variation = sky.star_brightness_variation;
+		sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
+		sky_star_color_variation = sky.star_color_variation;
+		sky_star_temperature_bias = sky.star_temperature_bias;
+		sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
+		sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+		sky_galaxy_size_scale = sky.galaxy_size_scale;
+		sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
+		sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+		sky_dust_scale = sky.dust_scale;
+		sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
+		sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+		sky_cluster_size_scale = sky.cluster_size_scale;
+	}
+
 	uint32_t work_distribution_mode{0};
 	bool force_texture_reallocation{false};
 	uint32_t rolling_average_frame_count{10};
@@ -1292,48 +1322,62 @@ public:
 				break;
 			case ParameterType::SkyStarDensity:
 				params_.sky_star_density = std::max(val, 0.0);
+				params_.sky.star_density = params_.sky_star_density;
 				break;
 			case ParameterType::SkyStarBrightness:
 				params_.sky_star_brightness = std::max(val, 0.0);
+				params_.sky.star_brightness = params_.sky_star_brightness;
 				break;
 			case ParameterType::SkyNebulaIntensity:
 				params_.sky_nebula_intensity = std::max(val, 0.0);
+				params_.sky.nebula_intensity = params_.sky_nebula_intensity;
 				break;
 			case ParameterType::SkyGridOpacity:
 				params_.sky_grid_opacity = std::max(val, 0.0);
+				params_.sky.grid_opacity = params_.sky_grid_opacity;
 				break;
 			case ParameterType::SkyRotation:
 				params_.sky_rotation_deg = val;
+				params_.sky.orientation_yaw_deg = val;
 				break;
 			case ParameterType::SkyHueShift:
 				params_.sky_hue_shift_deg = val;
+				params_.sky.hue_shift_deg = val;
 				break;
 			case ParameterType::SkySaturation:
 				params_.sky_saturation = std::max(val, 0.0);
+				params_.sky.saturation = params_.sky_saturation;
 				break;
 			case ParameterType::SkyBackgroundR:
 				params_.sky_background_r = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
+				params_.sky.background_color[0] = static_cast<float>(params_.sky_background_r);
 				break;
 			case ParameterType::SkyBackgroundG:
 				params_.sky_background_g = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
+				params_.sky.background_color[1] = static_cast<float>(params_.sky_background_g);
 				break;
 			case ParameterType::SkyBackgroundB:
 				params_.sky_background_b = std::clamp(val, Relativistic::Render::SkyBackgroundLimits::MIN_VALUE, Relativistic::Render::SkyBackgroundLimits::MAX_VALUE);
+				params_.sky.background_color[2] = static_cast<float>(params_.sky_background_b);
 				break;
 			case ParameterType::SkyStarBrightnessVariation:
 				params_.sky_star_brightness_variation = std::clamp(val, 0.0, 1.0);
+				params_.sky.star_brightness_variation = params_.sky_star_brightness_variation;
 				break;
 			case ParameterType::SkyStarSizeVariation:
 				params_.sky_star_size_variation = std::clamp(val, 0.0, 1.0);
 				break;
 			case ParameterType::SkyStarColorVariation:
 				params_.sky_star_color_variation = std::clamp(val, 0.0, 2.0);
+				params_.sky.star_color_variation = params_.sky_star_color_variation;
 				break;
 			case ParameterType::SkyStarTemperatureBias:
 				params_.sky_star_temperature_bias = std::clamp(val, -1.0, 1.0);
+				params_.sky.star_temperature_bias = params_.sky_star_temperature_bias;
 				break;
 			case ParameterType::SkyProceduralSeed:
 				params_.sky_procedural_seed = static_cast<uint32_t>(std::max(val, 0.0));
+				params_.sky.seed = params_.sky_procedural_seed;
 				break;
 			case ParameterType::SkyBackgroundSource:
 				params_.sky_background_source = static_cast<uint32_t>(std::clamp(val, 0.0, 1.0));
@@ -1346,30 +1390,39 @@ public:
 				break;
 			case ParameterType::SkyGalaxyDensity:
 				params_.sky_galaxy_density = std::clamp(val, 0.0, 4.0);
+				params_.sky.galaxy_density = params_.sky_galaxy_density;
 				break;
 			case ParameterType::SkyGalaxyBrightness:
 				params_.sky_galaxy_brightness = std::clamp(val, 0.0, 4.0);
+				params_.sky.galaxy_brightness = params_.sky_galaxy_brightness;
 				break;
 			case ParameterType::SkyGalaxySizeScale:
 				params_.sky_galaxy_size_scale = std::clamp(val, 0.05, 8.0);
+				params_.sky.galaxy_size_scale = params_.sky_galaxy_size_scale;
 				break;
 			case ParameterType::SkyDustDensity:
 				params_.sky_dust_density = std::clamp(val, 0.0, 4.0);
+				params_.sky.dust_density = params_.sky_dust_density;
 				break;
 			case ParameterType::SkyDustIntensity:
 				params_.sky_dust_intensity = std::clamp(val, 0.0, 4.0);
+				params_.sky.dust_intensity = params_.sky_dust_intensity;
 				break;
 			case ParameterType::SkyDustScale:
 				params_.sky_dust_scale = std::clamp(val, 0.05, 8.0);
+				params_.sky.dust_scale = params_.sky_dust_scale;
 				break;
 			case ParameterType::SkyClusterDensity:
 				params_.sky_cluster_density = std::clamp(val, 0.0, 4.0);
+				params_.sky.cluster_density = params_.sky_cluster_density;
 				break;
 			case ParameterType::SkyClusterBrightness:
 				params_.sky_cluster_brightness = std::clamp(val, 0.0, 4.0);
+				params_.sky.cluster_brightness = params_.sky_cluster_brightness;
 				break;
 			case ParameterType::SkyClusterSizeScale:
 				params_.sky_cluster_size_scale = std::clamp(val, 0.05, 8.0);
+				params_.sky.cluster_size_scale = params_.sky_cluster_size_scale;
 				break;
 			case ParameterType::WorkDistributionMode:
 				params_.work_distribution_mode = static_cast<uint32_t>(val);
@@ -2008,9 +2061,9 @@ public:
 
 		push.observer_position = {0.0, camera_.position[0], camera_.position[1], camera_.position[2]};
 		push.tetrad_e0 = {1.0, 0.0, 0.0, 0.0};
-		push.tetrad_e1 = {0.0, basis.right[0], basis.right[1], basis.right[2]};
-		push.tetrad_e2 = {0.0, basis.up[0], basis.up[1], basis.up[2]};
-		push.tetrad_e3 = {0.0, basis.forward[0], basis.forward[1], basis.forward[2]};
+		push.tetrad_e1 = {0.0, basis.forward[0], basis.forward[1], basis.forward[2]};
+		push.tetrad_e2 = {0.0, basis.right[0], basis.right[1], basis.right[2]};
+		push.tetrad_e3 = {0.0, basis.up[0], basis.up[1], basis.up[2]};
 
 		push.field_of_view_rad = camera_.fov_deg * (std::numbers::pi_v<double> / 180.0);
 		push.metric_mass = params_.mass;
@@ -2040,30 +2093,60 @@ public:
 
 		push.lod_distance_threshold = params_.lod_distance_scale;
 
-		push.sky_rotation_rad = params_.sky_rotation_deg;
-		push.sky_hue_shift_rad = params_.sky_hue_shift_deg;
-		push.sky_saturation = params_.sky_saturation;
-		push.sky_star_density = params_.sky_star_density;
-		push.sky_star_brightness = params_.sky_star_brightness;
-		push.sky_nebula_intensity = params_.sky_nebula_intensity;
-		push.sky_grid_opacity = params_.sky_grid_opacity;
-		push.sky_background_r = params_.sky_background_r;
-		push.sky_background_g = params_.sky_background_g;
-		push.sky_background_b = params_.sky_background_b;
-		push.sky_star_brightness_variation = params_.sky_star_brightness_variation;
-		push.sky_star_size_variation = params_.sky_star_size_variation;
-		push.sky_star_color_variation = params_.sky_star_color_variation;
-		push.sky_star_temperature_bias = params_.sky_star_temperature_bias;
+		const auto& sky = params_.sky;
+		push.sky = sky;
+		push.sky.time_seconds = sim_time;
+		push.sky_rotation_rad = sky.orientation_yaw_deg * (std::numbers::pi / 180.0);
+		push.sky_hue_shift_rad = sky.hue_shift_deg * (std::numbers::pi / 180.0);
+		push.sky_saturation = sky.saturation;
+		push.sky_procedural_seed = sky.seed;
+		push.sky_background_source = params_.sky_background_source;
+		push.sky_panorama_id = params_.sky_panorama_id;
+		push.sky_panorama_quality = params_.sky_panorama_quality;
 
-		push.sky_galaxy_density = params_.sky_galaxy_density;
-		push.sky_galaxy_brightness = params_.sky_galaxy_brightness;
-		push.sky_galaxy_size_scale = params_.sky_galaxy_size_scale;
-		push.sky_dust_density = params_.sky_dust_density;
-		push.sky_dust_intensity = params_.sky_dust_intensity;
-		push.sky_dust_scale = params_.sky_dust_scale;
-		push.sky_cluster_density = params_.sky_cluster_density;
-		push.sky_cluster_brightness = params_.sky_cluster_brightness;
-		push.sky_cluster_size_scale = params_.sky_cluster_size_scale;
+		if (!sky.enabled) {
+			push.sky_star_density = 0.0;
+			push.sky_star_brightness = 0.0;
+			push.sky_nebula_intensity = 0.0;
+			push.sky_grid_opacity = 0.0;
+			push.sky_background_r = 0.0;
+			push.sky_background_g = 0.0;
+			push.sky_background_b = 0.0;
+			push.sky_star_brightness_variation = 0.0;
+			push.sky_star_size_variation = 0.0;
+			push.sky_star_color_variation = 0.0;
+			push.sky_star_temperature_bias = 0.0;
+			push.sky_galaxy_density = 0.0;
+			push.sky_galaxy_brightness = 0.0;
+			push.sky_galaxy_size_scale = 0.0;
+			push.sky_dust_density = 0.0;
+			push.sky_dust_intensity = 0.0;
+			push.sky_dust_scale = 0.0;
+			push.sky_cluster_density = 0.0;
+			push.sky_cluster_brightness = 0.0;
+			push.sky_cluster_size_scale = 0.0;
+		} else {
+			push.sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
+			push.sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
+			push.sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
+			push.sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
+			push.sky_background_r = static_cast<double>(sky.background_color[0]);
+			push.sky_background_g = static_cast<double>(sky.background_color[1]);
+			push.sky_background_b = static_cast<double>(sky.background_color[2]);
+			push.sky_star_brightness_variation = sky.star_brightness_variation;
+			push.sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
+			push.sky_star_color_variation = sky.star_color_variation;
+			push.sky_star_temperature_bias = sky.star_temperature_bias;
+			push.sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
+			push.sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+			push.sky_galaxy_size_scale = sky.galaxy_size_scale;
+			push.sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
+			push.sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+			push.sky_dust_scale = sky.dust_scale;
+			push.sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
+			push.sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+			push.sky_cluster_size_scale = sky.cluster_size_scale;
+		}
 
 		push.space_skip_radius_scale = params_.space_skip_radius_scale;
 		push.pole_guard_precision_scale = params_.pole_guard_precision_scale;
@@ -2163,6 +2246,7 @@ public:
 		params_.sky_dust_scale = push.sky_dust_scale;
 		params_.sky_cluster_density = push.sky_cluster_density;
 		params_.sky_cluster_brightness = push.sky_cluster_brightness;
+		params_.sky = push.sky;
 		params_.sky_cluster_size_scale = push.sky_cluster_size_scale;
 		params_.space_skip_radius_scale = push.space_skip_radius_scale;
 		params_.pole_guard_precision_scale = push.pole_guard_precision_scale;

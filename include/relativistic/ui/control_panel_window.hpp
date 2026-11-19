@@ -26,6 +26,8 @@
 #include "relativistic/units/unit_aware_widgets.hpp"
 #include "relativistic/optics/textures/sky_panorama_catalog.hpp"
 #include "relativistic/ui/spacetime_source_panel.hpp"
+#include "relativistic/io/user_settings.hpp"
+#include "relativistic/ui/skybox_editor.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -98,31 +100,7 @@ private:
 	float rocket_throttle_{0.0f};
 	int timeflow_mode_{0};
 
-	float sky_star_density_{0.78f};
-	float sky_star_brightness_{1.0f};
-	float sky_nebula_intensity_{0.87f};
-	float sky_grid_opacity_{1.0f};
-	float sky_rotation_{56.0f};
-	float sky_hue_shift_{-15.7f};
-	float sky_saturation_{0.84f};
-	float sky_background_[3]{0.0f, 0.0f, 0.0f};
-	float sky_star_brightness_variation_{0.67f};
-	float sky_star_size_variation_{0.54f};
-	float sky_star_color_variation_{1.11f};
-	float sky_star_temperature_bias_{0.39f};
-	int sky_procedural_seed_{12345};
-	float sky_galaxy_density_{0.09f};
-	float sky_galaxy_brightness_{0.42f};
-	float sky_galaxy_size_scale_{0.2f};
-	float sky_dust_density_{3.05f};
-	float sky_dust_intensity_{2.13f};
-	float sky_dust_scale_{1.55f};
-	float sky_cluster_density_{1.06f};
-	float sky_cluster_brightness_{1.0f};
-	float sky_cluster_size_scale_{0.74f};
-	int sky_background_source_{0};
-	int sky_panorama_id_{0};
-	int sky_panorama_quality_{1};
+	IO::UserSettings* user_settings_{nullptr};
 	uint64_t last_synced_version_{0};
 	Render::GeodesicComputePipeline* render_pipeline_{nullptr};
 	DarkMatterPanel dark_matter_panel_{};
@@ -133,10 +111,14 @@ private:
 	SpacetimeSourceEditState metric_source_edit_{false, true, 0.0, {}};
 
 public:
-	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open)
-		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), spatial_cfg_(spatial_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open) {
+	explicit ControlPanelWindow(Orchestrator::SimulationOrchestrator<1024>& orchestrator, InteractiveCameraController& camera_controller, HudLayoutConfig& hud_layout, SchematicViewConfig& schematic_cfg, SpatialReferenceConfig& spatial_cfg, bool& hud_manager_open, bool& keybind_settings_open, IO::UserSettings* user_settings = nullptr)
+		: orchestrator_(orchestrator), camera_controller_(camera_controller), hud_layout_(hud_layout), schematic_cfg_(schematic_cfg), spatial_cfg_(spatial_cfg), hud_manager_open_(hud_manager_open), keybind_settings_open_(keybind_settings_open), user_settings_(user_settings) {
 		sync_from_orchestrator();
 		initialize_tab_bar();
+	}
+
+	void attach_user_settings(IO::UserSettings& user_settings) noexcept {
+		user_settings_ = &user_settings;
 	}
 
 	void attach_render_pipeline(Render::GeodesicComputePipeline& pipeline) noexcept {
@@ -206,34 +188,6 @@ public:
 			manual_orientation_[1] = static_cast<float>(cam.yaw);
 			manual_orientation_[2] = static_cast<float>(cam.roll);
 		}
-
-		sky_star_density_ = static_cast<float>(p.sky_star_density);
-		sky_star_brightness_ = static_cast<float>(p.sky_star_brightness);
-		sky_nebula_intensity_ = static_cast<float>(p.sky_nebula_intensity);
-		sky_grid_opacity_ = static_cast<float>(p.sky_grid_opacity);
-		sky_rotation_ = static_cast<float>(p.sky_rotation_deg);
-		sky_hue_shift_ = static_cast<float>(p.sky_hue_shift_deg);
-		sky_saturation_ = static_cast<float>(p.sky_saturation);
-		sky_background_[0] = static_cast<float>(p.sky_background_r);
-		sky_background_[1] = static_cast<float>(p.sky_background_g);
-		sky_background_[2] = static_cast<float>(p.sky_background_b);
-		sky_star_brightness_variation_ = static_cast<float>(p.sky_star_brightness_variation);
-		sky_star_size_variation_ = static_cast<float>(p.sky_star_size_variation);
-		sky_star_color_variation_ = static_cast<float>(p.sky_star_color_variation);
-		sky_star_temperature_bias_ = static_cast<float>(p.sky_star_temperature_bias);
-		sky_procedural_seed_ = static_cast<int>(p.sky_procedural_seed);
-		sky_galaxy_density_ = static_cast<float>(p.sky_galaxy_density);
-		sky_galaxy_brightness_ = static_cast<float>(p.sky_galaxy_brightness);
-		sky_galaxy_size_scale_ = static_cast<float>(p.sky_galaxy_size_scale);
-		sky_dust_density_ = static_cast<float>(p.sky_dust_density);
-		sky_dust_intensity_ = static_cast<float>(p.sky_dust_intensity);
-		sky_dust_scale_ = static_cast<float>(p.sky_dust_scale);
-		sky_cluster_density_ = static_cast<float>(p.sky_cluster_density);
-		sky_cluster_brightness_ = static_cast<float>(p.sky_cluster_brightness);
-		sky_cluster_size_scale_ = static_cast<float>(p.sky_cluster_size_scale);
-		sky_background_source_ = static_cast<int>(p.sky_background_source);
-		sky_panorama_id_ = static_cast<int>(p.sky_panorama_id);
-		sky_panorama_quality_ = static_cast<int>(p.sky_panorama_quality);
 	}
 
 	void render() {
@@ -1067,277 +1021,11 @@ private:
 	}
 
 	void render_skybox_tab() noexcept {
-		ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "Sky Background Source");
-		const char* sky_sources[] = {"Procedural Generation", "Imported Real Sky Panorama"};
-		if (ImGui::Combo("Background Source", &sky_background_source_, sky_sources, IM_ARRAYSIZE(sky_sources))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundSource, static_cast<double>(sky_background_source_))));
-			if (sky_background_source_ == 1 && !orchestrator_.parameters().use_gpu_compute && render_pipeline_ != nullptr && render_pipeline_->gpu_compute_available()) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::UseGpuCompute, 1.0)));
-			}
-		}
-		render_setting_tooltip("Switches the background between the fully procedural starfield engine and a real equirectangular sky panorama loaded from disk.");
-		ImGui::Separator();
-
-		if (sky_background_source_ == 1) {
-			render_sky_panorama_controls();
-			return;
-		}
-
-		const char* sky_modes[] = {
-			"Full Starfield",
-			"Grid Sphere",
-			"Composite Overlay (Starfield + Grid Overlay)",
-			"Dark Cosmic Void",
-			"Starfield without Nebula",
-			"Grid Sphere with Stars"
-		};
-
-		int current_sky = static_cast<int>(orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK);
-		if (current_sky < 0 || current_sky > 5) {
-			current_sky = static_cast<int>(Render::RenderFlags::SKYBOX_STARS);
-		}
-		if (ImGui::Combo("Skybox Style", &current_sky, sky_modes, IM_ARRAYSIZE(sky_modes))) {
-			uint32_t flags = orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK;
-			flags |= static_cast<uint32_t>(current_sky);
-			orchestrator_.parameters().visual_overlays_flags = flags;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
-		}
-		render_setting_tooltip("Background celestial radiance model: celestial starfields, spherical coordinate grids, or void absorption.");
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Skybox Presets:");
-		auto apply_sky_mode = [&](uint32_t mode) noexcept {
-			uint32_t flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | mode;
-			orchestrator_.parameters().visual_overlays_flags = flags;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(flags))));
-		};
-		if (ImGui::Button("Full Starfield", ImVec2(120.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS);
-		}
-		render_setting_tooltip("Activates realistic celestial background with procedural starfield and diffuse galactic nebular glow.");
-		ImGui::SameLine();
-		if (ImGui::Button("Grid Sphere", ImVec2(110.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID);
-		}
-		render_setting_tooltip("Activates celestial spherical coordinate grid with 15-degree latitude and longitude markers.");
-		ImGui::SameLine();
-		if (ImGui::Button("Composite Overlay", ImVec2(130.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_COMPOSITE);
-		}
-		render_setting_tooltip("Layers celestial coordinate lines over the starfield and nebulae.");
-		if (ImGui::Button("Dark Void", ImVec2(120.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_VOID);
-		}
-		render_setting_tooltip("Removes all background celestial radiance for isolated black hole visualization.");
-		ImGui::SameLine();
-		if (ImGui::Button("Starfield (No Nebula)", ImVec2(170.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_STARS_NO_NEBULA);
-		}
-		render_setting_tooltip("Renders point stars without diffuse galactic plane gas clouds.");
-		ImGui::SameLine();
-		if (ImGui::Button("Grid + Stars", ImVec2(110.0f, 26.0f))) {
-			apply_sky_mode(Render::RenderFlags::SKYBOX_GRID_STARS);
-		}
-		render_setting_tooltip("Combines the coordinate grid with point stars while omitting nebula glow.");
-
-		ImGui::Separator();
-		ImGui::Text("Camera Quick Viewpoints:");
-		if (ImGui::Button("Equatorial View (r=50)")) {
-			camera_controller_.snap_to_equatorial_front(50.0);
-			orchestrator_.notify_state_changed();
-		}
-		render_setting_tooltip("Positions observer on the equatorial plane (theta=90 deg) at radius r = 50 M looking inward.");
-		ImGui::SameLine();
-		if (ImGui::Button("Top Polar View (z=50)")) {
-			camera_controller_.snap_to_north_pole(50.0);
-			orchestrator_.notify_state_changed();
-		}
-		render_setting_tooltip("Positions observer along the positive polar axis (theta=0 deg) looking down upon the accretion disk.");
-		ImGui::SameLine();
-		if (ImGui::Button("Close-up ISCO (r=8)")) {
-			camera_controller_.snap_to_equatorial_front(8.0);
-			orchestrator_.notify_state_changed();
-		}
-		render_setting_tooltip("Positions observer at radius r = 8 M close to the innermost stable circular orbit.");
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Sky Style Customization:");
-
-		const bool has_stars = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS_NO_NEBULA)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID_STARS));
-		const bool has_nebula = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_STARS)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE));
-		const bool has_grid = (current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_COMPOSITE)) ||
-			(current_sky == static_cast<int>(Render::RenderFlags::SKYBOX_GRID_STARS));
-		const bool has_rotation_hue = (current_sky != static_cast<int>(Render::RenderFlags::SKYBOX_VOID));
-
-		if (has_stars) {
-			if (ImGui::SliderFloat("Star Density", &sky_star_density_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, static_cast<double>(sky_star_density_))));
-			}
-			render_setting_tooltip("Controls Poisson distribution density of procedural star points on the celestial sphere.");
-			if (ImGui::SliderFloat("Star Brightness", &sky_star_brightness_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, static_cast<double>(sky_star_brightness_))));
-			}
-			render_setting_tooltip("Peak luminance multiplier applied to procedural point stars.");
-		}
-		if (has_nebula) {
-			if (ImGui::SliderFloat("Nebula Glow Intensity", &sky_nebula_intensity_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, static_cast<double>(sky_nebula_intensity_))));
-			}
-			render_setting_tooltip("Luminance of the galactic plane and diffuse nebular gas emissions.");
-		}
-		if (has_grid) {
-			if (ImGui::SliderFloat("Coordinate Grid Opacity", &sky_grid_opacity_, 0.0f, 2.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, static_cast<double>(sky_grid_opacity_))));
-			}
-			render_setting_tooltip("Opacity of celestial latitude/longitude 15-degree coordinate lines.");
-		}
-		if (has_rotation_hue) {
-			if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
-			}
-			render_setting_tooltip("Rotates the celestial sphere around the world polar axis.");
-			if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
-			}
-			render_setting_tooltip("Global hue rotation angle applied to celestial background radiance.");
-			if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
-			}
-			render_setting_tooltip("Chroma saturation multiplier for background starfield and nebulae.");
-		}
-		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
-		}
-		render_setting_tooltip("Additive RGB baseline pedestal applied to the celestial sphere.");
-		if (ImGui::Button("Reset Sky Style to Defaults", ImVec2(220.0f, 26.0f))) {
-			sky_star_density_ = 1.0f;
-			sky_star_brightness_ = 1.0f;
-			sky_nebula_intensity_ = 1.0f;
-			sky_grid_opacity_ = 1.0f;
-			sky_rotation_ = 0.0f;
-			sky_hue_shift_ = 0.0f;
-			sky_saturation_ = 1.0f;
-			sky_background_[0] = 0.0f;
-			sky_background_[1] = 0.0f;
-			sky_background_[2] = 0.0f;
-			sky_star_brightness_variation_ = 0.5f;
-			sky_star_size_variation_ = 0.5f;
-			sky_star_color_variation_ = 1.0f;
-			sky_star_temperature_bias_ = 0.0f;
-			sky_galaxy_density_ = 0.0f;
-			sky_galaxy_brightness_ = 1.0f;
-			sky_galaxy_size_scale_ = 1.0f;
-			sky_dust_density_ = 0.0f;
-			sky_dust_intensity_ = 1.0f;
-			sky_dust_scale_ = 1.0f;
-			sky_cluster_density_ = 0.0f;
-			sky_cluster_brightness_ = 1.0f;
-			sky_cluster_size_scale_ = 1.0f;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarDensity, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightness, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyNebulaIntensity, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGridOpacity, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightnessVariation, 0.5)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarSizeVariation, 0.5)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarColorVariation, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarTemperatureBias, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyDensity, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyBrightness, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxySizeScale, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustDensity, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustIntensity, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustScale, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterDensity, 0.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterBrightness, 1.0)));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, 1.0)));
-		}
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.5f, 0.75f, 1.0f, 1.0f), "Star Field Randomization:");
-		if (has_stars) {
-			if (ImGui::SliderFloat("Brightness Variation", &sky_star_brightness_variation_, 0.0f, 1.0f, "%.2f")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarBrightnessVariation, static_cast<double>(sky_star_brightness_variation_))));
-			}
-			render_setting_tooltip("Controls how strongly individual star brightness deviates from the average. Higher values produce a sparser population of very bright stars against many faint ones.");
-			if (ImGui::SliderFloat("Size Variation", &sky_star_size_variation_, 0.0f, 1.0f, "%.2f")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarSizeVariation, static_cast<double>(sky_star_size_variation_))));
-			}
-			render_setting_tooltip("Controls the spread of apparent star disc sizes across the field.");
-			if (ImGui::SliderFloat("Color Variation", &sky_star_color_variation_, 0.0f, 2.0f, "%.2f")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarColorVariation, static_cast<double>(sky_star_color_variation_))));
-			}
-			render_setting_tooltip("Scales how far individual star tints drift from neutral white, from monochrome (0) to strongly saturated red/blue extremes (2).");
-			if (ImGui::SliderFloat("Temperature Bias", &sky_star_temperature_bias_, -1.0f, 1.0f, "%.2f")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyStarTemperatureBias, static_cast<double>(sky_star_temperature_bias_))));
-			}
-			render_setting_tooltip("Shifts the overall star population toward cooler red stars (negative) or hotter blue stars (positive).");
-		}
-		if (ImGui::InputInt("Procedural Seed", &sky_procedural_seed_)) {
-			sky_procedural_seed_ = std::max(sky_procedural_seed_, 0);
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyProceduralSeed, static_cast<double>(sky_procedural_seed_))));
-		}
-		render_setting_tooltip("Seed controlling the procedural placement of every background element below, letting the entire deep-field layout be reshuffled deterministically.");
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.85f, 0.6f, 1.0f, 1.0f), "Deep Field Background Elements:");
-		ImGui::TextDisabled("Procedurally scattered background objects layered on top of the skybox above, independent of the selected style.");
-
-		if (ImGui::SliderFloat("Distant Galaxy Density", &sky_galaxy_density_, 0.0f, 4.0f, "%.2f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyDensity, static_cast<double>(sky_galaxy_density_))));
-		}
-		render_setting_tooltip("Number of procedurally generated background micro-galaxies scattered across the sky. Zero disables them entirely.");
-		if (sky_galaxy_density_ > 0.0f) {
-			if (ImGui::SliderFloat("Galaxy Brightness", &sky_galaxy_brightness_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxyBrightness, static_cast<double>(sky_galaxy_brightness_))));
-			}
-			render_setting_tooltip("Luminance multiplier for background spiral galaxy cores and arms.");
-			if (ImGui::SliderFloat("Galaxy Size Scale", &sky_galaxy_size_scale_, 0.1f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyGalaxySizeScale, static_cast<double>(sky_galaxy_size_scale_))));
-			}
-			render_setting_tooltip("Angular size scaling factor for background galaxy projections.");
-		}
-
-		if (ImGui::SliderFloat("Dust Cloud Density", &sky_dust_density_, 0.0f, 4.0f, "%.2f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustDensity, static_cast<double>(sky_dust_density_))));
-		}
-		render_setting_tooltip("Coverage of procedurally generated interstellar dust and gas cloud wisps across the sky. Zero disables them entirely.");
-		if (sky_dust_density_ > 0.0f) {
-			if (ImGui::SliderFloat("Dust Cloud Intensity", &sky_dust_intensity_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustIntensity, static_cast<double>(sky_dust_intensity_))));
-			}
-			render_setting_tooltip("Luminance and opacity multiplier for diffuse dust cloud filaments.");
-			if (ImGui::SliderFloat("Dust Cloud Scale", &sky_dust_scale_, 0.1f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyDustScale, static_cast<double>(sky_dust_scale_))));
-			}
-			render_setting_tooltip("Spatial turbulence frequency scale governing the structure of dust filaments.");
-		}
-
-		if (ImGui::SliderFloat("Star Cluster Density", &sky_cluster_density_, 0.0f, 4.0f, "%.2f")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterDensity, static_cast<double>(sky_cluster_density_))));
-		}
-		render_setting_tooltip("Number of tight procedurally generated star clusters scattered across the sky, each composed of several close-set stars. Zero disables them entirely.");
-		if (sky_cluster_density_ > 0.0f) {
-			if (ImGui::SliderFloat("Cluster Brightness", &sky_cluster_brightness_, 0.0f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterBrightness, static_cast<double>(sky_cluster_brightness_))));
-			}
-			render_setting_tooltip("Luminance multiplier applied to member stars of globular and open clusters.");
-			if (ImGui::SliderFloat("Cluster Size Scale", &sky_cluster_size_scale_, 0.1f, 4.0f, "%.2fx")) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyClusterSizeScale, static_cast<double>(sky_cluster_size_scale_))));
-			}
-			render_setting_tooltip("Angular radius footprint of star cluster formations.");
+		if (user_settings_ != nullptr) {
+			render_skybox_editor(orchestrator_, *user_settings_);
+		} else {
+			static IO::UserSettings fallback_settings;
+			render_skybox_editor(orchestrator_, fallback_settings);
 		}
 	}
 
@@ -1347,52 +1035,6 @@ private:
 
 	void render_cosmology_tab() noexcept {
 		cosmology_panel_.render(orchestrator_);
-	}
-
-	void render_sky_panorama_controls() noexcept {
-		static constexpr std::array<const char*, 3> kPanoramaNames{"Night Sky HDRI 001 (ambientCG)", "Night Sky HDRI 008 (ambientCG)", "ESO 0932a (ESO Observatory Photograph)"};
-		if (ImGui::Combo("Sky Panorama", &sky_panorama_id_, kPanoramaNames.data(), static_cast<int>(kPanoramaNames.size()))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyPanoramaId, static_cast<double>(sky_panorama_id_))));
-		}
-		render_setting_tooltip("Selects which real captured sky panorama is projected as the equirectangular background instead of the procedural starfield.");
-
-		const auto panorama_id = static_cast<Optics::SkyPanoramaId>(sky_panorama_id_);
-		const auto& entry = Optics::sky_panorama_catalog_entry(panorama_id);
-
-		if (entry.has_quality_variants) {
-			const char* quality_names[] = {"1K (1024x512, fastest load)", "2K (2048x1024, balanced)", "4K (4096x2048, highest detail)"};
-			if (ImGui::Combo("Panorama Quality", &sky_panorama_quality_, quality_names, IM_ARRAYSIZE(quality_names))) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyPanoramaQuality, static_cast<double>(sky_panorama_quality_))));
-			}
-			render_setting_tooltip("Chooses which resolution variant of the selected panorama is decoded and sampled. Higher resolutions cost more memory and a longer one-time decode when switching.");
-		} else {
-			ImGui::TextDisabled("This panorama is only available in its native captured resolution (6000x3000).");
-		}
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(0.5f, 0.75f, 1.0f, 1.0f), "Panorama Color Adjustments:");
-		if (ImGui::SliderFloat("Sky Rotation", &sky_rotation_, -180.0f, 180.0f, "%.1f deg")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyRotation, static_cast<double>(sky_rotation_))));
-		}
-		render_setting_tooltip("Rotates the panorama around the world polar axis.");
-		if (ImGui::SliderFloat("Sky Hue Shift", &sky_hue_shift_, -180.0f, 180.0f, "%.1f deg")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyHueShift, static_cast<double>(sky_hue_shift_))));
-		}
-		render_setting_tooltip("Rotates color hues across the imported panorama.");
-		if (ImGui::SliderFloat("Sky Saturation", &sky_saturation_, 0.0f, 2.0f, "%.2fx")) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkySaturation, static_cast<double>(sky_saturation_))));
-		}
-		render_setting_tooltip("Chroma saturation multiplier for the imported sky panorama.");
-		if (ImGui::ColorEdit3("Background Tint", sky_background_)) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundR, static_cast<double>(sky_background_[0]))));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundG, static_cast<double>(sky_background_[1]))));
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::SkyBackgroundB, static_cast<double>(sky_background_[2]))));
-		}
-		render_setting_tooltip("Additive RGB pedestal color mixed with the panorama background.");
-
-		ImGui::Separator();
-		ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "Rendering Path:");
-		render_wrapped_colored_text(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "Imported sky panoramas are decoded once on a background thread and cached, then sampled directly by the Vulkan compute shader when GPU offload is enabled. The render keeps showing the procedural sky with no stall while a new panorama decodes. The CPU path remains the fallback for unsupported metrics or precision modes. If a panorama file cannot be decoded, the procedural sky is used and the error is written to the engine log.");
 	}
 
 	void render_integrators_tab() noexcept {

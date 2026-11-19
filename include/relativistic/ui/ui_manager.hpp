@@ -26,6 +26,7 @@
 #include "relativistic/ui/secondary_viewport_manager.hpp"
 #include "relativistic/ui/capture_studio_window.hpp"
 #include "relativistic/ui/window_chrome.hpp"
+#include "relativistic/ui/skybox_editor.hpp"
 #include "relativistic/ui/metric_catalog.hpp"
 #include "relativistic/orchestrator/session_state.hpp"
 #include "relativistic/core/system_console.hpp"
@@ -102,6 +103,7 @@ private:
 	bool show_viewport_{true};
 	bool multi_window_mode_{true};
 	bool pending_layout_reset_{false};
+	bool window_skybox_editor_open_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
@@ -116,7 +118,7 @@ public:
 		  camera_controller_(orchestrator),
 		  keybind_window_(camera_controller_.config()),
 		  hud_manager_window_(user_settings_.hud_layout),
-		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, user_settings_.spatial_reference, hud_manager_window_.open_state(), keybind_window_.open_state()),
+		  control_panel_window_(orchestrator, camera_controller_, user_settings_.hud_layout, user_settings_.schematic_view, user_settings_.spatial_reference, hud_manager_window_.open_state(), keybind_window_.open_state(), &user_settings_),
 		  performance_window_(orchestrator),
 		  performance_analysis_window_(orchestrator),
 		  diagnostics_window_(orchestrator),
@@ -389,6 +391,17 @@ public:
 			ic.fragmentation.enable_tidal_stress = user_settings_.interaction_fragmentation_tidal_stress_enabled;
 		}
 		multi_window_mode_ = user_settings_.multi_window_mode;
+		orchestrator_.parameters().sky = user_settings_.sky;
+		orchestrator_.parameters().sky.enabled = user_settings_.sky_rendering_enabled;
+		orchestrator_.parameters().sky.seed_locked = user_settings_.sky_seed_locked;
+		if (!user_settings_.sky_seed_locked) {
+			const uint32_t random_seed = static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFU);
+			orchestrator_.parameters().sky.seed = random_seed;
+			orchestrator_.parameters().sky_procedural_seed = random_seed;
+		} else {
+			orchestrator_.parameters().sky_procedural_seed = orchestrator_.parameters().sky.seed;
+		}
+		orchestrator_.parameters().sync_sky_fields();
 		static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(user_settings_.default_camera_mode)));
 
 		report_startup(Startup::StartupStage::Content, 0.0f, "Loading content", "Resolving the startup scenario...");
@@ -481,6 +494,9 @@ public:
 			capture_studio_window_->save_settings();
 		}
 		user_settings_.camera_controls = camera_controller_.config();
+		user_settings_.sky = orchestrator_.parameters().sky;
+		user_settings_.sky_rendering_enabled = orchestrator_.parameters().sky.enabled;
+		user_settings_.sky_seed_locked = orchestrator_.parameters().sky.seed_locked;
 		user_settings_.unit_preferences = orchestrator_.unit_preferences();
 		user_settings_.coordinate_preferences = orchestrator_.coordinate_preferences();
 		user_settings_.multi_window_mode = multi_window_mode_;
@@ -705,6 +721,10 @@ public:
 		if (capture_studio_window_) {
 			auto theme = window_chrome_.scope(WindowThemeId::CaptureStudio);
 			capture_studio_window_->render();
+		}
+
+		if (window_skybox_editor_open_) {
+			render_skybox_editor_window(window_skybox_editor_open_, orchestrator_, user_settings_);
 		}
 
 		if (secondary_viewport_manager_) {
@@ -1120,10 +1140,9 @@ private:
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TonemappingMode, static_cast<double>(next_mode))));
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleSkyboxStyle, main_window_)) {
-			const uint32_t current_style = orchestrator_.parameters().visual_overlays_flags & Render::RenderFlags::SKYBOX_MODE_MASK;
-			const uint32_t next_style = (current_style + 1) % 6;
-			const uint32_t next_flags = (orchestrator_.parameters().visual_overlays_flags & ~Render::RenderFlags::SKYBOX_MODE_MASK) | next_style;
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::VisualOverlays, static_cast<double>(next_flags))));
+			auto& sky_ref = orchestrator_.parameters().sky;
+			sky_ref.enabled = !sky_ref.enabled;
+			orchestrator_.notify_state_changed();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleMetric, main_window_)) {
 			const auto& kMetricCycle = kMetricCatalog;
@@ -1364,6 +1383,7 @@ private:
 				if (capture_studio_window_) {
 					ImGui::MenuItem("Capture Studio", key_hint(InputAction::ToggleCaptureStudio).c_str(), &capture_studio_window_->open_state());
 				}
+				ImGui::MenuItem("Skybox & Environment Editor", nullptr, &window_skybox_editor_open_);
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show All Panels")) {
 					show_all_panels();

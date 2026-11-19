@@ -173,9 +173,9 @@ enum class VoltageUnit : uint32_t {
 };
 
 struct UnitDisplayPreferences {
-	DistanceUnit distance{DistanceUnit::Meters};
-	MassUnit mass{MassUnit::Kilograms};
-	VelocityUnit velocity{VelocityUnit::MetersPerSecond};
+	DistanceUnit distance{DistanceUnit::Kilometers};
+	MassUnit mass{MassUnit::SolarMasses};
+	VelocityUnit velocity{VelocityUnit::KilometersPerSecond};
 	EnergyUnit energy{EnergyUnit::Joules};
 	AngleUnit angle{AngleUnit::Radians};
 	TemperatureUnit temperature{TemperatureUnit::Kelvin};

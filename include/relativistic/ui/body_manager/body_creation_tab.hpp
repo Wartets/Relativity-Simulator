@@ -493,6 +493,25 @@ public:
 
 		apply_body_material_preset(d, chosen_preset);
 
+		d.friction_coefficient = ctx.sample_uniform(randomizer_config_.min_friction, randomizer_config_.max_friction);
+		d.restitution = ctx.sample_uniform(randomizer_config_.min_restitution, randomizer_config_.max_restitution);
+		d.elasticity = ctx.sample_uniform(randomizer_config_.min_elasticity, randomizer_config_.max_elasticity);
+		d.integrity = ctx.sample_uniform(randomizer_config_.min_integrity, randomizer_config_.max_integrity);
+		d.youngs_modulus_cold = ctx.sample_uniform(randomizer_config_.min_youngs_modulus, randomizer_config_.max_youngs_modulus);
+		d.youngs_modulus_hot = d.youngs_modulus_cold;
+		d.charge = ctx.sample_uniform(randomizer_config_.min_charge, randomizer_config_.max_charge);
+		d.magnetic_moment = ctx.sample_uniform(randomizer_config_.min_magnetic_moment, randomizer_config_.max_magnetic_moment);
+		d.quadrupole_moment = ctx.sample_uniform(randomizer_config_.min_quadrupole, randomizer_config_.max_quadrupole);
+		d.j2 = ctx.sample_uniform(randomizer_config_.min_j2, randomizer_config_.max_j2);
+		d.j3 = ctx.sample_uniform(randomizer_config_.min_j3, randomizer_config_.max_j3);
+		d.j4 = ctx.sample_uniform(randomizer_config_.min_j4, randomizer_config_.max_j4);
+		const double obl = ctx.sample_uniform(randomizer_config_.min_oblateness, randomizer_config_.max_oblateness);
+		if (obl < 0.98) {
+			d.geometry_model = Dynamics::Body3DGeometryModel::OblateSpheroid;
+		} else if (obl > 1.02) {
+			d.geometry_model = Dynamics::Body3DGeometryModel::ProlateSpheroid;
+		}
+
 		const float jitter = static_cast<float>(randomizer_config_.appearance_color_jitter);
 		if (jitter > 0.0f) {
 			const float base_hue = static_cast<float>(ctx.random_real(0.0, 1.0));
@@ -502,22 +521,24 @@ public:
 			d.color[2] = std::clamp(d.color[2] * (1.0f - jitter) + rgb[2] * jitter, 0.0f, 1.0f);
 		}
 
-		d.surface_noise_scale = static_cast<float>(ctx.random_real(2.0, 18.0));
-		d.surface_roughness = static_cast<float>(ctx.random_real(0.2, 0.85));
-		d.texture_detail_scale = static_cast<float>(ctx.random_real(0.75, 2.0));
+		d.surface_noise_scale = static_cast<float>(ctx.sample_uniform(randomizer_config_.min_noise_scale, randomizer_config_.max_noise_scale));
+		d.surface_roughness = static_cast<float>(ctx.sample_uniform(randomizer_config_.min_roughness, randomizer_config_.max_roughness));
+		d.texture_detail_scale = static_cast<float>(ctx.sample_uniform(randomizer_config_.min_texture_detail, randomizer_config_.max_texture_detail));
+		d.specular_roughness = static_cast<float>(ctx.sample_uniform(randomizer_config_.min_specular_roughness, randomizer_config_.max_specular_roughness));
+		d.emission_intensity = (chosen_preset == Dynamics::Body3DPreset::Star) ? static_cast<float>(ctx.sample_uniform(std::max(1.5, randomizer_config_.min_emission), std::max(3.5, randomizer_config_.max_emission))) : static_cast<float>(ctx.sample_uniform(randomizer_config_.min_emission, randomizer_config_.max_emission));
 
 		const bool is_terrestrial = (chosen_preset == Dynamics::Body3DPreset::TerrestrialPlanet);
 		const bool is_giant = (chosen_preset == Dynamics::Body3DPreset::GasGiant || chosen_preset == Dynamics::Body3DPreset::IceGiant);
 
 		if (randomizer_config_.allow_atmospheres && (ctx.random_real(0.0, 1.0) < randomizer_config_.atmosphere_probability)) {
-			d.atmosphere_thickness = static_cast<float>(ctx.random_real(0.05, 0.35));
+			d.atmosphere_thickness = static_cast<float>(ctx.sample_uniform(randomizer_config_.min_atmosphere_thickness, randomizer_config_.max_atmosphere_thickness));
 		} else {
 			d.atmosphere_thickness = 0.0f;
 			d.atmosphere_mode = Dynamics::Body3DAtmosphereMode::Off;
 		}
 
-		d.polar_cap_strength = (is_terrestrial || is_giant) ? static_cast<float>(ctx.random_real(0.1, 0.5)) : 0.0f;
-		d.night_side_light_intensity = is_terrestrial ? static_cast<float>(ctx.random_real(0.0, 0.5)) : 0.0f;
+		d.polar_cap_strength = (is_terrestrial || is_giant) ? static_cast<float>(ctx.sample_uniform(randomizer_config_.min_polar_cap, randomizer_config_.max_polar_cap)) : 0.0f;
+		d.night_side_light_intensity = is_terrestrial ? static_cast<float>(ctx.sample_uniform(randomizer_config_.min_night_lights, randomizer_config_.max_night_lights)) : 0.0f;
 		d.ring_system_enabled = is_giant && randomizer_config_.allow_ring_systems && (ctx.random_real(0.0, 1.0) < randomizer_config_.ring_system_probability);
 
 		d.set_name(ctx.unique_name(ctx.generate_object_name(chosen_preset)));

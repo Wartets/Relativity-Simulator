@@ -488,8 +488,8 @@ namespace Relativistic::UI {
 	options.mass_label = "Mass (M)";
 	options.mass_slider_minimum = 0.001;
 	options.mass_slider_maximum = 1.0e6;
-	options.mass_log_minimum = 1e-12;
-	options.mass_log_maximum = 1e60;
+	options.mass_log_minimum = 1.0e-6;
+	options.mass_log_maximum = 1.0e9;
 	options.charge_limit = std::max(b.mass, 1e-6);
 	const SpacetimeSourcePanelResult panel = render_spacetime_source_panel(orchestrator, view.source_parameters, values, options);
 	if (panel.mass_changed || panel.spin_changed || panel.charge_changed) {

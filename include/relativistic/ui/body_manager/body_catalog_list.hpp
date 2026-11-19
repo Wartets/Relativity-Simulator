@@ -1075,10 +1075,10 @@ inline void flatten_tree_branch(
 			if (hovered) {
 				ImGui::BeginTooltip();
 				ImGui::Text("Identifier: #%u", b.id);
-				ImGui::Text("Mass: %.6e", b.mass);
-				ImGui::Text("Distance from center: %.6f", BodyManagerContext::distance_from_center(b));
+				ImGui::Text("Mass: %s (%.6e sim)", Units::format_mass(b.mass * ctx.mass_scale(), prefs.mass).c_str(), b.mass);
+				ImGui::Text("Distance from center: %s (%.6f sim)", Units::format_distance(BodyManagerContext::distance_from_center(b) * length_scale, prefs.distance).c_str(), BodyManagerContext::distance_from_center(b));
 				ImGui::TextUnformatted(("Position: " + describe_position(ctx.orchestrator().coordinate_preferences().widget_default, b.position, make_coordinate_frame(ctx.orchestrator()), length_scale, prefs, 4)).c_str());
-				ImGui::Text("Speed: %.6e", b.speed());
+				ImGui::Text("Speed: %s (%.6e sim)", Units::format_velocity(b.speed() * ctx.speed_scale(), prefs.velocity).c_str(), b.speed());
 
 				const auto rel_plane_info = ctx.compute_relative_orbital_plane_state(b, (tree_item != nullptr && tree_item->parent_id >= 0) ? tree_item->parent_id : BodyManagerContext::kCentralSourceId);
 				if (rel_plane_info.valid) {

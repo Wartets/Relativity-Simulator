@@ -341,17 +341,39 @@ public:
 	void reset_draft(BodyManagerContext& ctx) noexcept {
 		auto& d = draft_;
 		d = Dynamics::PostNewtonianBody{};
+		const auto& rnd = ctx.randomizer_config();
 		const double central_mass = std::max(ctx.orchestrator().parameters().mass, 1.0);
-		d.mass = 0.25 * central_mass;
-		d.radius = 2.0 * d.mass;
-		d.reference_radius = d.radius;
-		d.position = {30.0 * central_mass, 0.0, 0.0};
+		const double mass_ratio = ctx.sample_uniform(rnd.min_source_mass_ratio, rnd.max_source_mass_ratio);
+		d.mass = std::max(central_mass * mass_ratio, 1e-6);
+		const double spin = ctx.sample_uniform(rnd.min_source_spin, rnd.max_source_spin);
+		d.charge = ctx.sample_uniform(rnd.min_source_charge, rnd.max_source_charge) * d.mass;
+		const double orbit_rg = ctx.sample_uniform(rnd.min_source_orbit_rg, rnd.max_source_orbit_rg);
+		const double orbit_r = central_mass * orbit_rg;
+		const double tilt_rad = ctx.sample_uniform(0.0, rnd.max_source_tilt_deg * (std::numbers::pi / 180.0));
+		const double theta = std::numbers::pi * 0.5 - tilt_rad;
+		const double phi = ctx.random_real(0.0, 2.0 * std::numbers::pi);
+		const double sin_t = std::sin(theta);
+		d.position = {orbit_r * sin_t * std::cos(phi), orbit_r * sin_t * std::sin(phi), orbit_r * std::cos(theta)};
 		d.velocity = ctx.compute_circular_orbit_velocity(d.position, central_mass + d.mass);
-		pristine_ = true;
-		reference_mass_ = ctx.orchestrator().parameters().mass;
+		const std::array<double, 3> spin_axis = (ctx.random_real(0.0, 1.0) < 0.7)
+			? std::array<double, 3>{0.0, 0.0, 1.0}
+			: std::array<double, 3>{ctx.random_real(-1.0, 1.0), ctx.random_real(-1.0, 1.0), ctx.random_real(0.1, 1.0)};
+		d.set_spin_state(spin, spin_axis);
+		d.radius = d.kerr_outer_horizon_radius();
+		d.reference_radius = d.radius;
 		d.is_spacetime_source = true;
 		apply_body_appearance_preset(d, Dynamics::Body3DPreset::BlackHole);
+		d.accretion_disk.enabled = (ctx.random_real(0.0, 1.0) < rnd.source_disk_probability);
+		if (d.accretion_disk.enabled) {
+			d.accretion_disk.peak_temperature_k = static_cast<float>(ctx.sample_uniform(rnd.min_source_disk_temp_k, rnd.max_source_disk_temp_k));
+			d.accretion_disk.outer_radius_mass_units = static_cast<float>(ctx.sample_uniform(rnd.min_source_disk_outer_rg, rnd.max_source_disk_outer_rg));
+			d.accretion_disk.brightness = static_cast<float>(ctx.sample_uniform(rnd.min_source_disk_brightness, rnd.max_source_disk_brightness));
+			d.accretion_disk.inner_radius_scale = 1.0f;
+		}
+		pristine_ = true;
+		reference_mass_ = ctx.orchestrator().parameters().mass;
 		d.set_name(ctx.unique_name(ctx.generate_source_name()));
+		ctx.resolve_source_placement(d);
 	}
 
 	void render(BodyManagerContext& ctx) noexcept {

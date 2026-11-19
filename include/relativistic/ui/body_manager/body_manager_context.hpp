@@ -191,6 +191,7 @@ private:
 	int tracked_body_id_{kNoSelection};
 	bool tracking_enabled_{false};
 	std::optional<BodyManagerTab> requested_tab_{};
+	BodyRandomizerConfig randomizer_config_{};
 	std::mt19937_64 rng_{std::random_device{}()};
 	bool pattern_generator_requested_{false};
 	std::vector<uint32_t> last_injected_batch_ids_{};
@@ -229,6 +230,14 @@ public:
 
 	[[nodiscard]] double simulation_c() const noexcept {
 		return orchestrator_.constants_engine().sim_speed_of_light();
+	}
+
+	[[nodiscard]] BodyRandomizerConfig& randomizer_config() noexcept {
+		return randomizer_config_;
+	}
+
+	[[nodiscard]] const BodyRandomizerConfig& randomizer_config() const noexcept {
+		return randomizer_config_;
 	}
 
 	[[nodiscard]] double mass_scale() const noexcept {

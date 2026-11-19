@@ -22,7 +22,7 @@
 
 namespace Relativistic::IO {
 
-inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 5;
+inline constexpr uint32_t USER_SETTINGS_FORMAT_VERSION = 6;
 
 struct SecondaryViewPersistedState {
 	bool active{false};
@@ -135,14 +135,14 @@ struct UserSettings {
 	bool window_keybind_settings_open{false};
 	bool window_constants_open{false};
 	bool window_capture_studio_open{false};
-	uint32_t constants_preset{0};
-	double constants_c{Core::SIReferenceConstants::SPEED_OF_LIGHT};
-	double constants_g{Core::SIReferenceConstants::GRAVITATIONAL_CONSTANT};
-	double constants_h{Core::SIReferenceConstants::PLANCK_CONSTANT};
-	double constants_kb{Core::SIReferenceConstants::BOLTZMANN_CONSTANT};
+	uint32_t constants_preset{1};
+	double constants_c{1.0};
+	double constants_g{1.0};
+	double constants_h{2.0 * std::numbers::pi};
+	double constants_kb{1.0};
 	double constants_na{Core::SIReferenceConstants::AVOGADRO_CONSTANT};
-	double constants_ke{Core::SIReferenceConstants::coulomb_constant()};
-	double constants_kcd{Core::SIReferenceConstants::LUMINOUS_EFFICACY_KCD};
+	double constants_ke{1.0};
+	double constants_kcd{1.0};
 	bool interaction_electricity_enabled{false};
 	bool interaction_magnetism_enabled{false};
 	double interaction_vacuum_permittivity{8.8541878128e-12};
@@ -457,6 +457,19 @@ struct UserSettings {
 		walk.maximum_drop_heights = get_dbl("cam_walk_max_drop_heights", walk.maximum_drop_heights);
 		if (file_version < 5) {
 			walk.head_bob_enabled = false;
+			result.format_version = USER_SETTINGS_FORMAT_VERSION;
+		}
+		if (file_version < 6) {
+			result.constants_preset = 1;
+			result.constants_c = 1.0;
+			result.constants_g = 1.0;
+			result.constants_h = 2.0 * std::numbers::pi;
+			result.constants_kb = 1.0;
+			result.constants_ke = 1.0;
+			result.constants_kcd = 1.0;
+			result.unit_preferences.mass = Units::MassUnit::SolarMasses;
+			result.unit_preferences.distance = Units::DistanceUnit::Kilometers;
+			result.unit_preferences.velocity = Units::VelocityUnit::KilometersPerSecond;
 			result.format_version = USER_SETTINGS_FORMAT_VERSION;
 		}
 		walk.sanitize();

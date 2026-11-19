@@ -503,8 +503,8 @@ private:
 		source_opts.render_lock_controls = horizon_constraints.any();
 		source_opts.mass_slider_minimum = 0.001;
 		source_opts.mass_slider_maximum = 1.0e6;
-		source_opts.mass_log_minimum = 1e-12;
-		source_opts.mass_log_maximum = 1e60;
+		source_opts.mass_log_minimum = 1.0e-6;
+		source_opts.mass_log_maximum = 1.0e9;
 		metric_source_edit_.mass_log_mode = mass_log_mode_;
 		metric_source_edit_.lambda_log_mode = lambda_log_mode_;
 

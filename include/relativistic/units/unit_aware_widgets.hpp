@@ -125,18 +125,16 @@ enum class UnitCategory : uint32_t {
 		std::swap(displayed_min, displayed_max);
 	}
 
-	float log_min_f = std::numeric_limits<float>::quiet_NaN();
-	float log_max_f = std::numeric_limits<float>::quiet_NaN();
+	double log_min_disp = std::numeric_limits<double>::quiet_NaN();
+	double log_max_disp = std::numeric_limits<double>::quiet_NaN();
 	if (std::isfinite(canonical_log_min_override) && std::isfinite(canonical_log_max_override)) {
 		double dl_min = unit_category_from_canonical(category, canonical_log_min_override, prefs);
 		double dl_max = unit_category_from_canonical(category, canonical_log_max_override, prefs);
 		if (dl_min > dl_max) {
 			std::swap(dl_min, dl_max);
 		}
-		dl_min = std::clamp(dl_min, 1e-30, 1e35);
-		dl_max = std::clamp(dl_max, 1e-30, 1e35);
-		log_min_f = static_cast<float>(dl_min);
-		log_max_f = static_cast<float>(dl_max);
+		log_min_disp = std::clamp(dl_min, 1e-300, 1e300);
+		log_max_disp = std::clamp(dl_max, 1e-300, 1e300);
 	}
 
 	char labeled[192];
@@ -146,15 +144,15 @@ enum class UnitCategory : uint32_t {
 		std::snprintf(labeled, sizeof(labeled), "%s", base_label);
 	}
 
-	float displayed_value = static_cast<float>(unit_category_from_canonical(category, *canonical_value, prefs));
-	const bool changed = slider_float_with_input(
+	double displayed_value = unit_category_from_canonical(category, *canonical_value, prefs);
+	const bool changed = slider_double_with_input(
 		labeled, &displayed_value,
-		static_cast<float>(displayed_min), static_cast<float>(displayed_max),
-		format, log_mode, log_min_f, log_max_f
+		displayed_min, displayed_max,
+		format, log_mode, log_min_disp, log_max_disp
 	);
 
 	if (changed) {
-		*canonical_value = unit_category_to_canonical(category, static_cast<double>(displayed_value), prefs);
+		*canonical_value = unit_category_to_canonical(category, displayed_value, prefs);
 	}
 	return changed;
 }
@@ -174,16 +172,16 @@ enum class UnitCategory : uint32_t {
 		std::snprintf(labeled, sizeof(labeled), "%s", base_label);
 	}
 
-	float displayed[3] = {
-		static_cast<float>(unit_category_from_canonical(category, pos_canonical[0], prefs)),
-		static_cast<float>(unit_category_from_canonical(category, pos_canonical[1], prefs)),
-		static_cast<float>(unit_category_from_canonical(category, pos_canonical[2], prefs))
+	double displayed[3] = {
+		unit_category_from_canonical(category, pos_canonical[0], prefs),
+		unit_category_from_canonical(category, pos_canonical[1], prefs),
+		unit_category_from_canonical(category, pos_canonical[2], prefs)
 	};
 
-	if (ImGui::InputFloat3(labeled, displayed, format)) {
-		pos_canonical[0] = unit_category_to_canonical(category, static_cast<double>(displayed[0]), prefs);
-		pos_canonical[1] = unit_category_to_canonical(category, static_cast<double>(displayed[1]), prefs);
-		pos_canonical[2] = unit_category_to_canonical(category, static_cast<double>(displayed[2]), prefs);
+	if (ImGui::InputScalarN(labeled, ImGuiDataType_Double, displayed, 3, nullptr, nullptr, format)) {
+		pos_canonical[0] = unit_category_to_canonical(category, displayed[0], prefs);
+		pos_canonical[1] = unit_category_to_canonical(category, displayed[1], prefs);
+		pos_canonical[2] = unit_category_to_canonical(category, displayed[2], prefs);
 		return true;
 	}
 	return false;
@@ -221,9 +219,9 @@ enum class UnitCategory : uint32_t {
 		std::snprintf(labeled, sizeof(labeled), "%s", base_label);
 	}
 
-	float displayed = static_cast<float>(unit_category_from_canonical(category, *canonical_val, prefs));
-	if (ImGui::InputFloat(labeled, &displayed, 0.0f, 0.0f, format)) {
-		*canonical_val = unit_category_to_canonical(category, static_cast<double>(displayed), prefs);
+	double displayed = unit_category_from_canonical(category, *canonical_val, prefs);
+	if (ImGui::InputDouble(labeled, &displayed, 0.0, 0.0, format)) {
+		*canonical_val = unit_category_to_canonical(category, displayed, prefs);
 		return true;
 	}
 	return false;

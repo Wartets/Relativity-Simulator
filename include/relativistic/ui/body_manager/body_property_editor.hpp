@@ -176,14 +176,14 @@ namespace Relativistic::UI {
 
 	render_group_title("Mass, Size & Charge", ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
 	double mass_kg = b.mass * mass_scale_kg;
-	if (unit_aware_slider_double("Mass", &mass_kg, 0.001 * mass_scale_kg, 1.0e6 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-12 * mass_scale_kg, 1e30)) {
+	if (unit_aware_slider_double("Mass", &mass_kg, 1e-15 * mass_scale_kg, 1.0e9 * mass_scale_kg, UnitCategory::Mass, prefs, "%.4f", &view.mass_log_mode, 1e-18 * mass_scale_kg, 1.0e9 * mass_scale_kg)) {
 		b.mass = std::max(0.0, mass_kg / mass_scale_kg);
 		changed = true;
 	}
 	render_setting_tooltip(("Gravitating mass of this body, displayed in " + std::string(Units::mass_unit_suffix(prefs.mass)) + ".").c_str());
 
 	double radius_m = b.radius * length_scale_m;
-	if (unit_aware_slider_double("Physical Radius", &radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.radius_log_mode, 1e-6 * length_scale_m, 1e30)) {
+	if (unit_aware_slider_double("Physical Radius", &radius_m, 1e-6 * length_scale_m, 1.0e9 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.radius_log_mode, 1e-6 * length_scale_m, 1.0e9 * length_scale_m)) {
 		b.radius = std::max(1e-6, radius_m / length_scale_m);
 		changed = true;
 	}
@@ -292,7 +292,7 @@ namespace Relativistic::UI {
 	const auto& prefs = ctx.orchestrator().unit_preferences();
 	const double length_scale_m = ctx.length_scale();
 	double reference_radius_m = b.reference_radius * length_scale_m;
-	if (unit_aware_slider_double("Multipole Reference Radius", &reference_radius_m, 0.001 * length_scale_m, 1.0e5 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.reference_radius_log_mode, 1e-6 * length_scale_m, 1e30)) {
+	if (unit_aware_slider_double("Multipole Reference Radius", &reference_radius_m, 1e-6 * length_scale_m, 1.0e9 * length_scale_m, UnitCategory::Distance, prefs, "%.4f", &view.reference_radius_log_mode, 1e-6 * length_scale_m, 1.0e9 * length_scale_m)) {
 		b.reference_radius = std::max(1e-6, reference_radius_m / length_scale_m);
 		changed = true;
 	}

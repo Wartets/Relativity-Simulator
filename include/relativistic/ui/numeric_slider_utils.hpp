@@ -67,8 +67,27 @@ namespace Detail {
 	return {std::max(lower, kMinPositive), std::min(upper, kMaxPositive)};
 }
 
+[[nodiscard]] inline std::pair<double, double> default_log_slider_bounds_double(double min_val, double max_val) noexcept {
+	constexpr double kMinPositive = 1e-300;
+	constexpr double kMaxPositive = 1e300;
+	if (!(max_val > 0.0)) {
+		return {min_val, max_val};
+	}
+	const double safe_min = std::clamp(min_val, kMinPositive, kMaxPositive);
+	const double safe_max = std::clamp(max_val, safe_min * 1.0001, kMaxPositive);
+	const double exp_min = std::clamp(std::floor(std::log10(safe_min)) - 1.0, -300.0, 300.0);
+	const double exp_max = std::clamp(std::ceil(std::log10(safe_max)) + 1.0, exp_min + 0.1, 300.0);
+	const double lower = std::pow(10.0, exp_min);
+	const double upper = std::pow(10.0, exp_max);
+	return {std::max(lower, kMinPositive), std::min(upper, kMaxPositive)};
+}
+
 [[nodiscard]] inline bool use_log_slider(const bool* log_mode, float min_val, float max_val) noexcept {
 	return log_mode != nullptr && *log_mode && min_val > 0.0f && max_val > min_val;
+}
+
+[[nodiscard]] inline bool use_log_slider_double(const bool* log_mode, double min_val, double max_val) noexcept {
+	return log_mode != nullptr && *log_mode && min_val > 0.0 && max_val > min_val;
 }
 
 [[nodiscard]] inline bool format_has_exponent(const char* format) noexcept {
@@ -163,14 +182,70 @@ inline bool slider_double_with_input(
 	double max_val,
 	const char* format = "%.4f",
 	bool* log_mode = nullptr,
-	float log_min_override = std::numeric_limits<float>::quiet_NaN(),
-	float log_max_override = std::numeric_limits<float>::quiet_NaN()
+	double log_min_override = std::numeric_limits<double>::quiet_NaN(),
+	double log_max_override = std::numeric_limits<double>::quiet_NaN()
 ) noexcept {
-	float f_val = static_cast<float>(*value);
-	const bool changed = slider_float_with_input(label, &f_val, static_cast<float>(min_val), static_cast<float>(max_val), format, log_mode, log_min_override, log_max_override);
-	if (changed) {
-		*value = static_cast<double>(f_val);
+	bool changed = false;
+	ImGui::PushID(label);
+
+	if (log_mode != nullptr) {
+		bool* prev_log_mode = ImGui::GetStateStorage()->GetBoolRef(ImGui::GetID("##prev_log_state"), *log_mode);
+		if (*prev_log_mode && !*log_mode) {
+			*value = std::clamp(*value, min_val, max_val);
+		}
+		*prev_log_mode = *log_mode;
 	}
+
+	constexpr float input_width = 92.0f;
+	const float avail = ImGui::CalcItemWidth();
+	ImGui::SetNextItemWidth(std::max(avail - input_width - 8.0f, 60.0f));
+
+	const bool log_slider_enabled = Detail::use_log_slider_double(log_mode, min_val, max_val);
+	const char* normal_display_format = Detail::format_has_exponent(format) ? "%.6g" : format;
+	double visible_min = min_val;
+	double visible_max = max_val;
+	if (log_slider_enabled) {
+		constexpr double kMaxSafeDouble = 1e300;
+		constexpr double kMinSafeDouble = 1e-300;
+		auto [resolved_log_min, resolved_log_max] = std::isfinite(log_min_override) && std::isfinite(log_max_override) && log_max_override > log_min_override
+			? std::pair<double, double>{std::clamp(log_min_override, kMinSafeDouble, kMaxSafeDouble), std::clamp(log_max_override, kMinSafeDouble * 1.0001, kMaxSafeDouble)}
+			: Detail::default_log_slider_bounds_double(min_val, max_val);
+		if (resolved_log_min >= resolved_log_max) {
+			resolved_log_max = resolved_log_min * 10.0;
+		}
+		visible_min = std::clamp(resolved_log_min, kMinSafeDouble, kMaxSafeDouble);
+		visible_max = std::clamp(resolved_log_max, visible_min * 1.0001, kMaxSafeDouble);
+		double log_val = std::log10(std::clamp(*value, visible_min, visible_max));
+		const double log_min = std::log10(visible_min);
+		const double log_max = std::log10(visible_max);
+		if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &log_val, &log_min, &log_max, "10^%.2f")) {
+			*value = std::pow(10.0, log_val);
+			changed = true;
+		}
+	} else {
+		if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, value, &min_val, &max_val, normal_display_format)) {
+			changed = true;
+		}
+	}
+
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(input_width);
+	double input_copy = *value;
+	const char* input_format = log_slider_enabled ? format : normal_display_format;
+	if (ImGui::InputDouble("##input", &input_copy, 0.0, 0.0, input_format)) {
+		*value = std::clamp(input_copy, log_slider_enabled ? visible_min : min_val, log_slider_enabled ? visible_max : max_val);
+		changed = true;
+	}
+
+	if (log_mode != nullptr) {
+		ImGui::SameLine();
+		ImGui::Checkbox("Log", log_mode);
+	}
+
+	ImGui::SameLine();
+	ImGui::TextUnformatted(label);
+
+	ImGui::PopID();
 	return changed;
 }
 

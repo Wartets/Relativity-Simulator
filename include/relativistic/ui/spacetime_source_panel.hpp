@@ -29,9 +29,9 @@ struct SpacetimeSourcePanelOptions {
 	bool constrain_mass{true};
 	bool spin_non_negative{false};
 	double mass_slider_minimum{0.01};
-	double mass_slider_maximum{100.0};
-	double mass_log_minimum{0.01};
-	double mass_log_maximum{1.0e30};
+	double mass_slider_maximum{1.0e6};
+	double mass_log_minimum{1.0e-6};
+	double mass_log_maximum{1.0e9};
 	double charge_limit{0.0};
 };
 

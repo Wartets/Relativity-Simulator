@@ -555,7 +555,8 @@ inline void apply_system_preset(BodyManagerContext& ctx, const SystemPresetDefin
 	const double g_sim = ctx.simulation_g();
 
 	auto& params = orchestrator.parameters();
-	params.mass = preset.central_mass_kg / mass_scale;
+	const bool is_flat = (preset.metric_name == "Flat Minkowski");
+	params.mass = is_flat ? 0.0 : (preset.central_mass_kg / mass_scale);
 	params.render_distance_scale = 0.0;
 	orchestrator.set_active_metric_name(preset.metric_name);
 
@@ -573,13 +574,15 @@ inline void apply_system_preset(BodyManagerContext& ctx, const SystemPresetDefin
 	};
 	std::vector<SpawnedRef> spawned_refs;
 
+	const double effective_system_center_mass = is_flat ? (preset.central_mass_kg / mass_scale) : params.mass;
+
 	for (const auto& spec : preset.bodies) {
 		const double m_body = spec.mass_kg / mass_scale;
 		const double r_body = std::max(spec.radius_m / length_scale, 1e-6);
 
 		std::array<double, 3> parent_pos{0.0, 0.0, 0.0};
 		std::array<double, 3> parent_vel{0.0, 0.0, 0.0};
-		double parent_m = params.mass;
+		double parent_m = effective_system_center_mass;
 
 		if (!spec.parent_name.empty()) {
 			for (const auto& ref : spawned_refs) {
@@ -682,6 +685,15 @@ inline void apply_system_preset(BodyManagerContext& ctx, const SystemPresetDefin
 	}
 
 	sys.update_accelerations();
+
+	const double central_r = preset.central_radius_m / length_scale;
+	const double safe_view_distance = std::max(central_r * 4.5, 30.0);
+	auto& cam = orchestrator.camera();
+	cam.position = {0.0, safe_view_distance, safe_view_distance * 0.35};
+	cam.target = {0.0, 0.0, 0.0};
+	cam.orbit_distance = safe_view_distance;
+	cam.synchronize_spherical();
+
 	orchestrator.notify_state_changed();
 }
 

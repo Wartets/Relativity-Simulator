@@ -102,6 +102,7 @@ public:
 		interactions_tab_.sec_annihilation_open() = settings.interactions_sec_annihilation_open;
 		object_catalog_tab_.filter().physical_ranges_open = settings.catalog_filter_ranges_open;
 		object_creation_tab_.randomizer_config() = settings.body_randomizer;
+		context_.randomizer_config() = settings.body_randomizer;
 	}
 
 	void sync_persisted_settings() noexcept {
@@ -149,6 +150,7 @@ public:
 		persisted_settings_->interactions_sec_frag_open = interactions_tab_.sec_frag_open();
 		persisted_settings_->interactions_sec_annihilation_open = interactions_tab_.sec_annihilation_open();
 		persisted_settings_->catalog_filter_ranges_open = object_catalog_tab_.filter().physical_ranges_open;
+		context_.randomizer_config() = object_creation_tab_.randomizer_config();
 		persisted_settings_->body_randomizer = object_creation_tab_.randomizer_config();
 	}
 
@@ -383,16 +385,101 @@ private:
 			ImGui::Checkbox("Asteroids / Moons", &cfg.archetypes.allow_asteroid);
 		}
 
+		if (ImGui::CollapsingHeader("Material & Mechanical Bounds")) {
+			float min_fric = static_cast<float>(cfg.min_friction);
+			float max_fric = static_cast<float>(cfg.max_friction);
+			if (ImGui::DragFloatRange2("Friction Range", &min_fric, &max_fric, 0.01f, 0.0f, 1.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_friction = min_fric;
+				cfg.max_friction = max_fric;
+			}
+			float min_rest = static_cast<float>(cfg.min_restitution);
+			float max_rest = static_cast<float>(cfg.max_restitution);
+			if (ImGui::DragFloatRange2("Restitution Range", &min_rest, &max_rest, 0.01f, 0.0f, 1.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_restitution = min_rest;
+				cfg.max_restitution = max_rest;
+			}
+			float min_integ = static_cast<float>(cfg.min_integrity);
+			float max_integ = static_cast<float>(cfg.max_integrity);
+			if (ImGui::DragFloatRange2("Integrity Range", &min_integ, &max_integ, 0.05f, 0.0f, 10.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_integrity = min_integ;
+				cfg.max_integrity = max_integ;
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Multipole Moments & Zonal Harmonics Bounds")) {
+			float min_j2 = static_cast<float>(cfg.min_j2);
+			float max_j2 = static_cast<float>(cfg.max_j2);
+			if (ImGui::DragFloatRange2("J2 Moment Range", &min_j2, &max_j2, 0.0001f, 0.0f, 0.05f, "Min: %.4f", "Max: %.4f")) {
+				cfg.min_j2 = min_j2;
+				cfg.max_j2 = max_j2;
+			}
+			float min_obl = static_cast<float>(cfg.min_oblateness);
+			float max_obl = static_cast<float>(cfg.max_oblateness);
+			if (ImGui::DragFloatRange2("Oblateness Range", &min_obl, &max_obl, 0.01f, 0.5f, 2.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_oblateness = min_obl;
+				cfg.max_oblateness = max_obl;
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Surface Appearance & Texture Bounds")) {
+			float min_noise = static_cast<float>(cfg.min_noise_scale);
+			float max_noise = static_cast<float>(cfg.max_noise_scale);
+			if (ImGui::DragFloatRange2("Noise Scale Range", &min_noise, &max_noise, 0.1f, 0.5f, 50.0f, "Min: %.1f", "Max: %.1f")) {
+				cfg.min_noise_scale = min_noise;
+				cfg.max_noise_scale = max_noise;
+			}
+			float min_rough = static_cast<float>(cfg.min_roughness);
+			float max_rough = static_cast<float>(cfg.max_roughness);
+			if (ImGui::DragFloatRange2("Roughness Range", &min_rough, &max_rough, 0.01f, 0.01f, 1.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_roughness = min_rough;
+				cfg.max_roughness = max_rough;
+			}
+			float min_emit = static_cast<float>(cfg.min_emission);
+			float max_emit = static_cast<float>(cfg.max_emission);
+			if (ImGui::DragFloatRange2("Emission Range", &min_emit, &max_emit, 0.05f, 0.0f, 10.0f, "Min: %.2f", "Max: %.2f")) {
+				cfg.min_emission = min_emit;
+				cfg.max_emission = max_emit;
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Spacetime Source Randomizer Bounds")) {
+			float min_smr = static_cast<float>(cfg.min_source_mass_ratio);
+			float max_smr = static_cast<float>(cfg.max_source_mass_ratio);
+			if (ImGui::DragFloatRange2("Source Mass Ratio (M_bh / M_central)", &min_smr, &max_smr, 0.01f, 0.001f, 5.0f, "Min: %.3f", "Max: %.3f")) {
+				cfg.min_source_mass_ratio = min_smr;
+				cfg.max_source_mass_ratio = max_smr;
+			}
+			float min_s_orb = static_cast<float>(cfg.min_source_orbit_rg);
+			float max_s_orb = static_cast<float>(cfg.max_source_orbit_rg);
+			if (ImGui::DragFloatRange2("Source Orbit Radius (r_g)", &min_s_orb, &max_s_orb, 1.0f, 4.0f, 500.0f, "Min: %.1f", "Max: %.1f")) {
+				cfg.min_source_orbit_rg = min_s_orb;
+				cfg.max_source_orbit_rg = max_s_orb;
+			}
+			float min_s_spin = static_cast<float>(cfg.min_source_spin);
+			float max_s_spin = static_cast<float>(cfg.max_source_spin);
+			if (ImGui::DragFloatRange2("Kerr Dimensionless Spin (a/M)", &min_s_spin, &max_s_spin, 0.01f, 0.0f, 0.999f, "Min: %.3f", "Max: %.3f")) {
+				cfg.min_source_spin = min_s_spin;
+				cfg.max_source_spin = max_s_spin;
+			}
+			float disk_prob = static_cast<float>(cfg.source_disk_probability);
+			if (ImGui::SliderFloat("Accretion Disk Probability", &disk_prob, 0.0f, 1.0f, "%.2f")) {
+				cfg.source_disk_probability = disk_prob;
+			}
+		}
+
 		ImGui::Spacing();
 		if (ImGui::Button("Reset Randomizer Bounds To Astrophysical Defaults", ImVec2(-1.0f, 26.0f))) {
 			cfg = BodyRandomizerConfig{};
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Test Random Draft Generation", ImVec2(-1.0f, 26.0f))) {
+			context_.randomizer_config() = cfg;
 			object_creation_tab_.reset_draft(context_);
+			source_creation_tab_.reset_draft(context_);
 		}
 
 		cfg.sanitize();
+		context_.randomizer_config() = cfg;
 	}
 };
 

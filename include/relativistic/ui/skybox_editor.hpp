@@ -189,6 +189,7 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			changed = slider_double_with_input("Nebulae Quality Multiplier", &sky.nebula_quality_factor, 0.01, 5.0, "%.2fx") || changed;
 			changed = slider_double_with_input("Clusters Quality Multiplier", &sky.cluster_quality_factor, 0.01, 5.0, "%.2fx") || changed;
 			changed = slider_double_with_input("Dust Quality Multiplier", &sky.dust_quality_factor, 0.01, 5.0, "%.2fx") || changed;
+			changed = slider_double_with_input("Exotic Objects Quality Multiplier", &sky.exotic_quality_factor, 0.01, 5.0, "%.2fx") || changed;
 			ImGui::TreePop();
 		}
 	}
@@ -197,49 +198,59 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		changed = ImGui::Checkbox("Enable Stars", &sky.stars_enabled) || changed;
 		if (sky.stars_enabled) {
 			const char* kProfileModels[] = {
-				"Gaussian (Smooth Astronomical Bell Curve)",
-				"Lorentzian / Cauchy (Broad Wings & Halo)",
+				"Gaussian (Astronomical Seeing Disk)",
+				"Lorentzian / Cauchy (Broad Wings & Halos)",
 				"Moffat (Telescopic Power-Law Profile)",
 				"Airy Diffraction Disk (Concentric Bessel Rings)",
 				"Hard Disc (Solid Anti-Aliased Circle)",
-				"Diffraction Spikes (Telescopic Cross Pattern)"
+				"Diffraction Spikes (Telescopic Vane Pattern)",
+				"Pinpoint Dirac (Pure Sub-Pixel Point Stars)",
+				"Cinematic Bloom (Core + Glare Radiance)"
 			};
-			int profile_idx = static_cast<int>(std::min(sky.star_profile_model, 5U));
+			int profile_idx = static_cast<int>(std::min(sky.star_profile_model, 7U));
 			if (ImGui::Combo("Star Profile Model (PSF)", &profile_idx, kProfileModels, IM_ARRAYSIZE(kProfileModels))) {
 				sky.star_profile_model = static_cast<uint32_t>(profile_idx);
 				changed = true;
 			}
-			render_setting_tooltip("Mathematical point spread function governing stellar optical radiance and appearance.");
+			render_setting_tooltip("Mathematical point spread function governing stellar optical radiance and profile geometry.");
 
-			if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::Moffat)) {
+			if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::PinpointDirac)) {
+				changed = slider_double_with_input("Sub-Pixel Concentration", &sky.star_dirac_concentration, 0.5, 0.999, "%.3f") || changed;
+				render_setting_tooltip("Concentrates star radiance directly into the hit direction with minimal geometric spread.");
+			} else if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::CinematicBloom)) {
+				changed = slider_double_with_input("Bloom Radius Multiplier", &sky.star_bloom_radius, 1.0, 10.0, "%.2fx") || changed;
+				changed = slider_double_with_input("Bloom Glare Intensity", &sky.star_bloom_intensity, 0.0, 2.0, "%.2f") || changed;
+			} else if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::Moffat)) {
 				changed = slider_double_with_input("Moffat Power-Law Index (beta)", &sky.star_profile_param, 1.1, 6.0, "%.2f") || changed;
 				render_setting_tooltip("Controls the slope of outer stellar wings. Lower values yield diffuse halos; higher values approach Gaussian falloff.");
 			} else if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::Lorentzian)) {
 				changed = slider_double_with_input("Lorentzian Wing Scale", &sky.star_profile_param, 0.1, 5.0, "%.2f") || changed;
 				render_setting_tooltip("Relative intensity and spread of heavy Lorentzian stellar wings.");
 			} else if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::HardDisc)) {
-				changed = slider_double_with_input("Disc Edge Softness", &sky.star_profile_softness, 0.01, 0.5, "%.3f") || changed;
+				changed = slider_double_with_input("Disc Edge Softness", &sky.star_profile_softness, 0.005, 0.5, "%.3f") || changed;
 				render_setting_tooltip("Sub-pixel anti-aliasing feathering width around the disc boundary.");
 			} else if (sky.star_profile_model == static_cast<uint32_t>(Render::StarProfileModel::DiffractionSpikes)) {
-				int spikes_choice = (sky.star_spike_count == 6U) ? 1 : 0;
-				const char* kSpikeChoices[] = {"4-Point Spikes (Reflector)", "6-Point Spikes (Hexagonal / JWST)"};
+				int spikes_choice = (sky.star_spike_count == 6U) ? 1 : ((sky.star_spike_count == 8U) ? 2 : 0);
+				const char* kSpikeChoices[] = {"4-Point Spikes (Newtonian)", "6-Point Spikes (Hexagonal / JWST)", "8-Point Spikes (Complex Spider)"};
 				if (ImGui::Combo("Spike Geometry", &spikes_choice, kSpikeChoices, IM_ARRAYSIZE(kSpikeChoices))) {
-					sky.star_spike_count = (spikes_choice == 1) ? 6U : 4U;
+					sky.star_spike_count = (spikes_choice == 1) ? 6U : ((spikes_choice == 2) ? 8U : 4U);
 					changed = true;
 				}
-				changed = slider_double_with_input("Spike Length Multiplier", &sky.star_spike_length, 0.5, 12.0, "%.2fx") || changed;
-				changed = slider_double_with_input("Spike Intensity", &sky.star_spike_intensity, 0.0, 3.0, "%.2f") || changed;
+				changed = slider_double_with_input("Spike Length Multiplier", &sky.star_spike_length, 0.5, 16.0, "%.2fx") || changed;
+				changed = slider_double_with_input("Spike Intensity", &sky.star_spike_intensity, 0.0, 4.0, "%.2f") || changed;
 				changed = slider_double_with_input("Spike Orientation (deg)", &sky.star_spike_angle_deg, 0.0, 180.0, "%.1f") || changed;
 			}
 
 			ImGui::Separator();
 			const char* kPlacementModels[] = {
-				"Uniform Equal-Area (Isotropic Sphere)",
+				"Uniform Equal-Area (Isotropic Poisson on S2)",
 				"Galactic Disk (Plane Concentrated)",
 				"Fractal Clustered (Stellar Associations)",
-				"Dual Population (Disk + Isotropic Halo)"
+				"Dual Population (Disk + Isotropic Halo)",
+				"Spiral Arm Density (Logarithmic Arms)",
+				"Constellation Associations (Loose Groups)"
 			};
-			int placement_idx = static_cast<int>(std::min(sky.star_placement_model, 3U));
+			int placement_idx = static_cast<int>(std::min(sky.star_placement_model, 5U));
 			if (ImGui::Combo("Star Placement Model", &placement_idx, kPlacementModels, IM_ARRAYSIZE(kPlacementModels))) {
 				sky.star_placement_model = static_cast<uint32_t>(placement_idx);
 				changed = true;
@@ -247,20 +258,22 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			render_setting_tooltip("Spatial density distribution of stars across the celestial sphere.");
 
 			if (sky.star_placement_model == static_cast<uint32_t>(Render::StarPlacementModel::GalacticDisk) ||
-				sky.star_placement_model == static_cast<uint32_t>(Render::StarPlacementModel::DualPopulation)) {
-				changed = slider_double_with_input("Galactic Plane Concentration", &sky.star_galactic_concentration, 0.5, 10.0, "%.2f") || changed;
+				sky.star_placement_model == static_cast<uint32_t>(Render::StarPlacementModel::DualPopulation) ||
+				sky.star_placement_model == static_cast<uint32_t>(Render::StarPlacementModel::SpiralArmDensity)) {
+				changed = slider_double_with_input("Galactic Plane Concentration", &sky.star_galactic_concentration, 0.5, 12.0, "%.2f") || changed;
 				render_setting_tooltip("Degree of vertical confinement toward the defined galactic plane.");
 			}
 
 			ImGui::Separator();
-			changed = slider_double_with_input("Star Density", &sky.star_density, 0.01, 8.0, "%.3f") || changed;
-			changed = slider_double_with_input("Star Brightness", &sky.star_brightness, 0.0, 15.0, "%.2f") || changed;
+			changed = slider_double_with_input("Star Density", &sky.star_density, 0.01, 15.0, "%.3f") || changed;
+			changed = slider_double_with_input("Star Brightness", &sky.star_brightness, 0.0, 20.0, "%.2f") || changed;
 
 			static bool star_min_size_log = true;
-			changed = slider_double_with_input("Minimum Angular Size (rad)", &sky.star_size_min, 0.000001, 0.005, "%.6f", &star_min_size_log, 0.000001, 0.005) || changed;
-			render_setting_tooltip("Smallest angular radius for distant point-like stars, down to 1e-6 radians for sub-pixel pinpricks.");
+			changed = slider_double_with_input("Minimum Angular Size (rad)", &sky.star_size_min, 0.0, 0.005, "%.7f", &star_min_size_log, 0.0, 0.005) || changed;
+			render_setting_tooltip("Smallest angular radius for distant stars, allowing true zero for pure sub-pixel point sources.");
 
-			changed = slider_double_with_input("Maximum Angular Size (rad)", &sky.star_size_max, 0.0001, 0.025, "%.5f") || changed;
+			static bool star_max_size_log = true;
+			changed = slider_double_with_input("Maximum Angular Size (rad)", &sky.star_size_max, 0.00005, 0.04, "%.5f", &star_max_size_log, 0.00005, 0.04) || changed;
 
 			static const char* kSizeDistributions[] = {"Uniform", "Salpeter Power-Law", "Exponential", "Log-Normal", "Gaussian"};
 			int current_size_dist = static_cast<int>(std::min(sky.star_size_distribution, 4U));
@@ -436,14 +449,33 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Exotic Sources (Quasars & Pulsars)")) {
+	if (ImGui::CollapsingHeader("Exotic Sources (Quasars, Pulsars & Supernova Remnants)", ImGuiTreeNodeFlags_DefaultOpen)) {
 		changed = ImGui::Checkbox("Enable Exotic Objects", &sky.exotic_objects_enabled) || changed;
 		if (sky.exotic_objects_enabled) {
-			changed = slider_double_with_input("Quasar Density", &sky.quasar_density, 0.0, 0.5, "%.3f") || changed;
-			changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.0, 15.0, "%.2f") || changed;
-			changed = slider_double_with_input("Quasar Core Size", &sky.quasar_core_size, 0.0001, 0.002, "%.5f") || changed;
-			changed = slider_double_with_input("Pulsar Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 20.0, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.05, 0.95, "%.2f") || changed;
+			changed = slider_double_with_input("Exotic Objects Density", &sky.quasar_density, 0.01, 2.0, "%.3f") || changed;
+			changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.1, 25.0, "%.2f") || changed;
+
+			static bool quasar_size_log = true;
+			changed = slider_double_with_input("Quasar Core Angular Radius (rad)", &sky.quasar_core_size, 0.0001, 0.01, "%.5f", &quasar_size_log, 0.0001, 0.01) || changed;
+			render_setting_tooltip("Angular radius of the luminous quasar nucleus on the sky.");
+
+			changed = slider_double_with_input("Quasar Relativistic Jet Length (rad)", &sky.quasar_jet_length, 0.002, 0.1, "%.4f") || changed;
+			changed = slider_double_with_input("Quasar Relativistic Jet Intensity", &sky.quasar_jet_intensity, 0.0, 10.0, "%.2f") || changed;
+
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Pulsar Emission:");
+			changed = slider_double_with_input("Pulsar Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 30.0, "%.2f") || changed;
+			changed = slider_double_with_input("Pulsar Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.02, 0.95, "%.2f") || changed;
+			changed = slider_double_with_input("Pulsar Beaming Cone Half-Angle (deg)", &sky.pulsar_beam_width_deg, 2.0, 45.0, "%.1f") || changed;
+
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Supernova Remnants (SNR):");
+			changed = ImGui::Checkbox("Enable Supernova Remnant Shells", &sky.snr_enabled) || changed;
+			if (sky.snr_enabled) {
+				changed = slider_double_with_input("SNR Shell Brightness", &sky.snr_brightness, 0.1, 10.0, "%.2f") || changed;
+				changed = slider_double_with_input("SNR Shell Thickness Fraction", &sky.snr_shell_thickness, 0.02, 0.5, "%.3f") || changed;
+				changed = slider_double_with_input("SNR Expansion Phase", &sky.snr_expansion_age, 0.0, 1.0, "%.2f") || changed;
+			}
 		}
 	}
 
@@ -452,7 +484,8 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		ImGui::TextDisabled("Geometric celestial sphere coordinate grid (RA & Dec), strictly independent of procedural seed.");
 		if (sky.grid_enabled) {
 			changed = slider_double_with_input("Grid Opacity", &sky.grid_opacity, 0.0, 1.0, "%.2f") || changed;
-			changed = slider_double_with_input("Line Width (rad)", &sky.grid_line_width, 0.0002, 0.02, "%.5f") || changed;
+			static bool grid_width_log = true;
+			changed = slider_double_with_input("Line Width (rad)", &sky.grid_line_width, 0.00005, 0.05, "%.5f", &grid_width_log, 0.00005, 0.05) || changed;
 			render_setting_tooltip("Angular line width on the celestial sphere. Automatically scales with viewport pixel footprint to remain sharp and anti-aliased at any resolution.");
 
 			static const double kSpacings[] = {5.0, 10.0, 15.0, 30.0};
@@ -498,8 +531,61 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		if (sky.dynamic_rotation) {
 			changed = slider_double_with_input("Rotation Speed (deg/s)", &sky.rotation_rate_deg_s, -1.0, 1.0, "%.3f") || changed;
 		}
+
+		changed = ImGui::Checkbox("Dynamic Stellar & Nebular Micro-Motion", &sky.dynamic_motion) || changed;
+		render_setting_tooltip("Deterministic time-coordinated stellar scintillation, filamentary gas drift, and pulsar emission cycles.");
+		if (sky.dynamic_motion) {
+			changed = slider_double_with_input("Micro-Motion Speed Multiplier", &sky.motion_speed, 0.001, 1.0, "%.3f") || changed;
+		}
 	}
 
+	ImGui::Spacing();
+	ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Aesthetic Universe Presets:");
+	if (ImGui::Button("Realistic Deep Space", ImVec2(160.0f, 24.0f))) {
+		sky.star_density = 1.0;
+		sky.star_brightness = 1.0;
+		sky.star_size_min = 0.0;
+		sky.star_size_max = 0.0015;
+		sky.star_profile_model = static_cast<uint32_t>(Render::StarProfileModel::PinpointDirac);
+		sky.star_dirac_concentration = 0.96;
+		sky.nebula_intensity = 0.45;
+		sky.nebula_absorption_density = 0.85;
+		sky.dust_intensity = 1.2;
+		sky.exotic_objects_enabled = true;
+		sky.grid_enabled = false;
+		changed = true;
+	}
+	render_setting_tooltip("Sub-pixel pinpoint stars with realistic dynamic range and subtle interstellar extinction.");
+	ImGui::SameLine();
+	if (ImGui::Button("Galactic Core Vibrant", ImVec2(170.0f, 24.0f))) {
+		sky.star_density = 3.5;
+		sky.star_brightness = 2.2;
+		sky.star_placement_model = static_cast<uint32_t>(Render::StarPlacementModel::GalacticDisk);
+		sky.star_galactic_concentration = 4.0;
+		sky.star_profile_model = static_cast<uint32_t>(Render::StarProfileModel::CinematicBloom);
+		sky.star_bloom_intensity = 0.8;
+		sky.nebula_intensity = 2.5;
+		sky.nebula_core_glow = 1.8;
+		sky.clusters_enabled = true;
+		sky.cluster_density = 2.0;
+		changed = true;
+	}
+	render_setting_tooltip("Dense stellar fields and intense ionized nebulae centered around the galactic plane.");
+	ImGui::SameLine();
+	if (ImGui::Button("Exotic High-Energy", ImVec2(160.0f, 24.0f))) {
+		sky.exotic_objects_enabled = true;
+		sky.quasar_density = 0.25;
+		sky.quasar_brightness = 6.0;
+		sky.quasar_jet_length = 0.035;
+		sky.quasar_jet_intensity = 4.0;
+		sky.snr_enabled = true;
+		sky.snr_brightness = 3.5;
+		sky.dynamic_motion = true;
+		changed = true;
+	}
+	render_setting_tooltip("High density of active galactic nuclei, relativistic jets, pulsars, and expanding supernova remnants.");
+
+	ImGui::Spacing();
 	if (ImGui::Button("Reset All Sky Settings to Defaults", ImVec2(280.0f, 26.0f))) {
 		sky = Render::ProceduralSkySettings{};
 		params.sky_background_source = 0U;

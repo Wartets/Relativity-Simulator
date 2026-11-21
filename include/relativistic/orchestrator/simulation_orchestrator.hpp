@@ -108,30 +108,37 @@ struct PhysicalParameters {
 	Render::ProceduralSkySettings sky{};
 
 	void sync_sky_fields() noexcept {
+		const double master = std::max(sky.master_intensity, 0.0);
 		sky_rotation_deg = sky.orientation_yaw_deg;
 		sky_hue_shift_deg = sky.hue_shift_deg;
 		sky_saturation = sky.saturation;
 		sky_procedural_seed = sky.seed;
-		sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
-		sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
-		sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
-		sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
-		sky_background_r = static_cast<double>(sky.background_color[0]);
-		sky_background_g = static_cast<double>(sky.background_color[1]);
-		sky_background_b = static_cast<double>(sky.background_color[2]);
+		sky_star_density = sky.stars_enabled ? (sky.star_density * sky.star_quality_factor) : 0.0;
+		sky_star_brightness = sky.stars_enabled ? (sky.star_brightness * master) : 0.0;
+		sky_nebula_intensity = sky.nebula_enabled ? (sky.nebula_intensity * master * sky.nebula_quality_factor) : 0.0;
+		sky_grid_opacity = sky.grid_enabled ? (sky.grid_opacity * master) : 0.0;
+		sky_background_r = static_cast<double>(sky.background_color[0]) * master;
+		sky_background_g = static_cast<double>(sky.background_color[1]) * master;
+		sky_background_b = static_cast<double>(sky.background_color[2]) * master;
 		sky_star_brightness_variation = sky.star_brightness_variation;
 		sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
 		sky_star_color_variation = sky.star_color_variation;
 		sky_star_temperature_bias = sky.star_temperature_bias;
 		sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
-		sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+		sky_galaxy_brightness = sky.galaxies_enabled ? (sky.galaxy_brightness * master) : 0.0;
 		sky_galaxy_size_scale = sky.galaxy_size_scale;
-		sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
-		sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+		sky_dust_density = sky.dust_enabled ? (sky.dust_density * sky.dust_quality_factor) : 0.0;
+		sky_dust_intensity = sky.dust_enabled ? (sky.dust_intensity * master * sky.dust_quality_factor) : 0.0;
 		sky_dust_scale = sky.dust_scale;
-		sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
-		sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+		sky_cluster_density = sky.clusters_enabled ? (sky.cluster_density * sky.cluster_quality_factor) : 0.0;
+		sky_cluster_brightness = sky.clusters_enabled ? (sky.cluster_brightness * master * sky.cluster_quality_factor) : 0.0;
 		sky_cluster_size_scale = sky.cluster_size_scale;
+
+		if (sky.grid_enabled && sky.grid_opacity > 0.0) {
+			visual_overlays_flags |= Render::RenderFlags::USE_GRID_SKYBOX;
+		} else {
+			visual_overlays_flags &= ~Render::RenderFlags::USE_GRID_SKYBOX;
+		}
 	}
 
 	uint32_t work_distribution_mode{0};
@@ -2104,6 +2111,7 @@ public:
 		push.sky_panorama_id = params_.sky_panorama_id;
 		push.sky_panorama_quality = params_.sky_panorama_quality;
 
+		const double master = std::max(sky.master_intensity, 0.0);
 		if (!sky.enabled) {
 			push.sky_star_density = 0.0;
 			push.sky_star_brightness = 0.0;
@@ -2126,25 +2134,25 @@ public:
 			push.sky_cluster_brightness = 0.0;
 			push.sky_cluster_size_scale = 0.0;
 		} else {
-			push.sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
-			push.sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
-			push.sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
-			push.sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
-			push.sky_background_r = static_cast<double>(sky.background_color[0]);
-			push.sky_background_g = static_cast<double>(sky.background_color[1]);
-			push.sky_background_b = static_cast<double>(sky.background_color[2]);
+			push.sky_star_density = sky.stars_enabled ? (sky.star_density * sky.star_quality_factor) : 0.0;
+			push.sky_star_brightness = sky.stars_enabled ? (sky.star_brightness * master) : 0.0;
+			push.sky_nebula_intensity = sky.nebula_enabled ? (sky.nebula_intensity * master * sky.nebula_quality_factor) : 0.0;
+			push.sky_grid_opacity = sky.grid_enabled ? (sky.grid_opacity * master) : 0.0;
+			push.sky_background_r = static_cast<double>(sky.background_color[0]) * master;
+			push.sky_background_g = static_cast<double>(sky.background_color[1]) * master;
+			push.sky_background_b = static_cast<double>(sky.background_color[2]) * master;
 			push.sky_star_brightness_variation = sky.star_brightness_variation;
 			push.sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
 			push.sky_star_color_variation = sky.star_color_variation;
 			push.sky_star_temperature_bias = sky.star_temperature_bias;
 			push.sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
-			push.sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+			push.sky_galaxy_brightness = sky.galaxies_enabled ? (sky.galaxy_brightness * master) : 0.0;
 			push.sky_galaxy_size_scale = sky.galaxy_size_scale;
-			push.sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
-			push.sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+			push.sky_dust_density = sky.dust_enabled ? (sky.dust_density * sky.dust_quality_factor) : 0.0;
+			push.sky_dust_intensity = sky.dust_enabled ? (sky.dust_intensity * master * sky.dust_quality_factor) : 0.0;
 			push.sky_dust_scale = sky.dust_scale;
-			push.sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
-			push.sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+			push.sky_cluster_density = sky.clusters_enabled ? (sky.cluster_density * sky.cluster_quality_factor) : 0.0;
+			push.sky_cluster_brightness = sky.clusters_enabled ? (sky.cluster_brightness * master * sky.cluster_quality_factor) : 0.0;
 			push.sky_cluster_size_scale = sky.cluster_size_scale;
 		}
 
@@ -2175,6 +2183,7 @@ public:
 		if (params_.body_shadows_enabled) flags |= Relativistic::Render::RenderFlags::ENABLE_BODY_SHADOWS;
 		if (params_.bodies_only_render_mode) flags |= Relativistic::Render::RenderFlags::BODIES_ONLY_MODE;
 		if (params_.body_disk_occlusion_enabled) flags |= Relativistic::Render::RenderFlags::ENABLE_BODY_DISK_OCCLUSION;
+		if (sky.enabled && sky.grid_enabled && sky.grid_opacity > 0.0) flags |= Relativistic::Render::RenderFlags::USE_GRID_SKYBOX;
 		push.render_flags = flags;
 
 		push.projection_mode = params_.projection_mode;

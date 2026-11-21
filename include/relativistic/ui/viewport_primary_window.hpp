@@ -858,6 +858,7 @@ public:
 			cam_consts.sky_panorama_id = params.sky_panorama_id;
 			cam_consts.sky_panorama_quality = params.sky_panorama_quality;
 
+			const double master = std::max(sky.master_intensity, 0.0);
 			if (!sky.enabled) {
 				cam_consts.sky_star_density = 0.0;
 				cam_consts.sky_star_brightness = 0.0;
@@ -880,26 +881,29 @@ public:
 				cam_consts.sky_cluster_brightness = 0.0;
 				cam_consts.sky_cluster_size_scale = 0.0;
 			} else {
-				cam_consts.sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
-				cam_consts.sky_star_brightness = sky.stars_enabled ? sky.star_brightness : 0.0;
-				cam_consts.sky_nebula_intensity = sky.nebula_enabled ? sky.nebula_intensity : 0.0;
-				cam_consts.sky_grid_opacity = sky.grid_enabled ? sky.grid_opacity : 0.0;
-				cam_consts.sky_background_r = static_cast<double>(sky.background_color[0]);
-				cam_consts.sky_background_g = static_cast<double>(sky.background_color[1]);
-				cam_consts.sky_background_b = static_cast<double>(sky.background_color[2]);
+				cam_consts.sky_star_density = sky.stars_enabled ? (sky.star_density * sky.star_quality_factor) : 0.0;
+				cam_consts.sky_star_brightness = sky.stars_enabled ? (sky.star_brightness * master) : 0.0;
+				cam_consts.sky_nebula_intensity = sky.nebula_enabled ? (sky.nebula_intensity * master * sky.nebula_quality_factor) : 0.0;
+				cam_consts.sky_grid_opacity = sky.grid_enabled ? (sky.grid_opacity * master) : 0.0;
+				cam_consts.sky_background_r = static_cast<double>(sky.background_color[0]) * master;
+				cam_consts.sky_background_g = static_cast<double>(sky.background_color[1]) * master;
+				cam_consts.sky_background_b = static_cast<double>(sky.background_color[2]) * master;
 				cam_consts.sky_star_brightness_variation = sky.star_brightness_variation;
 				cam_consts.sky_star_size_variation = std::clamp((sky.star_size_max - sky.star_size_min) * 500.0, 0.0, 1.0);
 				cam_consts.sky_star_color_variation = sky.star_color_variation;
 				cam_consts.sky_star_temperature_bias = sky.star_temperature_bias;
 				cam_consts.sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
-				cam_consts.sky_galaxy_brightness = sky.galaxies_enabled ? sky.galaxy_brightness : 0.0;
+				cam_consts.sky_galaxy_brightness = sky.galaxies_enabled ? (sky.galaxy_brightness * master) : 0.0;
 				cam_consts.sky_galaxy_size_scale = sky.galaxy_size_scale;
-				cam_consts.sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
-				cam_consts.sky_dust_intensity = sky.dust_enabled ? sky.dust_intensity : 0.0;
+				cam_consts.sky_dust_density = sky.dust_enabled ? (sky.dust_density * sky.dust_quality_factor) : 0.0;
+				cam_consts.sky_dust_intensity = sky.dust_enabled ? (sky.dust_intensity * master * sky.dust_quality_factor) : 0.0;
 				cam_consts.sky_dust_scale = sky.dust_scale;
-				cam_consts.sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
-				cam_consts.sky_cluster_brightness = sky.clusters_enabled ? sky.cluster_brightness : 0.0;
+				cam_consts.sky_cluster_density = sky.clusters_enabled ? (sky.cluster_density * sky.cluster_quality_factor) : 0.0;
+				cam_consts.sky_cluster_brightness = sky.clusters_enabled ? (sky.cluster_brightness * master * sky.cluster_quality_factor) : 0.0;
 				cam_consts.sky_cluster_size_scale = sky.cluster_size_scale;
+			}
+			if (sky.enabled && sky.grid_enabled && sky.grid_opacity > 0.0) {
+				cam_consts.render_flags |= Render::RenderFlags::USE_GRID_SKYBOX;
 			}
 			cam_consts.disk_temperature_scale_k = params.disk_temperature_scale_k;
 			cam_consts.disk_temperature_floor_k = params.disk_temperature_floor_k;

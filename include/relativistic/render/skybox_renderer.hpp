@@ -64,6 +64,7 @@ struct ProceduralSkySettings {
 	bool stars_enabled{true};
 	double star_density{1.0};
 	double star_brightness{1.0};
+	double star_size_scale{1.0};
 	double star_size_min{0.00005};
 	double star_size_max{0.0025};
 	uint32_t star_size_distribution{1};
@@ -166,16 +167,20 @@ struct ProceduralSkySettings {
 	double pulsar_pulse_rate{2.5};
 	double pulsar_pulse_duty{0.25};
 	double pulsar_beam_width_deg{15.0};
+	double pulsar_brightness{3.0};
 	bool snr_enabled{true};
 	double snr_density{0.06};
 	double snr_brightness{2.0};
 	double snr_shell_thickness{0.15};
 	double snr_expansion_age{0.5};
+	double snr_size{0.015};
 
 	bool grid_enabled{false};
 	double grid_opacity{1.0};
 	double grid_line_width{0.002};
 	double grid_spacing_deg{15.0};
+	uint32_t grid_subdivisions{3};
+	double grid_glow{0.35};
 	std::array<float, 3> grid_major_color{0.40f, 0.75f, 1.0f};
 	std::array<float, 3> grid_minor_color{0.20f, 0.45f, 0.80f};
 	bool grid_show_polar_caps{true};
@@ -256,16 +261,21 @@ public:
 			case 3: {
 				const double u2 = std::max(SphericalPartition::hash_to_unit(hash_val ^ 0x94d049bb133111ebULL), 1.0e-15);
 				const double z = std::sqrt(-2.0 * std::log(std::max(u, 1.0e-15))) * std::cos(2.0 * std::numbers::pi_v<double> * u2);
-				const double mid = 0.5 * (std::log(min_val) + std::log(max_val));
-				const double spread = std::max(shape_param, 0.1) * 0.25 * (std::log(max_val) - std::log(min_val));
+				const double log_min = std::log(std::max(min_val, 1.0e-12));
+				const double log_max = std::log(std::max(max_val, 1.0e-11));
+				const double mid = 0.5 * (log_min + log_max);
+				const double spread = std::clamp(shape_param * 0.35, 0.05, 2.5) * (log_max - log_min);
 				return std::clamp(std::exp(mid + spread * z), min_val, max_val);
 			}
 			case 4: {
-				const double u2 = std::max(SphericalPartition::hash_to_unit(hash_val ^ 0x94d049bb133111ebULL), 1.0e-15);
-				const double z = std::sqrt(-2.0 * std::log(std::max(u, 1.0e-15))) * std::cos(2.0 * std::numbers::pi_v<double> * u2);
-				const double mid = 0.5 * (min_val + max_val);
-				const double spread = std::max(shape_param, 0.1) * 0.25 * (max_val - min_val);
-				return std::clamp(mid + spread * z, min_val, max_val);
+				if (u < 0.85) {
+					const double u_sub = u / 0.85;
+					return min_val + u_sub * (min_val + 0.12 * (max_val - min_val) - min_val);
+				} else {
+					const double u_sub = (u - 0.85) / 0.15;
+					const double split_val = min_val + 0.60 * (max_val - min_val);
+					return split_val + u_sub * (max_val - split_val);
+				}
 			}
 			case 0:
 			default:
@@ -431,33 +441,47 @@ private:
 		const double dec = std::asin(std::clamp(dir[2], -1.0, 1.0));
 		const double ra = std::atan2(dir[1], dir[0]);
 
-		const double spacing_rad = std::max(sky.grid_spacing_deg, 1.0) * kDegToRad;
-		const double pixel_footprint = std::max(fov_rad / 1080.0, 1.0e-6);
-		const double line_width = std::max(sky.grid_line_width, pixel_footprint * 1.8);
+		const double spacing_rad = std::max(sky.grid_spacing_deg, 0.5) * kDegToRad;
+		const double pixel_footprint = std::max(fov_rad / 1080.0, 1.0e-7);
+		const double line_width = std::max(sky.grid_line_width, pixel_footprint * 0.8);
 		const double half_w = line_width * 0.5;
 		const double feather = std::max(pixel_footprint * 0.6, half_w * 0.35);
-		const double cos_dec = std::max(std::cos(dec), 1.0e-5);
+		const double cos_dec = std::max(std::cos(dec), 1.0e-6);
 
 		const double dist_dec = std::abs(std::remainder(dec, spacing_rad));
 		const double cov_dec = 1.0 - std::clamp((dist_dec - (half_w - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0);
 
 		const double dist_ra_angle = std::abs(std::remainder(ra, spacing_rad));
 		const double dist_ra_sphere = dist_ra_angle * cos_dec;
-		const double cov_ra = 1.0 - std::clamp((dist_ra_sphere - (half_w - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0);
+		const double pole_taper = std::clamp((spacing_rad * cos_dec - half_w * 0.5) / std::max(half_w * 2.5, 1.0e-6), 0.0, 1.0);
+		const double cov_ra = (1.0 - std::clamp((dist_ra_sphere - (half_w - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0)) * pole_taper;
+
+		double cov_sub_dec = 0.0;
+		double cov_sub_ra = 0.0;
+		if (sky.grid_subdivisions > 0U) {
+			const double sub_spacing = spacing_rad / static_cast<double>(sky.grid_subdivisions + 1U);
+			const double sub_half_w = half_w * 0.55;
+			const double sub_feather = feather * 0.65;
+			const double dist_sdec = std::abs(std::remainder(dec, sub_spacing));
+			cov_sub_dec = (1.0 - std::clamp((dist_sdec - (sub_half_w - sub_feather)) / std::max(2.0 * sub_feather, 1.0e-9), 0.0, 1.0)) * 0.6;
+			const double dist_sra = std::abs(std::remainder(ra, sub_spacing)) * cos_dec;
+			const double sub_taper = std::clamp((sub_spacing * cos_dec - sub_half_w * 0.5) / std::max(sub_half_w * 2.5, 1.0e-6), 0.0, 1.0);
+			cov_sub_ra = (1.0 - std::clamp((dist_sra - (sub_half_w - sub_feather)) / std::max(2.0 * sub_feather, 1.0e-9), 0.0, 1.0)) * 0.6 * sub_taper;
+		}
 
 		const double dist_eq = std::abs(dec);
 		const double cov_eq = sky.grid_show_equator
-			? (1.0 - std::clamp((dist_eq - (half_w * 2.0 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0))
+			? (1.0 - std::clamp((dist_eq - (half_w * 2.2 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0))
 			: 0.0;
 
 		const double dist_pm = std::abs(std::remainder(ra, kPi)) * cos_dec;
 		const double cov_pm = sky.grid_show_meridians
-			? (1.0 - std::clamp((dist_pm - (half_w * 2.0 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0))
+			? (1.0 - std::clamp((dist_pm - (half_w * 2.2 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0)) * pole_taper
 			: 0.0;
 
 		const double dist_cap = std::abs(std::abs(dec) - (kHalfPi - spacing_rad));
 		const double cov_cap = sky.grid_show_polar_caps
-			? (1.0 - std::clamp((dist_cap - (half_w * 1.4 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0))
+			? (1.0 - std::clamp((dist_cap - (half_w * 1.5 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0))
 			: 0.0;
 
 		double cov_ticks = 0.0;
@@ -467,28 +491,33 @@ private:
 			cov_ticks = 1.0 - std::clamp((dist_tick - (half_w * 0.9 - feather)) / std::max(2.0 * feather, 1.0e-9), 0.0, 1.0);
 		}
 
-		const double cov_major = std::max({cov_eq, cov_pm});
-		const double cov_minor = std::max({cov_dec, cov_ra, cov_cap, cov_ticks});
+		const double cov_major = std::max({cov_eq, cov_pm, cov_dec, cov_ra});
+		const double cov_minor = std::max({cov_sub_dec, cov_sub_ra, cov_cap, cov_ticks});
 		const double total_cov = std::max(cov_major, cov_minor);
 		if (total_cov <= 0.0) {
 			return GridSampleResult{};
 		}
 
+		const double glow_radius = std::max(line_width * 4.5, pixel_footprint * 4.0);
+		const double glow_dec = std::exp(-dist_dec * dist_dec / (2.0 * glow_radius * glow_radius));
+		const double glow_ra = std::exp(-dist_ra_sphere * dist_ra_sphere / (2.0 * glow_radius * glow_radius)) * pole_taper;
+		const double glow_factor = std::max(glow_dec, glow_ra) * std::clamp(sky.grid_glow, 0.0, 3.0);
+
 		const double op = std::clamp(sky.grid_opacity, 0.0, 1.0);
-		const double alpha = std::clamp(total_cov * op, 0.0, 1.0);
+		const double alpha = std::clamp((total_cov + glow_factor * 0.45) * op, 0.0, 1.0);
 
 		std::array<double, 3> color{};
-		if (cov_major > cov_minor * 0.5) {
+		if (cov_major >= cov_minor) {
 			color = {
-				static_cast<double>(sky.grid_major_color[0]) * 1.4,
-				static_cast<double>(sky.grid_major_color[1]) * 1.4,
-				static_cast<double>(sky.grid_major_color[2]) * 1.4
+				static_cast<double>(sky.grid_major_color[0]) * (1.2 + glow_factor),
+				static_cast<double>(sky.grid_major_color[1]) * (1.2 + glow_factor),
+				static_cast<double>(sky.grid_major_color[2]) * (1.2 + glow_factor)
 			};
 		} else {
 			color = {
-				static_cast<double>(sky.grid_minor_color[0]) * 1.1,
-				static_cast<double>(sky.grid_minor_color[1]) * 1.1,
-				static_cast<double>(sky.grid_minor_color[2]) * 1.1
+				static_cast<double>(sky.grid_minor_color[0]) * (0.95 + glow_factor * 0.7),
+				static_cast<double>(sky.grid_minor_color[1]) * (0.95 + glow_factor * 0.7),
+				static_cast<double>(sky.grid_minor_color[2]) * (0.95 + glow_factor * 0.7)
 			};
 		}
 		return GridSampleResult{color, alpha};
@@ -517,54 +546,57 @@ private:
 		double local_y,
 		StarProfileModel model
 	) noexcept {
+		const double theta = std::sqrt(std::max(theta_sq, 0.0));
 		switch (model) {
 			case StarProfileModel::PinpointDirac: {
-				const double tightness = std::clamp(sky.star_dirac_concentration, 0.5, 0.999);
-				const double core_w = std::max(pixel_footprint_rad * (1.0 - tightness) * 0.5, 1.0e-9);
+				const double tightness = std::clamp(sky.star_dirac_concentration, 0.1, 0.999);
+				const double core_w = std::max(pixel_footprint_rad * (1.0 - tightness) * 0.4, 1.0e-9);
 				return std::exp(-theta_sq / (2.0 * core_w * core_w));
 			}
 			case StarProfileModel::CinematicBloom: {
 				const double core = std::exp(-theta_sq / (2.0 * eff_sigma_sq));
-				const double theta = std::sqrt(theta_sq);
-				const double bloom_w = std::max(sigma * sky.star_bloom_radius, pixel_footprint_rad * 2.0);
+				const double bloom_w = std::max(sigma * std::clamp(sky.star_bloom_radius, 1.0, 30.0), pixel_footprint_rad * 3.5);
 				const double bloom = sky.star_bloom_intensity * std::exp(-theta / bloom_w);
 				return core + bloom;
 			}
 			case StarProfileModel::Lorentzian: {
-				const double tail = std::clamp(sky.star_profile_param, 0.1, 5.0);
-				return (1.0 / (1.0 + theta_sq / eff_sigma_sq)) + 0.1 * tail / (1.0 + theta_sq / (4.0 * eff_sigma_sq));
+				const double scale_param = std::max(sky.star_profile_param, 0.05);
+				const double gamma_sq = eff_sigma_sq * scale_param;
+				return (gamma_sq / (gamma_sq + theta_sq)) + 0.25 * (gamma_sq / (gamma_sq + theta_sq * 0.25));
 			}
 			case StarProfileModel::Moffat: {
-				const double beta = std::clamp(sky.star_profile_param, 1.1, 6.0);
-				return std::pow(1.0 + theta_sq / eff_sigma_sq, -beta);
+				const double beta = std::clamp(sky.star_profile_param, 1.05, 8.0);
+				const double scale = std::max(eff_sigma_sq * sky.star_profile_param2, 1.0e-12);
+				return std::pow(1.0 + theta_sq / scale, -beta);
 			}
 			case StarProfileModel::AiryDiffraction: {
-				const double v = std::numbers::pi_v<double> * std::sqrt(theta_sq) / std::max(sigma, 1.0e-9);
+				const double v = std::numbers::pi_v<double> * theta / std::max(sigma, 1.0e-8);
 				if (v < 1.0e-4) return 1.0;
 				const double j1 = bessel_j1_approx(v);
-				const double val = 2.0 * j1 / v;
-				return std::min(val * val, 1.0);
+				const double airy_core = (2.0 * j1 / v) * (2.0 * j1 / v);
+				const double ring_boost = std::max(sky.star_profile_param2, 0.1);
+				return std::min(airy_core * ring_boost, 2.0);
 			}
 			case StarProfileModel::HardDisc: {
-				const double theta = std::sqrt(theta_sq);
-				const double softness = std::clamp(sky.star_profile_softness, 0.005, 0.5);
-				const double edge_w = std::max(pixel_footprint_rad * 0.35, sigma * softness);
-				return 1.0 - std::clamp((theta - (sigma - edge_w)) / (2.0 * edge_w), 0.0, 1.0);
+				const double disc_radius = std::max(sigma, pixel_footprint_rad * 0.5);
+				const double softness = std::clamp(sky.star_profile_softness, 0.001, 1.0);
+				const double edge_w = std::max(pixel_footprint_rad * 0.4, disc_radius * softness);
+				return 1.0 - std::clamp((theta - (disc_radius - edge_w)) / std::max(2.0 * edge_w, 1.0e-9), 0.0, 1.0);
 			}
 			case StarProfileModel::DiffractionSpikes: {
 				const double core = std::exp(-theta_sq / (2.0 * eff_sigma_sq));
-				const double theta = std::sqrt(theta_sq);
 				const double angle = std::atan2(local_y, local_x) + sky.star_spike_angle_deg * (std::numbers::pi_v<double> / 180.0);
 				const double n_spikes = (sky.star_spike_count == 6U) ? 3.0 : ((sky.star_spike_count == 8U) ? 4.0 : 2.0);
 				const double cos_spike = std::abs(std::cos(n_spikes * angle));
-				const double spike_beam = std::pow(cos_spike, 32.0);
-				const double spike_falloff = std::exp(-theta / (std::max(sigma, 1.0e-6) * std::max(sky.star_spike_length, 0.5)));
+				const double spike_beam = std::pow(cos_spike, 48.0);
+				const double spike_len = std::max(sigma * std::clamp(sky.star_spike_length, 0.5, 60.0), pixel_footprint_rad * 8.0);
+				const double spike_falloff = std::exp(-theta / spike_len);
 				const double spikes = sky.star_spike_intensity * spike_beam * spike_falloff;
 				return core + spikes;
 			}
 			case StarProfileModel::Gaussian:
 			default:
-				return std::exp(-theta_sq / (2.0 * eff_sigma_sq)) + 0.04 * std::exp(-std::sqrt(theta_sq) / (3.0 * sigma));
+				return std::exp(-theta_sq / (2.0 * eff_sigma_sq)) + 0.06 * std::exp(-theta / (4.0 * std::max(sigma, 1.0e-8)));
 		}
 	}
 
@@ -602,8 +634,9 @@ private:
 		constexpr double kTwoPi = SphericalPartition::kTwoPi;
 		const uint64_t base_seed = static_cast<uint64_t>(sky.seed);
 
-		const double density_eff = std::clamp(sky.star_density * sky.quality_factor * sky.star_quality_factor, 0.01, 30.0);
-		const double base_grid_res = std::clamp(16.0 * std::sqrt(density_eff), 6.0, 96.0);
+		const double eff_quality = std::max(sky.quality_factor * sky.star_quality_factor, 0.05);
+		const double density_eff = std::clamp(sky.star_density * eff_quality, 0.01, 100.0);
+		const double base_grid_res = std::clamp(14.0 * std::sqrt(density_eff), 6.0, 120.0);
 		const double pixel_footprint_rad = std::max(fov_rad / 1080.0, 1.0e-7);
 		const auto profile_model = static_cast<StarProfileModel>(sky.star_profile_model);
 
@@ -616,21 +649,19 @@ private:
 		double zoom_level = 0.0;
 		int num_octaves = 1;
 		if (sky.adaptive_fov_quality) {
-			zoom_level = std::max(0.0, std::log2(std::max(zoom_factor, 1.0)) * sky.adaptive_fov_sensitivity);
+			zoom_level = std::max(0.0, std::log2(std::max(zoom_factor, 1.0)) * std::clamp(sky.adaptive_fov_sensitivity, 0.2, 5.0));
 			num_octaves = std::clamp(static_cast<int>(std::floor(zoom_level)) + 2, 1, static_cast<int>(sky.max_star_octaves));
 		}
 
 		for (int oct = 0; oct < num_octaves; ++oct) {
-			const double oct_scale = std::pow(1.41421356237, static_cast<double>(oct));
+			const double oct_scale = std::pow(1.5, static_cast<double>(oct));
 			const double grid_res = base_grid_res * oct_scale;
 			const uint64_t oct_seed = base_seed ^ (static_cast<uint64_t>(oct) * 0x9e3779b97f4a7c15ULL);
 
 			double octave_weight = 1.0;
 			if (sky.adaptive_fov_quality && oct > 0) {
 				const double oct_f = static_cast<double>(oct);
-				if (zoom_level < oct_f - 1.0) {
-					continue;
-				}
+				if (zoom_level < oct_f - 1.0) continue;
 				if (zoom_level < oct_f) {
 					const double t = zoom_level - (oct_f - 1.0);
 					octave_weight = t * t * (3.0 - 2.0 * t);
@@ -642,7 +673,7 @@ private:
 			const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 			const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
 
-			const double presence_threshold = std::clamp(1.0 - (sky.star_density / (1.0 + 0.25 * static_cast<double>(oct))) * 0.14, 0.02, 0.99);
+			const double presence_threshold = std::clamp(1.0 - (sky.star_density * eff_quality / (1.0 + 0.35 * static_cast<double>(oct))) * 0.16, 0.01, 0.99);
 
 			for (int32_t dz = -1; dz <= 1; ++dz) {
 				for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -663,21 +694,28 @@ private:
 
 						if (sky.star_placement_model == static_cast<uint32_t>(StarPlacementModel::GalacticDisk)) {
 							const double h_plane = star_dir[0] * plane_norm[0] + star_dir[1] * plane_norm[1] + star_dir[2] * plane_norm[2];
-							const double p_disk = 1.0 / std::max(std::cosh(h_plane * sky.star_galactic_concentration), 1.0e-3);
-							if (SphericalPartition::hash_to_unit(cell_hash + 101ULL) > (p_disk * p_disk * 0.9 + 0.1)) continue;
+							const double p_disk = std::exp(-std::abs(h_plane) * std::clamp(sky.star_galactic_concentration, 0.2, 20.0));
+							if (SphericalPartition::hash_to_unit(cell_hash + 101ULL) > (p_disk * 0.95 + 0.05)) continue;
+						} else if (sky.star_placement_model == static_cast<uint32_t>(StarPlacementModel::FractalClustered)) {
+							const float cl_noise = fbm3d(static_cast<float>(star_dir[0] * 3.8), static_cast<float>(star_dir[1] * 3.8), static_cast<float>(star_dir[2] * 3.8), 3, 0.65f);
+							const double cl_p = std::pow(std::clamp((static_cast<double>(cl_noise) + 0.6) * 0.85, 0.0, 1.0), 3.0);
+							if (SphericalPartition::hash_to_unit(cell_hash + 102ULL) > cl_p) continue;
 						} else if (sky.star_placement_model == static_cast<uint32_t>(StarPlacementModel::DualPopulation)) {
 							const double h_plane = star_dir[0] * plane_norm[0] + star_dir[1] * plane_norm[1] + star_dir[2] * plane_norm[2];
-							const bool is_thin_disk = SphericalPartition::hash_to_unit(cell_hash + 103ULL) > 0.35;
-							if (is_thin_disk) {
-								const double p_disk = std::exp(-std::abs(h_plane) * sky.star_galactic_concentration);
+							const bool is_disk = SphericalPartition::hash_to_unit(cell_hash + 103ULL) > 0.30;
+							if (is_disk) {
+								const double p_disk = std::exp(-std::abs(h_plane) * std::clamp(sky.star_galactic_concentration, 0.5, 15.0));
 								if (SphericalPartition::hash_to_unit(cell_hash + 107ULL) > p_disk) continue;
 							}
 						} else if (sky.star_placement_model == static_cast<uint32_t>(StarPlacementModel::SpiralArmDensity)) {
 							const double h_plane = star_dir[0] * plane_norm[0] + star_dir[1] * plane_norm[1] + star_dir[2] * plane_norm[2];
 							const double phi_plane = std::atan2(star_dir[1], star_dir[0]);
-							const double arm_phase = std::sin(2.0 * phi_plane + std::abs(h_plane) * 4.0);
-							const double p_arm = std::clamp(0.4 + 0.6 * arm_phase * arm_phase, 0.1, 1.0);
+							const double arm_val = std::sin(2.0 * phi_plane - 4.5 * std::log(std::max(std::abs(h_plane) + 0.2, 0.05)));
+							const double p_arm = std::clamp(std::exp(-std::abs(h_plane) * 3.0) * (0.15 + 0.85 * (arm_val * 0.5 + 0.5)), 0.02, 1.0);
 							if (SphericalPartition::hash_to_unit(cell_hash + 109ULL) > p_arm) continue;
+						} else if (sky.star_placement_model == static_cast<uint32_t>(StarPlacementModel::ConstellationAssociations)) {
+							const float ast_noise = hash_noise_3d(static_cast<int32_t>(star_dir[0] * 5.0), static_cast<int32_t>(star_dir[1] * 5.0), static_cast<int32_t>(star_dir[2] * 5.0));
+							if (SphericalPartition::hash_to_unit(cell_hash + 111ULL) > (static_cast<double>(std::abs(ast_noise)) * 0.9 + 0.1)) continue;
 						}
 
 						if (sky.dynamic_motion) {
@@ -688,19 +726,30 @@ private:
 						}
 
 						const double mu = dir[0] * star_dir[0] + dir[1] * star_dir[1] + dir[2] * star_dir[2];
-						if (mu <= 0.997) continue;
+						if (mu <= 0.994) continue;
 						const double theta_sq = 2.0 * std::max(0.0, 1.0 - mu);
 
-						const double size_oct_factor = 1.0 / (1.0 + 0.30 * static_cast<double>(oct));
-						const double radius_rad = sample_distribution(sky.star_size_distribution, sky.star_size_min, sky.star_size_max, sky.star_size_param, cell_hash + 31ULL) * size_oct_factor;
+						const double size_oct_factor = 1.0 / (1.0 + 0.25 * static_cast<double>(oct));
+						const double radius_rad = sample_distribution(sky.star_size_distribution, sky.star_size_min, sky.star_size_max, sky.star_size_param, cell_hash + 31ULL) * std::max(sky.star_size_scale, 0.05) * size_oct_factor;
 
-						const double subpixel_scale = (profile_model == StarProfileModel::PinpointDirac) ? 0.08 : 0.25;
+						const double subpixel_scale = (profile_model == StarProfileModel::PinpointDirac) ? 0.04 : 0.40;
 						const double eff_sigma = std::sqrt(radius_rad * radius_rad + pixel_footprint_rad * pixel_footprint_rad * subpixel_scale);
 						const double eff_sigma_sq = eff_sigma * eff_sigma;
-						if (theta_sq > 28.0 * eff_sigma_sq) continue;
 
-						double lum = sample_distribution(sky.star_luminosity_distribution, 0.1, 12.0, sky.star_luminosity_param, cell_hash + 53ULL) * sky.star_brightness;
-						lum *= 1.0 / (1.0 + 0.5 * static_cast<double>(oct));
+						double max_support = eff_sigma * 6.0;
+						if (profile_model == StarProfileModel::DiffractionSpikes) max_support = std::max(max_support, eff_sigma * std::clamp(sky.star_spike_length, 1.0, 60.0));
+						else if (profile_model == StarProfileModel::CinematicBloom) max_support = std::max(max_support, eff_sigma * std::clamp(sky.star_bloom_radius, 1.0, 30.0));
+						else if (profile_model == StarProfileModel::AiryDiffraction) max_support = std::max(max_support, eff_sigma * 12.0);
+						else if (profile_model == StarProfileModel::Lorentzian || profile_model == StarProfileModel::Moffat) max_support = std::max(max_support, eff_sigma * 10.0);
+
+						const double max_support_sq = max_support * max_support;
+						if (theta_sq > max_support_sq) continue;
+
+						const double window_u = std::clamp(theta_sq / max_support_sq, 0.0, 1.0);
+						const double hermite_window = (1.0 - window_u) * (1.0 - window_u);
+
+						double lum = sample_distribution(sky.star_luminosity_distribution, 0.2, 25.0, sky.star_luminosity_param, cell_hash + 53ULL) * sky.star_brightness;
+						lum *= 1.0 / (1.0 + 0.35 * static_cast<double>(oct));
 
 						if (sky.dynamic_motion && sky.star_scintillation > 0.0) {
 							const double tw_phase = SphericalPartition::hash_to_unit(cell_hash + 67ULL) * kTwoPi;
@@ -725,10 +774,8 @@ private:
 						const double loc_y = delta[0] * u2[0] + delta[1] * u2[1] + delta[2] * u2[2];
 
 						const double psf = evaluate_star_psf(theta_sq, eff_sigma, eff_sigma_sq, pixel_footprint_rad, sky, loc_x, loc_y, profile_model);
-						const double flux_norm = (profile_model == StarProfileModel::PinpointDirac)
-							? 1.0
-							: std::min(1.0, (radius_rad * radius_rad) / eff_sigma_sq + 0.1);
-						const double total_flux = lum * flux_norm * psf * octave_weight;
+						const double apparent_ratio = std::max((radius_rad * radius_rad) / eff_sigma_sq, 0.02);
+						const double total_flux = lum * apparent_ratio * psf * hermite_window * octave_weight;
 
 						const double temp_norm = std::clamp(SphericalPartition::hash_to_unit(cell_hash + 79ULL) + sky.star_temperature_bias * 0.4, 0.0, 1.0);
 						const auto tint = star_blackbody_tint(temp_norm, sky.star_color_variation);
@@ -770,8 +817,9 @@ private:
 		const double asymmetry_envelope = std::pow(std::clamp((1.0 + cos_psi) * 0.5, 0.0, 1.0), std::clamp(sky.nebula_asymmetry * 2.5 + 0.1, 0.1, 8.0));
 		const double core_glow = sky.nebula_core_glow * std::exp(-2.5 * std::max(0.0, 1.0 - cos_psi));
 
-		int octaves = static_cast<int>(std::clamp(sky.nebula_octaves, 1U, 8U));
-		if (sky.adaptive_fov_lod && zoom_factor > 1.5) {
+		const double eff_qual = std::max(sky.quality_factor * sky.nebula_quality_factor, 0.05);
+		int octaves = std::clamp(static_cast<int>(static_cast<double>(sky.nebula_octaves) * std::sqrt(eff_qual)), 1, 8);
+		if (sky.adaptive_fov_quality && zoom_factor > 1.2) {
 			octaves = std::min(8, octaves + static_cast<int>(std::floor(std::log2(zoom_factor))));
 		}
 
@@ -795,7 +843,7 @@ private:
 			dx *= r_inv; dy *= r_inv; dz *= r_inv;
 		}
 
-		const uint32_t layers = std::clamp(sky.nebula_layer_count, 1U, 5U);
+		const uint32_t layers = std::clamp(static_cast<uint32_t>(static_cast<double>(sky.nebula_layer_count) * eff_qual + 0.4), 1U, 5U);
 		double layer_emission_r = 0.0;
 		double layer_emission_g = 0.0;
 		double layer_emission_b = 0.0;
@@ -1098,15 +1146,16 @@ private:
 
 		const uint64_t base_seed = static_cast<uint64_t>(sky.seed) ^ 0x9b05688c2b3e6c1fULL;
 
-		const double eff_density = std::clamp(sky.quasar_density * sky.quality_factor * sky.exotic_quality_factor, 0.01, 5.0);
-		const double grid_res = std::clamp(6.0 * std::sqrt(eff_density), 4.0, 24.0);
+		const double eff_quality = std::max(sky.quality_factor * sky.exotic_quality_factor, 0.05);
+		const double eff_density = std::clamp(sky.quasar_density * eff_quality, 0.01, 20.0);
+		const double grid_res = std::clamp(8.0 * std::sqrt(eff_density), 4.0, 48.0);
 
 		const std::array<double, 3> p{dir[0] * grid_res, dir[1] * grid_res, dir[2] * grid_res};
 		const int32_t cx = static_cast<int32_t>(std::floor(p[0]));
 		const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 		const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
 
-		const double presence_threshold = std::clamp(1.0 - eff_density * 0.18, 0.05, 0.98);
+		const double presence_threshold = std::clamp(1.0 - eff_density * 0.12, 0.02, 0.99);
 
 		for (int32_t dz = -1; dz <= 1; ++dz) {
 			for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -1126,7 +1175,7 @@ private:
 					const std::array<double, 3> obj_dir{ox / d_len, oy / d_len, oz / d_len};
 
 					const double mu = dir[0] * obj_dir[0] + dir[1] * obj_dir[1] + dir[2] * obj_dir[2];
-					if (mu <= 0.995) continue;
+					if (mu <= 0.985) continue;
 					const double sep_sq = 2.0 * std::max(0.0, 1.0 - mu);
 
 					const uint32_t exotic_type = static_cast<uint32_t>(SphericalPartition::hash_coords(ix, iy, cell_hash) % 3U);
@@ -1141,46 +1190,70 @@ private:
 					jet_axis[0] /= ja_len; jet_axis[1] /= ja_len; jet_axis[2] /= ja_len;
 
 					if (exotic_type == 0U) {
-						const double core_rad = std::max(sky.quasar_core_size, 0.0005);
+						const double core_rad = std::max(sky.quasar_core_size, 0.001);
 						const double core_rad_sq = core_rad * core_rad;
-						const double core_flux = std::exp(-sep_sq / (2.0 * core_rad_sq)) * sky.quasar_brightness * 4.0;
-						const double halo_flux = std::exp(-sep_sq / (18.0 * core_rad_sq)) * sky.quasar_brightness * 0.8;
+						const double core_flux = std::exp(-sep_sq / (2.0 * core_rad_sq)) * sky.quasar_brightness * 6.0;
+						const double halo_rad_sq = core_rad_sq * 16.0;
+						const double halo_flux = std::exp(-sep_sq / (2.0 * halo_rad_sq)) * sky.quasar_brightness * 1.5;
 
 						const double d_dot_jet = (dir[0] - obj_dir[0]) * jet_axis[0] + (dir[1] - obj_dir[1]) * jet_axis[1] + (dir[2] - obj_dir[2]) * jet_axis[2];
-						const double jet_l = std::max(sky.quasar_jet_length, 0.005);
-						const double jet_falloff = std::exp(-std::abs(d_dot_jet) / jet_l) * std::exp(-sep_sq / (3.0 * core_rad_sq));
-						const double jet_flux = jet_falloff * sky.quasar_jet_intensity * sky.quasar_brightness;
+						const double perp_sq = std::max(sep_sq - d_dot_jet * d_dot_jet, 0.0);
+						const double jet_length = std::max(sky.quasar_jet_length, 0.008);
+						const double jet_width = core_rad * 1.2 + std::abs(d_dot_jet) * 0.15;
+						const double jet_collimation = std::exp(-perp_sq / (2.0 * jet_width * jet_width));
+						const double jet_longitudinal = std::exp(-std::abs(d_dot_jet) / jet_length);
+						const double knot_modulation = 0.75 + 0.25 * std::cos(std::abs(d_dot_jet) * 120.0);
+						const double jet_flux = jet_collimation * jet_longitudinal * knot_modulation * sky.quasar_jet_intensity * sky.quasar_brightness * 3.5;
 
-						const double total = core_flux + halo_flux + jet_flux;
-						accum[0] += total * 0.82;
-						accum[1] += total * 1.05;
-						accum[2] += total * 1.65;
+						const double max_rad = std::max(jet_length * 1.8, core_rad * 6.0);
+						const double window = std::clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+						const double hermite = window * window;
+
+						const double total = (core_flux + halo_flux + jet_flux) * hermite;
+						accum[0] += total * 0.85;
+						accum[1] += total * 1.10;
+						accum[2] += total * 1.80;
 					} else if (exotic_type == 1U) {
-						const double pulsar_rad = 0.0012;
-						const double core = std::exp(-sep_sq / (2.0 * pulsar_rad * pulsar_rad)) * sky.quasar_brightness * 3.0;
+						const double pulsar_rad = 0.0015;
+						const double core = std::exp(-sep_sq / (2.0 * pulsar_rad * pulsar_rad)) * sky.pulsar_brightness * 5.0;
 
 						double pulse = 1.0;
-						if (sky.dynamic_motion) {
-							const double phase = std::fmod(sky.time_seconds * sky.pulsar_pulse_rate + SphericalPartition::hash_to_unit(cell_hash + 19ULL), 1.0);
-							const double duty = std::clamp(sky.pulsar_pulse_duty, 0.05, 0.95);
-							pulse = (phase < duty) ? (1.0 / duty) : 0.05;
-						}
-						const double plerion = std::exp(-sep_sq / (0.008 * 0.008)) * sky.quasar_brightness * 0.6;
-						const double total = (core * pulse + plerion);
-						accum[0] += total * 0.70;
-						accum[1] += total * 1.30;
-						accum[2] += total * 1.10;
+						const double phase = std::fmod(sky.time_seconds * sky.pulsar_pulse_rate + SphericalPartition::hash_to_unit(cell_hash + 19ULL), 1.0);
+						const double duty = std::clamp(sky.pulsar_pulse_duty, 0.02, 0.95);
+						pulse = (phase < duty) ? (1.0 / duty) : 0.05;
+
+						const double theta_cone = std::max(sky.pulsar_beam_width_deg * (std::numbers::pi / 180.0), 0.02);
+						const double beam_flux = std::exp(-sep_sq / (2.0 * theta_cone * theta_cone)) * pulse * sky.pulsar_brightness * 2.5;
+
+						const double plerion_rad = 0.012;
+						const double plerion = std::exp(-sep_sq / (2.0 * plerion_rad * plerion_rad)) * sky.pulsar_brightness * 0.8;
+
+						const double max_rad = std::max(theta_cone * 2.5, plerion_rad * 3.0);
+						const double window = std::clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+						const double hermite = window * window;
+
+						const double total = (core * pulse + beam_flux + plerion) * hermite;
+						accum[0] += total * 0.65;
+						accum[1] += total * 1.35;
+						accum[2] += total * 1.15;
 					} else if (sky.snr_enabled) {
-						const double snr_radius = 0.008 * (0.8 + 0.4 * sky.snr_expansion_age);
+						const double snr_radius = std::max(sky.snr_size * (0.8 + 0.4 * sky.snr_expansion_age), 0.004);
 						const double dist = std::sqrt(sep_sq);
-						const double shell_thick = std::max(sky.snr_shell_thickness * snr_radius, 0.0006);
+						const double shell_thick = std::max(sky.snr_shell_thickness * snr_radius, 0.0008);
 						const double shell_diff = std::abs(dist - snr_radius);
-						const double shell_flux = std::exp(-(shell_diff * shell_diff) / (2.0 * shell_thick * shell_thick)) * sky.snr_brightness * 2.2;
-						const double interior_flux = (dist < snr_radius) ? (std::exp(-dist / snr_radius) * sky.snr_brightness * 0.4) : 0.0;
-						const double total = shell_flux + interior_flux;
-						accum[0] += total * 1.45;
-						accum[1] += total * 0.65;
-						accum[2] += total * 0.95;
+						const double limb_brightening = std::exp(-(shell_diff * shell_diff) / (2.0 * shell_thick * shell_thick));
+						const double shell_flux = limb_brightening * sky.snr_brightness * 3.2;
+
+						const double interior_flux = (dist < snr_radius) ? (std::exp(-dist / snr_radius) * sky.snr_brightness * 0.5) : 0.0;
+
+						const double max_rad = snr_radius + shell_thick * 3.0;
+						const double window = std::clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+						const double hermite = window * window;
+
+						const double total = (shell_flux + interior_flux) * hermite;
+						accum[0] += total * 1.55;
+						accum[1] += total * 0.70;
+						accum[2] += total * 1.05;
 					}
 				}
 			}

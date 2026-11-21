@@ -4572,17 +4572,19 @@ public:
 		};
 
 		auto tile_is_pure_far_field_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept -> bool {
-			if (!adaptive_prepass_enabled || has_accretion_disk || r_obs < 60.0 * rh) {
+			if (!adaptive_prepass_enabled || has_accretion_disk || r_obs < 80.0 * rh) {
 				return false;
 			}
-			const std::array<std::pair<size_t, size_t>, 4> corners{{{x0, y0}, {x1 - 1, y0}, {x0, y1 - 1}, {x1 - 1, y1 - 1}}};
-			for (const auto& corner : corners) {
-				const auto dir = compute_tile_ray_direction(corner.first, corner.second);
+			const size_t mid_x = (x0 + x1) / 2;
+			const size_t mid_y = (y0 + y1) / 2;
+			const std::array<std::pair<size_t, size_t>, 5> sample_pts{{{x0, y0}, {x1 - 1, y0}, {x0, y1 - 1}, {x1 - 1, y1 - 1}, {mid_x, mid_y}}};
+			for (const auto& pt : sample_pts) {
+				const auto dir = compute_tile_ray_direction(pt.first, pt.second);
 				const double radial_component = dir[0] * er_x + dir[1] * er_y + dir[2] * er_z;
 				const double lateral_a = dir[0] * eth_x + dir[1] * eth_y + dir[2] * eth_z;
 				const double lateral_b = dir[0] * eph_x + dir[1] * eph_y + dir[2] * eph_z;
 				const double impact_parameter = r_obs * std::sqrt(std::max(lateral_a * lateral_a + lateral_b * lateral_b, 1e-30));
-				if (radial_component > -0.2 || impact_parameter < 40.0 * rh) {
+				if (radial_component > -0.1 || impact_parameter < 80.0 * rh) {
 					return false;
 				}
 			}
@@ -4590,13 +4592,43 @@ public:
 		};
 
 		auto fill_tile_with_analytic_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept {
+			const double obs_x = r_obs * sin_to * cos_po;
+			const double obs_y = r_obs * sin_to * sin_po;
+			const double obs_z = r_obs * cos_to;
 			for (size_t y = y0; y < y1; ++y) {
 				if (y < rows.first || y >= rows.last) continue;
 				for (size_t x = x0; x < x1; ++x) {
 					const size_t idx = (y - rows.first) * width + x;
 					if (idx >= output_framebuffer.size()) continue;
 					const auto dir = compute_tile_ray_direction(x, y);
-					const auto sky_rgb = compute_sky_radiance(dir[0], dir[1], dir[2], params);
+					std::array<double, 3> deflected_dir = dir;
+					if (m > 1e-6) {
+						const double proj = obs_x * dir[0] + obs_y * dir[1] + obs_z * dir[2];
+						const double bx = obs_x - proj * dir[0];
+						const double by = obs_y - proj * dir[1];
+						const double bz = obs_z - proj * dir[2];
+						const double b_sq = bx * bx + by * by + bz * bz;
+						if (b_sq > 1e-12) {
+							const double b_len = std::sqrt(b_sq);
+							const double alpha = std::min(4.0 * m / b_len, 0.4);
+							const double cos_a = std::cos(alpha);
+							const double sin_a = std::sin(alpha);
+							const double inv_b = 1.0 / b_len;
+							const double b_hat_x = bx * inv_b;
+							const double b_hat_y = by * inv_b;
+							const double b_hat_z = bz * inv_b;
+							deflected_dir[0] = dir[0] * cos_a - b_hat_x * sin_a;
+							deflected_dir[1] = dir[1] * cos_a - b_hat_y * sin_a;
+							deflected_dir[2] = dir[2] * cos_a - b_hat_z * sin_a;
+							const double norm = std::sqrt(deflected_dir[0] * deflected_dir[0] + deflected_dir[1] * deflected_dir[1] + deflected_dir[2] * deflected_dir[2]);
+							if (norm > 1e-12) {
+								deflected_dir[0] /= norm;
+								deflected_dir[1] /= norm;
+								deflected_dir[2] /= norm;
+							}
+						}
+					}
+					const auto sky_rgb = compute_sky_radiance(deflected_dir[0], deflected_dir[1], deflected_dir[2], params);
 					const auto mapped_srgb = apply_tonemapping({sky_rgb[0], sky_rgb[1], sky_rgb[2]}, params.tonemapping_mode, params.camera_exposure);
 					output_framebuffer[idx] = GpuPixelOutput{
 						.r = mapped_srgb[0],

@@ -113,58 +113,6 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 
 	ImGui::Spacing();
 	if (ImGui::CollapsingHeader("Sky Quality & Continuous Multi-Scale LOD", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Quality Preset Profiles:");
-		if (ImGui::Button("Fast (0.1x)", ImVec2(80.0f, 22.0f))) {
-			sky.quality_factor = 0.10;
-			sky.star_quality_factor = 0.15;
-			sky.nebula_quality_factor = 0.20;
-			sky.cluster_quality_factor = 0.15;
-			sky.dust_quality_factor = 0.20;
-			sky.adaptive_fov_quality = false;
-			changed = true;
-		}
-		render_setting_tooltip("Minimal sampling workload for low-power devices and fast preview rendering.");
-		ImGui::SameLine();
-		if (ImGui::Button("Low (0.35x)", ImVec2(85.0f, 22.0f))) {
-			sky.quality_factor = 0.35;
-			sky.star_quality_factor = 0.40;
-			sky.nebula_quality_factor = 0.50;
-			sky.cluster_quality_factor = 0.40;
-			sky.dust_quality_factor = 0.50;
-			sky.adaptive_fov_quality = false;
-			changed = true;
-		}
-		render_setting_tooltip("Reduced density and layer counts for steady interactive frame rates.");
-		ImGui::SameLine();
-		if (ImGui::Button("Balanced (1.0x)", ImVec2(100.0f, 22.0f))) {
-			sky.quality_factor = 1.0;
-			sky.star_quality_factor = 1.0;
-			sky.nebula_quality_factor = 1.0;
-			sky.cluster_quality_factor = 1.0;
-			sky.dust_quality_factor = 1.0;
-			changed = true;
-		}
-		render_setting_tooltip("Standard balanced configuration matching physical cosmic density.");
-		ImGui::SameLine();
-		if (ImGui::Button("High (2.0x)", ImVec2(85.0f, 22.0f))) {
-			sky.quality_factor = 2.0;
-			sky.star_quality_factor = 1.8;
-			sky.nebula_quality_factor = 1.8;
-			sky.cluster_quality_factor = 1.8;
-			sky.dust_quality_factor = 1.8;
-			changed = true;
-		}
-		render_setting_tooltip("Double sampling fidelity and finer spatial partition resolution.");
-		ImGui::SameLine();
-		if (ImGui::Button("Fractal Infinite", ImVec2(110.0f, 22.0f))) {
-			sky.quality_factor = 2.0;
-			sky.adaptive_fov_quality = true;
-			sky.adaptive_fov_sensitivity = 1.0;
-			sky.max_star_octaves = 6;
-			changed = true;
-		}
-		render_setting_tooltip("Engages continuous multi-scale fractal zoom where narrowing the camera FOV smoothly reveals deeper octaves of fainter stars and finer filaments.");
-
 		changed = slider_double_with_input("Master Quality Factor", &sky.quality_factor, 0.01, 10.0, "%.3fx") || changed;
 		render_setting_tooltip("Global scalar governing celestial sphere sampling density. Values below 1 reduce computational work; values above 1 increase structural detail.");
 
@@ -265,15 +213,17 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			}
 
 			ImGui::Separator();
-			changed = slider_double_with_input("Star Density", &sky.star_density, 0.01, 15.0, "%.3f") || changed;
-			changed = slider_double_with_input("Star Brightness", &sky.star_brightness, 0.0, 20.0, "%.2f") || changed;
+			changed = slider_double_with_input("Star Density", &sky.star_density, 0.01, 100.0, "%.3f") || changed;
+			changed = slider_double_with_input("Star Brightness", &sky.star_brightness, 0.0, 50.0, "%.2f") || changed;
+			changed = slider_double_with_input("Star Size Scale", &sky.star_size_scale, 0.05, 50.0, "%.3fx") || changed;
+			render_setting_tooltip("Uniform multiplier on all stellar angular radii, allowing tiny needle pinpoints up to giant luminous discs.");
 
 			static bool star_min_size_log = true;
-			changed = slider_double_with_input("Minimum Angular Size (rad)", &sky.star_size_min, 0.0, 0.005, "%.7f", &star_min_size_log, 0.0, 0.005) || changed;
+			changed = slider_double_with_input("Minimum Angular Size (rad)", &sky.star_size_min, 0.0, 0.05, "%.7f", &star_min_size_log, 0.0, 0.05) || changed;
 			render_setting_tooltip("Smallest angular radius for distant stars, allowing true zero for pure sub-pixel point sources.");
 
 			static bool star_max_size_log = true;
-			changed = slider_double_with_input("Maximum Angular Size (rad)", &sky.star_size_max, 0.00005, 0.04, "%.5f", &star_max_size_log, 0.00005, 0.04) || changed;
+			changed = slider_double_with_input("Maximum Angular Size (rad)", &sky.star_size_max, 0.00001, 0.15, "%.5f", &star_max_size_log, 0.00001, 0.15) || changed;
 
 			static const char* kSizeDistributions[] = {"Uniform", "Salpeter Power-Law", "Exponential", "Log-Normal", "Gaussian"};
 			int current_size_dist = static_cast<int>(std::min(sky.star_size_distribution, 4U));
@@ -452,29 +402,31 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 	if (ImGui::CollapsingHeader("Exotic Sources (Quasars, Pulsars & Supernova Remnants)", ImGuiTreeNodeFlags_DefaultOpen)) {
 		changed = ImGui::Checkbox("Enable Exotic Objects", &sky.exotic_objects_enabled) || changed;
 		if (sky.exotic_objects_enabled) {
-			changed = slider_double_with_input("Exotic Objects Density", &sky.quasar_density, 0.01, 2.0, "%.3f") || changed;
-			changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.1, 25.0, "%.2f") || changed;
+			changed = slider_double_with_input("Exotic Objects Density", &sky.quasar_density, 0.01, 20.0, "%.3f") || changed;
+			changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.1, 100.0, "%.2f") || changed;
 
 			static bool quasar_size_log = true;
-			changed = slider_double_with_input("Quasar Core Angular Radius (rad)", &sky.quasar_core_size, 0.0001, 0.01, "%.5f", &quasar_size_log, 0.0001, 0.01) || changed;
+			changed = slider_double_with_input("Quasar Core Angular Radius (rad)", &sky.quasar_core_size, 0.0002, 0.08, "%.5f", &quasar_size_log, 0.0002, 0.08) || changed;
 			render_setting_tooltip("Angular radius of the luminous quasar nucleus on the sky.");
 
-			changed = slider_double_with_input("Quasar Relativistic Jet Length (rad)", &sky.quasar_jet_length, 0.002, 0.1, "%.4f") || changed;
-			changed = slider_double_with_input("Quasar Relativistic Jet Intensity", &sky.quasar_jet_intensity, 0.0, 10.0, "%.2f") || changed;
+			changed = slider_double_with_input("Quasar Relativistic Jet Length (rad)", &sky.quasar_jet_length, 0.005, 0.60, "%.4f") || changed;
+			changed = slider_double_with_input("Quasar Relativistic Jet Intensity", &sky.quasar_jet_intensity, 0.0, 30.0, "%.2f") || changed;
 
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Pulsar Emission:");
-			changed = slider_double_with_input("Pulsar Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 30.0, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.02, 0.95, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Beaming Cone Half-Angle (deg)", &sky.pulsar_beam_width_deg, 2.0, 45.0, "%.1f") || changed;
+			changed = slider_double_with_input("Pulsar Brightness", &sky.pulsar_brightness, 0.1, 50.0, "%.2f") || changed;
+			changed = slider_double_with_input("Pulsar Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 50.0, "%.2f") || changed;
+			changed = slider_double_with_input("Pulsar Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.01, 0.99, "%.2f") || changed;
+			changed = slider_double_with_input("Pulsar Beaming Cone Half-Angle (deg)", &sky.pulsar_beam_width_deg, 1.0, 60.0, "%.1f") || changed;
 
 			ImGui::Separator();
 			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Supernova Remnants (SNR):");
 			changed = ImGui::Checkbox("Enable Supernova Remnant Shells", &sky.snr_enabled) || changed;
 			if (sky.snr_enabled) {
-				changed = slider_double_with_input("SNR Shell Brightness", &sky.snr_brightness, 0.1, 10.0, "%.2f") || changed;
-				changed = slider_double_with_input("SNR Shell Thickness Fraction", &sky.snr_shell_thickness, 0.02, 0.5, "%.3f") || changed;
-				changed = slider_double_with_input("SNR Expansion Phase", &sky.snr_expansion_age, 0.0, 1.0, "%.2f") || changed;
+				changed = slider_double_with_input("SNR Shell Brightness", &sky.snr_brightness, 0.1, 50.0, "%.2f") || changed;
+				changed = slider_double_with_input("SNR Shell Angular Radius (rad)", &sky.snr_size, 0.002, 0.10, "%.4f") || changed;
+				changed = slider_double_with_input("SNR Shell Thickness Fraction", &sky.snr_shell_thickness, 0.01, 0.6, "%.3f") || changed;
+				changed = slider_double_with_input("SNR Expansion Phase", &sky.snr_expansion_age, 0.0, 2.0, "%.2f") || changed;
 			}
 		}
 	}
@@ -488,17 +440,17 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			changed = slider_double_with_input("Line Width (rad)", &sky.grid_line_width, 0.00005, 0.05, "%.5f", &grid_width_log, 0.00005, 0.05) || changed;
 			render_setting_tooltip("Angular line width on the celestial sphere. Automatically scales with viewport pixel footprint to remain sharp and anti-aliased at any resolution.");
 
-			static const double kSpacings[] = {5.0, 10.0, 15.0, 30.0};
-			static const char* kSpacingLabels[] = {"5 deg", "10 deg", "15 deg (1h RA)", "30 deg (2h RA)"};
-			int cur_spacing_idx = 2;
-			for (int s = 0; s < 4; ++s) {
-				if (std::abs(sky.grid_spacing_deg - kSpacings[s]) < 1.0) cur_spacing_idx = s;
-			}
-			if (ImGui::Combo("Angular Spacing", &cur_spacing_idx, kSpacingLabels, 4)) {
-				sky.grid_spacing_deg = kSpacings[cur_spacing_idx];
+			changed = slider_double_with_input("Grid Spacing (deg)", &sky.grid_spacing_deg, 1.0, 90.0, "%.1f") || changed;
+			render_setting_tooltip("Angular separation between consecutive primary coordinate parallels and meridians.");
+
+			int subdivisions = static_cast<int>(sky.grid_subdivisions);
+			if (ImGui::SliderInt("Minor Subdivisions", &subdivisions, 0, 10)) {
+				sky.grid_subdivisions = static_cast<uint32_t>(subdivisions);
 				changed = true;
 			}
+			render_setting_tooltip("Number of secondary coordinate lines drawn between each pair of major lines.");
 
+			changed = slider_double_with_input("Grid Glow Intensity", &sky.grid_glow, 0.0, 3.0, "%.2f") || changed;
 			changed = ImGui::ColorEdit3("Major Lines (Equator/Meridian)", sky.grid_major_color.data()) || changed;
 			changed = ImGui::ColorEdit3("Minor Grid Lines", sky.grid_minor_color.data()) || changed;
 			changed = ImGui::Checkbox("Show Polar Cap Rings", &sky.grid_show_polar_caps) || changed;
@@ -514,7 +466,7 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Color Grading, Orientation & Rotation")) {
+	if (ImGui::CollapsingHeader("Color Grading, Orientation & Rotation", ImGuiTreeNodeFlags_DefaultOpen)) {
 		changed = ImGui::ColorEdit3("Deep Space Base Color", sky.background_color.data()) || changed;
 		changed = slider_double_with_input("Hue Shift (deg)", &sky.hue_shift_deg, -180.0, 180.0, "%.1f") || changed;
 		changed = slider_double_with_input("Saturation", &sky.saturation, 0.0, 3.0, "%.2f") || changed;
@@ -538,52 +490,6 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			changed = slider_double_with_input("Micro-Motion Speed Multiplier", &sky.motion_speed, 0.001, 1.0, "%.3f") || changed;
 		}
 	}
-
-	ImGui::Spacing();
-	ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Aesthetic Universe Presets:");
-	if (ImGui::Button("Realistic Deep Space", ImVec2(160.0f, 24.0f))) {
-		sky.star_density = 1.0;
-		sky.star_brightness = 1.0;
-		sky.star_size_min = 0.0;
-		sky.star_size_max = 0.0015;
-		sky.star_profile_model = static_cast<uint32_t>(Render::StarProfileModel::PinpointDirac);
-		sky.star_dirac_concentration = 0.96;
-		sky.nebula_intensity = 0.45;
-		sky.nebula_absorption_density = 0.85;
-		sky.dust_intensity = 1.2;
-		sky.exotic_objects_enabled = true;
-		sky.grid_enabled = false;
-		changed = true;
-	}
-	render_setting_tooltip("Sub-pixel pinpoint stars with realistic dynamic range and subtle interstellar extinction.");
-	ImGui::SameLine();
-	if (ImGui::Button("Galactic Core Vibrant", ImVec2(170.0f, 24.0f))) {
-		sky.star_density = 3.5;
-		sky.star_brightness = 2.2;
-		sky.star_placement_model = static_cast<uint32_t>(Render::StarPlacementModel::GalacticDisk);
-		sky.star_galactic_concentration = 4.0;
-		sky.star_profile_model = static_cast<uint32_t>(Render::StarProfileModel::CinematicBloom);
-		sky.star_bloom_intensity = 0.8;
-		sky.nebula_intensity = 2.5;
-		sky.nebula_core_glow = 1.8;
-		sky.clusters_enabled = true;
-		sky.cluster_density = 2.0;
-		changed = true;
-	}
-	render_setting_tooltip("Dense stellar fields and intense ionized nebulae centered around the galactic plane.");
-	ImGui::SameLine();
-	if (ImGui::Button("Exotic High-Energy", ImVec2(160.0f, 24.0f))) {
-		sky.exotic_objects_enabled = true;
-		sky.quasar_density = 0.25;
-		sky.quasar_brightness = 6.0;
-		sky.quasar_jet_length = 0.035;
-		sky.quasar_jet_intensity = 4.0;
-		sky.snr_enabled = true;
-		sky.snr_brightness = 3.5;
-		sky.dynamic_motion = true;
-		changed = true;
-	}
-	render_setting_tooltip("High density of active galactic nuclei, relativistic jets, pulsars, and expanding supernova remnants.");
 
 	ImGui::Spacing();
 	if (ImGui::Button("Reset All Sky Settings to Defaults", ImVec2(280.0f, 26.0f))) {

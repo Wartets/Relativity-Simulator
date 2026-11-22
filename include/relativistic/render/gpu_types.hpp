@@ -287,13 +287,18 @@ struct GpuSkyProfile {
 	uint32_t cluster_stars_enabled{1};
 	uint32_t cluster_member_count{48};
 	uint32_t cluster_star_profile_model{0};
+	uint32_t cluster_inherit_star_profile{1};
 	uint32_t dust_enabled{1};
 	uint32_t dust_fractal_octaves{5};
 	uint32_t galaxies_enabled{1};
 	uint32_t galaxy_size_distribution{1};
+	uint32_t galaxy_morphology_model{0};
 	uint32_t exotic_objects_enabled{0};
+	uint32_t quasar_enabled{1};
+	uint32_t pulsar_enabled{1};
 	uint32_t snr_enabled{1};
 	uint32_t grid_enabled{0};
+	uint32_t grid_cell_fill_mode{0};
 	uint32_t grid_subdivisions{1};
 	uint32_t grid_show_polar_caps{0};
 	uint32_t grid_show_equator{1};
@@ -303,7 +308,6 @@ struct GpuSkyProfile {
 	uint32_t dynamic_rotation{0};
 	uint32_t adaptive_fov_quality{1};
 	uint32_t max_star_octaves{8};
-	uint32_t pad0{0};
 
 	double master_intensity{1.0};
 	double quality_factor{1.0};
@@ -368,6 +372,8 @@ struct GpuSkyProfile {
 	double cluster_plane_scale_height{0.15};
 	double cluster_member_size{0.0006};
 	double cluster_member_brightness{1.2};
+	double cluster_halo_intensity{0.25};
+	double cluster_spread_factor{1.0};
 
 	double dust_density{3.85};
 	double dust_intensity{1.3};
@@ -385,21 +391,40 @@ struct GpuSkyProfile {
 	double galaxy_pitch_angle{1.2};
 	double galaxy_core_ratio{0.4};
 	double galaxy_ellipticity_variance{0.5};
+	double galaxy_bar_strength{0.5};
+	double galaxy_dust_lane_opacity{0.6};
+	double galaxy_clumpiness{0.5};
+	double galaxy_disk_thickness{0.2};
+	double galaxy_inclination_variance{0.7};
+	double galaxy_bulge_sersic_index{4.0};
 
 	double quasar_density{0.01};
-	double quasar_brightness{9.27};
-	double quasar_core_size{0.000281838};
-	double quasar_jet_length{0.107};
-	double quasar_jet_intensity{2.5};
+	double quasar_brightness{1.2};
+	double quasar_core_size{0.0003};
+	double quasar_jet_length{0.08};
+	double quasar_jet_intensity{1.5};
+	double quasar_jet_opening_angle_deg{5.0};
+	double quasar_jet_lorentz_factor{4.0};
+	double quasar_accretion_disk_glow{1.0};
+	double quasar_precession_angle_deg{10.0};
+
+	double pulsar_density{0.01};
+	double pulsar_brightness{1.0};
 	double pulsar_pulse_rate{2.5};
-	double pulsar_pulse_duty{0.25};
-	double pulsar_beam_width_deg{15.0};
-	double pulsar_brightness{3.0};
+	double pulsar_pulse_duty{0.15};
+	double pulsar_beam_width_deg{8.0};
+	double pulsar_magnetic_tilt_deg{30.0};
+	double pulsar_wind_nebula_scale{0.003};
+	double pulsar_wind_nebula_intensity{0.4};
+
 	double snr_density{0.06};
-	double snr_brightness{2.0};
-	double snr_shell_thickness{0.15};
+	double snr_brightness{1.2};
+	double snr_shell_thickness{0.08};
 	double snr_expansion_age{0.5};
 	double snr_size{0.015};
+	double snr_asymmetry{0.4};
+	double snr_filament_scale{3.0};
+	double snr_interior_glow{0.3};
 
 	double grid_opacity{0.5};
 	double grid_line_width{0.0001};
@@ -407,6 +432,16 @@ struct GpuSkyProfile {
 	double grid_glow{0.0};
 	double grid_tick_interval_deg{5.0};
 	double grid_tick_length{0.003};
+	double grid_tick_width{0.0001};
+	double grid_cell_opacity{0.0};
+	double grid_equator_width{0.0003};
+	double grid_equator_opacity{0.8};
+	double grid_polar_width{0.0002};
+	double grid_polar_opacity{0.7};
+	double grid_meridian_width{0.0003};
+	double grid_meridian_opacity{0.8};
+	double grid_major_width{0.00015};
+	double grid_minor_width{0.00008};
 
 	double hue_shift_deg{0.0};
 	double saturation{0.86};
@@ -435,6 +470,23 @@ struct GpuSkyProfile {
 	float background_color[3]{0.0f, 0.0f, 0.0f};
 	float pad10{0.0f};
 
+	float grid_equator_color[3]{0.95f, 0.85f, 0.30f};
+	float pad11{0.0f};
+	float grid_polar_color[3]{0.35f, 0.85f, 0.95f};
+	float pad12{0.0f};
+	float grid_meridian_color[3]{0.95f, 0.45f, 0.35f};
+	float pad13{0.0f};
+	float grid_tick_color[3]{1.0f, 1.0f, 1.0f};
+	float pad14{0.0f};
+	float grid_cell_color1[3]{0.10f, 0.12f, 0.18f};
+	float pad15{0.0f};
+	float grid_cell_color2[3]{0.05f, 0.07f, 0.12f};
+	float pad16{0.0f};
+	float grid_cell_color3[3]{0.08f, 0.15f, 0.15f};
+	float pad17{0.0f};
+	float grid_cell_color4[3]{0.15f, 0.10f, 0.12f};
+	float pad18{0.0f};
+
 	[[nodiscard]] static GpuSkyProfile from(const ProceduralSkySettings& s) noexcept {
 		GpuSkyProfile p{};
 		p.enabled = s.enabled ? 1U : 0U;
@@ -454,13 +506,18 @@ struct GpuSkyProfile {
 		p.cluster_stars_enabled = s.cluster_stars_enabled ? 1U : 0U;
 		p.cluster_member_count = s.cluster_member_count;
 		p.cluster_star_profile_model = s.cluster_star_profile_model;
+		p.cluster_inherit_star_profile = s.cluster_inherit_star_profile ? 1U : 0U;
 		p.dust_enabled = s.dust_enabled ? 1U : 0U;
 		p.dust_fractal_octaves = s.dust_fractal_octaves;
 		p.galaxies_enabled = s.galaxies_enabled ? 1U : 0U;
 		p.galaxy_size_distribution = s.galaxy_size_distribution;
+		p.galaxy_morphology_model = s.galaxy_morphology_model;
 		p.exotic_objects_enabled = s.exotic_objects_enabled ? 1U : 0U;
+		p.quasar_enabled = s.quasar_enabled ? 1U : 0U;
+		p.pulsar_enabled = s.pulsar_enabled ? 1U : 0U;
 		p.snr_enabled = s.snr_enabled ? 1U : 0U;
 		p.grid_enabled = s.grid_enabled ? 1U : 0U;
+		p.grid_cell_fill_mode = s.grid_cell_fill_mode;
 		p.grid_subdivisions = s.grid_subdivisions;
 		p.grid_show_polar_caps = s.grid_show_polar_caps ? 1U : 0U;
 		p.grid_show_equator = s.grid_show_equator ? 1U : 0U;
@@ -534,6 +591,8 @@ struct GpuSkyProfile {
 		p.cluster_plane_scale_height = s.cluster_plane_scale_height;
 		p.cluster_member_size = s.cluster_member_size;
 		p.cluster_member_brightness = s.cluster_member_brightness;
+		p.cluster_halo_intensity = s.cluster_halo_intensity;
+		p.cluster_spread_factor = s.cluster_spread_factor;
 
 		p.dust_density = s.dust_density;
 		p.dust_intensity = s.dust_intensity;
@@ -551,21 +610,40 @@ struct GpuSkyProfile {
 		p.galaxy_pitch_angle = s.galaxy_pitch_angle;
 		p.galaxy_core_ratio = s.galaxy_core_ratio;
 		p.galaxy_ellipticity_variance = s.galaxy_ellipticity_variance;
+		p.galaxy_bar_strength = s.galaxy_bar_strength;
+		p.galaxy_dust_lane_opacity = s.galaxy_dust_lane_opacity;
+		p.galaxy_clumpiness = s.galaxy_clumpiness;
+		p.galaxy_disk_thickness = s.galaxy_disk_thickness;
+		p.galaxy_inclination_variance = s.galaxy_inclination_variance;
+		p.galaxy_bulge_sersic_index = s.galaxy_bulge_sersic_index;
 
 		p.quasar_density = s.quasar_density;
 		p.quasar_brightness = s.quasar_brightness;
 		p.quasar_core_size = s.quasar_core_size;
 		p.quasar_jet_length = s.quasar_jet_length;
 		p.quasar_jet_intensity = s.quasar_jet_intensity;
+		p.quasar_jet_opening_angle_deg = s.quasar_jet_opening_angle_deg;
+		p.quasar_jet_lorentz_factor = s.quasar_jet_lorentz_factor;
+		p.quasar_accretion_disk_glow = s.quasar_accretion_disk_glow;
+		p.quasar_precession_angle_deg = s.quasar_precession_angle_deg;
+
+		p.pulsar_density = s.pulsar_density;
+		p.pulsar_brightness = s.pulsar_brightness;
 		p.pulsar_pulse_rate = s.pulsar_pulse_rate;
 		p.pulsar_pulse_duty = s.pulsar_pulse_duty;
 		p.pulsar_beam_width_deg = s.pulsar_beam_width_deg;
-		p.pulsar_brightness = s.pulsar_brightness;
+		p.pulsar_magnetic_tilt_deg = s.pulsar_magnetic_tilt_deg;
+		p.pulsar_wind_nebula_scale = s.pulsar_wind_nebula_scale;
+		p.pulsar_wind_nebula_intensity = s.pulsar_wind_nebula_intensity;
+
 		p.snr_density = s.snr_density;
 		p.snr_brightness = s.snr_brightness;
 		p.snr_shell_thickness = s.snr_shell_thickness;
 		p.snr_expansion_age = s.snr_expansion_age;
 		p.snr_size = s.snr_size;
+		p.snr_asymmetry = s.snr_asymmetry;
+		p.snr_filament_scale = s.snr_filament_scale;
+		p.snr_interior_glow = s.snr_interior_glow;
 
 		p.grid_opacity = s.grid_opacity;
 		p.grid_line_width = s.grid_line_width;
@@ -573,6 +651,16 @@ struct GpuSkyProfile {
 		p.grid_glow = s.grid_glow;
 		p.grid_tick_interval_deg = s.grid_tick_interval_deg;
 		p.grid_tick_length = s.grid_tick_length;
+		p.grid_tick_width = s.grid_tick_width;
+		p.grid_cell_opacity = s.grid_cell_opacity;
+		p.grid_equator_width = s.grid_equator_width;
+		p.grid_equator_opacity = s.grid_equator_opacity;
+		p.grid_polar_width = s.grid_polar_width;
+		p.grid_polar_opacity = s.grid_polar_opacity;
+		p.grid_meridian_width = s.grid_meridian_width;
+		p.grid_meridian_opacity = s.grid_meridian_opacity;
+		p.grid_major_width = s.grid_major_width;
+		p.grid_minor_width = s.grid_minor_width;
 
 		p.hue_shift_deg = s.hue_shift_deg;
 		p.saturation = s.saturation;
@@ -591,6 +679,14 @@ struct GpuSkyProfile {
 			p.grid_major_color[i] = s.grid_major_color[i];
 			p.grid_minor_color[i] = s.grid_minor_color[i];
 			p.background_color[i] = s.background_color[i];
+			p.grid_equator_color[i] = s.grid_equator_color[i];
+			p.grid_polar_color[i] = s.grid_polar_color[i];
+			p.grid_meridian_color[i] = s.grid_meridian_color[i];
+			p.grid_tick_color[i] = s.grid_tick_color[i];
+			p.grid_cell_color1[i] = s.grid_cell_color1[i];
+			p.grid_cell_color2[i] = s.grid_cell_color2[i];
+			p.grid_cell_color3[i] = s.grid_cell_color3[i];
+			p.grid_cell_color4[i] = s.grid_cell_color4[i];
 		}
 		return p;
 	}
@@ -614,13 +710,18 @@ struct GpuSkyProfile {
 		s.cluster_stars_enabled = (cluster_stars_enabled != 0U);
 		s.cluster_member_count = cluster_member_count;
 		s.cluster_star_profile_model = cluster_star_profile_model;
+		s.cluster_inherit_star_profile = (cluster_inherit_star_profile != 0U);
 		s.dust_enabled = (dust_enabled != 0U);
 		s.dust_fractal_octaves = dust_fractal_octaves;
 		s.galaxies_enabled = (galaxies_enabled != 0U);
 		s.galaxy_size_distribution = galaxy_size_distribution;
+		s.galaxy_morphology_model = galaxy_morphology_model;
 		s.exotic_objects_enabled = (exotic_objects_enabled != 0U);
+		s.quasar_enabled = (quasar_enabled != 0U);
+		s.pulsar_enabled = (pulsar_enabled != 0U);
 		s.snr_enabled = (snr_enabled != 0U);
 		s.grid_enabled = (grid_enabled != 0U);
+		s.grid_cell_fill_mode = grid_cell_fill_mode;
 		s.grid_subdivisions = grid_subdivisions;
 		s.grid_show_polar_caps = (grid_show_polar_caps != 0U);
 		s.grid_show_equator = (grid_show_equator != 0U);
@@ -694,6 +795,8 @@ struct GpuSkyProfile {
 		s.cluster_plane_scale_height = cluster_plane_scale_height;
 		s.cluster_member_size = cluster_member_size;
 		s.cluster_member_brightness = cluster_member_brightness;
+		s.cluster_halo_intensity = cluster_halo_intensity;
+		s.cluster_spread_factor = cluster_spread_factor;
 
 		s.dust_density = dust_density;
 		s.dust_intensity = dust_intensity;
@@ -711,21 +814,40 @@ struct GpuSkyProfile {
 		s.galaxy_pitch_angle = galaxy_pitch_angle;
 		s.galaxy_core_ratio = galaxy_core_ratio;
 		s.galaxy_ellipticity_variance = galaxy_ellipticity_variance;
+		s.galaxy_bar_strength = galaxy_bar_strength;
+		s.galaxy_dust_lane_opacity = galaxy_dust_lane_opacity;
+		s.galaxy_clumpiness = galaxy_clumpiness;
+		s.galaxy_disk_thickness = galaxy_disk_thickness;
+		s.galaxy_inclination_variance = galaxy_inclination_variance;
+		s.galaxy_bulge_sersic_index = galaxy_bulge_sersic_index;
 
 		s.quasar_density = quasar_density;
 		s.quasar_brightness = quasar_brightness;
 		s.quasar_core_size = quasar_core_size;
 		s.quasar_jet_length = quasar_jet_length;
 		s.quasar_jet_intensity = quasar_jet_intensity;
+		s.quasar_jet_opening_angle_deg = quasar_jet_opening_angle_deg;
+		s.quasar_jet_lorentz_factor = quasar_jet_lorentz_factor;
+		s.quasar_accretion_disk_glow = quasar_accretion_disk_glow;
+		s.quasar_precession_angle_deg = quasar_precession_angle_deg;
+
+		s.pulsar_density = pulsar_density;
+		s.pulsar_brightness = pulsar_brightness;
 		s.pulsar_pulse_rate = pulsar_pulse_rate;
 		s.pulsar_pulse_duty = pulsar_pulse_duty;
 		s.pulsar_beam_width_deg = pulsar_beam_width_deg;
-		s.pulsar_brightness = pulsar_brightness;
+		s.pulsar_magnetic_tilt_deg = pulsar_magnetic_tilt_deg;
+		s.pulsar_wind_nebula_scale = pulsar_wind_nebula_scale;
+		s.pulsar_wind_nebula_intensity = pulsar_wind_nebula_intensity;
+
 		s.snr_density = snr_density;
 		s.snr_brightness = snr_brightness;
 		s.snr_shell_thickness = snr_shell_thickness;
 		s.snr_expansion_age = snr_expansion_age;
 		s.snr_size = snr_size;
+		s.snr_asymmetry = snr_asymmetry;
+		s.snr_filament_scale = snr_filament_scale;
+		s.snr_interior_glow = snr_interior_glow;
 
 		s.grid_opacity = grid_opacity;
 		s.grid_line_width = grid_line_width;
@@ -733,6 +855,16 @@ struct GpuSkyProfile {
 		s.grid_glow = grid_glow;
 		s.grid_tick_interval_deg = grid_tick_interval_deg;
 		s.grid_tick_length = grid_tick_length;
+		s.grid_tick_width = grid_tick_width;
+		s.grid_cell_opacity = grid_cell_opacity;
+		s.grid_equator_width = grid_equator_width;
+		s.grid_equator_opacity = grid_equator_opacity;
+		s.grid_polar_width = grid_polar_width;
+		s.grid_polar_opacity = grid_polar_opacity;
+		s.grid_meridian_width = grid_meridian_width;
+		s.grid_meridian_opacity = grid_meridian_opacity;
+		s.grid_major_width = grid_major_width;
+		s.grid_minor_width = grid_minor_width;
 
 		s.hue_shift_deg = hue_shift_deg;
 		s.saturation = saturation;
@@ -751,6 +883,14 @@ struct GpuSkyProfile {
 			s.grid_major_color[i] = grid_major_color[i];
 			s.grid_minor_color[i] = grid_minor_color[i];
 			s.background_color[i] = background_color[i];
+			s.grid_equator_color[i] = grid_equator_color[i];
+			s.grid_polar_color[i] = grid_polar_color[i];
+			s.grid_meridian_color[i] = grid_meridian_color[i];
+			s.grid_tick_color[i] = grid_tick_color[i];
+			s.grid_cell_color1[i] = grid_cell_color1[i];
+			s.grid_cell_color2[i] = grid_cell_color2[i];
+			s.grid_cell_color3[i] = grid_cell_color3[i];
+			s.grid_cell_color4[i] = grid_cell_color4[i];
 		}
 		return s;
 	}
@@ -762,7 +902,7 @@ struct GpuSkyProfile {
 	[[nodiscard]] bool operator==(const GpuSkyProfile&) const noexcept = default;
 };
 
-static_assert(sizeof(GpuSkyProfile) == 1080);
+static_assert(sizeof(GpuSkyProfile) == 1456);
 
 struct alignas(16) GpuCameraPushConstants {
 	std::array<double, 4> observer_position{};

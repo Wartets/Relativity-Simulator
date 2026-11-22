@@ -407,6 +407,70 @@ struct UserSettings {
 		result.sky.grid_show_polar_caps = get_bool("sky_grid_show_polar_caps", result.sky.grid_show_polar_caps);
 		result.sky.grid_show_equator = get_bool("sky_grid_show_equator", result.sky.grid_show_equator);
 		result.sky.grid_show_meridians = get_bool("sky_grid_show_meridians", result.sky.grid_show_meridians);
+		result.sky.grid_cell_fill_mode = get_u32("sky_grid_cell_fill_mode", result.sky.grid_cell_fill_mode);
+		result.sky.grid_cell_opacity = get_dbl("sky_grid_cell_opacity", result.sky.grid_cell_opacity);
+		result.sky.grid_tick_width = get_dbl("sky_grid_tick_width", result.sky.grid_tick_width);
+		result.sky.grid_equator_width = get_dbl("sky_grid_equator_width", result.sky.grid_equator_width);
+		result.sky.grid_equator_opacity = get_dbl("sky_grid_equator_opacity", result.sky.grid_equator_opacity);
+		result.sky.grid_polar_width = get_dbl("sky_grid_polar_width", result.sky.grid_polar_width);
+		result.sky.grid_polar_opacity = get_dbl("sky_grid_polar_opacity", result.sky.grid_polar_opacity);
+		result.sky.grid_meridian_width = get_dbl("sky_grid_meridian_width", result.sky.grid_meridian_width);
+		result.sky.grid_meridian_opacity = get_dbl("sky_grid_meridian_opacity", result.sky.grid_meridian_opacity);
+		result.sky.grid_major_width = get_dbl("sky_grid_major_width", result.sky.grid_major_width);
+		result.sky.grid_minor_width = get_dbl("sky_grid_minor_width", result.sky.grid_minor_width);
+		result.sky.grid_equator_color[0] = static_cast<float>(get_dbl("sky_grid_equator_color_r", result.sky.grid_equator_color[0]));
+		result.sky.grid_equator_color[1] = static_cast<float>(get_dbl("sky_grid_equator_color_g", result.sky.grid_equator_color[1]));
+		result.sky.grid_equator_color[2] = static_cast<float>(get_dbl("sky_grid_equator_color_b", result.sky.grid_equator_color[2]));
+		result.sky.grid_polar_color[0] = static_cast<float>(get_dbl("sky_grid_polar_color_r", result.sky.grid_polar_color[0]));
+		result.sky.grid_polar_color[1] = static_cast<float>(get_dbl("sky_grid_polar_color_g", result.sky.grid_polar_color[1]));
+		result.sky.grid_polar_color[2] = static_cast<float>(get_dbl("sky_grid_polar_color_b", result.sky.grid_polar_color[2]));
+		result.sky.grid_meridian_color[0] = static_cast<float>(get_dbl("sky_grid_meridian_color_r", result.sky.grid_meridian_color[0]));
+		result.sky.grid_meridian_color[1] = static_cast<float>(get_dbl("sky_grid_meridian_color_g", result.sky.grid_meridian_color[1]));
+		result.sky.grid_meridian_color[2] = static_cast<float>(get_dbl("sky_grid_meridian_color_b", result.sky.grid_meridian_color[2]));
+		result.sky.grid_tick_color[0] = static_cast<float>(get_dbl("sky_grid_tick_color_r", result.sky.grid_tick_color[0]));
+		result.sky.grid_tick_color[1] = static_cast<float>(get_dbl("sky_grid_tick_color_g", result.sky.grid_tick_color[1]));
+		result.sky.grid_tick_color[2] = static_cast<float>(get_dbl("sky_grid_tick_color_b", result.sky.grid_tick_color[2]));
+		result.sky.grid_cell_color1[0] = static_cast<float>(get_dbl("sky_grid_cell_color1_r", result.sky.grid_cell_color1[0]));
+		result.sky.grid_cell_color1[1] = static_cast<float>(get_dbl("sky_grid_cell_color1_g", result.sky.grid_cell_color1[1]));
+		result.sky.grid_cell_color1[2] = static_cast<float>(get_dbl("sky_grid_cell_color1_b", result.sky.grid_cell_color1[2]));
+		result.sky.grid_cell_color2[0] = static_cast<float>(get_dbl("sky_grid_cell_color2_r", result.sky.grid_cell_color2[0]));
+		result.sky.grid_cell_color2[1] = static_cast<float>(get_dbl("sky_grid_cell_color2_g", result.sky.grid_cell_color2[1]));
+		result.sky.grid_cell_color2[2] = static_cast<float>(get_dbl("sky_grid_cell_color2_b", result.sky.grid_cell_color2[2]));
+		result.sky.grid_cell_color3[0] = static_cast<float>(get_dbl("sky_grid_cell_color3_r", result.sky.grid_cell_color3[0]));
+		result.sky.grid_cell_color3[1] = static_cast<float>(get_dbl("sky_grid_cell_color3_g", result.sky.grid_cell_color3[1]));
+		result.sky.grid_cell_color3[2] = static_cast<float>(get_dbl("sky_grid_cell_color3_b", result.sky.grid_cell_color3[2]));
+		result.sky.grid_cell_color4[0] = static_cast<float>(get_dbl("sky_grid_cell_color4_r", result.sky.grid_cell_color4[0]));
+		result.sky.grid_cell_color4[1] = static_cast<float>(get_dbl("sky_grid_cell_color4_g", result.sky.grid_cell_color4[1]));
+		result.sky.grid_cell_color4[2] = static_cast<float>(get_dbl("sky_grid_cell_color4_b", result.sky.grid_cell_color4[2]));
+
+		result.sky.cluster_halo_intensity = get_dbl("sky_cluster_halo_intensity", result.sky.cluster_halo_intensity);
+		result.sky.cluster_inherit_star_profile = get_bool("sky_cluster_inherit_star_profile", result.sky.cluster_inherit_star_profile);
+		result.sky.cluster_spread_factor = get_dbl("sky_cluster_spread_factor", result.sky.cluster_spread_factor);
+
+		result.sky.galaxy_morphology_model = get_u32("sky_galaxy_morphology_model", result.sky.galaxy_morphology_model);
+		result.sky.galaxy_bar_strength = get_dbl("sky_galaxy_bar_strength", result.sky.galaxy_bar_strength);
+		result.sky.galaxy_dust_lane_opacity = get_dbl("sky_galaxy_dust_lane_opacity", result.sky.galaxy_dust_lane_opacity);
+		result.sky.galaxy_clumpiness = get_dbl("sky_galaxy_clumpiness", result.sky.galaxy_clumpiness);
+		result.sky.galaxy_disk_thickness = get_dbl("sky_galaxy_disk_thickness", result.sky.galaxy_disk_thickness);
+		result.sky.galaxy_inclination_variance = get_dbl("sky_galaxy_inclination_variance", result.sky.galaxy_inclination_variance);
+		result.sky.galaxy_bulge_sersic_index = get_dbl("sky_galaxy_bulge_sersic_index", result.sky.galaxy_bulge_sersic_index);
+
+		result.sky.quasar_enabled = get_bool("sky_quasar_enabled", result.sky.quasar_enabled);
+		result.sky.quasar_jet_opening_angle_deg = get_dbl("sky_quasar_jet_opening_angle_deg", result.sky.quasar_jet_opening_angle_deg);
+		result.sky.quasar_jet_lorentz_factor = get_dbl("sky_quasar_jet_lorentz_factor", result.sky.quasar_jet_lorentz_factor);
+		result.sky.quasar_accretion_disk_glow = get_dbl("sky_quasar_accretion_disk_glow", result.sky.quasar_accretion_disk_glow);
+		result.sky.quasar_precession_angle_deg = get_dbl("sky_quasar_precession_angle_deg", result.sky.quasar_precession_angle_deg);
+
+		result.sky.pulsar_enabled = get_bool("sky_pulsar_enabled", result.sky.pulsar_enabled);
+		result.sky.pulsar_magnetic_tilt_deg = get_dbl("sky_pulsar_magnetic_tilt_deg", result.sky.pulsar_magnetic_tilt_deg);
+		result.sky.pulsar_wind_nebula_scale = get_dbl("sky_pulsar_wind_nebula_scale", result.sky.pulsar_wind_nebula_scale);
+		result.sky.pulsar_wind_nebula_intensity = get_dbl("sky_pulsar_wind_nebula_intensity", result.sky.pulsar_wind_nebula_intensity);
+
+		result.sky.snr_enabled = get_bool("sky_snr_enabled", result.sky.snr_enabled);
+		result.sky.snr_asymmetry = get_dbl("sky_snr_asymmetry", result.sky.snr_asymmetry);
+		result.sky.snr_filament_scale = get_dbl("sky_snr_filament_scale", result.sky.snr_filament_scale);
+		result.sky.snr_interior_glow = get_dbl("sky_snr_interior_glow", result.sky.snr_interior_glow);
+
 		result.sky.star_size_scale = get_dbl("sky_star_size_scale", result.sky.star_size_scale);
 		result.sky.pulsar_brightness = get_dbl("sky_pulsar_brightness", result.sky.pulsar_brightness);
 		result.sky.snr_size = get_dbl("sky_snr_size", result.sky.snr_size);
@@ -849,6 +913,70 @@ struct UserSettings {
 		out << "sky_grid_show_polar_caps=" << (sky.grid_show_polar_caps ? 1 : 0) << "\n";
 		out << "sky_grid_show_equator=" << (sky.grid_show_equator ? 1 : 0) << "\n";
 		out << "sky_grid_show_meridians=" << (sky.grid_show_meridians ? 1 : 0) << "\n";
+		out << "sky_grid_cell_fill_mode=" << sky.grid_cell_fill_mode << "\n";
+		out << "sky_grid_cell_opacity=" << sky.grid_cell_opacity << "\n";
+		out << "sky_grid_tick_width=" << sky.grid_tick_width << "\n";
+		out << "sky_grid_equator_width=" << sky.grid_equator_width << "\n";
+		out << "sky_grid_equator_opacity=" << sky.grid_equator_opacity << "\n";
+		out << "sky_grid_polar_width=" << sky.grid_polar_width << "\n";
+		out << "sky_grid_polar_opacity=" << sky.grid_polar_opacity << "\n";
+		out << "sky_grid_meridian_width=" << sky.grid_meridian_width << "\n";
+		out << "sky_grid_meridian_opacity=" << sky.grid_meridian_opacity << "\n";
+		out << "sky_grid_major_width=" << sky.grid_major_width << "\n";
+		out << "sky_grid_minor_width=" << sky.grid_minor_width << "\n";
+		out << "sky_grid_equator_color_r=" << sky.grid_equator_color[0] << "\n";
+		out << "sky_grid_equator_color_g=" << sky.grid_equator_color[1] << "\n";
+		out << "sky_grid_equator_color_b=" << sky.grid_equator_color[2] << "\n";
+		out << "sky_grid_polar_color_r=" << sky.grid_polar_color[0] << "\n";
+		out << "sky_grid_polar_color_g=" << sky.grid_polar_color[1] << "\n";
+		out << "sky_grid_polar_color_b=" << sky.grid_polar_color[2] << "\n";
+		out << "sky_grid_meridian_color_r=" << sky.grid_meridian_color[0] << "\n";
+		out << "sky_grid_meridian_color_g=" << sky.grid_meridian_color[1] << "\n";
+		out << "sky_grid_meridian_color_b=" << sky.grid_meridian_color[2] << "\n";
+		out << "sky_grid_tick_color_r=" << sky.grid_tick_color[0] << "\n";
+		out << "sky_grid_tick_color_g=" << sky.grid_tick_color[1] << "\n";
+		out << "sky_grid_tick_color_b=" << sky.grid_tick_color[2] << "\n";
+		out << "sky_grid_cell_color1_r=" << sky.grid_cell_color1[0] << "\n";
+		out << "sky_grid_cell_color1_g=" << sky.grid_cell_color1[1] << "\n";
+		out << "sky_grid_cell_color1_b=" << sky.grid_cell_color1[2] << "\n";
+		out << "sky_grid_cell_color2_r=" << sky.grid_cell_color2[0] << "\n";
+		out << "sky_grid_cell_color2_g=" << sky.grid_cell_color2[1] << "\n";
+		out << "sky_grid_cell_color2_b=" << sky.grid_cell_color2[2] << "\n";
+		out << "sky_grid_cell_color3_r=" << sky.grid_cell_color3[0] << "\n";
+		out << "sky_grid_cell_color3_g=" << sky.grid_cell_color3[1] << "\n";
+		out << "sky_grid_cell_color3_b=" << sky.grid_cell_color3[2] << "\n";
+		out << "sky_grid_cell_color4_r=" << sky.grid_cell_color4[0] << "\n";
+		out << "sky_grid_cell_color4_g=" << sky.grid_cell_color4[1] << "\n";
+		out << "sky_grid_cell_color4_b=" << sky.grid_cell_color4[2] << "\n";
+
+		out << "sky_cluster_halo_intensity=" << sky.cluster_halo_intensity << "\n";
+		out << "sky_cluster_inherit_star_profile=" << (sky.cluster_inherit_star_profile ? 1 : 0) << "\n";
+		out << "sky_cluster_spread_factor=" << sky.cluster_spread_factor << "\n";
+
+		out << "sky_galaxy_morphology_model=" << sky.galaxy_morphology_model << "\n";
+		out << "sky_galaxy_bar_strength=" << sky.galaxy_bar_strength << "\n";
+		out << "sky_galaxy_dust_lane_opacity=" << sky.galaxy_dust_lane_opacity << "\n";
+		out << "sky_galaxy_clumpiness=" << sky.galaxy_clumpiness << "\n";
+		out << "sky_galaxy_disk_thickness=" << sky.galaxy_disk_thickness << "\n";
+		out << "sky_galaxy_inclination_variance=" << sky.galaxy_inclination_variance << "\n";
+		out << "sky_galaxy_bulge_sersic_index=" << sky.galaxy_bulge_sersic_index << "\n";
+
+		out << "sky_quasar_enabled=" << (sky.quasar_enabled ? 1 : 0) << "\n";
+		out << "sky_quasar_jet_opening_angle_deg=" << sky.quasar_jet_opening_angle_deg << "\n";
+		out << "sky_quasar_jet_lorentz_factor=" << sky.quasar_jet_lorentz_factor << "\n";
+		out << "sky_quasar_accretion_disk_glow=" << sky.quasar_accretion_disk_glow << "\n";
+		out << "sky_quasar_precession_angle_deg=" << sky.quasar_precession_angle_deg << "\n";
+
+		out << "sky_pulsar_enabled=" << (sky.pulsar_enabled ? 1 : 0) << "\n";
+		out << "sky_pulsar_magnetic_tilt_deg=" << sky.pulsar_magnetic_tilt_deg << "\n";
+		out << "sky_pulsar_wind_nebula_scale=" << sky.pulsar_wind_nebula_scale << "\n";
+		out << "sky_pulsar_wind_nebula_intensity=" << sky.pulsar_wind_nebula_intensity << "\n";
+
+		out << "sky_snr_enabled=" << (sky.snr_enabled ? 1 : 0) << "\n";
+		out << "sky_snr_asymmetry=" << sky.snr_asymmetry << "\n";
+		out << "sky_snr_filament_scale=" << sky.snr_filament_scale << "\n";
+		out << "sky_snr_interior_glow=" << sky.snr_interior_glow << "\n";
+
 		out << "sky_star_size_scale=" << sky.star_size_scale << "\n";
 		out << "sky_pulsar_brightness=" << sky.pulsar_brightness << "\n";
 		out << "sky_snr_size=" << sky.snr_size << "\n";

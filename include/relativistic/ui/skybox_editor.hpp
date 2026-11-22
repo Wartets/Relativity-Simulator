@@ -333,6 +333,10 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 
 			changed = slider_double_with_input("Cluster Density", &sky.cluster_density, 0.0, 4.0, "%.3f") || changed;
 			changed = slider_double_with_input("Cluster Core Brightness", &sky.cluster_brightness, 0.0, 8.0, "%.2f") || changed;
+			changed = slider_double_with_input("Cluster Halo Intensity", &sky.cluster_halo_intensity, 0.0, 2.0, "%.2f") || changed;
+			render_setting_tooltip("Controls the brightness of the diffuse ambient halo surrounding each star cluster. Set lower to avoid over-concentrated bright white cores.");
+			changed = slider_double_with_input("Cluster Spread Factor", &sky.cluster_spread_factor, 0.1, 5.0, "%.2f") || changed;
+			render_setting_tooltip("Controls spatial member dispersion scale across the cluster volume.");
 			changed = slider_double_with_input("Cluster Size Scale", &sky.cluster_size_scale, 0.05, 4.0, "%.2f") || changed;
 			changed = slider_double_with_input("Cluster Size Min (rad)", &sky.cluster_size_min, 0.001, 0.03, "%.4f") || changed;
 			changed = slider_double_with_input("Cluster Size Max (rad)", &sky.cluster_size_max, 0.005, 0.1, "%.4f") || changed;
@@ -343,6 +347,8 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 			changed = ImGui::Checkbox("Resolve Member Stars Inside Clusters", &sky.cluster_stars_enabled) || changed;
 			render_setting_tooltip("Synthesizes individual member stars orbiting each cluster center according to a Plummer potential.");
 			if (sky.cluster_stars_enabled) {
+				changed = ImGui::Checkbox("Inherit Global Star Profile & PSF Style", &sky.cluster_inherit_star_profile) || changed;
+				render_setting_tooltip("When enabled, member stars follow the globally selected star point-spread function, spike count, and diffraction style.");
 				int members = static_cast<int>(sky.cluster_member_count);
 				if (ImGui::SliderInt("Cluster Member Stars Count", &members, 4, 256)) {
 					sky.cluster_member_count = static_cast<uint32_t>(members);
@@ -351,11 +357,13 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 				changed = slider_double_with_input("Member Star Brightness", &sky.cluster_member_brightness, 0.1, 5.0, "%.2f") || changed;
 				changed = slider_double_with_input("Member Star Size (rad)", &sky.cluster_member_size, 0.0001, 0.003, "%.5f") || changed;
 
-				const char* kMemberProfiles[] = {"Gaussian", "Lorentzian", "Moffat", "Airy Diffraction", "Hard Disc", "Diffraction Spikes"};
-				int member_prof_idx = static_cast<int>(std::min(sky.cluster_star_profile_model, 5U));
-				if (ImGui::Combo("Member Star Profile", &member_prof_idx, kMemberProfiles, IM_ARRAYSIZE(kMemberProfiles))) {
-					sky.cluster_star_profile_model = static_cast<uint32_t>(member_prof_idx);
-					changed = true;
+				if (!sky.cluster_inherit_star_profile) {
+					const char* kMemberProfiles[] = {"Gaussian", "Lorentzian", "Moffat", "Airy Diffraction", "Hard Disc", "Diffraction Spikes"};
+					int member_prof_idx = static_cast<int>(std::min(sky.cluster_star_profile_model, 5U));
+					if (ImGui::Combo("Member Star Profile", &member_prof_idx, kMemberProfiles, IM_ARRAYSIZE(kMemberProfiles))) {
+						sky.cluster_star_profile_model = static_cast<uint32_t>(member_prof_idx);
+						changed = true;
+					}
 				}
 			}
 		}
@@ -381,52 +389,95 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 	if (ImGui::CollapsingHeader("Deep Field Galaxies")) {
 		changed = ImGui::Checkbox("Enable Distant Galaxies", &sky.galaxies_enabled) || changed;
 		if (sky.galaxies_enabled) {
+			const char* kMorphologies[] = {
+				"Mixed Catalog (Hash-Selected Variety)",
+				"Grand Design Spiral (Prominent 2-Arm)",
+				"Flocculent Spiral (Fragmented Arms)",
+				"Barred Spiral (Central Bar Structure)",
+				"Giant Elliptical (Sersic Profile)",
+				"Lenticular S0 (Smooth Disc + Bulge)",
+				"Irregular Starburst (Chaotic Knots)",
+				"Ring Galaxy (Hoag-Type Detached Ring)"
+			};
+			int morph_idx = static_cast<int>(std::min(sky.galaxy_morphology_model, 7U));
+			if (ImGui::Combo("Morphological Type", &morph_idx, kMorphologies, IM_ARRAYSIZE(kMorphologies))) {
+				sky.galaxy_morphology_model = static_cast<uint32_t>(morph_idx);
+				changed = true;
+			}
+			render_setting_tooltip("Governs galaxy structure and light distribution models across the celestial sphere.");
+
 			changed = slider_double_with_input("Galaxy Density", &sky.galaxy_density, 0.0, 2.0, "%.3f") || changed;
 			changed = slider_double_with_input("Galaxy Brightness", &sky.galaxy_brightness, 0.0, 5.0, "%.2f") || changed;
 			changed = slider_double_with_input("Size Scale", &sky.galaxy_size_scale, 0.05, 4.0, "%.2f") || changed;
 			changed = slider_double_with_input("Size Min (rad)", &sky.galaxy_size_min, 0.0005, 0.02, "%.4f") || changed;
 			changed = slider_double_with_input("Size Max (rad)", &sky.galaxy_size_max, 0.005, 0.08, "%.4f") || changed;
+
 			static const char* kGalDist[] = {"Uniform", "Power-Law", "Exponential", "Log-Normal", "Gaussian"};
 			int gal_dist_idx = static_cast<int>(std::min(sky.galaxy_size_distribution, 4U));
 			if (ImGui::Combo("Size Distribution##Gal", &gal_dist_idx, kGalDist, IM_ARRAYSIZE(kGalDist))) {
 				sky.galaxy_size_distribution = static_cast<uint32_t>(gal_dist_idx);
 				changed = true;
 			}
-			changed = slider_double_with_input("Spiral Arms Count", &sky.galaxy_spiral_arms, 1.0, 6.0, "%.1f") || changed;
+
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Morphological & Structural Tuning:");
+			changed = slider_double_with_input("Spiral Arms Count", &sky.galaxy_spiral_arms, 1.0, 8.0, "%.1f") || changed;
 			changed = slider_double_with_input("Arm Pitch Angle", &sky.galaxy_pitch_angle, 0.2, 3.0, "%.2f") || changed;
 			changed = slider_double_with_input("Core to Disk Ratio", &sky.galaxy_core_ratio, 0.0, 1.0, "%.2f") || changed;
+			changed = slider_double_with_input("Central Bar Strength", &sky.galaxy_bar_strength, 0.0, 2.0, "%.2f") || changed;
+			changed = slider_double_with_input("Near-Side Dust Lane Opacity", &sky.galaxy_dust_lane_opacity, 0.0, 1.0, "%.2f") || changed;
+			render_setting_tooltip("Simulates realistic asymmetric dust lane absorption on the near side of inclined disk galaxies.");
+			changed = slider_double_with_input("Starburst Clumpiness", &sky.galaxy_clumpiness, 0.0, 2.0, "%.2f") || changed;
+			changed = slider_double_with_input("Disk Thickness Scale Height", &sky.galaxy_disk_thickness, 0.05, 0.8, "%.2f") || changed;
+			changed = slider_double_with_input("3D Inclination Variance", &sky.galaxy_inclination_variance, 0.0, 1.0, "%.2f") || changed;
+			changed = slider_double_with_input("Bulge Sersic Index (n)", &sky.galaxy_bulge_sersic_index, 0.5, 8.0, "%.2f") || changed;
 			changed = slider_double_with_input("Ellipticity Variance", &sky.galaxy_ellipticity_variance, 0.0, 2.0, "%.2f") || changed;
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Exotic Sources (Quasars, Pulsars & Supernova Remnants)", ImGuiTreeNodeFlags_DefaultOpen)) {
-		changed = ImGui::Checkbox("Enable Exotic Objects", &sky.exotic_objects_enabled) || changed;
-		if (sky.exotic_objects_enabled) {
-			changed = slider_double_with_input("Exotic Objects Density", &sky.quasar_density, 0.01, 20.0, "%.3f") || changed;
-			changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.1, 100.0, "%.2f") || changed;
+	changed = ImGui::Checkbox("Enable Exotic Objects", &sky.exotic_objects_enabled) || changed;
+	if (sky.exotic_objects_enabled) {
+		if (ImGui::CollapsingHeader("Active Galactic Nuclei & Quasars", ImGuiTreeNodeFlags_DefaultOpen)) {
+			changed = ImGui::Checkbox("Enable Quasars", &sky.quasar_enabled) || changed;
+			if (sky.quasar_enabled) {
+				changed = slider_double_with_input("Quasar Density", &sky.quasar_density, 0.001, 5.0, "%.3f") || changed;
+				changed = slider_double_with_input("Quasar Brightness", &sky.quasar_brightness, 0.01, 10.0, "%.2f") || changed;
+				static bool quasar_size_log = true;
+				changed = slider_double_with_input("Quasar Core Angular Radius (rad)", &sky.quasar_core_size, 0.00005, 0.01, "%.5f", &quasar_size_log, 0.00005, 0.01) || changed;
+				changed = slider_double_with_input("Relativistic Jet Length (rad)", &sky.quasar_jet_length, 0.002, 0.20, "%.4f") || changed;
+				changed = slider_double_with_input("Relativistic Jet Intensity", &sky.quasar_jet_intensity, 0.0, 5.0, "%.2f") || changed;
+				changed = slider_double_with_input("Jet Opening Angle (deg)", &sky.quasar_jet_opening_angle_deg, 1.0, 25.0, "%.1f") || changed;
+				changed = slider_double_with_input("Jet Lorentz Factor (gamma)", &sky.quasar_jet_lorentz_factor, 1.05, 20.0, "%.2f") || changed;
+				changed = slider_double_with_input("Accretion Disk Glow", &sky.quasar_accretion_disk_glow, 0.0, 3.0, "%.2f") || changed;
+				changed = slider_double_with_input("Jet Precession Angle (deg)", &sky.quasar_precession_angle_deg, 0.0, 45.0, "%.1f") || changed;
+			}
+		}
 
-			static bool quasar_size_log = true;
-			changed = slider_double_with_input("Quasar Core Angular Radius (rad)", &sky.quasar_core_size, 0.0002, 0.08, "%.5f", &quasar_size_log, 0.0002, 0.08) || changed;
-			render_setting_tooltip("Angular radius of the luminous quasar nucleus on the sky.");
+		if (ImGui::CollapsingHeader("Pulsars & Magnetars", ImGuiTreeNodeFlags_DefaultOpen)) {
+			changed = ImGui::Checkbox("Enable Pulsars", &sky.pulsar_enabled) || changed;
+			if (sky.pulsar_enabled) {
+				changed = slider_double_with_input("Pulsar Density", &sky.pulsar_density, 0.001, 5.0, "%.3f") || changed;
+				changed = slider_double_with_input("Pulsar Brightness", &sky.pulsar_brightness, 0.01, 10.0, "%.2f") || changed;
+				changed = slider_double_with_input("Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 50.0, "%.2f") || changed;
+				changed = slider_double_with_input("Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.01, 0.5, "%.2f") || changed;
+				changed = slider_double_with_input("Beaming Cone Half-Angle (deg)", &sky.pulsar_beam_width_deg, 1.0, 30.0, "%.1f") || changed;
+				changed = slider_double_with_input("Magnetic Axis Tilt (deg)", &sky.pulsar_magnetic_tilt_deg, 0.0, 90.0, "%.1f") || changed;
+				changed = slider_double_with_input("Wind Nebula Scale", &sky.pulsar_wind_nebula_scale, 0.0005, 0.02, "%.4f") || changed;
+				changed = slider_double_with_input("Wind Nebula Intensity", &sky.pulsar_wind_nebula_intensity, 0.0, 2.0, "%.2f") || changed;
+			}
+		}
 
-			changed = slider_double_with_input("Quasar Relativistic Jet Length (rad)", &sky.quasar_jet_length, 0.005, 0.60, "%.4f") || changed;
-			changed = slider_double_with_input("Quasar Relativistic Jet Intensity", &sky.quasar_jet_intensity, 0.0, 30.0, "%.2f") || changed;
-
-			ImGui::Separator();
-			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.0f, 1.0f), "Pulsar Emission:");
-			changed = slider_double_with_input("Pulsar Brightness", &sky.pulsar_brightness, 0.1, 50.0, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Pulse Frequency (Hz)", &sky.pulsar_pulse_rate, 0.1, 50.0, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Pulse Duty Cycle", &sky.pulsar_pulse_duty, 0.01, 0.99, "%.2f") || changed;
-			changed = slider_double_with_input("Pulsar Beaming Cone Half-Angle (deg)", &sky.pulsar_beam_width_deg, 1.0, 60.0, "%.1f") || changed;
-
-			ImGui::Separator();
-			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Supernova Remnants (SNR):");
+		if (ImGui::CollapsingHeader("Supernova Remnants (SNR)", ImGuiTreeNodeFlags_DefaultOpen)) {
 			changed = ImGui::Checkbox("Enable Supernova Remnant Shells", &sky.snr_enabled) || changed;
 			if (sky.snr_enabled) {
-				changed = slider_double_with_input("SNR Shell Brightness", &sky.snr_brightness, 0.1, 50.0, "%.2f") || changed;
-				changed = slider_double_with_input("SNR Shell Angular Radius (rad)", &sky.snr_size, 0.002, 0.10, "%.4f") || changed;
-				changed = slider_double_with_input("SNR Shell Thickness Fraction", &sky.snr_shell_thickness, 0.01, 0.6, "%.3f") || changed;
-				changed = slider_double_with_input("SNR Expansion Phase", &sky.snr_expansion_age, 0.0, 2.0, "%.2f") || changed;
+				changed = slider_double_with_input("SNR Density", &sky.snr_density, 0.005, 5.0, "%.3f") || changed;
+				changed = slider_double_with_input("SNR Shell Brightness", &sky.snr_brightness, 0.01, 10.0, "%.2f") || changed;
+				changed = slider_double_with_input("Shell Angular Radius (rad)", &sky.snr_size, 0.002, 0.08, "%.4f") || changed;
+				changed = slider_double_with_input("Shell Thickness Fraction", &sky.snr_shell_thickness, 0.01, 0.3, "%.3f") || changed;
+				changed = slider_double_with_input("Expansion Age Phase", &sky.snr_expansion_age, 0.0, 2.0, "%.2f") || changed;
+				changed = slider_double_with_input("Shell Asymmetry", &sky.snr_asymmetry, 0.0, 1.0, "%.2f") || changed;
+				changed = slider_double_with_input("Filament Turbulence Scale", &sky.snr_filament_scale, 0.5, 8.0, "%.2f") || changed;
+				changed = slider_double_with_input("Interior Synchrotron Glow", &sky.snr_interior_glow, 0.0, 2.0, "%.2f") || changed;
 			}
 		}
 	}
@@ -435,34 +486,85 @@ inline void render_skybox_editor(Orchestrator::SimulationOrchestrator<1024>& orc
 		changed = ImGui::Checkbox("Enable Celestial Coordinate Grid", &sky.grid_enabled) || changed;
 		ImGui::TextDisabled("Geometric celestial sphere coordinate grid (RA & Dec), strictly independent of procedural seed.");
 		if (sky.grid_enabled) {
-			changed = slider_double_with_input("Grid Opacity", &sky.grid_opacity, 0.0, 1.0, "%.2f") || changed;
-			static bool grid_width_log = true;
-			changed = slider_double_with_input("Line Width (rad)", &sky.grid_line_width, 0.00005, 0.05, "%.5f", &grid_width_log, 0.00005, 0.05) || changed;
-			render_setting_tooltip("Angular line width on the celestial sphere. Automatically scales with viewport pixel footprint to remain sharp and anti-aliased at any resolution.");
+			const char* kFillModes[] = {
+				"None (Transparent Cells)",
+				"Checkerboard (2 Colors)",
+				"Cyclic (3 Colors)",
+				"Checkerboard (4 Colors)",
+				"Random Hash Fill (4 Colors)"
+			};
+			int fill_idx = static_cast<int>(std::min(sky.grid_cell_fill_mode, 4U));
+			if (ImGui::Combo("Grid Cell Fill Mode", &fill_idx, kFillModes, IM_ARRAYSIZE(kFillModes))) {
+				sky.grid_cell_fill_mode = static_cast<uint32_t>(fill_idx);
+				changed = true;
+			}
+			render_setting_tooltip("Applies procedural tile fills between coordinate grid lines.");
 
+			if (sky.grid_cell_fill_mode != 0U) {
+				changed = slider_double_with_input("Cell Fill Opacity", &sky.grid_cell_opacity, 0.0, 1.0, "%.2f") || changed;
+				changed = ImGui::ColorEdit3("Cell Color #1", sky.grid_cell_color1.data()) || changed;
+				changed = ImGui::ColorEdit3("Cell Color #2", sky.grid_cell_color2.data()) || changed;
+				if (sky.grid_cell_fill_mode == 2U || sky.grid_cell_fill_mode == 3U || sky.grid_cell_fill_mode == 4U) {
+					changed = ImGui::ColorEdit3("Cell Color #3", sky.grid_cell_color3.data()) || changed;
+				}
+				if (sky.grid_cell_fill_mode == 3U || sky.grid_cell_fill_mode == 4U) {
+					changed = ImGui::ColorEdit3("Cell Color #4", sky.grid_cell_color4.data()) || changed;
+				}
+			}
+
+			ImGui::Separator();
+			changed = slider_double_with_input("Grid Lines Opacity", &sky.grid_opacity, 0.0, 1.0, "%.2f") || changed;
 			changed = slider_double_with_input("Grid Spacing (deg)", &sky.grid_spacing_deg, 1.0, 90.0, "%.1f") || changed;
-			render_setting_tooltip("Angular separation between consecutive primary coordinate parallels and meridians.");
 
 			int subdivisions = static_cast<int>(sky.grid_subdivisions);
 			if (ImGui::SliderInt("Minor Subdivisions", &subdivisions, 0, 10)) {
 				sky.grid_subdivisions = static_cast<uint32_t>(subdivisions);
 				changed = true;
 			}
-			render_setting_tooltip("Number of secondary coordinate lines drawn between each pair of major lines.");
 
-			changed = slider_double_with_input("Grid Glow Intensity", &sky.grid_glow, 0.0, 3.0, "%.2f") || changed;
-			changed = ImGui::ColorEdit3("Major Lines (Equator/Meridian)", sky.grid_major_color.data()) || changed;
-			changed = ImGui::ColorEdit3("Minor Grid Lines", sky.grid_minor_color.data()) || changed;
-			changed = ImGui::Checkbox("Show Polar Cap Rings", &sky.grid_show_polar_caps) || changed;
-			ImGui::SameLine();
-			changed = ImGui::Checkbox("Show Equator", &sky.grid_show_equator) || changed;
-			ImGui::SameLine();
-			changed = ImGui::Checkbox("Show Prime Meridians", &sky.grid_show_meridians) || changed;
-			changed = ImGui::Checkbox("Show Sub-Degree Ticks", &sky.grid_show_ticks) || changed;
-			if (sky.grid_show_ticks) {
-				changed = slider_double_with_input("Tick Interval (deg)", &sky.grid_tick_interval_deg, 0.5, 10.0, "%.1f") || changed;
-				changed = slider_double_with_input("Tick Length (rad)", &sky.grid_tick_length, 0.0005, 0.015, "%.4f") || changed;
+			if (ImGui::TreeNode("Independent Line Styling")) {
+				static bool grid_width_log = true;
+				changed = slider_double_with_input("Major Line Width (rad)", &sky.grid_major_width, 0.00001, 0.01, "%.5f", &grid_width_log, 0.00001, 0.01) || changed;
+				changed = slider_double_with_input("Minor Line Width (rad)", &sky.grid_minor_width, 0.00001, 0.01, "%.5f", &grid_width_log, 0.00001, 0.01) || changed;
+				changed = ImGui::ColorEdit3("Major Lines Color", sky.grid_major_color.data()) || changed;
+				changed = ImGui::ColorEdit3("Minor Lines Color", sky.grid_minor_color.data()) || changed;
+				ImGui::TreePop();
 			}
+
+			if (ImGui::TreeNode("Equator, Poles & Meridians Style")) {
+				changed = ImGui::Checkbox("Show Equator", &sky.grid_show_equator) || changed;
+				if (sky.grid_show_equator) {
+					changed = slider_double_with_input("Equator Width (rad)", &sky.grid_equator_width, 0.00001, 0.02, "%.5f") || changed;
+					changed = slider_double_with_input("Equator Opacity", &sky.grid_equator_opacity, 0.0, 1.0, "%.2f") || changed;
+					changed = ImGui::ColorEdit3("Equator Color", sky.grid_equator_color.data()) || changed;
+				}
+				changed = ImGui::Checkbox("Show Polar Cap Rings", &sky.grid_show_polar_caps) || changed;
+				if (sky.grid_show_polar_caps) {
+					changed = slider_double_with_input("Polar Width (rad)", &sky.grid_polar_width, 0.00001, 0.02, "%.5f") || changed;
+					changed = slider_double_with_input("Polar Opacity", &sky.grid_polar_opacity, 0.0, 1.0, "%.2f") || changed;
+					changed = ImGui::ColorEdit3("Polar Color", sky.grid_polar_color.data()) || changed;
+				}
+				changed = ImGui::Checkbox("Show Prime Meridians", &sky.grid_show_meridians) || changed;
+				if (sky.grid_show_meridians) {
+					changed = slider_double_with_input("Meridian Width (rad)", &sky.grid_meridian_width, 0.00001, 0.02, "%.5f") || changed;
+					changed = slider_double_with_input("Meridian Opacity", &sky.grid_meridian_opacity, 0.0, 1.0, "%.2f") || changed;
+					changed = ImGui::ColorEdit3("Meridian Color", sky.grid_meridian_color.data()) || changed;
+				}
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Axis Ticks & Graduations")) {
+				changed = ImGui::Checkbox("Show Sub-Degree Ticks", &sky.grid_show_ticks) || changed;
+				if (sky.grid_show_ticks) {
+					changed = slider_double_with_input("Tick Interval (deg)", &sky.grid_tick_interval_deg, 0.5, 10.0, "%.1f") || changed;
+					changed = slider_double_with_input("Tick Length (rad)", &sky.grid_tick_length, 0.0005, 0.03, "%.4f") || changed;
+					changed = slider_double_with_input("Tick Width (rad)", &sky.grid_tick_width, 0.00001, 0.005, "%.5f") || changed;
+					changed = ImGui::ColorEdit3("Tick Marks Color", sky.grid_tick_color.data()) || changed;
+				}
+				ImGui::TreePop();
+			}
+
+			changed = slider_double_with_input("Grid Glow Intensity", &sky.grid_glow, 0.0, 5.0, "%.2f") || changed;
 		}
 	}
 

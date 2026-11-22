@@ -43,19 +43,20 @@ enum class GalaxyMorphologyModel : uint32_t {
 	BarredSpiral = 2,
 	GiantElliptical = 3,
 	Lenticular = 4,
-	IrregularStarburst = 5,
-	RingGalaxy = 6
+	RingGalaxy = 5
 };
 
 enum class GridCellFillMode : uint32_t {
 	None = 0,
 	Checkerboard2Color = 1,
-	Cyclic3Color = 2,
-	Checkerboard4Color = 3,
+	CyclicPalette = 2,
+	CheckerboardPattern = 3,
 	RandomHashFill = 4
 };
 
 struct ProceduralSkySettings {
+	static constexpr size_t kMaxGridCellColors = 16;
+
 	bool enabled{true};
 	bool seed_locked{false};
 	uint32_t seed{56U};
@@ -66,12 +67,15 @@ struct ProceduralSkySettings {
 	double nebula_quality_factor{1.0};
 	double cluster_quality_factor{1.0};
 	double dust_quality_factor{1.0};
+	double quasar_quality_factor{1.0};
+	double pulsar_quality_factor{1.0};
+	double snr_quality_factor{1.0};
 
 	bool adaptive_fov_lod{false};
 	bool adaptive_fov_quality{true};
 	double adaptive_fov_reference{90.0};
-	double adaptive_fov_sensitivity{1.0};
-	uint32_t max_star_octaves{8};
+	double adaptive_fov_sensitivity{2.0};
+	uint32_t max_star_octaves{7};
 
 	bool dynamic_motion{false};
 	bool dynamic_rotation{false};
@@ -110,7 +114,6 @@ struct ProceduralSkySettings {
 	uint32_t star_placement_model{3};
 	double star_galactic_concentration{2.5};
 	double star_cluster_association_strength{0.6};
-	double exotic_quality_factor{1.0};
 
 	bool nebula_enabled{true};
 	double nebula_intensity{0.23};
@@ -135,40 +138,47 @@ struct ProceduralSkySettings {
 	double nebula_gas_contrast{1.94};
 
 	bool galaxies_enabled{true};
-	double galaxy_density{0.12};
-	double galaxy_brightness{0.5};
-	double galaxy_size_scale{0.32};
-	double galaxy_size_min{0.001};
-	double galaxy_size_max{0.02};
+	double galaxy_density{0.5};
+	double galaxy_brightness{0.07};
+	double galaxy_size_scale{1.0};
+	double galaxy_size_min{0.0005};
+	double galaxy_size_max{0.0302};
 	uint32_t galaxy_size_distribution{1};
 	double galaxy_size_param{1.5};
-	double galaxy_spiral_arms{2.0};
-	double galaxy_core_ratio{0.4};
-	double galaxy_pitch_angle{1.2};
-	double galaxy_ellipticity_variance{0.5};
+	double galaxy_spiral_arms{5.0};
+	double galaxy_core_ratio{0.52};
+	double galaxy_pitch_angle{1.46};
+	double galaxy_ellipticity_variance{0.93};
 	uint32_t galaxy_type_mix{0};
 
+	double galaxy_weight_grand_design{1.55};
+	double galaxy_weight_flocculent{2.5};
+	double galaxy_weight_barred{0.5};
+	double galaxy_weight_elliptical{0.41};
+	double galaxy_weight_lenticular{1.21};
+	double galaxy_weight_ring{0.19};
+
 	bool clusters_enabled{false};
-	double cluster_density{0.8};
-	double cluster_brightness{1.0};
-	double cluster_size_scale{0.6};
-	double cluster_size_min{0.002};
-	double cluster_size_max{0.03};
+	double cluster_density{0.184};
+	double cluster_brightness{0.0};
+	double cluster_size_scale{1.61};
+	double cluster_size_min{0.001};
+	double cluster_size_max{0.0488};
 	uint32_t cluster_size_distribution{2};
-	double cluster_concentration{1.6};
+	double cluster_concentration{3.76};
 	double cluster_star_density_boost{2.0};
 	std::array<float, 3> cluster_core_tint{1.1f, 1.0f, 0.8f};
 	uint32_t cluster_placement_model{0};
-	double cluster_halo_radius{0.8};
+	double cluster_halo_radius{0.27};
 	double cluster_plane_scale_height{0.15};
 	bool cluster_stars_enabled{true};
 	uint32_t cluster_member_count{48};
 	double cluster_member_size{0.0006};
 	double cluster_member_brightness{1.2};
 	uint32_t cluster_star_profile_model{0};
-	double cluster_halo_intensity{0.25};
+	double cluster_halo_intensity{0.04};
 	bool cluster_inherit_star_profile{true};
-	double cluster_spread_factor{1.0};
+	double cluster_spread_factor{4.4};
 
 	bool dust_enabled{true};
 	double dust_density{3.85};
@@ -180,24 +190,23 @@ struct ProceduralSkySettings {
 	std::array<float, 3> dust_tint{0.4f, 0.25f, 0.15f};
 
 	uint32_t galaxy_morphology_model{0};
-	double galaxy_bar_strength{0.5};
-	double galaxy_dust_lane_opacity{0.6};
-	double galaxy_clumpiness{0.5};
-	double galaxy_disk_thickness{0.2};
-	double galaxy_inclination_variance{0.7};
-	double galaxy_bulge_sersic_index{4.0};
+	double galaxy_bar_strength{1.07};
+	double galaxy_dust_lane_opacity{0.37};
+	double galaxy_clumpiness{0.69};
+	double galaxy_disk_thickness{0.19};
+	double galaxy_inclination_variance{0.89};
+	double galaxy_bulge_sersic_index{3.72};
 
-	bool exotic_objects_enabled{false};
 	bool quasar_enabled{true};
-	double quasar_density{0.01};
+	double quasar_density{1.136};
 	double quasar_brightness{1.2};
 	double quasar_core_size{0.0003};
 	double quasar_jet_length{0.08};
 	double quasar_jet_intensity{1.5};
 	double quasar_jet_opening_angle_deg{5.0};
-	double quasar_jet_lorentz_factor{4.0};
-	double quasar_accretion_disk_glow{1.0};
-	double quasar_precession_angle_deg{10.0};
+	double quasar_jet_lorentz_factor{3.06};
+	double quasar_accretion_disk_glow{1.21};
+	double quasar_precession_angle_deg{11.7};
 
 	bool pulsar_enabled{true};
 	double pulsar_density{0.01};
@@ -206,21 +215,27 @@ struct ProceduralSkySettings {
 	double pulsar_pulse_duty{0.15};
 	double pulsar_beam_width_deg{8.0};
 	double pulsar_magnetic_tilt_deg{30.0};
-	double pulsar_wind_nebula_scale{0.003};
-	double pulsar_wind_nebula_intensity{0.4};
+	double pulsar_wind_nebula_scale{0.0062};
+	double pulsar_wind_nebula_intensity{0.22};
+	double pulsar_frequency_spread{0.75};
 
 	bool snr_enabled{true};
 	double snr_density{0.06};
 	double snr_brightness{1.2};
 	double snr_shell_thickness{0.08};
-	double snr_expansion_age{0.5};
-	double snr_size{0.015};
+	double snr_expansion_age{0.34};
+	double snr_size{0.0044};
 	double snr_asymmetry{0.4};
-	double snr_filament_scale{3.0};
-	double snr_interior_glow{0.3};
+	double snr_filament_scale{6.13};
+	double snr_interior_glow{0.07};
+	double snr_color_variation{1.87};
+	double snr_morphology_variety{0.6};
+	std::array<float, 3> snr_shell_color{1.35f, 0.65f, 0.45f};
+	std::array<float, 3> snr_interior_color{0.35f, 0.70f, 1.25f};
 
 	bool grid_enabled{false};
 	uint32_t grid_cell_fill_mode{0};
+	uint32_t grid_cell_color_count{2};
 	double grid_opacity{0.5};
 	double grid_line_width{0.0001};
 	double grid_spacing_deg{30.0};
@@ -229,38 +244,57 @@ struct ProceduralSkySettings {
 	double grid_tick_interval_deg{5.0};
 	double grid_tick_length{0.003};
 	double grid_tick_width{0.0001};
-	double grid_cell_opacity{0.0};
-	double grid_equator_width{0.0003};
+	double grid_cell_opacity{0.1};
+	double grid_equator_width{0.007};
 	double grid_equator_opacity{0.8};
-	double grid_polar_width{0.0002};
+	double grid_polar_width{0.003};
 	double grid_polar_opacity{0.7};
-	double grid_meridian_width{0.0003};
-	double grid_meridian_opacity{0.8};
-	double grid_major_width{0.00015};
-	double grid_minor_width{0.00008};
+	double grid_meridian_width{0.003};
+	double grid_meridian_opacity{0.7};
+	double grid_major_width{0.005};
+	double grid_minor_width{0.003};
 
-	std::array<float, 3> grid_major_color{0.40f, 0.75f, 1.0f};
-	std::array<float, 3> grid_minor_color{0.20f, 0.45f, 0.80f};
-	std::array<float, 3> grid_equator_color{0.95f, 0.85f, 0.30f};
-	std::array<float, 3> grid_polar_color{0.35f, 0.85f, 0.95f};
-	std::array<float, 3> grid_meridian_color{0.95f, 0.45f, 0.35f};
+	std::array<float, 3> grid_major_color{1.0f, 1.0f, 1.0f};
+	std::array<float, 3> grid_minor_color{0.470588f, 0.470588f, 0.470588f};
+	std::array<float, 3> grid_equator_color{0.95f, 0.30f, 0.30f};
+	std::array<float, 3> grid_polar_color{0.298039f, 0.952941f, 0.298039f};
+	std::array<float, 3> grid_meridian_color{0.298039f, 0.298039f, 0.952941f};
 	std::array<float, 3> grid_tick_color{1.0f, 1.0f, 1.0f};
-	std::array<float, 3> grid_cell_color1{0.10f, 0.12f, 0.18f};
-	std::array<float, 3> grid_cell_color2{0.05f, 0.07f, 0.12f};
-	std::array<float, 3> grid_cell_color3{0.08f, 0.15f, 0.15f};
-	std::array<float, 3> grid_cell_color4{0.15f, 0.10f, 0.12f};
+
+	std::array<std::array<float, 3>, kMaxGridCellColors> grid_cell_colors{
+		std::array<float, 3>{0.10f, 0.12f, 0.18f},
+		std::array<float, 3>{0.05f, 0.07f, 0.12f},
+		std::array<float, 3>{0.08f, 0.15f, 0.15f},
+		std::array<float, 3>{0.15f, 0.10f, 0.12f},
+		std::array<float, 3>{0.14f, 0.14f, 0.08f},
+		std::array<float, 3>{0.12f, 0.06f, 0.14f},
+		std::array<float, 3>{0.06f, 0.12f, 0.14f},
+		std::array<float, 3>{0.14f, 0.08f, 0.06f},
+		std::array<float, 3>{0.08f, 0.10f, 0.16f},
+		std::array<float, 3>{0.16f, 0.08f, 0.10f},
+		std::array<float, 3>{0.10f, 0.16f, 0.08f},
+		std::array<float, 3>{0.08f, 0.16f, 0.16f},
+		std::array<float, 3>{0.16f, 0.16f, 0.08f},
+		std::array<float, 3>{0.16f, 0.08f, 0.16f},
+		std::array<float, 3>{0.12f, 0.12f, 0.12f},
+		std::array<float, 3>{0.06f, 0.06f, 0.06f}
+	};
 
 	bool grid_show_polar_caps{false};
-	bool grid_show_equator{true};
+	bool grid_show_equator{false};
 	bool grid_show_meridians{false};
 	bool grid_show_ticks{false};
 
 	std::array<float, 3> background_color{0.0f, 0.0f, 0.0f};
 	double hue_shift_deg{0.0};
-	double saturation{0.86};
+	double saturation{0.84};
 	double orientation_yaw_deg{0.0};
 	double orientation_pitch_deg{0.0};
 	double orientation_roll_deg{0.0};
+
+	double grid_orientation_yaw_deg{0.0};
+	double grid_orientation_pitch_deg{0.0};
+	double grid_orientation_roll_deg{0.0};
 
 	[[nodiscard]] bool operator==(const ProceduralSkySettings&) const noexcept = default;
 };
@@ -520,25 +554,24 @@ private:
 			const int32_t cell_dec = static_cast<int32_t>(std::floor(dec_shifted / spacing_rad));
 			const int32_t cell_ra = static_cast<int32_t>(std::floor(ra_shifted / spacing_rad));
 
-			std::array<float, 3> picked_cell_color = sky.grid_cell_color1;
+			const int32_t num_cols = std::clamp(static_cast<int32_t>(sky.grid_cell_color_count), 1, static_cast<int32_t>(ProceduralSkySettings::kMaxGridCellColors));
+			int32_t picked_index = 0;
+
 			if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::Checkerboard2Color)) {
-				const int32_t parity = ((cell_dec + cell_ra) % 2 + 2) % 2;
-				picked_cell_color = (parity == 0) ? sky.grid_cell_color1 : sky.grid_cell_color2;
-			} else if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::Cyclic3Color)) {
-				const int32_t idx = ((cell_dec + 2 * cell_ra) % 3 + 3) % 3;
-				picked_cell_color = (idx == 0) ? sky.grid_cell_color1 : ((idx == 1) ? sky.grid_cell_color2 : sky.grid_cell_color3);
-			} else if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::Checkerboard4Color)) {
+				picked_index = ((cell_dec + cell_ra) % 2 + 2) % 2;
+			} else if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::CyclicPalette)) {
+				picked_index = ((cell_dec + 2 * cell_ra) % num_cols + num_cols) % num_cols;
+			} else if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::CheckerboardPattern)) {
 				const int32_t px = (cell_ra % 2 + 2) % 2;
 				const int32_t py = (cell_dec % 2 + 2) % 2;
-				const int32_t idx = px + 2 * py;
-				picked_cell_color = (idx == 0) ? sky.grid_cell_color1 : ((idx == 1) ? sky.grid_cell_color2 : ((idx == 2) ? sky.grid_cell_color3 : sky.grid_cell_color4));
+				picked_index = (px + 2 * py) % num_cols;
 			} else if (sky.grid_cell_fill_mode == static_cast<uint32_t>(GridCellFillMode::RandomHashFill)) {
 				const uint64_t ch = SphericalPartition::hash_coords(static_cast<uint32_t>(cell_dec + 10000), static_cast<uint32_t>(cell_ra + 10000), static_cast<uint64_t>(sky.seed) ^ 0x5a17ULL);
 				const double hval = SphericalPartition::hash_to_unit(ch);
-				const int32_t slot = static_cast<int32_t>(hval * 4.0) % 4;
-				picked_cell_color = (slot == 0) ? sky.grid_cell_color1 : ((slot == 1) ? sky.grid_cell_color2 : ((slot == 2) ? sky.grid_cell_color3 : sky.grid_cell_color4));
+				picked_index = static_cast<int32_t>(hval * static_cast<double>(num_cols)) % num_cols;
 			}
 
+			const std::array<float, 3>& picked_cell_color = sky.grid_cell_colors[static_cast<size_t>(picked_index)];
 			const double fill_a = std::clamp(sky.grid_cell_opacity, 0.0, 1.0);
 			accum_color = {static_cast<double>(picked_cell_color[0]), static_cast<double>(picked_cell_color[1]), static_cast<double>(picked_cell_color[2])};
 			accum_alpha = fill_a;
@@ -1056,7 +1089,21 @@ private:
 
 				uint32_t morph = sky.galaxy_morphology_model;
 				if (morph == 0U) {
-					morph = static_cast<uint32_t>((cell_hash >> 12) % 7U) + 1U;
+					const double w1 = std::max(sky.galaxy_weight_grand_design, 0.0);
+					const double w2 = std::max(sky.galaxy_weight_flocculent, 0.0);
+					const double w3 = std::max(sky.galaxy_weight_barred, 0.0);
+					const double w4 = std::max(sky.galaxy_weight_elliptical, 0.0);
+					const double w5 = std::max(sky.galaxy_weight_lenticular, 0.0);
+					const double w6 = std::max(sky.galaxy_weight_ring, 0.0);
+					double sum = w1 + w2 + w3 + w4 + w5 + w6;
+					if (sum <= 1.0e-9) sum = 1.0;
+					const double pick = SphericalPartition::hash_to_unit(cell_hash + 999ULL) * sum;
+					if (pick < w1) morph = 1U;
+					else if (pick < w1 + w2) morph = 2U;
+					else if (pick < w1 + w2 + w3) morph = 3U;
+					else if (pick < w1 + w2 + w3 + w4) morph = 4U;
+					else if (pick < w1 + w2 + w3 + w4 + w5) morph = 5U;
+					else morph = 6U;
 				}
 
 				double core = 0.0;
@@ -1091,11 +1138,6 @@ private:
 					const double floc_arms = 0.5 + 0.5 * std::cos(6.0 * phi_disk - r_disk * 7.0 * sky.galaxy_pitch_angle + static_cast<double>(clump_n) * 2.5);
 					disk = std::exp(-r_disk * 2.5) * floc_arms * (1.0 + sky.galaxy_clumpiness * static_cast<double>(clump_n));
 				} else if (morph == 6U) {
-					core = std::exp(-r_disk * 2.5);
-					const float irreg_n = fbm3d(static_cast<float>(x_disk * 4.0 + 13.0), static_cast<float>(y_disk * 4.0 - 7.0), static_cast<float>((cell_hash >> 4) & 0xFFU), 4, 0.7f);
-					disk = std::pow(std::clamp((static_cast<double>(irreg_n) + 0.5) * 0.8, 0.0, 1.0), 2.2) * 1.5;
-					tint_disk = {0.55, 0.85, 1.55};
-				} else if (morph == 7U) {
 					core = std::exp(-r_disk * r_disk * 8.0) * 1.2;
 					const double ring_rad = 0.70;
 					const double ring_thick = 0.12;
@@ -1142,14 +1184,14 @@ private:
 		constexpr double kTwoPi = SphericalPartition::kTwoPi;
 		const uint64_t base_seed = static_cast<uint64_t>(sky.seed) ^ 0xbb67ae8584caa73bULL;
 
-		const double eff_density = sky.cluster_density * sky.cluster_quality_factor;
-		const uint32_t total_rings = static_cast<uint32_t>(std::clamp(std::round(10.0 * std::sqrt(eff_density)), 3.0, 36.0));
+		const double base_density = std::max(sky.cluster_density, 0.01);
+		const uint32_t total_rings = static_cast<uint32_t>(std::clamp(std::round(10.0 * std::sqrt(base_density)), 3.0, 36.0));
 		const double z_clamped = std::clamp(dir[2], -1.0, 1.0);
 		const uint32_t ring_center = std::clamp(static_cast<uint32_t>((z_clamped + 1.0) * 0.5 * static_cast<double>(total_rings)), 0U, total_rings - 1U);
 		double phi_dir = std::atan2(dir[1], dir[0]);
 		if (phi_dir < 0.0) phi_dir += kTwoPi;
 
-		const double presence_threshold = std::clamp(1.0 - eff_density * 0.16, 0.01, 0.99);
+		const double presence_threshold = std::clamp(1.0 - base_density * 0.16, 0.01, 0.99);
 
 		const auto& pn = sky.nebula_plane_normal;
 		const double pn_len = std::sqrt(pn[0] * pn[0] + pn[1] * pn[1] + pn[2] * pn[2]);
@@ -1310,15 +1352,13 @@ private:
 		if (!sky.quasar_enabled || sky.quasar_density <= 0.0) return;
 		constexpr double kTwoPi = SphericalPartition::kTwoPi;
 		const uint64_t seed_q = static_cast<uint64_t>(sky.seed) ^ 0x9b05688c2b3e6c1fULL;
-		const double eff_qual = std::max(sky.quality_factor * sky.exotic_quality_factor, 0.05);
-		const double eff_density = std::clamp(sky.quasar_density * eff_qual, 0.01, 10.0);
-		const double grid_res = std::clamp(6.0 * std::sqrt(eff_density), 4.0, 36.0);
+		const double grid_res = std::clamp(6.0 * std::sqrt(std::clamp(sky.quasar_density, 0.01, 10.0)), 4.0, 36.0);
 
 		const std::array<double, 3> p{dir[0] * grid_res, dir[1] * grid_res, dir[2] * grid_res};
 		const int32_t cx = static_cast<int32_t>(std::floor(p[0]));
 		const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 		const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
-		const double presence = std::clamp(1.0 - eff_density * 0.06, 0.05, 0.99);
+		const double presence = std::clamp(1.0 - sky.quasar_density * 0.06, 0.05, 0.99);
 
 		for (int32_t dz = -1; dz <= 1; ++dz) {
 			for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -1380,15 +1420,13 @@ private:
 		if (!sky.pulsar_enabled || sky.pulsar_brightness <= 0.0) return;
 		constexpr double kTwoPi = SphericalPartition::kTwoPi;
 		const uint64_t seed_p = static_cast<uint64_t>(sky.seed) ^ 0x4f1bbcdcu;
-		const double eff_qual = std::max(sky.quality_factor * sky.exotic_quality_factor, 0.05);
-		const double eff_density = std::clamp(sky.pulsar_density * eff_qual, 0.01, 10.0);
-		const double grid_res = std::clamp(6.0 * std::sqrt(eff_density), 4.0, 36.0);
+		const double grid_res = std::clamp(6.0 * std::sqrt(std::clamp(sky.pulsar_density, 0.01, 10.0)), 4.0, 36.0);
 
 		const std::array<double, 3> p{dir[0] * grid_res, dir[1] * grid_res, dir[2] * grid_res};
 		const int32_t cx = static_cast<int32_t>(std::floor(p[0]));
 		const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 		const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
-		const double presence = std::clamp(1.0 - eff_density * 0.06, 0.05, 0.99);
+		const double presence = std::clamp(1.0 - sky.pulsar_density * 0.06, 0.05, 0.99);
 
 		for (int32_t dz = -1; dz <= 1; ++dz) {
 			for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -1413,7 +1451,9 @@ private:
 					const std::array<double, 3> spin_axis{s_st * std::cos(spin_p), s_st * std::sin(spin_p), std::cos(spin_t)};
 
 					const double tilt_rad = sky.pulsar_magnetic_tilt_deg * (std::numbers::pi_v<double> / 180.0);
-					const double sweep_phase = std::fmod(sky.time_seconds * sky.pulsar_pulse_rate + SphericalPartition::hash_to_unit(h + 61ULL), 1.0) * kTwoPi;
+					const double freq_jitter = std::exp((SphericalPartition::hash_to_unit(h + 83ULL) - 0.5) * sky.pulsar_frequency_spread * 2.0);
+					const double local_rate = sky.pulsar_pulse_rate * freq_jitter;
+					const double sweep_phase = std::fmod(sky.time_seconds * local_rate + SphericalPartition::hash_to_unit(h + 61ULL), 1.0) * kTwoPi;
 
 					std::array<double, 3> u1{}, u2{};
 					if (std::abs(spin_axis[2]) < 0.9) {
@@ -1467,15 +1507,13 @@ private:
 	) noexcept {
 		if (!sky.snr_enabled || sky.snr_brightness <= 0.0) return;
 		const uint64_t seed_s = static_cast<uint64_t>(sky.seed) ^ 0x7a31b9efu;
-		const double eff_qual = std::max(sky.quality_factor * sky.exotic_quality_factor, 0.05);
-		const double eff_density = std::clamp(sky.snr_density * eff_qual, 0.01, 10.0);
-		const double grid_res = std::clamp(6.0 * std::sqrt(eff_density), 4.0, 36.0);
+		const double grid_res = std::clamp(6.0 * std::sqrt(std::clamp(sky.snr_density, 0.01, 10.0)), 4.0, 36.0);
 
 		const std::array<double, 3> p{dir[0] * grid_res, dir[1] * grid_res, dir[2] * grid_res};
 		const int32_t cx = static_cast<int32_t>(std::floor(p[0]));
 		const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 		const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
-		const double presence = std::clamp(1.0 - eff_density * 0.06, 0.05, 0.99);
+		const double presence = std::clamp(1.0 - sky.snr_density * 0.06, 0.05, 0.99);
 
 		for (int32_t dz = -1; dz <= 1; ++dz) {
 			for (int32_t dy = -1; dy <= 1; ++dy) {
@@ -1494,8 +1532,16 @@ private:
 					if (mu <= 0.992) continue;
 					const double sep_sq = 2.0 * std::max(0.0, 1.0 - mu);
 
-					const double base_radius = std::max(sky.snr_size * (0.8 + 0.4 * sky.snr_expansion_age), 0.003);
-					const double dist = std::sqrt(sep_sq);
+					const double morph_rnd = SphericalPartition::hash_to_unit(h + 67ULL);
+					const double elong_axis_x = SphericalPartition::hash_to_unit(h + 71ULL) - 0.5;
+					const double elong_axis_y = SphericalPartition::hash_to_unit(h + 73ULL) - 0.5;
+					const double elong_axis_z = SphericalPartition::hash_to_unit(h + 79ULL) - 0.5;
+					const double el_len = std::max(std::sqrt(elong_axis_x * elong_axis_x + elong_axis_y * elong_axis_y + elong_axis_z * elong_axis_z), 1.0e-6);
+					const double elong_proj = ((dir[0] - snr_dir[0]) * elong_axis_x + (dir[1] - snr_dir[1]) * elong_axis_y + (dir[2] - snr_dir[2]) * elong_axis_z) / el_len;
+					const double elong_scale = 1.0 + (morph_rnd - 0.5) * sky.snr_morphology_variety * 1.1;
+
+					const double base_radius = std::max(sky.snr_size * (0.8 + 0.4 * sky.snr_expansion_age) * elong_scale, 0.003);
+					const double dist = std::sqrt(std::max(sep_sq + elong_proj * elong_proj * (elong_scale * elong_scale - 1.0), 0.0));
 					if (dist > base_radius * 2.2) continue;
 
 					const float turb = fbm3d(static_cast<float>(dir[0] * sky.snr_filament_scale * 30.0), static_cast<float>(dir[1] * sky.snr_filament_scale * 30.0), static_cast<float>(dir[2] * sky.snr_filament_scale * 30.0), 3, 0.6f);
@@ -1505,18 +1551,41 @@ private:
 					const double shell_exp = std::exp(-(diff * diff) / (2.0 * shell_thick * shell_thick));
 					const double shell_flux = shell_exp * sky.snr_brightness * 1.5;
 
+					const double interior_boost = (morph_rnd > 0.5) ? 1.6 : 0.4;
 					const double interior_flux = (dist < perturbed_radius)
-						? (std::exp(-dist / perturbed_radius) * sky.snr_interior_glow * sky.snr_brightness * 0.4)
+						? (std::exp(-dist / perturbed_radius) * sky.snr_interior_glow * sky.snr_brightness * interior_boost)
 						: 0.0;
 
 					const double max_rad = base_radius * 1.6;
 					const double window = std::clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
 					const double hermite = window * window;
 
-					const double total = (shell_flux + interior_flux) * hermite;
-					accum[0] += total * 1.40;
-					accum[1] += total * 0.75;
-					accum[2] += total * 0.95;
+					const double col_seed = SphericalPartition::hash_to_unit(h + 83ULL);
+					std::array<double, 3> var_shell_tint{};
+					std::array<double, 3> var_int_tint{};
+					if (col_seed < 0.33) {
+						var_shell_tint = {0.45, 1.45, 1.05};
+						var_int_tint = {0.25, 0.85, 1.45};
+					} else if (col_seed < 0.66) {
+						var_shell_tint = {1.65, 0.40, 0.55};
+						var_int_tint = {1.35, 0.70, 0.30};
+					} else {
+						var_shell_tint = {1.45, 1.15, 0.35};
+						var_int_tint = {0.95, 0.40, 1.35};
+					}
+
+					const double c_var = std::clamp(sky.snr_color_variation, 0.0, 2.0);
+					const double shell_r = static_cast<double>(sky.snr_shell_color[0]) * (1.0 - 0.5 * c_var) + var_shell_tint[0] * 0.5 * c_var;
+					const double shell_g = static_cast<double>(sky.snr_shell_color[1]) * (1.0 - 0.5 * c_var) + var_shell_tint[1] * 0.5 * c_var;
+					const double shell_b = static_cast<double>(sky.snr_shell_color[2]) * (1.0 - 0.5 * c_var) + var_shell_tint[2] * 0.5 * c_var;
+
+					const double int_r = static_cast<double>(sky.snr_interior_color[0]) * (1.0 - 0.5 * c_var) + var_int_tint[0] * 0.5 * c_var;
+					const double int_g = static_cast<double>(sky.snr_interior_color[1]) * (1.0 - 0.5 * c_var) + var_int_tint[1] * 0.5 * c_var;
+					const double int_b = static_cast<double>(sky.snr_interior_color[2]) * (1.0 - 0.5 * c_var) + var_int_tint[2] * 0.5 * c_var;
+
+					accum[0] += (shell_flux * shell_r + interior_flux * int_r) * hermite;
+					accum[1] += (shell_flux * shell_g + interior_flux * int_g) * hermite;
+					accum[2] += (shell_flux * shell_b + interior_flux * int_b) * hermite;
 				}
 			}
 		}
@@ -1568,11 +1637,9 @@ public:
 			evaluate_seamless_clusters(oriented_dir, sky, fov_rad, accum);
 		}
 
-		if (sky.exotic_objects_enabled) {
-			if (sky.quasar_enabled) evaluate_quasars(oriented_dir, sky, accum);
-			if (sky.pulsar_enabled) evaluate_pulsars(oriented_dir, sky, accum);
-			if (sky.snr_enabled) evaluate_supernova_remnants(oriented_dir, sky, accum);
-		}
+		if (sky.quasar_enabled) evaluate_quasars(oriented_dir, sky, accum);
+		if (sky.pulsar_enabled) evaluate_pulsars(oriented_dir, sky, accum);
+		if (sky.snr_enabled) evaluate_supernova_remnants(oriented_dir, sky, accum);
 
 		if (sky.stars_enabled) {
 			evaluate_seamless_spherical_stars(oriented_dir, sky, fov_rad, zoom_factor, accum);
@@ -1592,7 +1659,8 @@ public:
 		final_rgb = apply_hue_saturation(final_rgb, sky.hue_shift_deg * (std::numbers::pi_v<double> / 180.0), sky.saturation);
 
 		if (sky.grid_enabled) {
-			const auto grid_res = sample_celestial_grid(oriented_dir, sky, fov_rad);
+			const std::array<double, 3> grid_oriented_dir = rotate_vector(unit_dir, sky.grid_orientation_yaw_deg, sky.grid_orientation_pitch_deg, sky.grid_orientation_roll_deg);
+			const auto grid_res = sample_celestial_grid(grid_oriented_dir, sky, fov_rad);
 			if (grid_res.alpha > 0.0) {
 				final_rgb[0] = static_cast<float>(static_cast<double>(final_rgb[0]) * (1.0 - grid_res.alpha) + grid_res.rgb[0] * grid_res.alpha);
 				final_rgb[1] = static_cast<float>(static_cast<double>(final_rgb[1]) * (1.0 - grid_res.alpha) + grid_res.rgb[1] * grid_res.alpha);
@@ -1635,12 +1703,8 @@ public:
 					if (len_sq > 1.0e-18) {
 						const double inv_len = 1.0 / std::sqrt(len_sq);
 						const std::array<double, 3> unit_dir{dir_x * inv_len, dir_y * inv_len, dir_z * inv_len};
-						double rot_yaw = sky.orientation_yaw_deg;
-						if (sky.dynamic_rotation) {
-							rot_yaw = std::remainder(rot_yaw + sky.rotation_rate_deg_s * time_seconds, 360.0);
-						}
-						const std::array<double, 3> oriented_dir = rotate_vector(unit_dir, rot_yaw, sky.orientation_pitch_deg, sky.orientation_roll_deg);
-						const auto grid_res = sample_celestial_grid(oriented_dir, sky, fov_rad);
+						const std::array<double, 3> grid_oriented_dir = rotate_vector(unit_dir, sky.grid_orientation_yaw_deg, sky.grid_orientation_pitch_deg, sky.grid_orientation_roll_deg);
+						const auto grid_res = sample_celestial_grid(grid_oriented_dir, sky, fov_rad);
 						if (grid_res.alpha > 0.0) {
 							panorama_rgb[0] = static_cast<float>(static_cast<double>(panorama_rgb[0]) * (1.0 - grid_res.alpha) + grid_res.rgb[0] * grid_res.alpha);
 							panorama_rgb[1] = static_cast<float>(static_cast<double>(panorama_rgb[1]) * (1.0 - grid_res.alpha) + grid_res.rgb[1] * grid_res.alpha);

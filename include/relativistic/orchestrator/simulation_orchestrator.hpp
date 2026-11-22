@@ -84,7 +84,7 @@ struct PhysicalParameters {
 	double sky_grid_opacity{0.5};
 	double sky_rotation_deg{0.0};
 	double sky_hue_shift_deg{0.0};
-	double sky_saturation{0.86};
+	double sky_saturation{0.84};
 	double sky_background_r{0.0};
 	double sky_background_g{0.0};
 	double sky_background_b{0.0};
@@ -96,15 +96,15 @@ struct PhysicalParameters {
 	uint32_t sky_background_source{0};
 	uint32_t sky_panorama_id{0};
 	uint32_t sky_panorama_quality{1};
-	double sky_galaxy_density{0.12};
-	double sky_galaxy_brightness{0.5};
-	double sky_galaxy_size_scale{0.32};
+	double sky_galaxy_density{0.5};
+	double sky_galaxy_brightness{0.07};
+	double sky_galaxy_size_scale{1.0};
 	double sky_dust_density{3.85};
 	double sky_dust_intensity{1.3};
 	double sky_dust_scale{3.82};
-	double sky_cluster_density{0.8};
-	double sky_cluster_brightness{1.0};
-	double sky_cluster_size_scale{0.6};
+	double sky_cluster_density{0.184};
+	double sky_cluster_brightness{0.0};
+	double sky_cluster_size_scale{1.61};
 	Render::ProceduralSkySettings sky{};
 
 	void sync_sky_fields() noexcept {
@@ -113,7 +113,7 @@ struct PhysicalParameters {
 		sky_hue_shift_deg = sky.hue_shift_deg;
 		sky_saturation = sky.saturation;
 		sky_procedural_seed = sky.seed;
-		sky_star_density = sky.stars_enabled ? (sky.star_density * sky.star_quality_factor) : 0.0;
+		sky_star_density = sky.stars_enabled ? sky.star_density : 0.0;
 		sky_star_brightness = sky.stars_enabled ? (sky.star_brightness * master) : 0.0;
 		sky_nebula_intensity = sky.nebula_enabled ? (sky.nebula_intensity * master * sky.nebula_quality_factor) : 0.0;
 		sky_grid_opacity = sky.grid_enabled ? (sky.grid_opacity * master) : 0.0;
@@ -127,10 +127,10 @@ struct PhysicalParameters {
 		sky_galaxy_density = sky.galaxies_enabled ? sky.galaxy_density : 0.0;
 		sky_galaxy_brightness = sky.galaxies_enabled ? (sky.galaxy_brightness * master) : 0.0;
 		sky_galaxy_size_scale = sky.galaxy_size_scale;
-		sky_dust_density = sky.dust_enabled ? (sky.dust_density * sky.dust_quality_factor) : 0.0;
+		sky_dust_density = sky.dust_enabled ? sky.dust_density : 0.0;
 		sky_dust_intensity = sky.dust_enabled ? (sky.dust_intensity * master * sky.dust_quality_factor) : 0.0;
 		sky_dust_scale = sky.dust_scale;
-		sky_cluster_density = sky.clusters_enabled ? (sky.cluster_density * sky.cluster_quality_factor) : 0.0;
+		sky_cluster_density = sky.clusters_enabled ? sky.cluster_density : 0.0;
 		sky_cluster_brightness = sky.clusters_enabled ? (sky.cluster_brightness * master * sky.cluster_quality_factor) : 0.0;
 		sky_cluster_size_scale = sky.cluster_size_scale;
 

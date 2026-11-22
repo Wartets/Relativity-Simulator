@@ -1223,7 +1223,7 @@ private:
 		const Scalar impact_parameter_relative = (dir_norm_for_impact > static_cast<Scalar>(1e-30)) ? (cross_norm / dir_norm_for_impact) : static_cast<Scalar>(0);
 		if (impact_parameter_relative > mass * static_cast<Scalar>(0.05) && mass > static_cast<Scalar>(0)) {
 			const Scalar impact_parameter = impact_parameter_relative;
-			const Scalar deflection = std::min(static_cast<Scalar>(4) * mass / std::max(impact_parameter, mass * static_cast<Scalar>(1e-6)), static_cast<Scalar>(0.6));
+			const Scalar deflection = (static_cast<Scalar>(4) * mass / std::max(impact_parameter, mass * static_cast<Scalar>(1e-6))) * (static_cast<Scalar>(1) + static_cast<Scalar>(15.0 * std::numbers::pi / 16.0) * (mass / std::max(impact_parameter, mass * static_cast<Scalar>(1e-6))));
 			const Scalar nx = cross_x / cross_norm;
 			const Scalar ny = cross_y / cross_norm;
 			const Scalar nz = cross_z / cross_norm;
@@ -3431,12 +3431,12 @@ private:
 	}
 
 	[[nodiscard]] static std::array<float, 3> compute_sky_radiance(double dir_x, double dir_y, double dir_z, const GpuCameraPushConstants& params) noexcept {
-		if (!params.sky.enabled) {
+		if (params.sky.enabled == 0U) {
 			return {0.0f, 0.0f, 0.0f};
 		}
 		return SkyboxRenderer::sample_sky(
 			dir_x, dir_y, dir_z,
-			params.sky,
+			params.sky.to_settings(),
 			params.field_of_view_rad,
 			params.time,
 			params.sky_background_source,
@@ -4572,7 +4572,7 @@ public:
 		};
 
 		auto tile_is_pure_far_field_sky = [&](size_t x0, size_t x1, size_t y0, size_t y1) noexcept -> bool {
-			if (!adaptive_prepass_enabled || has_accretion_disk || r_obs < 80.0 * rh) {
+			if (!adaptive_prepass_enabled || has_accretion_disk || r_obs < 160.0 * rh) {
 				return false;
 			}
 			const size_t mid_x = (x0 + x1) / 2;
@@ -4584,7 +4584,7 @@ public:
 				const double lateral_a = dir[0] * eth_x + dir[1] * eth_y + dir[2] * eth_z;
 				const double lateral_b = dir[0] * eph_x + dir[1] * eph_y + dir[2] * eph_z;
 				const double impact_parameter = r_obs * std::sqrt(std::max(lateral_a * lateral_a + lateral_b * lateral_b, 1e-30));
-				if (radial_component > -0.1 || impact_parameter < 80.0 * rh) {
+				if (radial_component > -0.05 || impact_parameter < 150.0 * rh) {
 					return false;
 				}
 			}
@@ -4610,7 +4610,7 @@ public:
 						const double b_sq = bx * bx + by * by + bz * bz;
 						if (b_sq > 1e-12) {
 							const double b_len = std::sqrt(b_sq);
-							const double alpha = std::min(4.0 * m / b_len, 0.4);
+							const double alpha = (4.0 * m / b_len) * (1.0 + (15.0 * std::numbers::pi / 16.0) * (m / b_len));
 							const double cos_a = std::cos(alpha);
 							const double sin_a = std::sin(alpha);
 							const double inv_b = 1.0 / b_len;

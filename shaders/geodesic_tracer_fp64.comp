@@ -163,6 +163,173 @@ struct CosmologyProfile {
 	float log_hubble[192];
 };
 
+struct GpuSkyProfile {
+	uint enabled;
+	uint seed;
+	uint stars_enabled;
+	uint star_profile_model;
+	uint star_placement_model;
+	uint star_size_distribution;
+	uint star_luminosity_distribution;
+	uint star_spike_count;
+	uint nebula_enabled;
+	uint nebula_octaves;
+	uint nebula_layer_count;
+	uint clusters_enabled;
+	uint cluster_placement_model;
+	uint cluster_size_distribution;
+	uint cluster_stars_enabled;
+	uint cluster_member_count;
+	uint cluster_star_profile_model;
+	uint dust_enabled;
+	uint dust_fractal_octaves;
+	uint galaxies_enabled;
+	uint galaxy_size_distribution;
+	uint exotic_objects_enabled;
+	uint snr_enabled;
+	uint grid_enabled;
+	uint grid_subdivisions;
+	uint grid_show_polar_caps;
+	uint grid_show_equator;
+	uint grid_show_meridians;
+	uint grid_show_ticks;
+	uint dynamic_motion;
+	uint dynamic_rotation;
+	uint adaptive_fov_quality;
+	uint max_star_octaves;
+	uint pad0;
+
+	double master_intensity;
+	double quality_factor;
+	double star_quality_factor;
+	double nebula_quality_factor;
+	double cluster_quality_factor;
+	double dust_quality_factor;
+	double exotic_quality_factor;
+
+	double adaptive_fov_reference;
+	double adaptive_fov_sensitivity;
+	double time_seconds;
+	double motion_speed;
+	double rotation_rate_deg_s;
+
+	double star_density;
+	double star_brightness;
+	double star_size_scale;
+	double star_size_min;
+	double star_size_max;
+	double star_size_param;
+	double star_luminosity_param;
+	double star_color_variation;
+	double star_temperature_bias;
+	double star_brightness_variation;
+	double star_scintillation;
+	double star_magnitude_limit;
+
+	double star_profile_param;
+	double star_profile_param2;
+	double star_spike_length;
+	double star_spike_intensity;
+	double star_spike_angle_deg;
+	double star_profile_softness;
+	double star_dirac_concentration;
+	double star_bloom_radius;
+	double star_bloom_intensity;
+	double star_galactic_concentration;
+
+	double nebula_intensity;
+	double nebula_roughness;
+	double nebula_frequency;
+	double nebula_plane_thickness;
+	double nebula_plane_falloff;
+	double nebula_asymmetry;
+	double nebula_absorption_density;
+	double nebula_layer_spread;
+	double nebula_core_glow;
+	double nebula_curl_strength;
+	double nebula_color_separation;
+	double nebula_ionization_glow;
+	double nebula_gas_contrast;
+
+	double cluster_density;
+	double cluster_brightness;
+	double cluster_size_scale;
+	double cluster_size_min;
+	double cluster_size_max;
+	double cluster_concentration;
+	double cluster_star_density_boost;
+	double cluster_halo_radius;
+	double cluster_plane_scale_height;
+	double cluster_member_size;
+	double cluster_member_brightness;
+
+	double dust_density;
+	double dust_intensity;
+	double dust_scale;
+	double dust_absorption_ratio;
+	double dust_contrast;
+
+	double galaxy_density;
+	double galaxy_brightness;
+	double galaxy_size_scale;
+	double galaxy_size_min;
+	double galaxy_size_max;
+	double galaxy_size_param;
+	double galaxy_spiral_arms;
+	double galaxy_pitch_angle;
+	double galaxy_core_ratio;
+	double galaxy_ellipticity_variance;
+
+	double quasar_density;
+	double quasar_brightness;
+	double quasar_core_size;
+	double quasar_jet_length;
+	double quasar_jet_intensity;
+	double pulsar_pulse_rate;
+	double pulsar_pulse_duty;
+	double pulsar_beam_width_deg;
+	double pulsar_brightness;
+	double snr_density;
+	double snr_brightness;
+	double snr_shell_thickness;
+	double snr_expansion_age;
+	double snr_size;
+
+	double grid_opacity;
+	double grid_line_width;
+	double grid_spacing_deg;
+	double grid_glow;
+	double grid_tick_interval_deg;
+	double grid_tick_length;
+
+	double hue_shift_deg;
+	double saturation;
+	double orientation_yaw_deg;
+	double orientation_pitch_deg;
+	double orientation_roll_deg;
+
+	float nebula_plane_normal[3];
+	float pad1;
+	float nebula_asymmetry_dir[3];
+	float pad2;
+	float nebula_emission_color[3];
+	float pad3;
+	float nebula_secondary_color[3];
+	float pad4;
+	float nebula_tertiary_color[3];
+	float pad5;
+	float cluster_core_tint[3];
+	float pad6;
+	float dust_tint[3];
+	float pad7;
+	float grid_major_color[3];
+	float pad8;
+	float grid_minor_color[3];
+	float pad9;
+	float background_color[3];
+	float pad10;
+};
+
 layout(scalar, binding = 0) uniform CameraParams {
 	dvec4 observer_position;
 	dvec4 tetrad_e0;
@@ -302,6 +469,7 @@ layout(scalar, binding = 0) uniform CameraParams {
 	uint tile_origin_y;
 	uint tile_extent_x;
 	uint tile_extent_y;
+	GpuSkyProfile sky;
 } pc;
 
 struct PixelOutput {
@@ -660,104 +828,605 @@ dvec3 compute_ray_direction(uint mode, double u, double v, double fov) {
 	return compute_pinhole_ray(u, v, fov);
 }
 
-vec3 sample_celestial_starfield(vec3 dir, float star_density, float star_brightness, float nebula_intensity, float brightness_variation, float size_variation, float color_variation, float temperature_bias, uint seed) {
-	float theta = acos(clamp(dir.z, -1.0, 1.0));
-	float phi = atan(dir.y, dir.x);
-	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
-	float v = theta * (1.0 / PI_F);
-
-	float gal_lat = 0.5 - v;
-	float gal_band = exp(-(gal_lat * gal_lat) / 0.015);
-	float gal_core = exp(-(gal_lat * gal_lat) / 0.008) * exp(-pow(u - 0.5, 2.0) / 0.05);
-	float nebula_scale = max(nebula_intensity, 0.0);
-
-	vec3 col = vec3(
-		(0.015 * gal_band + 0.12 * gal_core) * nebula_scale,
-		(0.020 * gal_band + 0.09 * gal_core) * nebula_scale,
-		(0.045 * gal_band + 0.06 * gal_core) * nebula_scale
-	);
-
-	float u_grid = u * 720.0;
-	float v_grid = v * 360.0;
-	int iu = int(floor(u_grid));
-	int iv = int(floor(v_grid));
-	uint cell_seed = uint(iu * 73856093 ^ iv * 19349663) ^ (seed * 2654435761u);
-	float star_prob = hash_to_float(cell_seed);
-	float star_threshold = clamp(1.0 - 0.12 * max(star_density, 0.0), 0.0, 0.999);
-
-	if (star_prob > star_threshold) {
-		float off_u = hash_to_float(cell_seed + 101u);
-		float off_v = hash_to_float(cell_seed + 202u);
-		float du = (u_grid - float(iu)) - off_u;
-		float dv = (v_grid - float(iv)) - off_v;
-
-		float size_rand = hash_to_float(cell_seed + 707u);
-		float radius_sq_limit = clamp(0.12 + max(size_variation, 0.0) * (0.05 + 0.55 * size_rand), 0.05, 1.1);
-		float d2 = du * du + dv * dv;
-		if (d2 < radius_sq_limit) {
-			float brightness_exponent = 1.0 + clamp(brightness_variation, 0.0, 1.0) * 8.0;
-			float base = pow(hash_to_float(cell_seed + 303u), brightness_exponent) * 4.5;
-			float falloff = exp(-d2 * (3.2 / radius_sq_limit));
-
-			float color_temp = clamp(hash_to_float(cell_seed + 404u) - clamp(temperature_bias, -1.0, 1.0) * 0.3, 0.0, 1.0);
-			vec3 star_tint = vec3(1.0);
-			if (color_temp < 0.3) star_tint = vec3(0.8, 0.85, 1.3);
-			else if (color_temp > 0.7) star_tint = vec3(1.3, 0.85, 0.6);
-			float color_mix = clamp(color_variation, 0.0, 2.0);
-			star_tint = vec3(1.0) + (star_tint - vec3(1.0)) * color_mix;
-
-			float lum = base * falloff * max(star_brightness, 0.0);
-			col += star_tint * lum;
-		}
-	}
-	return col;
+double body_hash3(ivec3 p) {
+	uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + uint(p.z) * 2147483647u;
+	return double(hash_to_float(h)) * 2.0 - 1.0;
 }
 
-vec3 sample_deep_field_galaxies(vec3 dir, uint seed, double density, double brightness, double size_scale) {
-	if (density <= 0.0) return vec3(0.0);
-	float theta = acos(clamp(dir.z, -1.0, 1.0));
-	float phi = atan(dir.y, dir.x);
-	float u = (phi + PI_F) * (1.0 / (2.0 * PI_F));
-	float v = theta * (1.0 / PI_F);
+float body_value_noise(vec3 p) {
+	ivec3 i0 = ivec3(floor(p));
+	vec3 f = p - vec3(i0);
+	vec3 u = f * f * (3.0 - 2.0 * f);
 
-	const float grid_u = 48.0;
-	const float grid_v = 24.0;
-	float u_grid = u * grid_u;
-	float v_grid = v * grid_v;
-	int iu = int(floor(u_grid));
-	int iv = int(floor(v_grid));
-	uint cell_seed = uint(iu * 668265263 ^ iv * 2246822519u) ^ (seed * 40503u);
+	float c000 = float(body_hash3(i0 + ivec3(0, 0, 0)));
+	float c100 = float(body_hash3(i0 + ivec3(1, 0, 0)));
+	float c010 = float(body_hash3(i0 + ivec3(0, 1, 0)));
+	float c110 = float(body_hash3(i0 + ivec3(1, 1, 0)));
+	float c001 = float(body_hash3(i0 + ivec3(0, 0, 1)));
+	float c101 = float(body_hash3(i0 + ivec3(1, 0, 1)));
+	float c011 = float(body_hash3(i0 + ivec3(0, 1, 1)));
+	float c111 = float(body_hash3(i0 + ivec3(1, 1, 1)));
 
-	float presence = hash_to_float(cell_seed);
-	float threshold = clamp(1.0 - 0.4 * clamp(float(density), 0.0, 4.0), 0.0, 0.999);
-	if (presence <= threshold) return vec3(0.0);
+	float c00 = mix(c000, c100, u.x);
+	float c10 = mix(c010, c110, u.x);
+	float c01 = mix(c001, c101, u.x);
+	float c11 = mix(c011, c111, u.x);
 
-	float off_u = hash_to_float(cell_seed + 11u);
-	float off_v = hash_to_float(cell_seed + 22u);
-	float du = (u_grid - float(iu)) - off_u;
-	float dv = (v_grid - float(iv)) - off_v;
-	float footprint = max(float(size_scale), 0.05) * max(float(size_scale), 0.05) * 1.4;
-	float dist_sq = du * du + dv * dv;
-	if (dist_sq > footprint) return vec3(0.0);
+	float c0 = mix(c00, c10, u.y);
+	float c1 = mix(c01, c11, u.y);
 
-	float r = sqrt(dist_sq);
-	float angle = atan(dv, du);
-	float spiral = 0.5 + 0.5 * sin(angle * 3.0 + log(r + 0.08) * 6.0);
-	float core = exp(-dist_sq * (5.0 / max(footprint, 1e-6)));
-	float arms = spiral * exp(-dist_sq * (1.4 / max(footprint, 1e-6))) * 0.5;
+	return mix(c0, c1, u.z);
+}
 
-	float base_brightness = pow(hash_to_float(cell_seed + 33u), 3.5) * 1.6;
-	float lum = base_brightness * (core + arms) * float(max(brightness, 0.0));
+double body_fbm(dvec3 p_d, uint octaves, double roughness) {
+	vec3 p = vec3(p_d);
+	float r_f = float(roughness);
+	float total = 0.0;
+	float amplitude = 1.0;
+	float frequency = 1.0;
+	float max_val = 0.0;
+	for (uint i = 0u; i < octaves; ++i) {
+		total += body_value_noise(p * frequency) * amplitude;
+		max_val += amplitude;
+		amplitude *= r_f;
+		frequency *= 2.0;
+	}
+	return double(total / max(max_val, 1e-5));
+}
 
-	bool warm_tint = hash_to_float(cell_seed + 44u) > 0.5;
-	float tr = warm_tint ? 0.95 : 0.55;
-	float tg = warm_tint ? 0.80 : 0.70;
-	float tb = warm_tint ? 0.55 : 1.05;
+float surface_fbm(vec3 p, uint octaves, float roughness) {
+	return float(body_fbm(dvec3(p), octaves, double(roughness)));
+}
 
-	return vec3(tr * lum, tg * lum, tb * lum);
+float sample_distribution_gpu(uint dist_type, float min_val, float max_val, float shape_param, uint hash_val) {
+	float u = hash_to_float(hash_val);
+	if (min_val >= max_val) return min_val;
+	if (dist_type == 1u) {
+		float alpha = max(shape_param, 0.05);
+		if (abs(alpha - 1.0) < 1e-4) return min_val * pow(max_val / min_val, u);
+		float oma = 1.0 - alpha;
+		float term = (1.0 - u) * pow(min_val, oma) + u * pow(max_val, oma);
+		return clamp(pow(max(term, 1e-15), 1.0 / oma), min_val, max_val);
+	}
+	if (dist_type == 2u) {
+		float lambda = max(shape_param, 0.1);
+		float norm = 1.0 - exp(-lambda * (max_val - min_val));
+		return min_val - log(max(1.0 - u * norm, 1e-12)) / lambda;
+	}
+	if (dist_type == 3u) {
+		float u2 = max(hash_to_float(hash_val ^ 0x94d049bbu), 1e-12);
+		float z = sqrt(-2.0 * log(max(u, 1e-12))) * cos(2.0 * PI_F * u2);
+		float log_min = log(max(min_val, 1e-8));
+		float log_max = log(max(max_val, 1e-7));
+		float mid = 0.5 * (log_min + log_max);
+		float spread = clamp(shape_param * 0.35, 0.05, 2.5) * (log_max - log_min);
+		return clamp(exp(mid + spread * z), min_val, max_val);
+	}
+	if (dist_type == 4u) {
+		if (u < 0.85) {
+			return min_val + (u / 0.85) * (0.12 * (max_val - min_val));
+		} else {
+			return min_val + 0.60 * (max_val - min_val) + ((u - 0.85) / 0.15) * 0.40 * (max_val - min_val);
+		}
+	}
+	return min_val + u * (max_val - min_val);
+}
+
+float bessel_j1_gpu(float x) {
+	float ax = abs(x);
+	if (ax < 3.75) {
+		float y = (x / 3.75) * (x / 3.75);
+		return x * (0.5 + y * (-0.56249985 + y * (0.21093573 + y * (-0.03954289 + y * 0.00443319))));
+	}
+	float y = 3.75 / ax;
+	float f0 = 0.79788456 + y * (-0.00000077 + y * (-0.00552740 + y * 0.00009512));
+	float theta0 = ax - 2.35619449 + y * (0.04411179 + y * (-0.00008449 - y * 0.00076126));
+	float res = (f0 / sqrt(ax)) * cos(theta0);
+	return (x < 0.0) ? -res : res;
+}
+
+float evaluate_star_psf_gpu(float theta_sq, float eff_sigma, float eff_sigma_sq, float pixel_footprint, float local_x, float local_y, uint model) {
+	float theta = sqrt(max(theta_sq, 0.0));
+	if (model == 6u) {
+		float tightness = clamp(float(pc.sky.star_dirac_concentration), 0.1, 0.999);
+		float core_w = max(pixel_footprint * (1.0 - tightness) * 0.4, 1e-7);
+		return exp(-theta_sq / (2.0 * core_w * core_w));
+	}
+	if (model == 7u) {
+		float core = exp(-theta_sq / (2.0 * eff_sigma_sq));
+		float bloom_w = max(eff_sigma * clamp(float(pc.sky.star_bloom_radius), 1.0, 30.0), pixel_footprint * 3.5);
+		return core + float(pc.sky.star_bloom_intensity) * 1.8 * exp(-theta / bloom_w);
+	}
+	if (model == 1u) {
+		float scale_p = max(float(pc.sky.star_profile_param), 0.05);
+		float gamma_sq = eff_sigma_sq * scale_p;
+		return (gamma_sq / (gamma_sq + theta_sq)) + 0.25 * (gamma_sq / (gamma_sq + theta_sq * 0.25));
+	}
+	if (model == 2u) {
+		float beta = clamp(float(pc.sky.star_profile_param), 1.05, 8.0);
+		float scale = max(eff_sigma_sq * float(pc.sky.star_profile_param2), 1e-10);
+		return pow(1.0 + theta_sq / scale, -beta);
+	}
+	if (model == 3u) {
+		float v = PI_F * theta / max(eff_sigma * 0.5, 1e-7);
+		if (v < 1e-4) return 1.0;
+		float j1 = bessel_j1_gpu(v);
+		float airy = (2.0 * j1 / v) * (2.0 * j1 / v);
+		return min(airy * max(float(pc.sky.star_profile_param2), 0.5), 3.0);
+	}
+	if (model == 4u) {
+		float disc_r = max(eff_sigma, pixel_footprint * 0.5);
+		float softness = clamp(float(pc.sky.star_profile_softness), 0.005, 1.0);
+		float edge_w = max(pixel_footprint * 0.4, disc_r * softness);
+		return 1.0 - clamp((theta - (disc_r - edge_w)) / max(2.0 * edge_w, 1e-7), 0.0, 1.0);
+	}
+	if (model == 5u) {
+		float core = exp(-theta_sq / (2.0 * eff_sigma_sq));
+		float angle = atan(local_y, local_x) + float(pc.sky.star_spike_angle_deg) * (PI_F / 180.0);
+		float n_spikes = (pc.sky.star_spike_count == 6u) ? 3.0 : ((pc.sky.star_spike_count == 8u) ? 4.0 : 2.0);
+		float cos_sp = abs(cos(n_spikes * angle));
+		float beam = pow(cos_sp, 32.0);
+		float len = max(eff_sigma * clamp(float(pc.sky.star_spike_length), 0.5, 60.0), pixel_footprint * 8.0);
+		float falloff = exp(-theta / len);
+		return core + float(pc.sky.star_spike_intensity) * 2.5 * beam * falloff;
+	}
+	return exp(-theta_sq / (2.0 * eff_sigma_sq)) + 0.08 * exp(-theta / (3.5 * max(eff_sigma, 1e-7)));
+}
+
+vec3 sample_procedural_stars_gpu(vec3 dir, float fov_rad, float zoom_factor) {
+	if (pc.sky.stars_enabled == 0u || pc.sky.star_density <= 0.0) return vec3(0.0);
+	float eff_qual = max(float(pc.sky.quality_factor * pc.sky.star_quality_factor), 0.05);
+	float density_eff = clamp(float(pc.sky.star_density) * eff_qual, 0.01, 100.0);
+	float base_grid_res = clamp(14.0 * sqrt(density_eff), 6.0, 96.0);
+	float pixel_footprint = max(fov_rad / 1080.0, 1e-6);
+
+	vec3 plane_norm = vec3(pc.sky.nebula_plane_normal[0], pc.sky.nebula_plane_normal[1], pc.sky.nebula_plane_normal[2]);
+	float pn_len = length(plane_norm);
+	plane_norm = (pn_len > 1e-6) ? (plane_norm / pn_len) : vec3(0.0, 0.4472136, 0.8944272);
+
+	float zoom_level = 0.0;
+	int num_octaves = 1;
+	if (pc.sky.adaptive_fov_quality != 0u) {
+		zoom_level = max(0.0, log2(max(zoom_factor, 1.0)) * float(pc.sky.adaptive_fov_sensitivity));
+		num_octaves = clamp(int(floor(zoom_level)) + 2, 1, int(pc.sky.max_star_octaves));
+	}
+
+	vec3 accum = vec3(0.0);
+	uint base_seed = pc.sky.seed;
+
+	for (int oct = 0; oct < num_octaves; ++oct) {
+		float oct_scale = pow(1.5, float(oct));
+		float grid_res = base_grid_res * oct_scale;
+		uint oct_seed = base_seed ^ (uint(oct) * 0x9e3779b9u);
+
+		float octave_weight = 1.0;
+		if (pc.sky.adaptive_fov_quality != 0u && oct > 0) {
+			float oct_f = float(oct);
+			if (zoom_level < oct_f - 1.0) continue;
+			if (zoom_level < oct_f) {
+				float t = zoom_level - (oct_f - 1.0);
+				octave_weight = t * t * (3.0 - 2.0 * t);
+			}
+		}
+
+		vec3 p = dir * grid_res;
+		ivec3 c = ivec3(floor(p));
+		float presence_thresh = clamp(1.0 - (float(pc.sky.star_density) * eff_qual / (1.0 + 0.35 * float(oct))) * 0.16, 0.01, 0.99);
+
+		for (int dz = -1; dz <= 1; ++dz) {
+			for (int dy = -1; dy <= 1; ++dy) {
+				for (int dx = -1; dx <= 1; ++dx) {
+					ivec3 cell = c + ivec3(dx, dy, dz);
+					uint cell_hash = uint(cell.x * 73856093 ^ cell.y * 19349663 ^ cell.z * 83492791) ^ oct_seed;
+					if (hash_to_float(cell_hash) <= presence_thresh) continue;
+
+					vec3 offset = vec3(hash_to_float(cell_hash + 11u), hash_to_float(cell_hash + 23u), hash_to_float(cell_hash + 37u));
+					vec3 star_dir = normalize(vec3(cell) + offset);
+
+					if (pc.sky.star_placement_model == 1u) {
+						float h_plane = dot(star_dir, plane_norm);
+						float p_disk = exp(-abs(h_plane) * float(pc.sky.star_galactic_concentration));
+						if (hash_to_float(cell_hash + 101u) > (p_disk * 0.95 + 0.05)) continue;
+					} else if (pc.sky.star_placement_model == 2u) {
+						float cl = float(body_fbm(dvec3(star_dir * 3.8), 3u, 0.65));
+						float cl_p = pow(clamp((cl + 0.6) * 0.85, 0.0, 1.0), 3.0);
+						if (hash_to_float(cell_hash + 102u) > cl_p) continue;
+					} else if (pc.sky.star_placement_model == 3u) {
+						float h_plane = dot(star_dir, plane_norm);
+						bool is_disk = hash_to_float(cell_hash + 103u) > 0.30;
+						if (is_disk) {
+							float p_disk = exp(-abs(h_plane) * float(pc.sky.star_galactic_concentration));
+							if (hash_to_float(cell_hash + 107u) > p_disk) continue;
+						}
+					} else if (pc.sky.star_placement_model == 4u) {
+						float h_plane = dot(star_dir, plane_norm);
+						float phi_plane = atan(star_dir.y, star_dir.x);
+						float arm_val = sin(2.0 * phi_plane - 4.5 * log(max(abs(h_plane) + 0.2, 0.05)));
+						float p_arm = clamp(exp(-abs(h_plane) * 3.0) * (0.15 + 0.85 * (arm_val * 0.5 + 0.5)), 0.02, 1.0);
+						if (hash_to_float(cell_hash + 109u) > p_arm) continue;
+					}
+
+					float mu = dot(dir, star_dir);
+					if (mu <= 0.994) continue;
+					float theta_sq = 2.0 * max(0.0, 1.0 - mu);
+
+					float size_oct_factor = 1.0 / (1.0 + 0.25 * float(oct));
+					float radius = sample_distribution_gpu(pc.sky.star_size_distribution, float(pc.sky.star_size_min), float(pc.sky.star_size_max), float(pc.sky.star_size_param), cell_hash + 31u) * float(pc.sky.star_size_scale) * size_oct_factor;
+
+					float eff_sigma = radius * (pc.sky.star_profile_model == 4u ? 1.0 : 1.4) + pixel_footprint * 0.35;
+					float eff_sigma_sq = eff_sigma * eff_sigma;
+
+					float max_sup = eff_sigma * 6.0;
+					if (pc.sky.star_profile_model == 5u) max_sup = max(max_sup, eff_sigma * float(pc.sky.star_spike_length));
+					else if (pc.sky.star_profile_model == 7u) max_sup = max(max_sup, eff_sigma * float(pc.sky.star_bloom_radius));
+					else if (pc.sky.star_profile_model == 3u) max_sup = max(max_sup, eff_sigma * 12.0);
+
+					float max_sup_sq = max_sup * max_sup;
+					if (theta_sq > max_sup_sq) continue;
+					float window_u = clamp(theta_sq / max_sup_sq, 0.0, 1.0);
+					float hermite = (1.0 - window_u) * (1.0 - window_u);
+
+					float lum = sample_distribution_gpu(pc.sky.star_luminosity_distribution, 0.2, 25.0, float(pc.sky.star_luminosity_param), cell_hash + 53u) * float(pc.sky.star_brightness);
+					lum *= 1.0 / (1.0 + 0.35 * float(oct));
+
+					if (pc.sky.dynamic_motion != 0u && pc.sky.star_scintillation > 0.0) {
+						float tw_phase = hash_to_float(cell_hash + 67u) * 6.2831853;
+						lum *= (1.0 + float(pc.sky.star_scintillation) * sin(float(pc.sky.time_seconds) * 3.8 + tw_phase));
+					}
+
+					vec3 u1 = (abs(star_dir.z) < 0.9) ? normalize(vec3(-star_dir.y, star_dir.x, 0.0)) : normalize(vec3(0.0, -star_dir.z, star_dir.y));
+					vec3 u2 = cross(star_dir, u1);
+					vec3 delta = dir - star_dir;
+					float loc_x = dot(delta, u1);
+					float loc_y = dot(delta, u2);
+
+					float psf = evaluate_star_psf_gpu(theta_sq, eff_sigma, eff_sigma_sq, pixel_footprint, loc_x, loc_y, pc.sky.star_profile_model);
+					float apparent_ratio = clamp((radius * radius) / max(eff_sigma_sq, 1e-10), 0.05, 4.0);
+					float total_flux = lum * apparent_ratio * psf * hermite * octave_weight;
+
+					float temp_norm = clamp(hash_to_float(cell_hash + 79u) + float(pc.sky.star_temperature_bias) * 0.4, 0.0, 1.0);
+					vec3 tint = vec3(1.0);
+					if (temp_norm < 0.2) tint = vec3(1.55, 0.65, 0.35);
+					else if (temp_norm < 0.45) tint = vec3(1.35, 1.05, 0.70);
+					else if (temp_norm < 0.70) tint = vec3(1.05, 1.05, 1.05);
+					else if (temp_norm < 0.88) tint = vec3(0.80, 0.95, 1.35);
+					else tint = vec3(0.65, 0.80, 1.60);
+					tint = mix(vec3(1.0), tint, float(pc.sky.star_color_variation));
+
+					accum += tint * total_flux;
+				}
+			}
+		}
+	}
+	return accum;
+}
+
+vec3 sample_deep_field_galaxies_gpu(vec3 dir) {
+	if (pc.sky.galaxies_enabled == 0u || pc.sky.galaxy_density <= 0.0) return vec3(0.0);
+	float grid_res = clamp(6.0 * sqrt(float(pc.sky.galaxy_density)), 3.0, 24.0);
+	vec3 p = dir * grid_res;
+	ivec3 c = ivec3(floor(p));
+	uint base_seed = pc.sky.seed ^ 0x6a09e667u;
+	float presence_thresh = clamp(1.0 - float(pc.sky.galaxy_density) * 0.20, 0.02, 0.99);
+
+	vec3 accum = vec3(0.0);
+	for (int dz = -1; dz <= 1; ++dz) {
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				ivec3 cell = c + ivec3(dx, dy, dz);
+				uint cell_hash = uint(cell.x * 73856093 ^ cell.y * 19349663 ^ cell.z * 83492791) ^ base_seed;
+				if (hash_to_float(cell_hash) > presence_thresh) continue;
+
+				vec3 offset = vec3(hash_to_float(cell_hash + 11u), hash_to_float(cell_hash + 23u), hash_to_float(cell_hash + 37u));
+				vec3 gal_dir = normalize(vec3(cell) + offset);
+
+				float mu = dot(dir, gal_dir);
+				if (mu <= 0.998) continue;
+				float sep_sq = 2.0 * max(0.0, 1.0 - mu);
+
+				float size_rad = sample_distribution_gpu(pc.sky.galaxy_size_distribution, float(pc.sky.galaxy_size_min), float(pc.sky.galaxy_size_max), float(pc.sky.galaxy_size_param), cell_hash + 13u) * float(pc.sky.galaxy_size_scale);
+				float size_sq = size_rad * size_rad;
+				if (sep_sq > 9.0 * size_sq) continue;
+
+				vec3 t1 = (abs(gal_dir.z) < 0.9) ? normalize(vec3(-gal_dir.y, gal_dir.x, 0.0)) : normalize(vec3(0.0, -gal_dir.z, gal_dir.y));
+				vec3 t2 = cross(gal_dir, t1);
+
+				float roll = hash_to_float(cell_hash + 17u) * 6.2831853;
+				vec3 u1 = t1 * cos(roll) + t2 * sin(roll);
+				vec3 u2 = -t1 * sin(roll) + t2 * cos(roll);
+
+				vec3 delta = dir - gal_dir;
+				float loc_x = dot(delta, u1);
+				float loc_y = dot(delta, u2);
+
+				float ellip = 1.0 + hash_to_float(cell_hash + 21u) * float(pc.sky.galaxy_ellipticity_variance);
+				float r_norm = sqrt(loc_x * loc_x + loc_y * loc_y * ellip * ellip) / max(size_rad, 1e-6);
+				float phi_local = atan(loc_y, loc_x);
+
+				float core = exp(-r_norm * r_norm * 4.0);
+				float arms = 0.5 + 0.5 * cos(float(pc.sky.galaxy_spiral_arms) * phi_local - r_norm * 4.8 * float(pc.sky.galaxy_pitch_angle));
+				float disk = exp(-r_norm * 2.2) * arms;
+				float intensity = (core * float(pc.sky.galaxy_core_ratio) + disk * (1.0 - float(pc.sky.galaxy_core_ratio))) * float(pc.sky.galaxy_brightness) * 2.0;
+
+				bool warm = hash_to_float(cell_hash + 19u) > 0.45;
+				accum += intensity * (warm ? vec3(1.15, 0.95, 0.70) : vec3(0.75, 0.90, 1.25));
+			}
+		}
+	}
+	return accum;
+}
+
+vec3 sample_dust_clouds_gpu(vec3 dir) {
+	if (pc.sky.dust_enabled == 0u || pc.sky.dust_intensity <= 0.0) return vec3(0.0);
+	float eff_qual = max(float(pc.sky.quality_factor * pc.sky.dust_quality_factor), 0.05);
+	float scale = clamp(float(pc.sky.dust_scale), 0.2, 8.0);
+	int octaves = clamp(int(float(pc.sky.dust_fractal_octaves) * eff_qual + 0.5), 1, 6);
+	float seed_f = float(pc.sky.seed % 4096u) * 0.77;
+
+	float d_val = surface_fbm(dir * scale + vec3(seed_f, -53.0, seed_f * 0.5), uint(octaves), 0.55);
+	float threshold = clamp(1.0 - 0.2 * float(pc.sky.dust_density), 0.0, 0.95);
+
+	if (d_val > threshold) {
+		float normalized = (d_val - threshold) / (1.0 - threshold);
+		float lum = pow(normalized, float(pc.sky.dust_contrast)) * float(pc.sky.dust_intensity) * 0.35;
+		vec3 tint = vec3(pc.sky.dust_tint[0], pc.sky.dust_tint[1], pc.sky.dust_tint[2]);
+		return tint * lum;
+	}
+	return vec3(0.0);
+}
+
+vec3 sample_star_clusters_gpu(vec3 dir, float fov_rad) {
+	if (pc.sky.clusters_enabled == 0u || pc.sky.cluster_density <= 0.0) return vec3(0.0);
+	float eff_qual = max(float(pc.sky.quality_factor * pc.sky.cluster_quality_factor), 0.05);
+	float eff_density = float(pc.sky.cluster_density) * eff_qual;
+	float grid_res = clamp(6.0 * sqrt(eff_density), 3.0, 24.0);
+
+	vec3 p = dir * grid_res;
+	ivec3 c = ivec3(floor(p));
+	uint base_seed = pc.sky.seed ^ 0xbb67ae85u;
+	float presence_thresh = clamp(1.0 - eff_density * 0.15, 0.01, 0.99);
+
+	vec3 plane_norm = vec3(pc.sky.nebula_plane_normal[0], pc.sky.nebula_plane_normal[1], pc.sky.nebula_plane_normal[2]);
+	float pn_len = length(plane_norm);
+	plane_norm = (pn_len > 1e-6) ? (plane_norm / pn_len) : vec3(0.0, 0.4472136, 0.8944272);
+
+	vec3 asym_dir = vec3(pc.sky.nebula_asymmetry_dir[0], pc.sky.nebula_asymmetry_dir[1], pc.sky.nebula_asymmetry_dir[2]);
+	float an_len = length(asym_dir);
+	asym_dir = (an_len > 1e-6) ? (asym_dir / an_len) : vec3(0.7071068, 0.0, 0.7071068);
+
+	float pixel_footprint = fov_rad / 1080.0;
+	vec3 core_tint = vec3(pc.sky.cluster_core_tint[0], pc.sky.cluster_core_tint[1], pc.sky.cluster_core_tint[2]);
+	vec3 accum = vec3(0.0);
+
+	for (int dz = -1; dz <= 1; ++dz) {
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				ivec3 cell = c + ivec3(dx, dy, dz);
+				uint cell_hash = uint(cell.x * 73856093 ^ cell.y * 19349663 ^ cell.z * 83492791) ^ base_seed;
+				if (hash_to_float(cell_hash) > presence_thresh) continue;
+
+				vec3 offset = vec3(hash_to_float(cell_hash + 5u), hash_to_float(cell_hash + 9u), hash_to_float(cell_hash + 13u));
+				vec3 cl_center = normalize(vec3(cell) + offset);
+
+				if (pc.sky.cluster_placement_model == 0u) {
+					float cos_gc = dot(cl_center, asym_dir);
+					float prob_gc = 1.0 / (1.0 + (1.0 - cos_gc) / max(float(pc.sky.cluster_halo_radius * pc.sky.cluster_halo_radius), 0.04));
+					if (hash_to_float(cell_hash + 99u) > prob_gc) continue;
+				} else if (pc.sky.cluster_placement_model == 1u) {
+					float h_cl = dot(cl_center, plane_norm);
+					float prob_pl = exp(-(h_cl * h_cl) / max(float(pc.sky.cluster_plane_scale_height * pc.sky.cluster_plane_scale_height), 0.005));
+					if (hash_to_float(cell_hash + 99u) > prob_pl) continue;
+				}
+
+				float mu = dot(dir, cl_center);
+				if (mu <= 0.998) continue;
+				float sep_sq = 2.0 * max(0.0, 1.0 - mu);
+
+				float cl_rad = sample_distribution_gpu(pc.sky.cluster_size_distribution, float(pc.sky.cluster_size_min), float(pc.sky.cluster_size_max), 1.5, cell_hash + 17u) * float(pc.sky.cluster_size_scale);
+				float rad_sq = cl_rad * cl_rad;
+				if (sep_sq > 9.0 * rad_sq) continue;
+
+				float plummer = 1.0 / pow(1.0 + sep_sq / max(rad_sq * 0.25, 1e-8), float(pc.sky.cluster_concentration));
+				float flux = plummer * float(pc.sky.cluster_brightness) * 2.2;
+				accum += core_tint * flux;
+
+				if (pc.sky.cluster_stars_enabled != 0u && pc.sky.cluster_member_count > 0u) {
+					vec3 u1 = (abs(cl_center.z) < 0.9) ? normalize(vec3(-cl_center.y, cl_center.x, 0.0)) : normalize(vec3(0.0, -cl_center.z, cl_center.y));
+					vec3 u2 = cross(cl_center, u1);
+
+					uint members = clamp(uint(float(pc.sky.cluster_member_count) * eff_qual), 4u, 96u);
+					float r_core = cl_rad * 0.35;
+
+					for (uint mi = 0u; mi < members; ++mi) {
+						uint m_hash = cell_hash ^ (mi * 0x3c6ef372u);
+						float u_rad = clamp(hash_to_float(m_hash), 0.001, 0.96);
+						float r_m = r_core * sqrt(pow(u_rad, 0.666667) / max(1.0 - pow(u_rad, 0.666667), 1e-4));
+						float phi_m = 6.2831853 * hash_to_float(m_hash + 13u);
+						float dx_m = r_m * cos(phi_m);
+						float dy_m = r_m * sin(phi_m);
+
+						vec3 m_dir = normalize(cl_center + u1 * dx_m + u2 * dy_m);
+						float mu_m = dot(dir, m_dir);
+						if (mu_m <= 0.9994) continue;
+						float theta_sq_m = 2.0 * max(0.0, 1.0 - mu_m);
+						float m_rad = max(float(pc.sky.cluster_member_size), 1e-6);
+						float eff_sigma_m = m_rad * 1.4 + pixel_footprint * 0.35;
+						float eff_sigma_sq_m = eff_sigma_m * eff_sigma_m;
+						if (theta_sq_m > 16.0 * eff_sigma_sq_m) continue;
+
+						float psf_m = evaluate_star_psf_gpu(theta_sq_m, eff_sigma_m, eff_sigma_sq_m, pixel_footprint, dx_m, dy_m, pc.sky.cluster_star_profile_model);
+						float m_lum = (0.5 + 1.5 * hash_to_float(m_hash + 29u)) * float(pc.sky.cluster_member_brightness);
+						accum += core_tint * (m_lum * psf_m);
+					}
+				}
+			}
+		}
+	}
+	return accum;
+}
+
+vec3 sample_volumetric_nebulae_gpu(vec3 dir, float zoom_factor) {
+	if (pc.sky.nebula_enabled == 0u || pc.sky.nebula_intensity <= 0.0) return vec3(0.0);
+	vec3 plane_norm = vec3(pc.sky.nebula_plane_normal[0], pc.sky.nebula_plane_normal[1], pc.sky.nebula_plane_normal[2]);
+	float pn_len = length(plane_norm);
+	plane_norm = (pn_len > 1e-6) ? (plane_norm / pn_len) : vec3(0.0, 0.4472136, 0.8944272);
+
+	float h = dot(dir, plane_norm);
+	float thickness = max(float(pc.sky.nebula_plane_thickness), 0.02);
+	float falloff_exp = clamp(float(pc.sky.nebula_plane_falloff), 1.0, 6.0);
+	float disc_envelope = exp(-pow(abs(h) / thickness, falloff_exp));
+
+	vec3 asym_dir = vec3(pc.sky.nebula_asymmetry_dir[0], pc.sky.nebula_asymmetry_dir[1], pc.sky.nebula_asymmetry_dir[2]);
+	float an_len = length(asym_dir);
+	asym_dir = (an_len > 1e-6) ? (asym_dir / an_len) : vec3(0.7071068, 0.0, 0.7071068);
+
+	float cos_psi = dot(dir, asym_dir);
+	float asymmetry = pow(clamp((1.0 + cos_psi) * 0.5, 0.0, 1.0), clamp(float(pc.sky.nebula_asymmetry) * 2.5 + 0.1, 0.1, 8.0));
+	float core_glow = float(pc.sky.nebula_core_glow) * exp(-2.5 * max(0.0, 1.0 - cos_psi));
+
+	float eff_qual = max(float(pc.sky.quality_factor * pc.sky.nebula_quality_factor), 0.05);
+	int octaves = clamp(int(float(pc.sky.nebula_octaves) * sqrt(eff_qual)), 1, 8);
+	if (pc.sky.adaptive_fov_quality != 0u && zoom_factor > 1.2) {
+		octaves = min(8, octaves + int(floor(log2(zoom_factor))));
+	}
+
+	float freq = float(pc.sky.nebula_frequency);
+	float rough = clamp(float(pc.sky.nebula_roughness), 0.1, 0.95);
+	float seed_f = float(pc.sky.seed % 1024u) * 1.37;
+	vec3 d = dir;
+
+	if (pc.sky.nebula_curl_strength > 0.01) {
+		float cs = float(pc.sky.nebula_curl_strength) * 0.25;
+		d += vec3(body_value_noise(vec3(d.yz * 2.0, seed_f)), body_value_noise(vec3(d.zx * 2.0, seed_f + 7.1)), body_value_noise(vec3(d.xy * 2.0, seed_f + 13.3))) * cs;
+		d = normalize(d);
+	}
+
+	uint layers = clamp(uint(float(pc.sky.nebula_layer_count) * eff_qual + 0.4), 1u, 5u);
+	vec3 total_emission = vec3(0.0);
+	float sep = clamp(float(pc.sky.nebula_color_separation), 0.5, 3.0);
+	float gas_contrast = clamp(float(pc.sky.nebula_gas_contrast), 0.5, 3.0);
+	float ion_glow = clamp(float(pc.sky.nebula_ionization_glow), 0.0, 3.0);
+
+	vec3 col1 = vec3(pc.sky.nebula_emission_color[0], pc.sky.nebula_emission_color[1], pc.sky.nebula_emission_color[2]);
+	vec3 col2 = vec3(pc.sky.nebula_secondary_color[0], pc.sky.nebula_secondary_color[1], pc.sky.nebula_secondary_color[2]);
+	vec3 col3 = vec3(pc.sky.nebula_tertiary_color[0], pc.sky.nebula_tertiary_color[1], pc.sky.nebula_tertiary_color[2]);
+
+	for (uint l = 0u; l < layers; ++l) {
+		float l_off = float(l) * 17.3 * float(pc.sky.nebula_layer_spread);
+		float l_scale = 1.0 + float(l) * 0.75 * float(pc.sky.nebula_layer_spread);
+
+		float n1 = surface_fbm(d * freq * l_scale + vec3(seed_f + l_off, -seed_f * 0.7, 13.5 + l_off), uint(octaves), rough);
+		float e1 = pow(max(0.0, (n1 + 0.18) * 1.05), 1.8 * gas_contrast);
+
+		float n2 = surface_fbm(d * freq * 1.85 * l_scale + vec3(-27.1 + l_off * sep, seed_f * 0.5, -11.2), uint(octaves), rough);
+		float e2 = pow(max(0.0, (n2 + 0.12) * 1.10), 2.2 * gas_contrast) * ion_glow;
+
+		float n3 = surface_fbm(d * freq * 2.7 * l_scale + vec3(43.0, l_off * sep * 1.3, -seed_f), uint(octaves), rough);
+		float e3 = pow(max(0.0, (n3 + 0.05) * 0.95), 2.4 * gas_contrast);
+
+		float weight = 1.0 / (1.0 + 0.45 * float(l));
+		total_emission += (col1 * e1 + col2 * e2 * 0.35 + col3 * e3) * weight;
+	}
+
+	float n_dust = float(body_fbm(dvec3(d * freq * 2.6 + vec3(71.3, -39.4, seed_f)), uint(octaves), 0.6));
+	float tau = max(0.0, n_dust - 0.26) * float(pc.sky.nebula_absorption_density * 2.6);
+	float extinction = exp(-tau);
+
+	float envelope = (disc_envelope * asymmetry + core_glow) * extinction * float(pc.sky.nebula_intensity * pc.sky.nebula_quality_factor);
+	return total_emission * envelope;
 }
 
 double body_fbm(dvec3 p, uint octaves, double roughness);
+
+vec3 sample_exotic_sources_gpu(vec3 dir) {
+	if (pc.sky.exotic_objects_enabled == 0u) return vec3(0.0);
+	float eff_qual = max(float(pc.sky.quality_factor * pc.sky.exotic_quality_factor), 0.05);
+	float eff_density = clamp(float(pc.sky.quasar_density) * eff_qual, 0.02, 30.0);
+	float grid_res = clamp(6.0 * sqrt(eff_density), 4.0, 36.0);
+
+	vec3 p = dir * grid_res;
+	ivec3 c = ivec3(floor(p));
+	uint base_seed = pc.sky.seed ^ 0x9b05688cu;
+	float presence_thresh = clamp(1.0 - eff_density * 0.08, 0.02, 0.98);
+
+	vec3 accum = vec3(0.0);
+	for (int dz = -1; dz <= 1; ++dz) {
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				ivec3 cell = c + ivec3(dx, dy, dz);
+				uint cell_hash = uint(cell.x * 73856093 ^ cell.y * 19349663 ^ cell.z * 83492791) ^ base_seed;
+				if (hash_to_float(cell_hash) <= presence_thresh) continue;
+
+				vec3 offset = vec3(hash_to_float(cell_hash + 11u), hash_to_float(cell_hash + 23u), hash_to_float(cell_hash + 37u));
+				vec3 obj_dir = normalize(vec3(cell) + offset);
+
+				float mu = dot(dir, obj_dir);
+				uint exotic_type = uint(cell_hash % 3u);
+				vec3 jet_axis = (abs(obj_dir.z) < 0.9) ? normalize(vec3(-obj_dir.y, obj_dir.x, 0.0)) : normalize(vec3(0.0, -obj_dir.z, obj_dir.y));
+
+				if (exotic_type == 0u) {
+					float core_rad = max(float(pc.sky.quasar_core_size), 0.001);
+					float jet_len = max(float(pc.sky.quasar_jet_length), 0.008);
+					float max_rad = max(jet_len * 2.2, core_rad * 8.0);
+					if (mu < cos(max_rad)) continue;
+					float sep_sq = 2.0 * max(0.0, 1.0 - mu);
+					if (sep_sq > max_rad * max_rad) continue;
+
+					float core_sq = core_rad * core_rad;
+					float core_flux = exp(-sep_sq / (2.0 * core_sq)) * float(pc.sky.quasar_brightness) * 6.0;
+					float halo_flux = exp(-sep_sq / (32.0 * core_sq)) * float(pc.sky.quasar_brightness) * 1.5;
+
+					vec3 delta = dir - obj_dir;
+					float d_dot_jet = dot(delta, jet_axis);
+					float perp_sq = max(sep_sq - d_dot_jet * d_dot_jet, 0.0);
+					float jet_w = core_rad * 1.2 + abs(d_dot_jet) * 0.15;
+					float jet_coll = exp(-perp_sq / (2.0 * jet_w * jet_w));
+					float jet_long = exp(-abs(d_dot_jet) / jet_len);
+					float knot = 0.75 + 0.25 * cos(abs(d_dot_jet) * 120.0);
+					float jet_flux = jet_coll * jet_long * knot * float(pc.sky.quasar_jet_intensity) * float(pc.sky.quasar_brightness) * 3.5;
+
+					float window = clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+					float total = (core_flux + halo_flux + jet_flux) * window * window;
+					accum += vec3(total * 0.85, total * 1.10, total * 1.80);
+				} else if (exotic_type == 1u) {
+					float theta_cone = max(float(pc.sky.pulsar_beam_width_deg) * (PI_F / 180.0), 0.02);
+					float max_rad = theta_cone * 3.0;
+					if (mu < cos(max_rad)) continue;
+					float sep_sq = 2.0 * max(0.0, 1.0 - mu);
+					if (sep_sq > max_rad * max_rad) continue;
+
+					float pulse = 1.0;
+					float phase = mod(float(pc.sky.time_seconds) * float(pc.sky.pulsar_pulse_rate) + hash_to_float(cell_hash + 19u), 1.0);
+					float duty = clamp(float(pc.sky.pulsar_pulse_duty), 0.02, 0.95);
+					pulse = (phase < duty) ? (1.0 / duty) : 0.05;
+
+					float core = exp(-sep_sq / 0.000005) * float(pc.sky.pulsar_brightness) * 5.0;
+					float beam = exp(-sep_sq / (2.0 * theta_cone * theta_cone)) * pulse * float(pc.sky.pulsar_brightness) * 2.5;
+					float plerion = exp(-sep_sq / 0.0003) * float(pc.sky.pulsar_brightness) * 0.8;
+					float window = clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+					float total = (core * pulse + beam + plerion) * window * window;
+					accum += vec3(total * 0.65, total * 1.35, total * 1.15);
+				} else if (pc.sky.snr_enabled != 0u) {
+					float snr_rad = max(float(pc.sky.snr_size) * (0.8 + 0.4 * float(pc.sky.snr_expansion_age)), 0.004);
+					float shell_thick = max(float(pc.sky.snr_shell_thickness) * snr_rad, 0.0008);
+					float max_rad = snr_rad + shell_thick * 3.5;
+					if (mu < cos(max_rad)) continue;
+					float sep_sq = 2.0 * max(0.0, 1.0 - mu);
+					if (sep_sq > max_rad * max_rad) continue;
+
+					float dist = sqrt(sep_sq);
+					float diff = abs(dist - snr_rad);
+					float limb = exp(-(diff * diff) / (2.0 * shell_thick * shell_thick)) * float(pc.sky.snr_brightness) * 3.2;
+					float interior = (dist < snr_rad) ? (exp(-dist / snr_rad) * float(pc.sky.snr_brightness) * 0.5) : 0.0;
+					float window = clamp(1.0 - sep_sq / (max_rad * max_rad), 0.0, 1.0);
+					float total = (limb + interior) * window * window;
+					accum += vec3(total * 1.55, total * 0.70, total * 1.05);
+				}
+			}
+		}
+	}
+	return accum;
+}
 
 vec3 sample_dust_clouds(dvec3 dir_d, uint seed, double density, double intensity, double scale) {
 	if (density <= 0.0) return vec3(0.0);
@@ -818,21 +1487,64 @@ vec3 sample_star_clusters(vec3 dir, uint seed, double density, double brightness
 	return total;
 }
 
-vec3 sample_celestial_grid_sphere(vec3 dir, float grid_opacity) {
-	float theta = acos(clamp(dir.z, -1.0, 1.0));
-	float phi = atan(dir.y, dir.x);
-	float lat_deg = 90.0 - theta * (180.0 / PI_F);
-	float lon_deg = phi * (180.0 / PI_F);
-	float lat_line = abs(mod(lat_deg + 7.5, 15.0) - 7.5);
-	float lon_line = abs(mod(lon_deg + 7.5, 15.0) - 7.5);
-	const float line_width = 0.35;
-	bool on_major_lat = abs(mod(lat_deg + 45.0, 90.0) - 45.0) < line_width;
-	bool on_major_lon = abs(mod(lon_deg + 45.0, 90.0) - 45.0) < line_width;
-	bool on_minor_line = (lat_line < line_width) || (lon_line < line_width);
-	float opacity = max(grid_opacity, 0.0);
-	if (on_major_lat || on_major_lon) return vec3(0.14, 0.20, 0.28) * opacity;
-	if (on_minor_line) return vec3(0.05, 0.07, 0.10) * opacity;
-	return vec3(0.008, 0.009, 0.012) * opacity;
+vec3 sample_celestial_grid_gpu(vec3 dir, float fov_rad) {
+	if (pc.sky.grid_enabled == 0u || pc.sky.grid_opacity <= 0.0) return vec3(0.0);
+	float d2r = PI_F / 180.0;
+	float dec = asin(clamp(dir.z, -1.0, 1.0));
+	float ra = atan(dir.y, dir.x);
+
+	float spacing = max(float(pc.sky.grid_spacing_deg), 0.5) * d2r;
+	float pixel_footprint = max(fov_rad / 1080.0, 1e-6);
+	float line_width = max(float(pc.sky.grid_line_width), pixel_footprint * 0.8);
+	float half_w = line_width * 0.5;
+	float feather = max(pixel_footprint * 0.6, half_w * 0.35);
+	float cos_dec = max(cos(dec), 1e-4);
+
+	float dist_dec = abs(mod(dec + spacing * 0.5, spacing) - spacing * 0.5);
+	float cov_dec = 1.0 - clamp((dist_dec - (half_w - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0);
+
+	float dist_ra = abs(mod(ra + spacing * 0.5, spacing) - spacing * 0.5) * cos_dec;
+	float pole_taper = clamp((spacing * cos_dec - half_w * 0.5) / max(half_w * 2.5, 1e-5), 0.0, 1.0);
+	float cov_ra = (1.0 - clamp((dist_ra - (half_w - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0)) * pole_taper;
+
+	float cov_sub_dec = 0.0;
+	float cov_sub_ra = 0.0;
+	if (pc.sky.grid_subdivisions > 0u) {
+		float sub_spacing = spacing / float(pc.sky.grid_subdivisions + 1u);
+		float sub_half_w = half_w * 0.55;
+		float sub_feather = feather * 0.65;
+		float dist_sdec = abs(mod(dec + sub_spacing * 0.5, sub_spacing) - sub_spacing * 0.5);
+		cov_sub_dec = (1.0 - clamp((dist_sdec - (sub_half_w - sub_feather)) / max(2.0 * sub_feather, 1e-7), 0.0, 1.0)) * 0.6;
+		float dist_sra = abs(mod(ra + sub_spacing * 0.5, sub_spacing) - sub_spacing * 0.5) * cos_dec;
+		cov_sub_ra = (1.0 - clamp((dist_sra - (sub_half_w - sub_feather)) / max(2.0 * sub_feather, 1e-7), 0.0, 1.0)) * 0.6 * pole_taper;
+	}
+
+	float cov_eq = (pc.sky.grid_show_equator != 0u) ? (1.0 - clamp((abs(dec) - (half_w * 2.2 - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0)) : 0.0;
+	float cov_pm = (pc.sky.grid_show_meridians != 0u) ? (1.0 - clamp((abs(mod(ra + PI_F * 0.5, PI_F) - PI_F * 0.5) * cos_dec - (half_w * 2.2 - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0)) * pole_taper : 0.0;
+	float cov_cap = (pc.sky.grid_show_polar_caps != 0u) ? (1.0 - clamp((abs(abs(dec) - (PI_F * 0.5 - spacing)) - (half_w * 1.5 - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0)) : 0.0;
+
+	float cov_ticks = 0.0;
+	if (pc.sky.grid_show_ticks != 0u && abs(dec) < max(float(pc.sky.grid_tick_length), pixel_footprint * 4.0)) {
+		float tick_spacing = max(float(pc.sky.grid_tick_interval_deg), 0.5) * d2r;
+		float dist_tick = abs(mod(ra + tick_spacing * 0.5, tick_spacing) - tick_spacing * 0.5) * cos_dec;
+		cov_ticks = 1.0 - clamp((dist_tick - (half_w * 0.9 - feather)) / max(2.0 * feather, 1e-7), 0.0, 1.0);
+	}
+
+	float cov_major = max(max(cov_eq, cov_pm), max(cov_dec, cov_ra));
+	float cov_minor = max(max(cov_sub_dec, cov_sub_ra), max(cov_cap, cov_ticks));
+	float total_cov = max(cov_major, cov_minor);
+	if (total_cov <= 0.0) return vec3(0.0);
+
+	float glow_radius = max(line_width * 4.5, pixel_footprint * 4.0);
+	float glow_dec = exp(-dist_dec * dist_dec / (2.0 * glow_radius * glow_radius));
+	float glow_ra = exp(-dist_ra * dist_ra / (2.0 * glow_radius * glow_radius)) * pole_taper;
+	float glow = max(glow_dec, glow_ra) * clamp(float(pc.sky.grid_glow), 0.0, 3.0);
+
+	float alpha = clamp((total_cov + glow * 0.45) * float(pc.sky.grid_opacity), 0.0, 1.0);
+	vec3 major_col = vec3(pc.sky.grid_major_color[0], pc.sky.grid_major_color[1], pc.sky.grid_major_color[2]);
+	vec3 minor_col = vec3(pc.sky.grid_minor_color[0], pc.sky.grid_minor_color[1], pc.sky.grid_minor_color[2]);
+	vec3 color = (cov_major >= cov_minor) ? (major_col * (1.2 + glow)) : (minor_col * (0.95 + glow * 0.7));
+	return color * alpha;
 }
 
 vec3 apply_hue_saturation(vec3 rgb, double hue_shift_rad, double saturation) {
@@ -882,63 +1594,63 @@ vec3 sample_panorama(vec3 dir) {
 	return textureLod(panorama_sampler, vec2(u, clamp(v, 0.0, 1.0)), 0.0).rgb;
 }
 
+vec3 sky_rotate_vector(vec3 v, float yaw_deg, float pitch_deg, float roll_deg) {
+	float d2r = PI_F / 180.0;
+	float cy = cos(yaw_deg * d2r);
+	float sy = sin(yaw_deg * d2r);
+	float cp = cos(pitch_deg * d2r);
+	float sp = sin(pitch_deg * d2r);
+	float cr = cos(roll_deg * d2r);
+	float sr = sin(roll_deg * d2r);
+
+	float x1 = v.x * cy - v.y * sy;
+	float y1 = v.x * sy + v.y * cy;
+	float z1 = v.z;
+
+	float x2 = x1 * cp + z1 * sp;
+	float y2 = y1;
+	float z2 = -x1 * sp + z1 * cp;
+
+	return vec3(x2, y2 * cr - z2 * sr, y2 * sr + z2 * cr);
+}
+
 vec3 compute_sky_radiance(dvec3 dir_d, double sky_rotation_rad) {
-	float sky_rotation_f = float(sky_rotation_rad);
-	double cos_r = double(cos(sky_rotation_f));
-	double sin_r = double(sin(sky_rotation_f));
-	dvec3 rotated = dvec3(
-		dir_d.x * cos_r - dir_d.y * sin_r,
-		dir_d.x * sin_r + dir_d.y * cos_r,
-		dir_d.z
-	);
-	vec3 dir = vec3(rotated);
+	if (pc.sky.enabled == 0u) return vec3(0.0);
+	vec3 unit_dir = normalize(vec3(dir_d));
+
+	float yaw = float(pc.sky.orientation_yaw_deg);
+	if (pc.sky.dynamic_rotation != 0u) {
+		yaw = mod(yaw + float(pc.sky.rotation_rate_deg_s) * float(pc.sky.time_seconds), 360.0);
+	}
+	vec3 dir = sky_rotate_vector(unit_dir, yaw, float(pc.sky.orientation_pitch_deg), float(pc.sky.orientation_roll_deg));
 
 	if (pc.sky_background_source != 0u && pc.sky_panorama_width > 0u && pc.sky_panorama_height > 0u) {
 		vec3 panorama_rgb = sample_panorama(dir);
-		panorama_rgb = apply_hue_saturation(panorama_rgb, pc.sky_hue_shift_rad, pc.sky_saturation);
-		return max(panorama_rgb + vec3(float(pc.sky_background_r), float(pc.sky_background_g), float(pc.sky_background_b)), vec3(0.0));
+		panorama_rgb = apply_hue_saturation(panorama_rgb, pc.sky.hue_shift_deg * (PI_D / 180.0), pc.sky.saturation);
+		vec3 bg = vec3(pc.sky.background_color[0], pc.sky.background_color[1], pc.sky.background_color[2]);
+		return max((panorama_rgb + bg) * float(pc.sky.master_intensity), vec3(0.0));
 	}
 
-	uint sky_mode = pc.render_flags & 0x0Fu;
-	vec3 sky_rgb = vec3(0.0);
+	float fov_deg = float(pc.field_of_view_rad * (180.0 / PI_D));
+	float zoom_factor = clamp(float(pc.sky.adaptive_fov_reference) / max(fov_deg, 0.05), 1.0, 128.0);
+	float fov_rad = float(pc.field_of_view_rad);
 
-	float bvar = float(pc.sky_star_brightness_variation);
-	float svar = float(pc.sky_star_size_variation);
-	float cvar = float(pc.sky_star_color_variation);
-	float tbias = float(pc.sky_star_temperature_bias);
-	uint seed = pc.sky_procedural_seed;
+	vec3 accum = vec3(pc.sky.background_color[0], pc.sky.background_color[1], pc.sky.background_color[2]);
+	accum += sample_volumetric_nebulae_gpu(dir, zoom_factor);
+	accum += sample_dust_clouds_gpu(dir);
+	accum += sample_deep_field_galaxies_gpu(dir);
+	accum += sample_star_clusters_gpu(dir, fov_rad);
+	accum += sample_exotic_sources_gpu(dir);
+	accum += sample_procedural_stars_gpu(dir, fov_rad, zoom_factor);
 
-	if (sky_mode == 1u || (pc.render_flags & (1u << 4)) != 0u) {
-		sky_rgb = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
-	} else if (sky_mode == 2u) {
-		vec3 stars = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), float(pc.sky_nebula_intensity), bvar, svar, cvar, tbias, seed);
-		vec3 grid = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
-		sky_rgb = stars + grid * 0.7;
-	} else if (sky_mode == 0u) {
-		sky_rgb = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), float(pc.sky_nebula_intensity), bvar, svar, cvar, tbias, seed);
-	} else if (sky_mode == 4u) {
-		sky_rgb = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), 0.0, bvar, svar, cvar, tbias, seed);
-	} else if (sky_mode == 5u) {
-		vec3 stars = sample_celestial_starfield(dir, float(pc.sky_star_density), float(pc.sky_star_brightness), 0.0, bvar, svar, cvar, tbias, seed);
-		vec3 grid = sample_celestial_grid_sphere(dir, float(pc.sky_grid_opacity));
-		sky_rgb = stars + grid;
-	}
+	accum *= float(max(pc.sky.master_intensity, 0.0));
+	accum = max(accum, vec3(0.0));
+	accum = apply_hue_saturation(accum, pc.sky.hue_shift_deg * (PI_D / 180.0), pc.sky.saturation);
 
-	if (pc.sky_galaxy_density > 0.0) {
-		sky_rgb += sample_deep_field_galaxies(dir, seed, pc.sky_galaxy_density, pc.sky_galaxy_brightness, pc.sky_galaxy_size_scale);
-	}
-	if (pc.sky_dust_density > 0.0) {
-		sky_rgb += sample_dust_clouds(rotated, seed, pc.sky_dust_density, pc.sky_dust_intensity, pc.sky_dust_scale);
-	}
-	if (pc.sky_cluster_density > 0.0) {
-		sky_rgb += sample_star_clusters(dir, seed, pc.sky_cluster_density, pc.sky_cluster_brightness, pc.sky_cluster_size_scale);
-	}
+	vec3 grid_contrib = sample_celestial_grid_gpu(dir, fov_rad);
+	accum += grid_contrib;
 
-	sky_rgb = apply_hue_saturation(sky_rgb, pc.sky_hue_shift_rad, pc.sky_saturation);
-	sky_rgb.r = max(0.0, sky_rgb.r + float(pc.sky_background_r));
-	sky_rgb.g = max(0.0, sky_rgb.g + float(pc.sky_background_g));
-	sky_rgb.b = max(0.0, sky_rgb.b + float(pc.sky_background_b));
-	return sky_rgb;
+	return accum;
 }
 
 float cie_gaussian_component(float x, float alpha, float mu, float sigma1, float sigma2) {
@@ -1622,56 +2334,6 @@ vec3 apply_tonemapping(vec3 linear_color, uint mode, double exposure_ev) {
 	vec3 lo = 12.92 * col;
 	vec3 hi = 1.055 * pow(col, vec3(1.0 / 2.4)) - 0.055;
 	return mix(hi, lo, lessThanEqual(col, vec3(0.0031308)));
-}
-
-double body_hash3(ivec3 p) {
-	uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + uint(p.z) * 2147483647u;
-	return double(hash_to_float(h)) * 2.0 - 1.0;
-}
-
-float body_value_noise(vec3 p) {
-	ivec3 i0 = ivec3(floor(p));
-	vec3 f = p - vec3(i0);
-	vec3 u = f * f * (3.0 - 2.0 * f);
-
-	float c000 = float(body_hash3(i0 + ivec3(0, 0, 0)));
-	float c100 = float(body_hash3(i0 + ivec3(1, 0, 0)));
-	float c010 = float(body_hash3(i0 + ivec3(0, 1, 0)));
-	float c110 = float(body_hash3(i0 + ivec3(1, 1, 0)));
-	float c001 = float(body_hash3(i0 + ivec3(0, 0, 1)));
-	float c101 = float(body_hash3(i0 + ivec3(1, 0, 1)));
-	float c011 = float(body_hash3(i0 + ivec3(0, 1, 1)));
-	float c111 = float(body_hash3(i0 + ivec3(1, 1, 1)));
-
-	float c00 = mix(c000, c100, u.x);
-	float c10 = mix(c010, c110, u.x);
-	float c01 = mix(c001, c101, u.x);
-	float c11 = mix(c011, c111, u.x);
-
-	float c0 = mix(c00, c10, u.y);
-	float c1 = mix(c01, c11, u.y);
-
-	return mix(c0, c1, u.z);
-}
-
-double body_fbm(dvec3 p_d, uint octaves, double roughness) {
-	vec3 p = vec3(p_d);
-	float r_f = float(roughness);
-	float total = 0.0;
-	float amplitude = 1.0;
-	float frequency = 1.0;
-	float max_val = 0.0;
-	for (uint i = 0u; i < octaves; ++i) {
-		total += body_value_noise(p * frequency) * amplitude;
-		max_val += amplitude;
-		amplitude *= r_f;
-		frequency *= 2.0;
-	}
-	return double(total / max(max_val, 1e-5));
-}
-
-float surface_fbm(vec3 p, uint octaves, float roughness) {
-	return float(body_fbm(dvec3(p), octaves, double(roughness)));
 }
 
 float surface_pattern_value(uint pattern, vec3 p, float theta, float phi, float scale, uint octaves, uint seed) {

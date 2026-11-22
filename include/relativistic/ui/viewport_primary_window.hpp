@@ -379,7 +379,7 @@ public:
 		constants.time = orchestrator_.scheduler().snapshot().logical_time;
 		orchestrator_.apply_dark_matter_constants(constants);
 		orchestrator_.apply_cosmology_constants(constants);
-		constants.sky = params.sky;
+		constants.sky = Render::GpuSkyProfile::from(params.sky);
 		constants.sky.time_seconds = constants.time;
 		constants.disk_temperature_scale_k = params.disk_temperature_scale_k;
 		constants.disk_temperature_floor_k = params.disk_temperature_floor_k;
@@ -845,7 +845,7 @@ public:
 				cam_consts.render_flags |= Render::RenderFlags::ENABLE_BODY_DISK_OCCLUSION;
 			}
 			const auto& sky = params.sky;
-			cam_consts.sky = sky;
+			cam_consts.sky = Render::GpuSkyProfile::from(sky);
 			const auto snap = orchestrator_.scheduler().snapshot();
 			cam_consts.sky.time_seconds = snap.logical_time;
 			cam_consts.interlace_mode = params.interlace_rendering_enabled ? 1U : 0U;

@@ -1449,7 +1449,7 @@ private:
 		actual_params.body_count = static_cast<uint32_t>(bodies.size());
 		actual_params.sky_panorama_width = 0U;
 		actual_params.sky_panorama_height = 0U;
-		if (!params.sky.enabled) {
+		if (params.sky.enabled == 0U) {
 			actual_params.sky_star_brightness = 0.0;
 			actual_params.sky_nebula_intensity = 0.0;
 			actual_params.sky_galaxy_brightness = 0.0;
@@ -1459,6 +1459,7 @@ private:
 			actual_params.sky_background_r = 0.0;
 			actual_params.sky_background_g = 0.0;
 			actual_params.sky_background_b = 0.0;
+			actual_params.sky.master_intensity = 0.0;
 		}
 		if (params.sky_background_source != 0U && panorama_supported_) {
 			const uint32_t requested_panorama_key = (static_cast<uint32_t>(params.sky_panorama_id) << 4) | static_cast<uint32_t>(params.sky_panorama_quality);

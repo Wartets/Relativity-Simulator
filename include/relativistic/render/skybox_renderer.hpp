@@ -39,8 +39,8 @@ enum class ClusterPlacementModel : uint32_t {
 
 struct ProceduralSkySettings {
 	bool enabled{true};
-	bool seed_locked{true};
-	uint32_t seed{1337U};
+	bool seed_locked{false};
+	uint32_t seed{56U};
 	double master_intensity{1.0};
 
 	double quality_factor{1.0};
@@ -50,10 +50,10 @@ struct ProceduralSkySettings {
 	double dust_quality_factor{1.0};
 
 	bool adaptive_fov_lod{false};
-	bool adaptive_fov_quality{false};
-	double adaptive_fov_reference{60.0};
+	bool adaptive_fov_quality{true};
+	double adaptive_fov_reference{90.0};
 	double adaptive_fov_sensitivity{1.0};
-	uint32_t max_star_octaves{6};
+	uint32_t max_star_octaves{8};
 
 	bool dynamic_motion{false};
 	bool dynamic_rotation{false};
@@ -62,20 +62,20 @@ struct ProceduralSkySettings {
 	double time_seconds{0.0};
 
 	bool stars_enabled{true};
-	double star_density{1.0};
-	double star_brightness{1.0};
+	double star_density{91.064};
+	double star_brightness{1.81};
 	double star_size_scale{1.0};
-	double star_size_min{0.00005};
-	double star_size_max{0.0025};
+	double star_size_min{5e-05};
+	double star_size_max{0.00263027};
 	uint32_t star_size_distribution{1};
-	double star_size_param{2.35};
+	double star_size_param{3.96};
 	uint32_t star_luminosity_distribution{1};
-	double star_luminosity_param{1.8};
+	double star_luminosity_param{1.84};
 	double star_color_variation{1.0};
-	double star_temperature_bias{0.0};
-	double star_brightness_variation{0.67};
+	double star_temperature_bias{0.32};
+	double star_brightness_variation{0.5};
 	double star_scintillation{0.0};
-	double star_magnitude_limit{14.0};
+	double star_magnitude_limit{21.0};
 
 	uint32_t star_profile_model{0};
 	double star_profile_param{2.5};
@@ -89,37 +89,37 @@ struct ProceduralSkySettings {
 	double star_bloom_radius{3.0};
 	double star_bloom_intensity{0.5};
 
-	uint32_t star_placement_model{0};
+	uint32_t star_placement_model{3};
 	double star_galactic_concentration{2.5};
 	double star_cluster_association_strength{0.6};
 	double exotic_quality_factor{1.0};
 
 	bool nebula_enabled{true};
-	double nebula_intensity{1.0};
-	double nebula_roughness{0.55};
+	double nebula_intensity{0.23};
+	double nebula_roughness{0.76};
 	uint32_t nebula_octaves{5};
-	double nebula_frequency{2.4};
+	double nebula_frequency{2.82};
 	std::array<double, 3> nebula_plane_normal{0.0, 0.4472135955, 0.894427191};
-	double nebula_plane_thickness{0.25};
-	double nebula_plane_falloff{2.0};
-	double nebula_asymmetry{0.4};
+	double nebula_plane_thickness{0.174};
+	double nebula_plane_falloff{4.09};
+	double nebula_asymmetry{0.43};
 	std::array<double, 3> nebula_asymmetry_dir{0.7071067812, 0.0, 0.7071067812};
 	std::array<float, 3> nebula_emission_color{0.92f, 0.22f, 0.38f};
 	std::array<float, 3> nebula_secondary_color{0.15f, 0.72f, 0.90f};
 	std::array<float, 3> nebula_tertiary_color{0.95f, 0.65f, 0.15f};
-	double nebula_absorption_density{0.45};
+	double nebula_absorption_density{1.35};
 	uint32_t nebula_layer_count{3};
-	double nebula_layer_spread{0.6};
-	double nebula_core_glow{0.65};
-	double nebula_curl_strength{0.3};
-	double nebula_color_separation{1.5};
-	double nebula_ionization_glow{1.0};
-	double nebula_gas_contrast{1.4};
+	double nebula_layer_spread{0.69};
+	double nebula_core_glow{0.78};
+	double nebula_curl_strength{0.46};
+	double nebula_color_separation{1.6};
+	double nebula_ionization_glow{0.85};
+	double nebula_gas_contrast{1.94};
 
 	bool galaxies_enabled{true};
 	double galaxy_density{0.12};
 	double galaxy_brightness{0.5};
-	double galaxy_size_scale{0.25};
+	double galaxy_size_scale{0.32};
 	double galaxy_size_min{0.001};
 	double galaxy_size_max{0.02};
 	uint32_t galaxy_size_distribution{1};
@@ -130,7 +130,7 @@ struct ProceduralSkySettings {
 	double galaxy_ellipticity_variance{0.5};
 	uint32_t galaxy_type_mix{0};
 
-	bool clusters_enabled{true};
+	bool clusters_enabled{false};
 	double cluster_density{0.8};
 	double cluster_brightness{1.0};
 	double cluster_size_scale{0.6};
@@ -150,19 +150,19 @@ struct ProceduralSkySettings {
 	uint32_t cluster_star_profile_model{0};
 
 	bool dust_enabled{true};
-	double dust_density{2.5};
-	double dust_intensity{1.8};
-	double dust_scale{1.6};
-	double dust_absorption_ratio{0.75};
-	uint32_t dust_fractal_octaves{4};
-	double dust_contrast{1.5};
+	double dust_density{3.85};
+	double dust_intensity{1.3};
+	double dust_scale{3.82};
+	double dust_absorption_ratio{0.8};
+	uint32_t dust_fractal_octaves{5};
+	double dust_contrast{3.54};
 	std::array<float, 3> dust_tint{0.4f, 0.25f, 0.15f};
 
-	bool exotic_objects_enabled{true};
-	double quasar_density{0.08};
-	double quasar_brightness{3.0};
-	double quasar_core_size{0.001};
-	double quasar_jet_length{0.02};
+	bool exotic_objects_enabled{false};
+	double quasar_density{0.01};
+	double quasar_brightness{9.27};
+	double quasar_core_size{0.000281838};
+	double quasar_jet_length{0.107};
 	double quasar_jet_intensity{2.5};
 	double pulsar_pulse_rate{2.5};
 	double pulsar_pulse_duty{0.25};
@@ -176,24 +176,24 @@ struct ProceduralSkySettings {
 	double snr_size{0.015};
 
 	bool grid_enabled{false};
-	double grid_opacity{1.0};
-	double grid_line_width{0.002};
-	double grid_spacing_deg{15.0};
-	uint32_t grid_subdivisions{3};
-	double grid_glow{0.35};
+	double grid_opacity{0.5};
+	double grid_line_width{0.0001};
+	double grid_spacing_deg{30.0};
+	uint32_t grid_subdivisions{1};
+	double grid_glow{0.0};
 	std::array<float, 3> grid_major_color{0.40f, 0.75f, 1.0f};
 	std::array<float, 3> grid_minor_color{0.20f, 0.45f, 0.80f};
-	bool grid_show_polar_caps{true};
+	bool grid_show_polar_caps{false};
 	bool grid_show_equator{true};
-	bool grid_show_meridians{true};
-	bool grid_show_ticks{true};
+	bool grid_show_meridians{false};
+	bool grid_show_ticks{false};
 	double grid_tick_interval_deg{5.0};
 	double grid_tick_length{0.003};
 
 	std::array<float, 3> background_color{0.0f, 0.0f, 0.0f};
-	double hue_shift_deg{-15.7};
-	double saturation{0.84};
-	double orientation_yaw_deg{56.0};
+	double hue_shift_deg{0.0};
+	double saturation{0.86};
+	double orientation_yaw_deg{0.0};
 	double orientation_pitch_deg{0.0};
 	double orientation_roll_deg{0.0};
 
@@ -556,7 +556,7 @@ private:
 			case StarProfileModel::CinematicBloom: {
 				const double core = std::exp(-theta_sq / (2.0 * eff_sigma_sq));
 				const double bloom_w = std::max(sigma * std::clamp(sky.star_bloom_radius, 1.0, 30.0), pixel_footprint_rad * 3.5);
-				const double bloom = sky.star_bloom_intensity * std::exp(-theta / bloom_w);
+				const double bloom = sky.star_bloom_intensity * 1.8 * std::exp(-theta / bloom_w);
 				return core + bloom;
 			}
 			case StarProfileModel::Lorentzian: {
@@ -588,10 +588,10 @@ private:
 				const double angle = std::atan2(local_y, local_x) + sky.star_spike_angle_deg * (std::numbers::pi_v<double> / 180.0);
 				const double n_spikes = (sky.star_spike_count == 6U) ? 3.0 : ((sky.star_spike_count == 8U) ? 4.0 : 2.0);
 				const double cos_spike = std::abs(std::cos(n_spikes * angle));
-				const double spike_beam = std::pow(cos_spike, 48.0);
+				const double spike_beam = std::pow(cos_spike, 32.0);
 				const double spike_len = std::max(sigma * std::clamp(sky.star_spike_length, 0.5, 60.0), pixel_footprint_rad * 8.0);
 				const double spike_falloff = std::exp(-theta / spike_len);
-				const double spikes = sky.star_spike_intensity * spike_beam * spike_falloff;
+				const double spikes = sky.star_spike_intensity * 2.5 * spike_beam * spike_falloff;
 				return core + spikes;
 			}
 			case StarProfileModel::Gaussian:
@@ -733,7 +733,7 @@ private:
 						const double radius_rad = sample_distribution(sky.star_size_distribution, sky.star_size_min, sky.star_size_max, sky.star_size_param, cell_hash + 31ULL) * std::max(sky.star_size_scale, 0.05) * size_oct_factor;
 
 						const double subpixel_scale = (profile_model == StarProfileModel::PinpointDirac) ? 0.04 : 0.40;
-						const double eff_sigma = std::sqrt(radius_rad * radius_rad + pixel_footprint_rad * pixel_footprint_rad * subpixel_scale);
+						const double eff_sigma = radius_rad * (profile_model == StarProfileModel::HardDisc ? 1.0 : 1.4) + pixel_footprint_rad * std::sqrt(subpixel_scale);
 						const double eff_sigma_sq = eff_sigma * eff_sigma;
 
 						double max_support = eff_sigma * 6.0;
@@ -1147,15 +1147,15 @@ private:
 		const uint64_t base_seed = static_cast<uint64_t>(sky.seed) ^ 0x9b05688c2b3e6c1fULL;
 
 		const double eff_quality = std::max(sky.quality_factor * sky.exotic_quality_factor, 0.05);
-		const double eff_density = std::clamp(sky.quasar_density * eff_quality, 0.01, 20.0);
-		const double grid_res = std::clamp(8.0 * std::sqrt(eff_density), 4.0, 48.0);
+		const double eff_density = std::clamp(sky.quasar_density * eff_quality, 0.02, 30.0);
+		const double grid_res = std::clamp(6.0 * std::sqrt(eff_density), 4.0, 36.0);
 
 		const std::array<double, 3> p{dir[0] * grid_res, dir[1] * grid_res, dir[2] * grid_res};
 		const int32_t cx = static_cast<int32_t>(std::floor(p[0]));
 		const int32_t cy = static_cast<int32_t>(std::floor(p[1]));
 		const int32_t cz = static_cast<int32_t>(std::floor(p[2]));
 
-		const double presence_threshold = std::clamp(1.0 - eff_density * 0.12, 0.02, 0.99);
+		const double presence_threshold = std::clamp(1.0 - eff_density * 0.08, 0.02, 0.98);
 
 		for (int32_t dz = -1; dz <= 1; ++dz) {
 			for (int32_t dy = -1; dy <= 1; ++dy) {

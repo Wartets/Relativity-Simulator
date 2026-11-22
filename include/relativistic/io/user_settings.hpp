@@ -65,7 +65,7 @@ struct UserSettings {
 	bool show_system_console{true};
 	bool window_log_console_open{false};
 	bool sky_rendering_enabled{true};
-	bool sky_seed_locked{true};
+	bool sky_seed_locked{false};
 	Render::ProceduralSkySettings sky{};
 	static constexpr size_t kMaxSecondaryViews = 8;
 	std::array<SecondaryViewPersistedState, kMaxSecondaryViews> secondary_views{};

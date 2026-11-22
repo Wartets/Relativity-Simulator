@@ -95,7 +95,7 @@ inline constexpr std::array<EventOverlayEntry, 4> kEventOverlays{{
 }
 
 [[nodiscard]] constexpr bool is_ramp_action(EventAction action) noexcept {
-	return action == EventAction::SetParameter || action == EventAction::SetWarp || action == EventAction::SetTickRate || action == EventAction::SetResolutionScale;
+	return action == EventAction::SetParameter || action == EventAction::SetWarp || action == EventAction::SetTickRate || action == EventAction::SetResolutionScale || action == EventAction::SetProjectionMode;
 }
 
 class ScriptEventDispatcher {

@@ -191,6 +191,10 @@ inline void apply_driver_source_defaults(Capture::DriverSpec& driver) noexcept {
 [[nodiscard]] inline const char* orientation_mode_hint(Capture::OrientationMode mode) noexcept {
 	using Mode = Capture::OrientationMode;
 	switch (mode) {
+		case Relativistic::Capture::OrientationMode::ChaseLead:
+			return "Aims at target with tangential velocity anticipation lead time.";
+		default:
+			break;
 		case Mode::Free: return "The view direction is left untouched; only the adjustments below apply.";
 		case Mode::Fixed: return "The camera keeps a constant pitch and yaw during the whole segment.";
 		case Mode::Interpolated: return "Pitch and yaw are interpolated from a start to an end value.";

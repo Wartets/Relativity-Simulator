@@ -63,6 +63,15 @@ struct PathPreviewOptions {
 				}
 			}
 			return std::nullopt;
+		},
+		[&orchestrator](int32_t id) -> std::optional<Vec3> {
+			std::lock_guard<std::recursive_mutex> lock(orchestrator.nbody_system().bodies_mutex());
+			for (const auto& body : orchestrator.nbody_system().bodies()) {
+				if (static_cast<int32_t>(body.id) == id) {
+					return body.velocity;
+				}
+			}
+			return std::nullopt;
 		}
 	);
 }
@@ -113,14 +122,14 @@ struct PathPreviewOptions {
 		const double start_time = script.segment_start_time(segment_index);
 		const Vec3 anchor = script.evaluate_segment_anchor(segment_index, lookup);
 		const size_t first_vertex = preview.vertices.size();
-		const bool modified = options.include_modifiers && (segment.shake.enabled || segment.transition.enabled);
+		const bool modified = options.include_modifiers && (segment.shake.enabled || segment.transition.enabled || segment.follows_surface() || is_target_tracking_shape(segment.layers.front().shape.kind));
 		const uint32_t segment_samples = segment.follows_surface() ? std::min<uint32_t>(samples * 4U, 8192U) : samples;
 
 		for (uint32_t i = 0; i <= segment_samples; ++i) {
 			const double linear = static_cast<double>(i) / static_cast<double>(segment_samples);
 			const double progress = segment.time_easing.evaluate(linear);
 			const double local_seconds = linear * segment.duration;
-			const Vec3 raw = script.evaluate_segment_raw_position(segment_index, progress, local_seconds, start_time + local_seconds);
+			const Vec3 raw = script.evaluate_segment_raw_position(segment_index, progress, local_seconds, start_time + local_seconds, &lookup);
 			const Vec3 base_position = ScriptMath::add(anchor, raw);
 			if (modified) {
 				preview.vertices.push_back(PathPreviewVertex{script.sample_segment(segment_index, linear, lookup).pose.position, static_cast<uint32_t>(slot)});

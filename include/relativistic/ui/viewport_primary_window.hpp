@@ -1468,11 +1468,7 @@ public:
 			if (ImGui::Button("Capture", ImVec2(70.0f, 24.0f)) && open_screenshot_settings_callback_) {
 				open_screenshot_settings_callback_();
 			}
-			render_setting_tooltip("Opens the Capture Studio to configure and take high-resolution screenshots or video sequences.");
-			if (capture_coordinator_->is_busy()) {
-				ImGui::SameLine();
-				ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Capturing %.0f%%", capture_coordinator_->progress().fraction() * 100.0);
-			}
+			render_setting_tooltip("Toggles the Capture Studio window to configure and record screenshots, video sequences and telemetry.");
 		}
 
 		if (tb.fullscreen_toggle) {

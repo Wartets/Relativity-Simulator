@@ -182,6 +182,7 @@ private:
 		double saved_exposure{0.0};
 		double saved_fov{60.0};
 		uint32_t saved_camera_mode{0};
+		uint32_t saved_projection_mode{0};
 	};
 
 	Orchestrator::SimulationOrchestrator<1024>& orchestrator_;
@@ -514,8 +515,23 @@ private:
 		return std::nullopt;
 	}
 
+	[[nodiscard]] std::optional<Vec3> lookup_body_velocity(int32_t id) const {
+		std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
+		for (const auto& body : orchestrator_.nbody_system().bodies()) {
+			if (static_cast<int32_t>(body.id) == id) {
+				return body.velocity;
+			}
+		}
+		return std::nullopt;
+	}
+
 	[[nodiscard]] ScriptSample sample_script(double seconds) const {
-		const BodyPositionLookup lookup([this](int32_t id) { return lookup_body_position(id); }, [this](const Vec3& from) { return lookup_nearest_body(from); }, [this](int32_t id) { return lookup_body_axes(id); });
+		const BodyPositionLookup lookup(
+			[this](int32_t id) { return lookup_body_position(id); },
+			[this](const Vec3& from) { return lookup_nearest_body(from); },
+			[this](int32_t id) { return lookup_body_axes(id); },
+			[this](int32_t id) { return lookup_body_velocity(id); }
+		);
 		return session_.request.script.sample(seconds, lookup);
 	}
 
@@ -551,6 +567,8 @@ private:
 			orchestrator_.scheduler().set_tick_rate(value);
 		} else if (event.action == EventAction::SetResolutionScale) {
 			orchestrator_.set_physical_param(Orchestrator::ParameterType::ResolutionScale, value);
+		} else if (event.action == EventAction::SetProjectionMode) {
+			orchestrator_.set_physical_param(Orchestrator::ParameterType::ProjectionMode, value);
 		}
 		orchestrator_.notify_state_changed();
 	}
@@ -568,6 +586,7 @@ private:
 			case EventAction::SetWarp:
 			case EventAction::SetTickRate:
 			case EventAction::SetResolutionScale:
+			case EventAction::SetProjectionMode:
 				if (!ramped) apply_event_value(event, event.value);
 				break;
 			case EventAction::Pause:
@@ -700,6 +719,9 @@ private:
 		auto& parameters = orchestrator_.parameters();
 		parameters.camera_fov_deg = camera.fov_deg;
 		parameters.camera_exposure = std::clamp(pose.exposure_ev, -6.0, 6.0);
+		if (pose.projection_mode >= 0) {
+			parameters.projection_mode = static_cast<uint32_t>(pose.projection_mode);
+		}
 		orchestrator_.notify_state_changed();
 	}
 
@@ -886,6 +908,7 @@ private:
 			parameters.camera_exposure = session_.saved_exposure;
 		}
 		parameters.camera_mode = session_.saved_camera_mode;
+		parameters.projection_mode = session_.saved_projection_mode;
 		if (session_.request.use_script) {
 			orchestrator_.scheduler().set_warp_factor(session_.saved_warp);
 		}
@@ -1205,6 +1228,7 @@ public:
 		session_.saved_fov = parameters.camera_fov_deg;
 		session_.saved_exposure = parameters.camera_exposure;
 		session_.saved_camera_mode = parameters.camera_mode;
+		session_.saved_projection_mode = parameters.projection_mode;
 		session_.saved_warp = orchestrator_.scheduler().warp_factor();
 		session_.warp_base = session_.saved_warp;
 		session_.request.script.default_fov_deg = session_.saved_fov;

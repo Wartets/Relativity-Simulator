@@ -22,6 +22,10 @@ struct CameraPose {
 	double roll_deg{0.0};
 	double fov_deg{60.0};
 	double exposure_ev{0.0};
+	int32_t projection_mode{-1};
+	int32_t secondary_projection_mode{-1};
+	double projection_blend{0.0};
+	uint32_t projection_transition_mode{0};
 };
 
 enum class PathKind : uint32_t {
@@ -278,7 +282,7 @@ struct CameraPath {
 		for (const auto& key : keyframes) {
 			out << "key=" << key.time_seconds << ',' << key.pose.position[0] << ',' << key.pose.position[1] << ',' << key.pose.position[2] << ','
 				<< key.pose.pitch_deg << ',' << key.pose.yaw_deg << ',' << key.pose.roll_deg << ',' << key.pose.fov_deg << ','
-				<< key.pose.exposure_ev << ',' << static_cast<uint32_t>(key.interpolation) << '\n';
+				<< key.pose.exposure_ev << ',' << static_cast<uint32_t>(key.interpolation) << ',' << key.pose.projection_mode << '\n';
 		}
 		return out.str();
 	}
@@ -352,6 +356,9 @@ struct CameraPath {
 				keyframe.pose.fov_deg = v[7];
 				keyframe.pose.exposure_ev = v[8];
 				keyframe.interpolation = static_cast<PathInterpolation>(std::min<uint32_t>(static_cast<uint32_t>(std::max(v[9], 0.0)), 3U));
+				if (v.size() >= 11) {
+					keyframe.pose.projection_mode = static_cast<int32_t>(v[10]);
+				}
 				path.keyframes.push_back(keyframe);
 			} else {
 				continue;
@@ -519,6 +526,7 @@ private:
 		pose.roll_deg = blend_component(index, s, mode, [](const CameraPose& p) noexcept { return p.roll_deg; }, true);
 		pose.fov_deg = blend_component(index, s, mode, [](const CameraPose& p) noexcept { return p.fov_deg; }, false);
 		pose.exposure_ev = blend_component(index, s, mode, [](const CameraPose& p) noexcept { return p.exposure_ev; }, false);
+		pose.projection_mode = (s >= 0.5) ? keyframes[index + 1].pose.projection_mode : keyframes[index].pose.projection_mode;
 		return pose;
 	}
 };

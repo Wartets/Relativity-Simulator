@@ -294,7 +294,7 @@ public:
 		report_startup(Startup::StartupStage::Interface, 0.05f, "Building interface", "Creating the capture studio...");
 		capture_studio_window_ = std::make_unique<CaptureStudioWindow>(orchestrator_, *viewport_window_, user_settings_);
 		viewport_window_->set_fullscreen_toggle_callback([this]() { multi_window_mode_ = !multi_window_mode_; });
-		viewport_window_->set_open_screenshot_settings_callback([this]() { open_capture_studio(); });
+		viewport_window_->set_open_screenshot_settings_callback([this]() { toggle_capture_studio(); });
 		viewport_window_->set_auxiliary_body_provider([this](std::vector<Render::GpuBodyData>& bodies, const std::array<double, 3>& viewer) {
 			if (secondary_viewport_manager_) {
 				secondary_viewport_manager_->append_beacon_bodies(bodies, viewer);

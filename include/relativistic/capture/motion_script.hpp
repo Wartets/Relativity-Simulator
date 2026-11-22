@@ -28,13 +28,14 @@ public:
 	using PositionFunction = std::function<std::optional<Vec3>(int32_t)>;
 	using NearestFunction = std::function<std::optional<std::pair<int32_t, Vec3>>(const Vec3&)>;
 	using AxesFunction = std::function<std::optional<Vec3>(int32_t)>;
+	using VelocityFunction = std::function<std::optional<Vec3>(int32_t)>;
 
 	BodyPositionLookup() = default;
 
 	template <typename Callable>
 		requires (!std::is_same_v<std::remove_cvref_t<Callable>, BodyPositionLookup> && std::is_invocable_r_v<std::optional<Vec3>, Callable&, int32_t>)
-	BodyPositionLookup(Callable&& position, NearestFunction nearest = {}, AxesFunction axes = {})
-		: position_(std::forward<Callable>(position)), nearest_(std::move(nearest)), axes_(std::move(axes)) {}
+	BodyPositionLookup(Callable&& position, NearestFunction nearest = {}, AxesFunction axes = {}, VelocityFunction velocity = {})
+		: position_(std::forward<Callable>(position)), nearest_(std::move(nearest)), axes_(std::move(axes)), velocity_(std::move(velocity)) {}
 
 	[[nodiscard]] explicit operator bool() const noexcept {
 		return static_cast<bool>(position_);
@@ -56,10 +57,15 @@ public:
 		return axes_ ? axes_(id) : std::nullopt;
 	}
 
+	[[nodiscard]] std::optional<Vec3> velocity(int32_t id) const {
+		return velocity_ ? velocity_(id) : std::nullopt;
+	}
+
 private:
 	PositionFunction position_{};
 	NearestFunction nearest_{};
 	AxesFunction axes_{};
+	VelocityFunction velocity_{};
 };
 
 inline constexpr int32_t kFixedPointReference = -2;
@@ -124,6 +130,11 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 [[nodiscard]] inline std::optional<Vec3> resolve_axes(const BodyPositionLookup& lookup, int32_t id) {
 	if (!lookup || id < 0) return std::nullopt;
 	return lookup.axes(id);
+}
+
+[[nodiscard]] inline std::optional<Vec3> resolve_velocity(const BodyPositionLookup& lookup, int32_t id) {
+	if (!lookup || id < 0) return std::nullopt;
+	return lookup.velocity(id);
 }
 
 [[nodiscard]] inline Vec3 evaluate_point_curve(const std::vector<Vec3>& points, double u, bool closed, bool uniform_speed, double tension, int mode) noexcept {
@@ -196,10 +207,11 @@ inline void write_vec(IO::SettingsWriter& writer, const std::string& key, const 
 
 enum class ShapeKind : uint32_t {
 	Hold = 0, Linear, QuadraticBezier, CubicBezier, Spline, Polyline, BSpline, Arc, Helix, Orbit, LogarithmicSpiral, ArchimedeanSpiral,
-	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk, SurfaceLoop, SurfaceRoute, PlanetOrbit
+	Lissajous, TorusKnot, Lemniscate, Rose, Epitrochoid, Wave, ExpressionCartesian, ExpressionCylindrical, ExpressionSpherical, SurfaceWalk, SurfaceLoop, SurfaceRoute, PlanetOrbit,
+	FreeFallInfall, ConicalHelix, KeplerianOrbit, DynamicChase
 };
 
-inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::PlanetOrbit) + 1;
+inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::DynamicChase) + 1;
 
 [[nodiscard]] constexpr bool is_surface_shape(ShapeKind kind) noexcept {
 	return kind == ShapeKind::SurfaceWalk || kind == ShapeKind::SurfaceLoop || kind == ShapeKind::SurfaceRoute;
@@ -207,6 +219,10 @@ inline constexpr size_t kShapeKindCount = static_cast<size_t>(ShapeKind::PlanetO
 
 [[nodiscard]] constexpr bool is_planet_orbit_shape(ShapeKind kind) noexcept {
 	return kind == ShapeKind::PlanetOrbit;
+}
+
+[[nodiscard]] constexpr bool is_target_tracking_shape(ShapeKind kind) noexcept {
+	return kind == ShapeKind::DynamicChase;
 }
 
 struct ShapeDescriptor {
@@ -242,7 +258,11 @@ inline constexpr std::array<ShapeDescriptor, kShapeKindCount> kShapeDescriptors{
 	{"Surface Walk", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "Heading At Start (deg)", "Heading At End (deg)", "Distance Walked", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
 	{"Surface Loop (Circle Around A Point)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Center Latitude (deg)", "Center Longitude (deg)", "Angular Radius (deg)", "Revolutions", "Start Phase (deg)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
 	{"Surface Route (Coordinate To Coordinate)", {"Body Center Offset", "Hop (Amplitude, Cycles, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "End Longitude (deg)", "Route Mode (0 Short Arc, 1 Long Arc)", "Body Radius", "Eye Height", "Polar Axis Ratio"}, false, false},
-	{"Planet Orbit (Altitude Over Surface)", {"Body Center Offset", "Axis Shape (Unused, Unused, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "Revolutions", "Start Altitude (Mean Radii)", "Body Radius", "End Altitude (Mean Radii)", "Polar Axis Ratio"}, false, false}
+	{"Planet Orbit (Altitude Over Surface)", {"Body Center Offset", "Axis Shape (Unused, Unused, Y Axis Ratio)"}, {"Start Latitude (deg)", "Start Longitude (deg)", "End Latitude (deg)", "Revolutions", "Start Altitude (Mean Radii)", "Body Radius", "End Altitude (Mean Radii)", "Polar Axis Ratio"}, false, false},
+	{"Relativistic Free-Fall Infall (Geodesic Plunge)", {"Singularity Center", "Target Point / Bias"}, {"Initial Radius", "End Radius (r_h)", "Elevation Start (deg)", "Elevation End (deg)", "Plunge Acceleration Index", "Total Revolutions", "Central Mass", "Spin Parameter a"}, false, false},
+	{"Conical / Polar Jet Helix", {"Axis Origin", "Axis Direction"}, {"Radius Start", "Radius End", "Revolutions", "Phase (deg)", "Axial Length / Height", "Axial Acceleration Exp", "Radial Pinch Amplitude", "Axis Mode (0 Custom, 1 North, 2 South)"}, false, false},
+	{"Keplerian Elliptical Orbit (Gravitational Flyby)", {"Orbit Focus Center"}, {"Semi-Major Axis (a)", "Eccentricity (e)", "Inclination (deg)", "Long. Ascending Node (deg)", "Arg of Periapsis (deg)", "Mean Anomaly Offset (deg)", "Revolutions", "Gravitational Param (mu)"}, false, false},
+	{"Dynamic Chase Camera (N-Body Tracking)", {"World Offset Bias", "Target Body ID", "Offset Local (Lat, Height, Bank)"}, {"Target Body ID", "Safety Distance", "Damping Frequency (rad/s)", "Damping Ratio (zeta)", "Velocity Lead Time (s)", "Minimum Clearance", "Banking Roll Factor", "Secondary Follow Mode"}, false, false}
 }};
 
 [[nodiscard]] inline const ShapeDescriptor& shape_descriptor(ShapeKind kind) noexcept {
@@ -271,6 +291,7 @@ struct ShapeEvaluationContext {
 	double local_seconds{0.0};
 	double duration{1.0};
 	double global_seconds{0.0};
+	const BodyPositionLookup* bodies{nullptr};
 };
 
 struct ShapeSpec {
@@ -324,6 +345,10 @@ struct ShapeSpec {
 			case ShapeKind::SurfaceLoop: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 1.0, 0.0, 10.0, 0.2, 1.0}; break;
 			case ShapeKind::SurfaceRoute: controls[1] = {0.0, 0.0, 1.0}; values = {0.0, 0.0, 30.0, 90.0, 0.0, 10.0, 0.2, 1.0}; break;
 			case ShapeKind::PlanetOrbit: controls[1] = {0.0, 0.0, 1.0}; values = {15.0, 0.0, 15.0, 1.0, 1.0, 10.0, 1.0, 1.0}; break;
+			case ShapeKind::FreeFallInfall: controls[0] = {0.0, 0.0, 0.0}; values = {80.0, 2.5, 25.0, 0.0, 2.5, 4.0, 1.0, 0.0}; break;
+			case ShapeKind::ConicalHelix: controls[0] = {0.0, 0.0, 10.0}; controls[1] = {0.0, 0.0, 1.0}; values = {5.0, 35.0, 4.0, 0.0, 90.0, 1.2, 0.0, 1.0}; break;
+			case ShapeKind::KeplerianOrbit: controls[0] = {0.0, 0.0, 0.0}; values = {45.0, 0.75, 20.0, 0.0, 0.0, 180.0, 1.0, 1.0}; break;
+			case ShapeKind::DynamicChase: controls[0] = {0.0, 0.0, 0.0}; controls[1] = {0.0, 0.0, 0.0}; controls[2] = {0.0, 4.0, 0.0}; values = {0.0, 25.0, 2.5, 0.85, 0.35, 5.0, 0.0, 0.0}; break;
 		}
 	}
 
@@ -542,6 +567,143 @@ struct ShapeSpec {
 				raw = ScriptMath::add(frame.center, ScriptMath::scaled(direction, surface_radius + altitude));
 				break;
 			}
+			case ShapeKind::FreeFallInfall: {
+				const double r_start = std::max(v[0], 2.5);
+				const double r_end = std::max(v[1], 1.05 * std::max(v[6], 1.0));
+				const double p_acc = std::clamp(v[4] > 0.0 ? v[4] : 2.5, 0.5, 8.0);
+				const double total_revs = (v[5] != 0.0) ? v[5] : 3.0;
+				const double contract = 1.0 - std::pow(1.0 - u, p_acc);
+				const double r = r_start + (r_end - r_start) * contract;
+				const double theta = (v[2] + (v[3] - v[2]) * u) * deg;
+				const double inv_r_start = 1.0 / std::max(r_start, 1.0e-3);
+				const double inv_r_curr = 1.0 / std::max(r, 1.0e-3);
+				const double inv_r_end = 1.0 / std::max(r_end, 1.0e-3);
+				const double phi_progress = (inv_r_curr - inv_r_start) / std::max(inv_r_end - inv_r_start, 1.0e-6);
+				const double phi_acc = (1.0 - u) * std::pow(u, 1.5) + u * phi_progress;
+				const double phi = tau * total_revs * phi_acc;
+				const double spin_drag = (v[7] != 0.0) ? (2.0 * v[6] * v[7] / std::max(r * r * r, 1.0e-3) * ctx.local_seconds) : 0.0;
+				const double final_phi = phi + spin_drag;
+				raw = {
+					c0[0] + r * std::sin(theta) * std::cos(final_phi),
+					c0[1] + r * std::sin(theta) * std::sin(final_phi),
+					c0[2] + r * std::cos(theta)
+				};
+				break;
+			}
+			case ShapeKind::ConicalHelix: {
+				Vec3 axis{0.0, 0.0, 1.0};
+				if (v[7] > 1.5) {
+					axis = {0.0, 0.0, -1.0};
+				} else if (v[7] > 0.5) {
+					axis = {0.0, 0.0, 1.0};
+				} else {
+					const double c1_len = ScriptMath::length(c1);
+					if (c1_len > 1.0e-9) {
+						axis = ScriptMath::scaled(c1, 1.0 / c1_len);
+					}
+				}
+				const Vec3 helper = (std::abs(axis[2]) < 0.9) ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+				const Vec3 e1 = ScriptMath::normalized(ScriptMath::cross(helper, axis), {1.0, 0.0, 0.0});
+				const Vec3 e2 = ScriptMath::cross(axis, e1);
+				const double axial_exp = std::clamp(v[5] > 0.0 ? v[5] : 1.0, 0.2, 5.0);
+				const double z_param = std::pow(u, axial_exp) * v[4];
+				const double r_base = v[0] + (v[1] - v[0]) * u;
+				const double pinch = (v[6] != 0.0) ? (1.0 + v[6] * std::sin(tau * 3.0 * u)) : 1.0;
+				const double radius = std::max(r_base * pinch, 0.0);
+				const double angle = v[3] * deg + tau * v[2] * u;
+				const Vec3 center = ScriptMath::add(c0, ScriptMath::scaled(axis, z_param));
+				for (size_t i = 0; i < 3; ++i) {
+					raw[i] = center[i] + radius * (e1[i] * std::cos(angle) + e2[i] * std::sin(angle));
+				}
+				break;
+			}
+			case ShapeKind::KeplerianOrbit: {
+				const double a = std::max(v[0], 1.0e-3);
+				const double e = std::clamp(v[1], 0.0, 0.995);
+				const double inc = v[2] * deg;
+				const double node = v[3] * deg;
+				const double arg_p = v[4] * deg;
+				const double m0 = v[5] * deg;
+				const double revs = (v[6] != 0.0) ? v[6] : 1.0;
+				const double M = std::fmod(m0 + tau * revs * u, tau);
+				double E = M + e * std::sin(M);
+				for (int iter = 0; iter < 12; ++iter) {
+					const double f = E - e * std::sin(E) - M;
+					const double f_prime = 1.0 - e * std::cos(E);
+					const double delta = f / f_prime;
+					E -= delta;
+					if (std::abs(delta) < 1.0e-12) break;
+				}
+				const double sin_half_E = std::sin(0.5 * E);
+				const double cos_half_E = std::cos(0.5 * E);
+				const double nu = 2.0 * std::atan2(std::sqrt(1.0 + e) * sin_half_E, std::sqrt(1.0 - e) * cos_half_E);
+				const double r = a * (1.0 - e * std::cos(E));
+				const double x_orb = r * std::cos(nu);
+				const double y_orb = r * std::sin(nu);
+				const double cos_node = std::cos(node), sin_node = std::sin(node);
+				const double cos_inc = std::cos(inc), sin_inc = std::sin(inc);
+				const double cos_arg = std::cos(arg_p), sin_arg = std::sin(arg_p);
+				const double P_x = cos_node * cos_arg - sin_node * sin_arg * cos_inc;
+				const double P_y = sin_node * cos_arg + cos_node * sin_arg * cos_inc;
+				const double P_z = sin_arg * sin_inc;
+				const double Q_x = -cos_node * sin_arg - sin_node * cos_arg * cos_inc;
+				const double Q_y = -sin_node * sin_arg + cos_node * cos_arg * cos_inc;
+				const double Q_z = cos_arg * sin_inc;
+				raw = {
+					c0[0] + x_orb * P_x + y_orb * Q_x,
+					c0[1] + x_orb * P_y + y_orb * Q_y,
+					c0[2] + x_orb * P_z + y_orb * Q_z
+				};
+				break;
+			}
+			case ShapeKind::DynamicChase: {
+				const int32_t body_id = static_cast<int32_t>(v[0]);
+				Vec3 target_pos = c0;
+				Vec3 target_vel{0.0, 1.0, 0.0};
+				if (ctx.bodies != nullptr) {
+					if (const auto pos = ScriptMath::resolve_body(*ctx.bodies, body_id, c0)) {
+						target_pos = *pos;
+					}
+					if (const auto vel = ctx.bodies->velocity(body_id)) {
+						target_vel = *vel;
+					}
+				}
+				const double speed = ScriptMath::length(target_vel);
+				const Vec3 vel_unit = (speed > 1.0e-6) ? ScriptMath::scaled(target_vel, 1.0 / speed) : Vec3{0.0, 1.0, 0.0};
+				const Vec3 world_up{0.0, 0.0, 1.0};
+				Vec3 right = ScriptMath::cross(vel_unit, world_up);
+				if (ScriptMath::length(right) < 1.0e-6) {
+					right = {1.0, 0.0, 0.0};
+				} else {
+					right = ScriptMath::normalized(right, {1.0, 0.0, 0.0});
+				}
+				const Vec3 up = ScriptMath::cross(right, vel_unit);
+				const double standoff = std::max(v[1] > 0.0 ? v[1] : 25.0, 1.0);
+				const double lateral_off = c2[0];
+				const double height_off = c2[1];
+				const Vec3 ideal_pos = ScriptMath::add(
+					target_pos,
+					ScriptMath::add(
+						ScriptMath::scaled(vel_unit, -standoff),
+						ScriptMath::add(ScriptMath::scaled(right, lateral_off), ScriptMath::scaled(up, height_off))
+					)
+				);
+				const double omega_n = std::clamp(v[2] > 0.0 ? v[2] : 2.5, 0.2, 10.0);
+				const double zeta = std::clamp(v[3] > 0.0 ? v[3] : 0.85, 0.1, 2.5);
+				const double t_resp = ctx.local_seconds;
+				double filter_weight = 1.0;
+				if (zeta < 1.0) {
+					const double omega_d = omega_n * std::sqrt(1.0 - zeta * zeta);
+					filter_weight = 1.0 - std::exp(-zeta * omega_n * t_resp) * (std::cos(omega_d * t_resp) + (zeta / std::sqrt(1.0 - zeta * zeta)) * std::sin(omega_d * t_resp));
+				} else {
+					filter_weight = 1.0 - std::exp(-omega_n * t_resp) * (1.0 + omega_n * t_resp);
+				}
+				filter_weight = std::clamp(filter_weight, 0.0, 1.0);
+				const double tau_lead = v[4];
+				const Vec3 lead_vec = ScriptMath::scaled(target_vel, tau_lead * (1.0 - std::exp(-t_resp * 2.0)));
+				raw = ScriptMath::add(ideal_pos, lead_vec);
+				break;
+			}
 			case ShapeKind::ExpressionCartesian:
 			case ShapeKind::ExpressionCylindrical:
 			case ShapeKind::ExpressionSpherical: {
@@ -582,7 +744,7 @@ struct ShapeSpec {
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::PlanetOrbit);
+		kind = reader.enumeration(prefix + "kind", kind, ShapeKind::DynamicChase);
 		for (size_t i = 0; i < controls.size(); ++i) controls[i] = ScriptMath::read_vec(reader, prefix + "c" + std::to_string(i), controls[i]);
 		for (size_t i = 0; i < values.size(); ++i) values[i] = reader.real(prefix + "v" + std::to_string(i), values[i]);
 		for (size_t i = 0; i < expressions.size(); ++i) expressions[i].assign(reader.text(prefix + "e" + std::to_string(i), expressions[i].source()));
@@ -928,7 +1090,7 @@ struct ShakeSpec {
 	}
 };
 
-enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression, TargetPath, SurfaceWalker };
+enum class OrientationMode : uint32_t { Free = 0, Fixed, Interpolated, LookAtTarget, AlongTravel, Expression, TargetPath, SurfaceWalker, ChaseLead };
 
 struct OrientationSpec {
 	OrientationMode mode{OrientationMode::LookAtTarget};
@@ -944,6 +1106,7 @@ struct OrientationSpec {
 	ShapeSpec target_path{};
 	ScalarChannel pitch_modifier{};
 	ScalarChannel yaw_modifier{};
+	double velocity_lead_seconds{0.0};
 
 	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
 		writer.enumeration(prefix + "mode", mode);
@@ -962,10 +1125,11 @@ struct OrientationSpec {
 		target_path.write(writer, prefix + "path.");
 		pitch_modifier.write(writer, prefix + "pitch_mod.");
 		yaw_modifier.write(writer, prefix + "yaw_mod.");
+		writer.real(prefix + "vel_lead", velocity_lead_seconds);
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
-		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::SurfaceWalker);
+		mode = reader.enumeration(prefix + "mode", mode, OrientationMode::ChaseLead);
 		start = {reader.real(prefix + "s0", start[0]), reader.real(prefix + "s1", start[1])};
 		end = {reader.real(prefix + "e0", end[0]), reader.real(prefix + "e1", end[1])};
 		easing.read(reader, prefix + "ease.");
@@ -979,24 +1143,49 @@ struct OrientationSpec {
 		target_path.read(reader, prefix + "path.");
 		pitch_modifier.read(reader, prefix + "pitch_mod.");
 		yaw_modifier.read(reader, prefix + "yaw_mod.");
+		velocity_lead_seconds = reader.real(prefix + "vel_lead", velocity_lead_seconds);
 	}
 };
 
 enum class TransitionBlendMode : uint32_t { ShortestArc = 0, Direct };
+
+enum class ProjectionTransitionMode : uint32_t {
+	StepAtMidpoint = 0,
+	StepAtStart = 1,
+	StepAtEnd = 2,
+	SmoothMorph = 3,
+	FovCompensatedMorph = 4,
+	CrossZoom = 5,
+	WarpCurvature = 6
+};
+
+inline constexpr std::array<const char*, 7> kProjectionTransitionModeNames{
+	"Step Cut (At Midpoint)",
+	"Step Cut (At Start)",
+	"Step Cut (At End)",
+	"Smooth Interpolation",
+	"FOV-Compensated Morph",
+	"Cross-Zoom (Vertigo Flare)",
+	"Curvature Non-linear Warp"
+};
 
 struct SegmentTransition {
 	bool enabled{false};
 	double orientation_seconds{0.0};
 	double position_seconds{0.0};
 	double lens_seconds{0.0};
+	double projection_seconds{0.0};
 	EasingSpec orientation_easing{EasingSpec::make(EasingKind::Smoothstep)};
 	EasingSpec position_easing{EasingSpec::make(EasingKind::Smoothstep)};
 	EasingSpec lens_easing{EasingSpec::make(EasingKind::Smoothstep)};
+	EasingSpec projection_easing{EasingSpec::make(EasingKind::Smoothstep)};
 	TransitionBlendMode orientation_mode{TransitionBlendMode::ShortestArc};
+	ProjectionTransitionMode projection_mode_transition{ProjectionTransitionMode::SmoothMorph};
+	double projection_fov_compensation{1.0};
 	bool blend_simulation_rate{true};
 
 	[[nodiscard]] double reach_seconds() const noexcept {
-		return enabled ? std::max({orientation_seconds, position_seconds, lens_seconds}) : 0.0;
+		return enabled ? std::max({orientation_seconds, position_seconds, lens_seconds, projection_seconds}) : 0.0;
 	}
 
 	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
@@ -1004,10 +1193,14 @@ struct SegmentTransition {
 		writer.real(prefix + "orient_s", orientation_seconds);
 		writer.real(prefix + "pos_s", position_seconds);
 		writer.real(prefix + "lens_s", lens_seconds);
+		writer.real(prefix + "proj_s", projection_seconds);
 		orientation_easing.write(writer, prefix + "orient_ease.");
 		position_easing.write(writer, prefix + "pos_ease.");
 		lens_easing.write(writer, prefix + "lens_ease.");
+		projection_easing.write(writer, prefix + "proj_ease.");
 		writer.enumeration(prefix + "mode", orientation_mode);
+		writer.enumeration(prefix + "proj_mode", projection_mode_transition);
+		writer.real(prefix + "proj_comp", projection_fov_compensation);
 		writer.flag(prefix + "rate", blend_simulation_rate);
 	}
 
@@ -1016,10 +1209,14 @@ struct SegmentTransition {
 		orientation_seconds = reader.real(prefix + "orient_s", orientation_seconds);
 		position_seconds = reader.real(prefix + "pos_s", position_seconds);
 		lens_seconds = reader.real(prefix + "lens_s", lens_seconds);
+		projection_seconds = reader.real(prefix + "proj_s", projection_seconds);
 		orientation_easing.read(reader, prefix + "orient_ease.");
 		position_easing.read(reader, prefix + "pos_ease.");
 		lens_easing.read(reader, prefix + "lens_ease.");
+		projection_easing.read(reader, prefix + "proj_ease.");
 		orientation_mode = reader.enumeration(prefix + "mode", orientation_mode, TransitionBlendMode::Direct);
+		projection_mode_transition = reader.enumeration(prefix + "proj_mode", projection_mode_transition, ProjectionTransitionMode::WarpCurvature);
+		projection_fov_compensation = reader.real(prefix + "proj_comp", projection_fov_compensation);
 		blend_simulation_rate = reader.flag(prefix + "rate", blend_simulation_rate);
 	}
 };
@@ -1042,6 +1239,7 @@ struct ScriptSegment {
 	ScalarChannel warp{ScalarChannel::make(1.0, 1.0, false)};
 	ShakeSpec shake{};
 	SegmentTransition transition{};
+	int32_t projection_mode{-1};
 
 	[[nodiscard]] bool follows_surface() const noexcept {
 		for (const ShapeLayer& layer : layers) {
@@ -1056,7 +1254,7 @@ struct ScriptSegment {
 		const auto reactive = [](const ScalarChannel& channel) noexcept { return channel.enabled && (channel.driver.enabled || channel.use_expression); };
 		return reactive(fov) || reactive(exposure) || reactive(roll) || reactive(warp)
 			|| reactive(orientation.pitch_modifier) || reactive(orientation.yaw_modifier)
-			|| orientation.mode == OrientationMode::Expression;
+			|| orientation.mode == OrientationMode::Expression || orientation.mode == OrientationMode::ChaseLead;
 	}
 
 	void write(IO::SettingsWriter& writer, const std::string& prefix) const {
@@ -1076,6 +1274,7 @@ struct ScriptSegment {
 		warp.write(writer, prefix + "warp.");
 		shake.write(writer, prefix + "shake.");
 		transition.write(writer, prefix + "transition.");
+		writer.signed_value(prefix + "proj_mode", projection_mode);
 	}
 
 	void read(const IO::SettingsReader& reader, const std::string& prefix) {
@@ -1096,6 +1295,7 @@ struct ScriptSegment {
 		warp.read(reader, prefix + "warp.");
 		shake.read(reader, prefix + "shake.");
 		transition.read(reader, prefix + "transition.");
+		projection_mode = reader.signed_value(prefix + "proj_mode", projection_mode);
 	}
 };
 
@@ -1116,13 +1316,30 @@ struct ScriptSegment {
 		segment.time_easing = EasingSpec::make(EasingKind::Linear);
 		segment.orientation.mode = OrientationMode::LookAtTarget;
 		segment.orientation.target_body = kOriginReference;
+	} else if (kind == ShapeKind::FreeFallInfall) {
+		segment.time_easing = EasingSpec::make(EasingKind::QuadIn);
+		segment.orientation.mode = OrientationMode::LookAtTarget;
+		segment.orientation.target_body = kOriginReference;
+	} else if (kind == ShapeKind::ConicalHelix) {
+		segment.time_easing = EasingSpec::make(EasingKind::Linear);
+		segment.orientation.mode = OrientationMode::AlongTravel;
+		segment.orientation.look_ahead = 0.02;
+	} else if (kind == ShapeKind::KeplerianOrbit) {
+		segment.time_easing = EasingSpec::make(EasingKind::Linear);
+		segment.orientation.mode = OrientationMode::LookAtTarget;
+		segment.orientation.target_body = kOriginReference;
+	} else if (kind == ShapeKind::DynamicChase) {
+		segment.time_easing = EasingSpec::make(EasingKind::Linear);
+		segment.orientation.mode = OrientationMode::ChaseLead;
+		segment.orientation.target_body = 0;
+		segment.orientation.velocity_lead_seconds = 0.35;
 	}
 	return segment;
 }
 
 enum class EventTrigger : uint32_t { ScriptTime = 0, SegmentStart, SegmentEnd, SegmentFraction };
 
-enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetWarp, Pause, Resume, StepTicks, SetMetric, SetIntegrator, LoadScenario, SetTickRate, SetPerformancePreset, SetOverlay, SetResolutionScale };
+enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetWarp, Pause, Resume, StepTicks, SetMetric, SetIntegrator, LoadScenario, SetTickRate, SetPerformancePreset, SetOverlay, SetResolutionScale, SetProjectionMode };
 
 [[nodiscard]] inline const char* event_action_name(EventAction action) noexcept {
 	switch (action) {
@@ -1140,6 +1357,7 @@ enum class EventAction : uint32_t { Marker = 0, CaptureStill, SetParameter, SetW
 		case EventAction::SetPerformancePreset: return "Apply Performance Preset";
 		case EventAction::SetOverlay: return "Set Rendering Overlay";
 		case EventAction::SetResolutionScale: return "Set Resolution Scale";
+		case EventAction::SetProjectionMode: return "Set Projection Mode";
 		default: return "Event";
 	}
 }
@@ -1189,7 +1407,7 @@ struct ScriptEvent {
 		segment = reader.unsigned_value(prefix + "segment", segment);
 		fraction = reader.real(prefix + "fraction", fraction);
 		offset_seconds = reader.real(prefix + "offset", offset_seconds);
-		action = reader.enumeration(prefix + "action", action, EventAction::SetResolutionScale);
+		action = reader.enumeration(prefix + "action", action, EventAction::SetProjectionMode);
 		parameter = reader.unsigned_value(prefix + "parameter", parameter);
 		value = reader.real(prefix + "value", value);
 		value_end = reader.real(prefix + "value_end", value_end);
@@ -1211,16 +1429,22 @@ struct ScriptSample {
 	Vec3 shake_rotation{0.0, 0.0, 0.0};
 	double transition_weight{0.0};
 	double nearest_distance{-1.0};
+	int32_t projection_mode{-1};
+	int32_t secondary_projection_mode{-1};
+	double projection_blend{0.0};
+	ProjectionTransitionMode projection_transition{ProjectionTransitionMode::SmoothMorph};
 };
 
 enum class ScriptPreset : uint32_t {
-	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift, SurfaceStroll, PlanetOrbitSurvey
+	OrbitReveal = 0, SpiralInfall, FlyByWithStop, DollyZoom, FigureEightSurvey, HelicalApproach, TorusKnotShowcase, MultiStageTour, PhotonSphereSkim, HandheldDrift, SurfaceStroll, PlanetOrbitSurvey,
+	RelativisticInfall, PolarJetHelix, KeplerianSlingshot, DynamicChase
 };
 
-inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::PlanetOrbitSurvey) + 1;
+inline constexpr size_t kScriptPresetCount = static_cast<size_t>(ScriptPreset::DynamicChase) + 1;
 
 inline constexpr std::array<const char*, kScriptPresetCount> kScriptPresetNames{
-	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift", "Planetary Stroll", "Planet Orbit Survey"
+	"Orbit Reveal", "Spiral Infall", "Fly-By With Stop", "Dolly Zoom", "Figure Eight Survey", "Helical Approach", "Torus Knot Showcase", "Multi-Stage Tour", "Photon Sphere Skim", "Handheld Drift", "Planetary Stroll", "Planet Orbit Survey",
+	"Relativistic Infall Plunge", "Polar Jet Helical Ascent", "Keplerian Gravitational Slingshot", "N-Body Pursuit Camera"
 };
 
 struct MotionScript {
@@ -1292,6 +1516,7 @@ struct MotionScript {
 			segment.transition.orientation_seconds = std::clamp(segment.transition.orientation_seconds, 0.0, segment.duration);
 			segment.transition.position_seconds = std::clamp(segment.transition.position_seconds, 0.0, segment.duration);
 			segment.transition.lens_seconds = std::clamp(segment.transition.lens_seconds, 0.0, segment.duration);
+			segment.transition.projection_seconds = std::clamp(segment.transition.projection_seconds, 0.0, segment.duration);
 			for (ShapeLayer& layer : segment.layers) {
 				layer.window_start = std::clamp(layer.window_start, 0.0, 1.0);
 				layer.window_end = std::clamp(layer.window_end, 0.0, 1.0);
@@ -1367,7 +1592,7 @@ struct MotionScript {
 		return SegmentLocation{active.size() - 1, last_idx, segments[last_idx].duration, 1.0, total, 1.0};
 	}
 
-	[[nodiscard]] Vec3 evaluate_segment_raw_position(size_t segment_index, double progress, double local_sec, double global_sec) const noexcept {
+	[[nodiscard]] Vec3 evaluate_segment_raw_position(size_t segment_index, double progress, double local_sec, double global_sec, const BodyPositionLookup* bodies = nullptr) const noexcept {
 		if (segment_index >= segments.size()) return {0.0, 0.0, 0.0};
 		const ScriptSegment& segment = segments[segment_index];
 		if (segment.layers.empty()) return {0.0, 0.0, 0.0};
@@ -1384,7 +1609,7 @@ struct MotionScript {
 				layer_u = std::clamp((progress - layer.window_start) / win_span, 0.0, 1.0);
 			}
 			const double eased_layer_u = layer.easing.evaluate(layer_u);
-			const ShapeEvaluationContext ctx{eased_layer_u, local_sec, segment.duration, global_sec};
+			const ShapeEvaluationContext ctx{eased_layer_u, local_sec, segment.duration, global_sec, bodies};
 			const Vec3 layer_pos = layer.shape.evaluate(ctx);
 			const double weight = layer.weight_start + (layer.weight_end - layer.weight_start) * progress;
 
@@ -1394,7 +1619,7 @@ struct MotionScript {
 			} else if (layer.blend == LayerBlend::Add) {
 				composite = ScriptMath::add(composite, ScriptMath::scaled(layer_pos, weight));
 			} else if (layer.blend == LayerBlend::AddRelative) {
-				const ShapeEvaluationContext origin_ctx{0.0, 0.0, segment.duration, global_sec};
+				const ShapeEvaluationContext origin_ctx{0.0, 0.0, segment.duration, global_sec, bodies};
 				const Vec3 origin_pos = layer.shape.evaluate(origin_ctx);
 				const Vec3 delta = ScriptMath::sub(layer_pos, origin_pos);
 				composite = ScriptMath::add(composite, ScriptMath::scaled(delta, weight));
@@ -1427,11 +1652,11 @@ struct MotionScript {
 
 				const double prev_dur = segments[prev_idx].duration;
 				const Vec3 prev_anchor = evaluate_segment_anchor(prev_idx, body_lookup);
-				const Vec3 prev_pos = evaluate_segment_raw_position(prev_idx, 1.0, prev_dur, 0.0);
+				const Vec3 prev_pos = evaluate_segment_raw_position(prev_idx, 1.0, prev_dur, 0.0, &body_lookup);
 				const Vec3 prev_world = ScriptMath::add(prev_anchor, prev_pos);
 
 				if (segment.anchor == AnchorMode::ContinuePrevious) {
-					return ScriptMath::sub(prev_world, evaluate_segment_raw_position(segment_index, 0.0, 0.0, 0.0));
+					return ScriptMath::sub(prev_world, evaluate_segment_raw_position(segment_index, 0.0, 0.0, 0.0, &body_lookup));
 				}
 				return ScriptMath::add(prev_world, segment.anchor_offset);
 			}
@@ -1444,7 +1669,7 @@ struct MotionScript {
 		if (!loc) return {0.0, 0.0, 0.0};
 		return ScriptMath::add(
 			evaluate_segment_anchor(loc->segment_index, body_lookup),
-			evaluate_segment_raw_position(loc->segment_index, loc->progress, loc->local_seconds, loc->global_seconds)
+			evaluate_segment_raw_position(loc->segment_index, loc->progress, loc->local_seconds, loc->global_seconds, &body_lookup)
 		);
 	}
 
@@ -1496,6 +1721,8 @@ struct MotionScript {
 		const double view_weight = weight(transition.orientation_seconds, transition.orientation_easing);
 		const double position_weight = weight(transition.position_seconds, transition.position_easing);
 		const double lens_weight = weight(transition.lens_seconds, transition.lens_easing);
+		const double proj_span = (transition.projection_seconds > 1.0e-9) ? transition.projection_seconds : transition.lens_seconds;
+		const double proj_weight = weight(proj_span, transition.projection_easing);
 		const bool shortest = transition.orientation_mode == TransitionBlendMode::ShortestArc;
 		const auto blend_angle = [shortest](double from, double to, double w) noexcept {
 			return from + (shortest ? PathDetail::wrap_degrees(to - from) : (to - from)) * w;
@@ -1510,7 +1737,64 @@ struct MotionScript {
 		if (transition.blend_simulation_rate) {
 			current.simulation_rate = PathDetail::lerp(previous.simulation_rate, current.simulation_rate, lens_weight);
 		}
-		current.transition_weight = 1.0 - std::min({view_weight, position_weight, lens_weight});
+
+		const int32_t prev_proj = previous.projection_mode >= 0 ? previous.projection_mode : previous.pose.projection_mode;
+		const int32_t curr_proj = current.projection_mode >= 0 ? current.projection_mode : current.pose.projection_mode;
+		if (prev_proj >= 0 && curr_proj >= 0 && prev_proj != curr_proj) {
+			current.secondary_projection_mode = prev_proj;
+			current.projection_blend = 1.0 - proj_weight;
+			current.projection_transition = transition.projection_mode_transition;
+			current.pose.secondary_projection_mode = prev_proj;
+			current.pose.projection_blend = 1.0 - proj_weight;
+			current.pose.projection_transition_mode = static_cast<uint32_t>(transition.projection_mode_transition);
+
+			const double w = proj_weight;
+			switch (transition.projection_mode_transition) {
+				case ProjectionTransitionMode::StepAtStart:
+					current.pose.projection_mode = (w > 0.0) ? curr_proj : prev_proj;
+					break;
+				case ProjectionTransitionMode::StepAtEnd:
+					current.pose.projection_mode = (w >= 1.0) ? curr_proj : prev_proj;
+					break;
+				case ProjectionTransitionMode::CrossZoom: {
+					current.pose.projection_mode = (w >= 0.5) ? curr_proj : prev_proj;
+					const double zoom_pulse = std::sin(std::numbers::pi_v<double> * w) * 0.35 * transition.projection_fov_compensation;
+					current.pose.fov_deg = std::clamp(current.pose.fov_deg * (1.0 + zoom_pulse), 5.0, 175.0);
+					break;
+				}
+				case ProjectionTransitionMode::FovCompensatedMorph: {
+					current.pose.projection_mode = (w >= 0.5) ? curr_proj : prev_proj;
+					const auto focal_scale = [](int32_t mode) noexcept -> double {
+						if (mode == 0 || mode == 1) return 1.0;
+						if (mode == 2) return 1.25;
+						if (mode == 3 || mode == 7) return 1.57;
+						if (mode == 4) return 1.27;
+						if (mode == 5) return 1.0;
+						if (mode == 6) return 1.15;
+						return 1.0;
+					};
+					const double ratio = focal_scale(curr_proj) / std::max(focal_scale(prev_proj), 0.1);
+					const double comp = 1.0 + (ratio - 1.0) * (0.5 - std::abs(w - 0.5)) * 2.0 * transition.projection_fov_compensation;
+					current.pose.fov_deg = std::clamp(current.pose.fov_deg * comp, 5.0, 175.0);
+					break;
+				}
+				case ProjectionTransitionMode::WarpCurvature: {
+					const double warped_w = (w < 0.5) ? (2.0 * w * w) : (1.0 - 2.0 * (1.0 - w) * (1.0 - w));
+					current.pose.projection_mode = (warped_w >= 0.5) ? curr_proj : prev_proj;
+					const double curve_pulse = std::sin(std::numbers::pi_v<double> * w) * 0.18 * transition.projection_fov_compensation;
+					current.pose.fov_deg = std::clamp(current.pose.fov_deg * (1.0 - curve_pulse), 5.0, 175.0);
+					break;
+				}
+				case ProjectionTransitionMode::SmoothMorph:
+				case ProjectionTransitionMode::StepAtMidpoint:
+				default:
+					current.pose.projection_mode = (w >= 0.5) ? curr_proj : prev_proj;
+					break;
+			}
+			current.projection_mode = current.pose.projection_mode;
+		}
+
+		current.transition_weight = 1.0 - std::min({view_weight, position_weight, lens_weight, proj_weight});
 	}
 
 	[[nodiscard]] ScriptSample evaluate_segment_pose(size_t seg_idx, double u, double local_t, double global_t, double script_progress, double speed_time, const BodyPositionLookup& body_lookup) const noexcept {
@@ -1520,7 +1804,7 @@ struct MotionScript {
 		const ScriptSegment& segment = segments[seg_idx];
 
 		const Vec3 anchor = evaluate_segment_anchor(seg_idx, body_lookup);
-		const Vec3 raw_pos = evaluate_segment_raw_position(seg_idx, u, local_t, global_t);
+		const Vec3 raw_pos = evaluate_segment_raw_position(seg_idx, u, local_t, global_t, &body_lookup);
 		Vec3 pos = ScriptMath::add(anchor, raw_pos);
 
 		Vec3 shake_pos{0.0, 0.0, 0.0};
@@ -1619,7 +1903,7 @@ struct MotionScript {
 				const double lead = std::clamp(orient.look_ahead, 0.001, 0.5);
 				const bool forward_sample = (u + lead) <= 1.0;
 				const double sample_u = forward_sample ? (u + lead) : std::max(u - lead, 0.0);
-				const Vec3 sample_pos = ScriptMath::add(anchor, evaluate_segment_raw_position(seg_idx, sample_u, local_t + (sample_u - u) * segment.duration, global_t));
+				const Vec3 sample_pos = ScriptMath::add(anchor, evaluate_segment_raw_position(seg_idx, sample_u, local_t + (sample_u - u) * segment.duration, global_t, &body_lookup));
 				Vec3 travel = forward_sample ? ScriptMath::sub(sample_pos, pos) : ScriptMath::sub(pos, sample_pos);
 				travel = ScriptMath::sub(travel, ScriptMath::scaled(normal, ScriptMath::dot(travel, normal)));
 				const Vec3 north_tangent = ScriptMath::normalized(ScriptMath::sub({0.0, 0.0, 1.0}, ScriptMath::scaled(normal, normal[2])), {1.0, 0.0, 0.0});
@@ -1627,6 +1911,24 @@ struct MotionScript {
 				pitch = angles.pitch_deg;
 				yaw = angles.yaw_deg;
 				surface_roll = angles.roll_deg;
+				break;
+			}
+
+			case OrientationMode::ChaseLead: {
+				Vec3 target{0.0, 0.0, 0.0};
+				Vec3 velocity{0.0, 0.0, 0.0};
+				if (const auto bpos = ScriptMath::resolve_body(body_lookup, orient.target_body, pos)) {
+					target = *bpos;
+				}
+				if (const auto bvel = body_lookup.velocity(orient.target_body)) {
+					velocity = *bvel;
+				}
+				const double lead_time = (orient.velocity_lead_seconds > 0.0)
+					? orient.velocity_lead_seconds
+					: ((orient.look_ahead > 0.0) ? orient.look_ahead : 0.35);
+				const Vec3 anticipated_target = ScriptMath::add(target, ScriptMath::add(orient.target_offset, ScriptMath::scaled(velocity, lead_time)));
+				const Vec3 dir = ScriptMath::sub(anticipated_target, pos);
+				static_cast<void>(ScriptMath::angles_from_direction(dir, pitch, yaw));
 				break;
 			}
 
@@ -1654,6 +1956,7 @@ struct MotionScript {
 		result.pose.roll_deg = roll;
 		result.pose.fov_deg = fov;
 		result.pose.exposure_ev = exposure;
+		result.pose.projection_mode = segment.projection_mode;
 		result.simulation_rate = sim_warp;
 		result.segment_index = seg_idx;
 		result.segment_progress = u;
@@ -1662,6 +1965,7 @@ struct MotionScript {
 		result.valid = true;
 		result.shake_position = shake_pos;
 		result.shake_rotation = shake_rot;
+		result.projection_mode = segment.projection_mode;
 		if (body_lookup.has_nearest()) {
 			if (const auto nearest = body_lookup.nearest(pos)) {
 				result.nearest_distance = ScriptMath::length(ScriptMath::sub(nearest->second, pos));
@@ -1819,6 +2123,46 @@ struct MotionScript {
 				script.segments.push_back(std::move(seg));
 				break;
 			}
+			case ScriptPreset::RelativisticInfall: {
+				script.name = "Relativistic Infall Plunge";
+				ScriptSegment seg = make_script_segment(ShapeKind::FreeFallInfall, 12.0);
+				seg.layers[0].shape.values = {90.0, 2.15, 35.0, 1.0, 2.8, 3.5, 1.0, 0.0};
+				seg.orientation.mode = OrientationMode::LookAtTarget;
+				seg.orientation.target_body = kOriginReference;
+				seg.fov = ScalarChannel::make(60.0, 85.0, true);
+				script.segments.push_back(std::move(seg));
+				break;
+			}
+			case ScriptPreset::PolarJetHelix: {
+				script.name = "Polar Jet Helical Ascent";
+				ScriptSegment seg = make_script_segment(ShapeKind::ConicalHelix, 14.0);
+				seg.layers[0].shape.controls[0] = {0.0, 0.0, 4.0};
+				seg.layers[0].shape.values = {6.0, 42.0, 4.0, 0.0, 110.0, 1.4, 0.0, 1.0};
+				seg.orientation.mode = OrientationMode::AlongTravel;
+				seg.orientation.look_ahead = 0.02;
+				script.segments.push_back(std::move(seg));
+				break;
+			}
+			case ScriptPreset::KeplerianSlingshot: {
+				script.name = "Keplerian Gravitational Slingshot";
+				ScriptSegment seg = make_script_segment(ShapeKind::KeplerianOrbit, 16.0);
+				seg.layers[0].shape.values = {55.0, 0.82, 25.0, 0.0, 45.0, 180.0, 1.0, 1.0};
+				seg.orientation.mode = OrientationMode::LookAtTarget;
+				seg.orientation.target_body = kOriginReference;
+				script.segments.push_back(std::move(seg));
+				break;
+			}
+			case ScriptPreset::DynamicChase: {
+				script.name = "N-Body Pursuit Camera";
+				ScriptSegment seg = make_script_segment(ShapeKind::DynamicChase, 15.0);
+				seg.layers[0].shape.controls[2] = {0.0, 5.0, 0.0};
+				seg.layers[0].shape.values = {0.0, 28.0, 3.0, 0.85, 0.45, 6.0, 0.0, 0.0};
+				seg.orientation.mode = OrientationMode::ChaseLead;
+				seg.orientation.target_body = 0;
+				seg.orientation.velocity_lead_seconds = 0.45;
+				script.segments.push_back(std::move(seg));
+				break;
+			}
 		}
 		return script;
 	}
@@ -1964,6 +2308,7 @@ struct MotionScript {
 			seg.fov = ScalarChannel::make(k0.pose.fov_deg, k1.pose.fov_deg, true);
 			seg.exposure = ScalarChannel::make(k0.pose.exposure_ev, k1.pose.exposure_ev, true);
 			seg.roll = ScalarChannel::make(k0.pose.roll_deg, k1.pose.roll_deg, true);
+			seg.projection_mode = k0.pose.projection_mode;
 
 			script.segments.push_back(std::move(seg));
 		}

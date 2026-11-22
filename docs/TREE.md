@@ -22,45 +22,72 @@ Relativity-Simulator/
 │   
 │
 ├── assets/
-│   ├── earth/
-│   │   └── solarsystemscope/
-│   │       ├── 1k_earth_daymap.png
-│   │       ├── 1k_earth_nightmap.png
-│   │       ├── 2k_earth_daymap.png
-│   │       ├── 2k_earth_nightmap.png
-│   │       └── LICENCE.txt
-│   │   
-│   │
 │   ├── media/
 │   │   ├── interface_preview.png
 │   │   ├── schwarzschild_infall.gif
 │   │   ├── schwarzschild_orbit_passby.gif
 │   │   └── schwarzschild_preview.png
 │   │
-│   └── sky/
-│       ├── ambientcg/
-│       │   ├── NightSkyHDRI001_1K/
-│       │   │   └── NightSkyHDRI001_1K_TONEMAPPED.jpg
-│       │   │
-│       │   ├── NightSkyHDRI001_2K/
-│       │   │   └── NightSkyHDRI001_2K_TONEMAPPED.jpg
-│       │   │
-│       │   ├── NightSkyHDRI001_4K/
-│       │   │   └── NightSkyHDRI001_4K_TONEMAPPED.jpg
-│       │   │
-│       │   ├── NightSkyHDRI008_1K/
-│       │   │   └── NightSkyHDRI008_1K_TONEMAPPED.jpg
-│       │   │
-│       │   ├── NightSkyHDRI008_2K/
-│       │   │   └── NightSkyHDRI008_2K_TONEMAPPED.jpg
-│       │   │
-│       │   ├── NightSkyHDRI008_4K/
-│       │   │   └── NightSkyHDRI008_4K_TONEMAPPED.jpg
-│       │   │
-│       │   └── LICENCE.txt
-│       │
-│       └── eso/
-│           ├── eso0932a.tif
+│   ├── sky/
+│   │   ├── ambientcg/
+│   │   │   ├── NightSkyHDRI001_1K/
+│   │   │   │   └── NightSkyHDRI001_1K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   ├── NightSkyHDRI001_2K/
+│   │   │   │   └── NightSkyHDRI001_2K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   ├── NightSkyHDRI001_4K/
+│   │   │   │   └── NightSkyHDRI001_4K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   ├── NightSkyHDRI008_1K/
+│   │   │   │   └── NightSkyHDRI008_1K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   ├── NightSkyHDRI008_2K/
+│   │   │   │   └── NightSkyHDRI008_2K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   ├── NightSkyHDRI008_4K/
+│   │   │   │   └── NightSkyHDRI008_4K_TONEMAPPED.jpg
+│   │   │   │
+│   │   │   └── LICENCE.txt
+│   │   │
+│   │   └── eso/
+│   │       ├── eso0932a.tif
+│   │       └── LICENCE.txt
+│   │   
+│   │
+│   └── textures/
+│       └── solarsystemscope/
+│           ├── 1k_ceres_fictional.png
+│           ├── 1k_earth_daymap.png
+│           ├── 1k_earth_nightmap.png
+│           ├── 1k_eris_fictional.png
+│           ├── 1k_haumea_fictional.png
+│           ├── 1k_jupiter.png
+│           ├── 1k_makemake_fictional.png
+│           ├── 1k_mars.png
+│           ├── 1k_mercury.png
+│           ├── 1k_neptune.png
+│           ├── 1k_saturn.png
+│           ├── 1k_sun.png
+│           ├── 1k_uranus.png
+│           ├── 1k_venus_atmosphere.png
+│           ├── 1k_venus_surface.png
+│           ├── 2k_ceres_fictional.png
+│           ├── 2k_earth_daymap.png
+│           ├── 2k_earth_nightmap.png
+│           ├── 2k_eris_fictional.png
+│           ├── 2k_haumea_fictional.png
+│           ├── 2k_jupiter.png
+│           ├── 2k_makemake_fictional.png
+│           ├── 2k_mars.png
+│           ├── 2k_mercury.png
+│           ├── 2k_neptune.png
+│           ├── 2k_saturn.png
+│           ├── 2k_saturn_ring_alpha.png
+│           ├── 2k_sun.png
+│           ├── 2k_uranus.png
+│           ├── 2k_venus_atmosphere.png
+│           ├── 2k_venus_surface.png
 │           └── LICENCE.txt
 │       
 │   

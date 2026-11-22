@@ -85,16 +85,17 @@ private:
 		VkImageView view{VK_NULL_HANDLE};
 		uint32_t width{0};
 		uint32_t height{0};
-		Optics::EarthMapQuality quality{Optics::EarthMapQuality::Q1K};
+		Optics::BodyTextureQuality quality{Optics::BodyTextureQuality::Q1K};
 		bool resident{false};
 		bool rejected{false};
 	};
 
 	static constexpr uint32_t kEarthDescriptorBinding = 5;
+	static constexpr uint32_t kBodyTextureDescriptorCount = Optics::kBodyTextureIdCount + 1U;
 
 	VkSampler earth_sampler_{VK_NULL_HANDLE};
 	EarthTextureSlot earth_placeholder_{};
-	std::array<EarthTextureSlot, Optics::kEarthMapKindCount> earth_slots_{};
+	std::array<EarthTextureSlot, kBodyTextureDescriptorCount> earth_slots_{};
 	Optics::EarthTextureIdleGate earth_idle_gate_{};
 	bool earth_supported_{false};
 
@@ -734,7 +735,7 @@ private:
 		slot.resident = false;
 	}
 
-	void write_earth_descriptor(size_t kind_index, VkImageView view) noexcept {
+	void write_earth_descriptor(size_t slot_index, VkImageView view) noexcept {
 		VkDescriptorImageInfo image_info{};
 		image_info.sampler = earth_sampler_;
 		image_info.imageView = view;
@@ -743,7 +744,8 @@ private:
 		VkWriteDescriptorSet write{};
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = descriptor_set_;
-		write.dstBinding = kEarthDescriptorBinding + static_cast<uint32_t>(kind_index);
+		write.dstBinding = kEarthDescriptorBinding;
+		write.dstArrayElement = static_cast<uint32_t>(slot_index);
 		write.descriptorCount = 1;
 		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		write.pImageInfo = &image_info;
@@ -876,44 +878,57 @@ private:
 			return false;
 		}
 
-		const std::array<bool, Optics::kEarthMapKindCount> demanded{requirements.day, requirements.night};
 		bool pending = false;
-		for (size_t index = 0; index < earth_slots_.size(); ++index) {
-			const auto kind = static_cast<Optics::EarthMapKind>(index);
+		for (size_t index = 0; index < Optics::kBodyTextureIdCount; ++index) {
+			const auto id = static_cast<Optics::BodyTextureId>(index);
 			EarthTextureSlot& slot = earth_slots_[index];
+			const bool is_demanded = requirements.textures[index];
 
-			if (!demanded[index]) {
-				if (requirements.any()) {
+			if (!is_demanded) {
+				if (requirements.any() && slot.resident) {
 					release_earth_slot(index);
-					loader.release_kind(kind);
+					loader.release_texture(id, slot.quality);
 				}
 				continue;
 			}
-			if (slot.resident && slot.quality == requirements.quality) {
-				continue;
-			}
-			if (slot.rejected && slot.quality == requirements.quality) {
-				continue;
-			}
+			if (slot.resident && slot.quality == requirements.quality) continue;
+			if (slot.rejected && slot.quality == requirements.quality) continue;
 
-			const auto image = loader.try_acquire(kind, requirements.quality);
+			const auto image = loader.try_acquire_texture(id, requirements.quality);
 			if (image == nullptr) {
-				pending = pending || loader.is_decoding(kind, requirements.quality);
+				pending = pending || loader.is_decoding_texture(id, requirements.quality);
 				continue;
 			}
-
 			if (upload_earth_texture(*image, slot)) {
 				slot.quality = requirements.quality;
 				slot.rejected = false;
 				write_earth_descriptor(index, slot.view);
-				Core::log_info("Earth texture uploaded to the GPU: " + std::string(index == 0 ? "day" : "night") + " map " + std::to_string(slot.width) + "x" + std::to_string(slot.height) + ", " + std::to_string(image->levels.size()) + " mip levels");
+				Core::log_info("Celestial texture uploaded to GPU: " + std::string(Optics::kBodyTextureDescriptors[index].identifier) + " (" + std::to_string(slot.width) + "x" + std::to_string(slot.height) + ")");
 			} else {
 				slot.quality = requirements.quality;
 				slot.rejected = true;
-				Core::log_error("Earth texture could not be uploaded to the GPU, the body keeps its base color.");
+				Core::log_error("Failed to upload texture: " + std::string(Optics::kBodyTextureDescriptors[index].identifier));
 			}
-			loader.release(kind, requirements.quality);
 		}
+
+		const size_t night_index = Optics::kBodyTextureIdCount;
+		EarthTextureSlot& night_slot = earth_slots_[night_index];
+		if (!requirements.night) {
+			if (requirements.any() && night_slot.resident) {
+				release_earth_slot(night_index);
+				loader.release(Optics::EarthMapKind::Night, night_slot.quality);
+			}
+		} else if (!night_slot.resident || night_slot.quality != requirements.quality) {
+			const auto image = loader.try_acquire_earth_night(requirements.quality);
+			if (image == nullptr) {
+				pending = pending || loader.is_decoding(Optics::EarthMapKind::Night, requirements.quality);
+			} else if (upload_earth_texture(*image, night_slot)) {
+				night_slot.quality = requirements.quality;
+				night_slot.rejected = false;
+				write_earth_descriptor(night_index, night_slot.view);
+			}
+		}
+
 		return pending;
 	}
 
@@ -1002,7 +1017,7 @@ public:
 
 		bindings[5].binding = 5;
 		bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		bindings[5].descriptorCount = 1;
+		bindings[5].descriptorCount = kBodyTextureDescriptorCount;
 		bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		bindings[6].binding = 6;
@@ -1052,7 +1067,7 @@ public:
 		std::array<VkDescriptorPoolSize, 3> pool_sizes{};
 		pool_sizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
 		pool_sizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
-		pool_sizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3};
+		pool_sizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(kBodyTextureDescriptorCount + 2U)};
 
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1481,8 +1496,9 @@ private:
 			last_panorama_key_ = 0xFFFFFFFFU;
 		}
 		static_cast<void>(synchronize_earth_textures(EarthTextureRequirements::gather(bodies)));
+		const size_t night_index = Optics::kBodyTextureIdCount;
 		actual_params.earth_day_width = earth_slots_[0].resident ? earth_slots_[0].width : 0U;
-		actual_params.earth_night_width = earth_slots_[1].resident ? earth_slots_[1].width : 0U;
+		actual_params.earth_night_width = earth_slots_[night_index].resident ? earth_slots_[night_index].width : 0U;
 		if (!is_ready() || uniform_mapped_ == nullptr || staging_mapped_ == nullptr) {
 			return false;
 		}

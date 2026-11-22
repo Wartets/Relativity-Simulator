@@ -1018,22 +1018,41 @@ namespace PanoramaDecodeDetail {
 	[[nodiscard]] inline std::optional<std::vector<uint8_t>> read_asset_file(std::string_view relative_path) {
 		namespace fs = std::filesystem;
 		std::error_code ec;
-		fs::path candidate{std::string(relative_path)};
-		if (!fs::is_regular_file(candidate, ec)) {
-			bool found = false;
+		std::vector<fs::path> candidates_to_try;
+		fs::path initial_path{std::string(relative_path)};
+		candidates_to_try.push_back(initial_path);
+		if (!relative_path.starts_with("assets/") && !relative_path.starts_with("assets\\")) {
+			candidates_to_try.push_back(fs::path("assets") / initial_path);
+		} else {
+			const std::string stripped = std::string(relative_path.substr(7));
+			candidates_to_try.push_back(fs::path(stripped));
+		}
+
+		fs::path resolved_path;
+		bool found = false;
+
+		for (const auto& candidate : candidates_to_try) {
+			if (fs::is_regular_file(candidate, ec)) {
+				resolved_path = candidate;
+				found = true;
+				break;
+			}
 			fs::path prefix;
-			for (size_t depth = 1; depth <= 4 && !found; ++depth) {
+			for (size_t depth = 1; depth <= 5 && !found; ++depth) {
 				prefix /= "..";
 				const fs::path attempt = (prefix / candidate).lexically_normal();
 				if (fs::is_regular_file(attempt, ec)) {
-					candidate = attempt;
+					resolved_path = attempt;
 					found = true;
+					break;
 				}
 			}
-			if (!found) return std::nullopt;
+			if (found) break;
 		}
 
-		std::ifstream file(candidate, std::ios::binary | std::ios::ate);
+		if (!found) return std::nullopt;
+
+		std::ifstream file(resolved_path, std::ios::binary | std::ios::ate);
 		if (!file.is_open()) return std::nullopt;
 		const std::streamsize size = file.tellg();
 		if (size <= 0) return std::nullopt;

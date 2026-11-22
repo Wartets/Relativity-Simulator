@@ -123,7 +123,8 @@ public:
 			static_cast<float>(body.color_tertiary[2])
 		};
 
-		if (texture_mode != 8U && texture_mode != Optics::kEarthSurfaceTextureMode) {
+		const bool is_photo = Optics::is_photographic_surface_mode(texture_mode);
+		if (texture_mode != 8U && !is_photo) {
 			const float polar_strength = static_cast<float>(std::clamp(body.polar_cap_strength, 0.0, 1.0));
 			if (polar_strength > 0.0f) {
 				const float weight = std::pow(std::abs(cos_theta), 3.0f) * polar_strength;
@@ -139,7 +140,7 @@ public:
 			}
 		}
 
-		if (texture_mode != 11U && texture_mode != Optics::kEarthSurfaceTextureMode && body.night_side_light_intensity > 0.0) {
+		if (texture_mode != 11U && !is_photo && body.night_side_light_intensity > 0.0) {
 			const float sx = sin_theta * std::cos(phi) * noise_scale;
 			const float sy = sin_theta * std::sin(phi) * noise_scale;
 			const float sz = cos_theta * noise_scale;

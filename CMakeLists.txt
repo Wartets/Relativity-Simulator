@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(RelativisticEngine
-	VERSION 0.4.2.045
+	VERSION 0.4.2.046
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -864,6 +864,21 @@ install(DIRECTORY scenarios
 	COMPONENT Scenarios
 	FILES_MATCHING PATTERN "*.yaml"
 )
+
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+	install(DIRECTORY assets
+		DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine
+		COMPONENT RuntimeData
+	)
+endif()
+
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/textures")
+	install(DIRECTORY textures
+		DESTINATION ${CMAKE_INSTALL_DATADIR}/relativistic-engine/textures
+		COMPONENT RuntimeData
+		FILES_MATCHING PATTERN "*.png" PATTERN "*.txt"
+	)
+endif()
 
 include(InstallRequiredSystemLibraries)
 

@@ -615,8 +615,7 @@ layout(std430, binding = 2) readonly buffer BodyBuffer {
 };
 
 layout(binding = 3) uniform sampler2D panorama_sampler;
-layout(binding = 5) uniform sampler2D earth_day_sampler;
-layout(binding = 6) uniform sampler2D earth_night_sampler;
+layout(binding = 5) uniform sampler2D celestial_samplers[15];
 
 layout(std430, binding = 4) buffer PersistentWorkQueue {
 	uint persistent_next_pixel_index;
@@ -2675,39 +2674,47 @@ vec3 surface_apply_blend(uint blend, vec3 base, vec3 layer_color, float a) {
 	return mix(base, layer_color, a);
 }
 
-vec3 shade_earth_surface(uint bi, float phi, float cos_t, float sun, float vdn, float footprint_pixels, vec3 fallback, out vec3 emissive) {
+vec3 shade_photographic_surface(uint bi, float phi, float cos_t, float sun, float vdn, float footprint_pixels, vec3 fallback, out vec3 emissive) {
 	emissive = vec3(0.0);
-	uint variant = bodies[bi].earth_map_variant;
+	uint mode = bodies[bi].surface_texture_mode;
+	uint catalog_id = (mode >= 13u) ? (mode - 13u) : 0u;
 	vec2 uv = vec2(fract((phi + PI_F) * (1.0 / (2.0 * PI_F))), clamp(acos(clamp(cos_t, -1.0, 1.0)) * (1.0 / PI_F), 0.0, 1.0));
 	float safe_footprint = (footprint_pixels == footprint_pixels) ? clamp(footprint_pixels, 1e-3, 1.0e6) : 1.0;
 	float grazing_lod = -0.5 * log2(clamp(vdn, 0.05, 1.0));
-	vec3 day_rgb = fallback;
-	vec3 night_rgb = vec3(0.0);
 
-	if (variant != 1u && pc.earth_day_width > 0u) {
-		float day_lod = clamp(log2(max(float(pc.earth_day_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
-		day_rgb = textureLod(earth_day_sampler, uv, day_lod).rgb;
-	}
-	if (variant != 0u && pc.earth_night_width > 0u) {
-		float night_lod = clamp(log2(max(float(pc.earth_night_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
-		night_rgb = textureLod(earth_night_sampler, uv, night_lod).rgb;
+	if (catalog_id == 0u) {
+		uint variant = bodies[bi].earth_map_variant;
+		vec3 day_rgb = fallback;
+		vec3 night_rgb = vec3(0.0);
+
+		if (variant != 1u && pc.earth_day_width > 0u) {
+			float day_lod = clamp(log2(max(float(pc.earth_day_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
+			day_rgb = textureLod(celestial_samplers[0], uv, day_lod).rgb;
+		}
+		if (variant != 0u && pc.earth_night_width > 0u) {
+			float night_lod = clamp(log2(max(float(pc.earth_night_width) / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
+			night_rgb = textureLod(celestial_samplers[14], uv, night_lod).rgb;
+		}
+
+		if (variant == 0u) return day_rgb;
+		if (variant == 1u) { emissive = night_rgb; return vec3(0.0); }
+
+		float illumination = sun;
+		float softness = clamp(bodies[bi].earth_terminator_softness, 0.0, 1.0);
+		float half_width = 0.04 + 0.46 * softness;
+		float blend_t = clamp((illumination + half_width) / (2.0 * half_width), 0.0, 1.0);
+		float day_weight = blend_t * blend_t * blend_t * (blend_t * (blend_t * 6.0 - 15.0) + 10.0);
+		emissive = night_rgb * (1.0 - day_weight);
+		return day_rgb * day_weight;
 	}
 
-	if (variant == 0u) {
-		return day_rgb;
+	uint sampler_idx = min(catalog_id, 13u);
+	float lod = clamp(log2(max(2048.0 / safe_footprint, 1.0)) + grazing_lod, 0.0, 16.0);
+	vec3 sampled = textureLod(celestial_samplers[sampler_idx], uv, lod).rgb;
+	if (catalog_id == 1u) {
+		emissive = sampled * 2.0;
 	}
-	if (variant == 1u) {
-		emissive = night_rgb;
-		return vec3(0.0);
-	}
-
-	float illumination = sun;
-	float softness = clamp(bodies[bi].earth_terminator_softness, 0.0, 1.0);
-	float half_width = 0.04 + 0.46 * softness;
-	float blend_t = clamp((illumination + half_width) / (2.0 * half_width), 0.0, 1.0);
-	float day_weight = blend_t * blend_t * blend_t * (blend_t * (blend_t * 6.0 - 15.0) + 10.0);
-	emissive = night_rgb * (1.0 - day_weight);
-	return day_rgb * day_weight;
+	return sampled;
 }
 
 vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n, out vec3 emissive, out float city_speckle, float earth_footprint_pixels) {
@@ -2728,9 +2735,9 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 	float phi = base_azimuth;
 	vec3 sph = vec3(sin_th * cos(phi), sin_th * sin(phi), cos_t);
 	vec3 sp = sph * noise_scale;
-	bool earth_mode = (bodies[bi].surface_texture_mode == 13u);
-	float n_val = earth_mode ? 0.0 : surface_fbm(sp, octaves, roughness);
-	float n_sec = earth_mode ? 0.0 : surface_fbm(sp * 2.3 + vec3(11.0, -7.0, 3.0), octaves, roughness);
+	bool is_photo = (bodies[bi].surface_texture_mode >= 13u);
+	float n_val = is_photo ? 0.0 : surface_fbm(sp, octaves, roughness);
+	float n_sec = is_photo ? 0.0 : surface_fbm(sp * 2.3 + vec3(11.0, -7.0, 3.0), octaves, roughness);
 	float vdn = float(view_dot_n);
 	float sun = float(sun_facing);
 	uint mode = bodies[bi].surface_texture_mode;
@@ -2805,13 +2812,13 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 		float t1 = clamp((w1 + 1.0) * 0.5, 0.0, 1.0);
 		float t2 = clamp((w2 + 1.0) * 0.5, 0.0, 1.0);
 		col = c1 * (1.0 - t1) * (1.0 - t2) + c2 * t1 * (1.0 - t2) + c3 * t2;
-	} else if (mode == 13u) {
-		col = shade_earth_surface(bi, phi, cos_t, sun, vdn, earth_footprint_pixels, c1, emissive);
+	} else if (mode >= 13u) {
+		col = shade_photographic_surface(bi, phi, cos_t, sun, vdn, earth_footprint_pixels, c1, emissive);
 	} else {
 		col = mix(c1, c2, clamp((n_val + 1.0) * 0.5, 0.0, 1.0));
 	}
 
-	if (mode != 8u && mode != 13u) {
+	if (mode != 8u && !is_photo) {
 		float polar_strength = float(clamp(bodies[bi].polar_cap_strength, 0.0, 1.0));
 		if (polar_strength > 0.0) {
 			col = mix(col, c3, pow(abs(cos_t), 3.0) * polar_strength);
@@ -2821,7 +2828,7 @@ vec3 shade_body_surface(uint bi, dvec3 nrm, double sun_facing, double view_dot_n
 			col *= (1.0 - eq);
 		}
 	}
-	if (mode != 11u && mode != 13u && bodies[bi].night_side_light_intensity > 0.0) {
+	if (mode != 11u && !is_photo && bodies[bi].night_side_light_intensity > 0.0) {
 		city_speckle = clamp((n_sec + 1.0) * 0.5, 0.0, 1.0);
 	}
 
@@ -3218,8 +3225,8 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		double surface_view_dot_n = max(0.0, dot(-ray_dir, nrm));
 		LightSample body_light = resolve_body_light(hit_pos, bi);
 		double surface_sun_facing = body_light.lit ? dot(nrm, body_light.direction) : 1.0;
-		bool earth_surface = (bodies[bi].surface_texture_mode == 13u) && (pc.body_render_low_power_mode == 0u);
-		if (!is_simple_lod || earth_surface) {
+		bool photo_surface = (bodies[bi].surface_texture_mode >= 13u) && (pc.body_render_low_power_mode == 0u);
+		if (!is_simple_lod || photo_surface) {
 			surf = shade_body_surface(bi, local_nrm, surface_sun_facing, surface_view_dot_n, surface_emissive, surface_city_speckle, float(coverage) * 6.28318531);
 		}
 
@@ -3233,7 +3240,7 @@ bool intersect_bodies(dvec3 ray_pos, dvec3 ray_dir, double max_dist, out vec3 ou
 		vec3 light_factor = vec3(1.0);
 		vec3 specular_add = vec3(0.0);
 		if (!is_point_lod) {
-			float terminator_softness = earth_surface ? max(pc.light_terminator_softness, float(bodies[bi].earth_terminator_softness)) : pc.light_terminator_softness;
+			float terminator_softness = photo_surface ? max(pc.light_terminator_softness, float(bodies[bi].earth_terminator_softness)) : pc.light_terminator_softness;
 			float lit_amount = body_light.lit ? (shadowed ? 0.0 : wrapped_diffuse(float(raw_ndl), terminator_softness)) : 1.0;
 			float ambient_level = body_light.lit ? pc.light_ambient : 0.0;
 			light_factor = vec3(ambient_level) + body_light.color * (lit_amount * body_light.intensity);

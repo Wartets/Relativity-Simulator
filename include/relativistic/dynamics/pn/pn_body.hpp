@@ -37,7 +37,20 @@ enum class Body3DSurfaceTextureMode : uint32_t {
 	VolcanicMagma       = 10,
 	CityLightsNightSide = 11,
 	NebulousGas         = 12,
-	EarthBlueMarble     = 13
+	EarthBlueMarble     = 13,
+	SunPhotosphere      = 14,
+	MercuryCratered     = 15,
+	VenusAtmosphere     = 16,
+	VenusSurfaceRadar   = 17,
+	MarsDesertBasalt    = 18,
+	JupiterStormBands   = 19,
+	SaturnCloudBelts    = 20,
+	UranusMethaneHaze   = 21,
+	NeptuneVortexBands  = 22,
+	CeresDwarfPlanet    = 23,
+	ErisTransNeptunian  = 24,
+	HaumeaCrystalline   = 25,
+	MakemakeTholinFrost = 26
 };
 
 enum class Body3DAtmosphereMode : uint32_t {
@@ -65,7 +78,7 @@ enum class Body3DPreset : uint32_t {
 	Custom            = 9
 };
 
-static_assert(static_cast<uint32_t>(Body3DSurfaceTextureMode::EarthBlueMarble) == Optics::kEarthSurfaceTextureMode);
+static_assert(static_cast<uint32_t>(Body3DSurfaceTextureMode::EarthBlueMarble) == Optics::kPhotographicSurfaceTextureModeBase);
 
 struct alignas(64) PostNewtonianBody {
 	uint32_t id{0};
@@ -123,7 +136,7 @@ struct alignas(64) PostNewtonianBody {
 	bool ring_system_enabled{false};
 	float night_side_light_intensity{0.0f};
 	Optics::EarthMapVariant earth_map_variant{Optics::EarthMapVariant::Day};
-	Optics::EarthMapQuality earth_map_quality{Optics::EarthMapQuality::Q1K};
+	uint32_t earth_map_quality{0};
 	float earth_terminator_softness{0.45f};
 	Render::AccretionDiskSettings accretion_disk{};
 

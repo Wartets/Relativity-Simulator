@@ -245,9 +245,9 @@ private:
 			const double pixel_coverage_ratio_lod = apparent_angular_radius_lod / std::max(angular_pixel_size_lod, 1e-12);
 			const bool lod_point = (params.body_render_low_power_mode == 0U) && (pixel_coverage_ratio_lod < static_cast<double>(std::max(params.body_render_point_pixel_threshold, 1U)));
 			const bool lod_simple = (params.body_render_low_power_mode != 0U) || lod_point || (pixel_coverage_ratio_lod < static_cast<double>(params.body_render_lod_pixel_threshold));
-			const bool earth_shading = (body.surface_texture_mode == Optics::kEarthSurfaceTextureMode) && (params.body_render_low_power_mode == 0U);
-			const bool shade_surface = !lod_simple || earth_shading;
-			std::array<float, 3> earth_emissive{0.0f, 0.0f, 0.0f};
+			const bool is_photo_mode = Optics::is_photographic_surface_mode(body.surface_texture_mode) && (params.body_render_low_power_mode == 0U);
+			const bool shade_surface = !lod_simple || is_photo_mode;
+			std::array<float, 3> photo_emissive{0.0f, 0.0f, 0.0f};
 
 			const double norm_lz = std::clamp(lz / scale_c, -1.0, 1.0);
 			const double theta = std::acos(norm_lz);
@@ -265,31 +265,44 @@ private:
 			bool city_lights_mode = false;
 			float city_lights_speckle = 0.0f;
 
-			if (earth_shading) {
-				const auto earth_variant = Optics::earth_map_variant_from_index(body.earth_map_variant);
-				const auto earth_quality = Optics::earth_map_quality_from_index(body.earth_map_quality);
-				const double earth_u_unwrapped = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
-				const double earth_u = std::isfinite(earth_u_unwrapped) ? (earth_u_unwrapped - std::floor(earth_u_unwrapped)) : 0.0;
-				const double earth_v = std::isfinite(theta) ? std::clamp(theta * (1.0 / std::numbers::pi_v<double>), 0.0, 1.0) : 0.5;
-				auto& earth_loader = Optics::EarthTextureLoader::instance();
-				std::array<float, 3> earth_day_rgb{r_surf, g_surf, b_surf};
-				std::array<float, 3> earth_night_rgb{0.0f, 0.0f, 0.0f};
-				if (Optics::earth_variant_uses_day_map(earth_variant)) {
-					if (const auto sampled = earth_loader.sample(Optics::EarthMapKind::Day, earth_quality, earth_u, earth_v)) {
-						earth_day_rgb = *sampled;
+			if (is_photo_mode) {
+				const auto texture_id = Optics::surface_mode_to_body_texture(body.surface_texture_mode);
+				const auto tex_quality = Optics::body_texture_quality_from_index(body.earth_map_quality);
+				const double tex_u_unwrapped = (phi + std::numbers::pi_v<double>) * (1.0 / (2.0 * std::numbers::pi_v<double>));
+				const double tex_u = std::isfinite(tex_u_unwrapped) ? (tex_u_unwrapped - std::floor(tex_u_unwrapped)) : 0.0;
+				const double tex_v = std::isfinite(theta) ? std::clamp(theta * (1.0 / std::numbers::pi_v<double>), 0.0, 1.0) : 0.5;
+				auto& tex_loader = Optics::EarthTextureLoader::instance();
+
+				if (texture_id == Optics::BodyTextureId::Earth) {
+					const auto earth_variant = Optics::earth_map_variant_from_index(body.earth_map_variant);
+					std::array<float, 3> earth_day_rgb{r_surf, g_surf, b_surf};
+					std::array<float, 3> earth_night_rgb{0.0f, 0.0f, 0.0f};
+					if (Optics::earth_variant_uses_day_map(earth_variant)) {
+						if (const auto sampled = tex_loader.sample(Optics::EarthMapKind::Day, tex_quality, tex_u, tex_v)) {
+							earth_day_rgb = *sampled;
+						}
+					}
+					if (Optics::earth_variant_uses_night_map(earth_variant)) {
+						if (const auto sampled = tex_loader.sample(Optics::EarthMapKind::Night, tex_quality, tex_u, tex_v)) {
+							earth_night_rgb = *sampled;
+						}
+					}
+					const float earth_sun_facing = static_cast<float>(light_sun_facing);
+					const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, EarthTerminator::blend_softness(body.earth_terminator_softness), earth_sun_facing, earth_day_rgb, earth_night_rgb);
+					r_surf = earth_color.albedo[0];
+					g_surf = earth_color.albedo[1];
+					b_surf = earth_color.albedo[2];
+					photo_emissive = earth_color.emissive;
+				} else {
+					if (const auto sampled = tex_loader.sample_texture(texture_id, tex_quality, tex_u, tex_v)) {
+						r_surf = (*sampled)[0];
+						g_surf = (*sampled)[1];
+						b_surf = (*sampled)[2];
+					}
+					if (Optics::kBodyTextureDescriptors[static_cast<size_t>(texture_id)].is_emissive_star) {
+						photo_emissive = {r_surf * 1.5f, g_surf * 1.5f, b_surf * 1.5f};
 					}
 				}
-				if (Optics::earth_variant_uses_night_map(earth_variant)) {
-					if (const auto sampled = earth_loader.sample(Optics::EarthMapKind::Night, earth_quality, earth_u, earth_v)) {
-						earth_night_rgb = *sampled;
-					}
-				}
-				const float earth_sun_facing = static_cast<float>(light_sun_facing);
-				const EarthSurfaceColor earth_color = EarthSurfaceShading::blend(earth_variant, EarthTerminator::blend_softness(body.earth_terminator_softness), earth_sun_facing, earth_day_rgb, earth_night_rgb);
-				r_surf = earth_color.albedo[0];
-				g_surf = earth_color.albedo[1];
-				b_surf = earth_color.albedo[2];
-				earth_emissive = earth_color.emissive;
 			} else if (!lod_simple) {
 				const float noise_scale_f = static_cast<float>(std::max(body.noise_scale, 0.1) * std::max(body.texture_detail_scale, 0.1));
 				const float roughness_f = static_cast<float>(std::clamp(body.noise_roughness, 0.05, 1.0));
@@ -454,7 +467,7 @@ private:
 				}
 			}
 
-			std::array<float, 3> body_emissive = earth_emissive;
+			std::array<float, 3> body_emissive = photo_emissive;
 			if (shade_surface) {
 				const float sun_facing = static_cast<float>(light_sun_facing);
 				SurfaceShadingState shading_state;
@@ -535,7 +548,7 @@ private:
 
 			std::array<float, 3> light_factor{1.0f, 1.0f, 1.0f};
 			if (!lod_point) {
-				const float terminator_softness = earth_shading ? std::max(params.light_terminator_softness, body.earth_terminator_softness) : params.light_terminator_softness;
+				const float terminator_softness = is_photo_mode ? std::max(params.light_terminator_softness, body.earth_terminator_softness) : params.light_terminator_softness;
 				const float lit_amount = light.lit
 					? static_cast<float>(occluded ? 0.0 : BodyLighting::wrapped_diffuse(raw_ndl, terminator_softness))
 					: 1.0f;

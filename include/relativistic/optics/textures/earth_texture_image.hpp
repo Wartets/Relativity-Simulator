@@ -113,7 +113,7 @@ public:
 	using ImageHandle = std::shared_ptr<const EarthTextureImage>;
 
 private:
-	static constexpr size_t kSlotCount = kEarthMapKindCount * kEarthMapQualityCount;
+	static constexpr size_t kSlotCount = (kBodyTextureIdCount + 1U) * kBodyTextureQualityCount;
 
 	enum class SlotState : uint8_t {
 		Empty,
@@ -153,8 +153,16 @@ private:
 	EarthTextureLoader(const EarthTextureLoader&) = delete;
 	EarthTextureLoader& operator=(const EarthTextureLoader&) = delete;
 
-	[[nodiscard]] static constexpr size_t slot_index(EarthMapKind kind, EarthMapQuality quality) noexcept {
-		return static_cast<size_t>(kind) * kEarthMapQualityCount + static_cast<size_t>(quality);
+	[[nodiscard]] static constexpr size_t slot_index(BodyTextureId id, BodyTextureQuality quality) noexcept {
+		return static_cast<size_t>(id) * kBodyTextureQualityCount + static_cast<size_t>(quality);
+	}
+
+	[[nodiscard]] static constexpr size_t earth_night_slot_index(BodyTextureQuality quality) noexcept {
+		return (kBodyTextureIdCount * kBodyTextureQualityCount) + static_cast<size_t>(quality);
+	}
+
+	[[nodiscard]] static constexpr size_t slot_index_from_kind(EarthMapKind kind, EarthMapQuality quality) noexcept {
+		return (kind == EarthMapKind::Night) ? earth_night_slot_index(quality) : slot_index(BodyTextureId::Earth, quality);
 	}
 
 	static void reset_slot(Slot& slot) noexcept {
@@ -173,8 +181,7 @@ private:
 		});
 	}
 
-	[[nodiscard]] static ImageHandle decode(EarthMapKind kind, EarthMapQuality quality) noexcept {
-		const std::string_view path = earth_map_relative_path(kind, quality);
+	[[nodiscard]] static ImageHandle decode_path(std::string_view path) noexcept {
 		try {
 			const auto decode_started = std::chrono::steady_clock::now();
 			auto decoded = PanoramaDecodeDetail::decode_panorama_file(path);
@@ -183,25 +190,26 @@ private:
 				const uint32_t decoded_height = decoded->height;
 				auto image = std::make_shared<const EarthTextureImage>(EarthTextureImage::from_base(std::move(*decoded)));
 				const double elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - decode_started).count();
-				Core::log_info("Earth texture decoded: " + std::string(path) + " (" + std::to_string(decoded_width) + "x" + std::to_string(decoded_height) + ", " + std::to_string(image->levels.size()) + " mip levels, " + std::to_string(static_cast<int>(elapsed_ms)) + " ms)");
+				Core::log_info("Celestial body texture decoded: " + std::string(path) + " (" + std::to_string(decoded_width) + "x" + std::to_string(decoded_height) + ", " + std::to_string(image->levels.size()) + " mip levels, " + std::to_string(static_cast<int>(elapsed_ms)) + " ms)");
 				return image;
 			}
 		} catch (...) {
 		}
 		try {
-			Core::log_error("Earth texture could not be decoded, the body keeps its base color: " + std::string(path));
+			Core::log_error("Body texture could not be decoded: " + std::string(path));
 		} catch (...) {
 		}
 		return nullptr;
 	}
 
-	void launch_decode(EarthMapKind kind, EarthMapQuality quality, size_t index, uint64_t generation) noexcept {
+	void launch_decode(std::string_view path, size_t index, uint64_t generation) noexcept {
 		auto finished = std::make_shared<std::atomic<bool>>(false);
+		std::string path_str(path);
 		try {
-			std::jthread thread([this, kind, quality, index, generation, finished]() {
-				Core::Diagnostics::set_thread_name("earth-decode");
-				Core::Diagnostics::ActivityScope decode_activity("earth texture decode");
-				ImageHandle image = decode(kind, quality);
+			std::jthread thread([this, path_str = std::move(path_str), index, generation, finished]() {
+				Core::Diagnostics::set_thread_name("body-tex-decode");
+				Core::Diagnostics::ActivityScope decode_activity("body texture decode");
+				ImageHandle image = decode_path(path_str);
 				{
 					std::lock_guard<std::mutex> lock(mutex_);
 					Slot& slot = slots_[index];
@@ -231,8 +239,8 @@ public:
 		return loader;
 	}
 
-	[[nodiscard]] ImageHandle try_acquire(EarthMapKind kind, EarthMapQuality quality) noexcept {
-		const size_t index = slot_index(kind, quality);
+	[[nodiscard]] ImageHandle try_acquire_texture(BodyTextureId id, BodyTextureQuality quality) noexcept {
+		const size_t index = slot_index(id, quality);
 		uint64_t generation = 0;
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
@@ -249,13 +257,57 @@ public:
 			slot.state = SlotState::Decoding;
 			generation = slot.generation;
 		}
-		launch_decode(kind, quality, index, generation);
+		launch_decode(body_texture_relative_path(id, quality), index, generation);
 		return nullptr;
+	}
+
+	[[nodiscard]] ImageHandle try_acquire_earth_night(BodyTextureQuality quality) noexcept {
+		const size_t index = earth_night_slot_index(quality);
+		uint64_t generation = 0;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			Slot& slot = slots_[index];
+			switch (slot.state) {
+				case SlotState::Ready:
+					return slot.image;
+				case SlotState::Decoding:
+				case SlotState::Failed:
+					return nullptr;
+				case SlotState::Empty:
+					break;
+			}
+			slot.state = SlotState::Decoding;
+			generation = slot.generation;
+		}
+		launch_decode(earth_night_relative_path(quality), index, generation);
+		return nullptr;
+	}
+
+	[[nodiscard]] ImageHandle try_acquire(EarthMapKind kind, EarthMapQuality quality) noexcept {
+		return (kind == EarthMapKind::Night) ? try_acquire_earth_night(quality) : try_acquire_texture(BodyTextureId::Earth, quality);
+	}
+
+	[[nodiscard]] bool is_decoding_texture(BodyTextureId id, BodyTextureQuality quality) noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
+		return slots_[slot_index(id, quality)].state == SlotState::Decoding;
 	}
 
 	[[nodiscard]] bool is_decoding(EarthMapKind kind, EarthMapQuality quality) noexcept {
 		std::lock_guard<std::mutex> lock(mutex_);
-		return slots_[slot_index(kind, quality)].state == SlotState::Decoding;
+		return slots_[slot_index_from_kind(kind, quality)].state == SlotState::Decoding;
+	}
+
+	[[nodiscard]] bool await_texture(BodyTextureId id, BodyTextureQuality quality, std::chrono::milliseconds timeout) noexcept {
+		const auto deadline = std::chrono::steady_clock::now() + timeout;
+		while (true) {
+			if (try_acquire_texture(id, quality) != nullptr) {
+				return true;
+			}
+			if (!is_decoding_texture(id, quality) || std::chrono::steady_clock::now() >= deadline) {
+				return false;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
 	}
 
 	[[nodiscard]] bool await(EarthMapKind kind, EarthMapQuality quality, std::chrono::milliseconds timeout) noexcept {
@@ -274,7 +326,15 @@ public:
 	void release(EarthMapKind kind, EarthMapQuality quality) noexcept {
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
-			reset_slot(slots_[slot_index(kind, quality)]);
+			reset_slot(slots_[slot_index_from_kind(kind, quality)]);
+		}
+		epoch_.fetch_add(1, std::memory_order_release);
+	}
+
+	void release_texture(BodyTextureId id, BodyTextureQuality quality) noexcept {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			reset_slot(slots_[slot_index(id, quality)]);
 		}
 		epoch_.fetch_add(1, std::memory_order_release);
 	}
@@ -282,8 +342,8 @@ public:
 	void release_kind(EarthMapKind kind) noexcept {
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
-			for (size_t q = 0; q < kEarthMapQualityCount; ++q) {
-				reset_slot(slots_[static_cast<size_t>(kind) * kEarthMapQualityCount + q]);
+			for (size_t q = 0; q < kBodyTextureQualityCount; ++q) {
+				reset_slot(slots_[slot_index_from_kind(kind, static_cast<BodyTextureQuality>(q))]);
 			}
 		}
 		epoch_.fetch_add(1, std::memory_order_release);
@@ -314,21 +374,21 @@ public:
 		return revision_.load(std::memory_order_acquire);
 	}
 
-	[[nodiscard]] std::optional<std::array<float, 3>> sample(EarthMapKind kind, EarthMapQuality quality, double u, double v) noexcept {
+	[[nodiscard]] std::optional<std::array<float, 3>> sample_texture(BodyTextureId id, BodyTextureQuality quality, double u, double v) noexcept {
 		struct CachedImage {
 			uint64_t epoch{0};
 			ImageHandle image{};
 		};
 		thread_local std::array<CachedImage, kSlotCount> cache{};
 
-		CachedImage& entry = cache[slot_index(kind, quality)];
+		CachedImage& entry = cache[slot_index(id, quality)];
 		const uint64_t current_epoch = epoch_.load(std::memory_order_acquire);
 		if (entry.epoch != current_epoch) {
 			entry.image.reset();
 			entry.epoch = current_epoch;
 		}
 		if (!entry.image) {
-			entry.image = try_acquire(kind, quality);
+			entry.image = try_acquire_texture(id, quality);
 			if (!entry.image) {
 				return std::nullopt;
 			}
@@ -337,6 +397,29 @@ public:
 			return std::nullopt;
 		}
 		return entry.image->levels.front().sample_bilinear(u, v);
+	}
+
+	[[nodiscard]] std::optional<std::array<float, 3>> sample(EarthMapKind kind, EarthMapQuality quality, double u, double v) noexcept {
+		if (kind == EarthMapKind::Night) {
+			struct CachedImage {
+				uint64_t epoch{0};
+				ImageHandle image{};
+			};
+			thread_local std::array<CachedImage, kBodyTextureQualityCount> night_cache{};
+			CachedImage& entry = night_cache[static_cast<size_t>(quality)];
+			const uint64_t current_epoch = epoch_.load(std::memory_order_acquire);
+			if (entry.epoch != current_epoch) {
+				entry.image.reset();
+				entry.epoch = current_epoch;
+			}
+			if (!entry.image) {
+				entry.image = try_acquire_earth_night(quality);
+				if (!entry.image) return std::nullopt;
+			}
+			if (!entry.image->is_valid()) return std::nullopt;
+			return entry.image->levels.front().sample_bilinear(u, v);
+		}
+		return sample_texture(BodyTextureId::Earth, quality, u, v);
 	}
 };
 

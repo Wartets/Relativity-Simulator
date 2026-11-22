@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/optics/textures/earth_texture_catalog.hpp"
 #include "relativistic/render/gpu_types.hpp"
 #include <algorithm>
 #include <array>
@@ -123,7 +124,7 @@ public:
 		for (double& channel : body.atmosphere_color) repair.real(channel, 0.0, kMaxColor, 0.0);
 
 		repair.index(body.geometry_model, 5U, 1U);
-		repair.index(body.surface_texture_mode, 13U, 0U);
+		repair.index(body.surface_texture_mode, Optics::kPhotographicSurfaceTextureModeBase + static_cast<uint32_t>(Optics::kBodyTextureIdCount) - 1U, 0U);
 		repair.index(body.atmosphere_mode, 5U, 2U);
 		repair.index(body.preset_3d, 9U, 9U);
 		repair.index(body.earth_map_variant, 2U, 0U);

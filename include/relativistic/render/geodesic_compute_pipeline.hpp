@@ -469,8 +469,13 @@ private:
 			if (requirements.night) {
 				static_cast<void>(loader.await(Optics::EarthMapKind::Night, requirements.quality, timeout));
 			}
+			for (size_t i = 1; i < Optics::kBodyTextureIdCount; ++i) {
+				if (requirements.textures[i]) {
+					static_cast<void>(loader.await_texture(static_cast<Optics::BodyTextureId>(i), requirements.quality, timeout));
+				}
+			}
 		} catch (...) {
-			Core::log_error("Waiting for the Earth textures failed; the capture continues with the fallback surface color.");
+			Core::log_error("Waiting for the celestial body textures failed; the capture continues with the fallback surface color.");
 		}
 	}
 

@@ -335,11 +335,52 @@ inline constexpr std::array<const char*, 10> kBodySurfacePresetNames{
 	"Asteroid", "Neutron Star", "Pulsar", "Black Hole", "Custom"
 };
 
-inline constexpr std::array<const char*, 14> kBodyTextureModeNames{
+inline constexpr std::array<const char*, 14> kBaseTextureCategoryNames{
+	"Procedural Noise Shader",
+	"Solid Color",
+	"Color Palette Blend",
+	"Banded Gas Giant",
+	"Cratered Terrestrial",
+	"Stellar Granulation",
+	"Accretion Flow",
+	"Marbled Stone",
+	"Ringed Gas Giant (Bands + Polar Caps)",
+	"Icy Cracked Surface",
+	"Volcanic Magma",
+	"City Lights (Night Side)",
+	"Nebulous Gas Cloud",
+	"Photographic Texture Maps (Imported Assets)"
+};
+
+inline constexpr std::array<const char*, Optics::kBodyTextureIdCount> kPhotographicBodyChoiceNames{
+	"Earth (Blue Marble)",
+	"Sun (Photosphere)",
+	"Mercury (Cratered Basalt)",
+	"Venus (Cloud Atmosphere)",
+	"Venus (Radar Surface)",
+	"Mars (Rusty Basalt & Deserts)",
+	"Jupiter (Zonal Belts & Storms)",
+	"Saturn (Atmospheric Belts)",
+	"Uranus (Cyan Haze)",
+	"Neptune (Deep Blue Dynamic)",
+	"Ceres (Dwarf Planet)",
+	"Eris (Trans-Neptunian)",
+	"Haumea (Crystalline Ice)",
+	"Makemake (Tholin Frost)"
+};
+
+inline constexpr std::array<const char*, 27> kBodyTextureModeNames{
 	"Procedural Noise Shader", "Solid Color", "Color Palette Blend", "Banded Gas Giant",
 	"Cratered Terrestrial", "Stellar Granulation", "Accretion Flow", "Marbled Stone",
 	"Ringed Gas Giant (Bands + Polar Caps)", "Icy Cracked Surface", "Volcanic Magma",
-	"City Lights (Night Side)", "Nebulous Gas Cloud", "Earth Photographic Map (Blue Marble)"
+	"City Lights (Night Side)", "Nebulous Gas Cloud", "Photo: Earth (Blue Marble & City Lights)",
+	"Photo: Sun (Photosphere & Granulation)", "Photo: Mercury (MESSENGER Basalt)",
+	"Photo: Venus (Atmosphere Clouds)", "Photo: Venus (Magellan Radar Surface)",
+	"Photo: Mars (Viking/MRO Rust Basalt)", "Photo: Jupiter (Cassini/Juno Zonal Bands)",
+	"Photo: Saturn (Cassini Cloud Belts)", "Photo: Uranus (Voyager Cyan Methane)",
+	"Photo: Neptune (Voyager Deep Blue Vortex)", "Photo: Ceres (Dawn Dark Regolith)",
+	"Photo: Eris (Trans-Neptunian Ice)", "Photo: Haumea (Crystalline Water Ice)",
+	"Photo: Makemake (Tholin Methane Frost)"
 };
 
 inline constexpr std::array<const char*, 3> kEarthMapVariantNames{

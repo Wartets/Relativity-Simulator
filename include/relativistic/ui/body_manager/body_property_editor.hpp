@@ -47,6 +47,19 @@ namespace Relativistic::UI {
 		case 11U: return "City lights: primary/secondary land with a speckled night side driven by Night Side City Lights.";
 		case 12U: return "Nebulous cloud: three-color wisps mixing primary, secondary and tertiary colors.";
 		case 13U: return "Earth photographic map: real day and night imagery with an automatic lit-side mask. Only the texture layers stay editable on top, and the images are loaded only while a body uses this mode.";
+		case 14U: return "Sun photosphere: high-resolution solar granulation and limb darkening based on SOHO/SDO observations.";
+		case 15U: return "Mercury basalt: high-detail cratered impact terrain from the MESSENGER orbital mission.";
+		case 16U: return "Venus atmosphere: dense sulfuric acid and carbon dioxide global cloud patterns in visible spectrum.";
+		case 17U: return "Venus radar surface: global Magellan synthetic aperture radar altimetry map of volcanic terrain.";
+		case 18U: return "Mars basalt & deserts: Viking and Mars Reconnaissance Orbiter global photographic mosaic.";
+		case 19U: return "Jupiter zonal bands: Cassini and Juno global cylindrical projection of convective storms and belts.";
+		case 20U: return "Saturn cloud belts: high-resolution Cassini photographic mosaic of upper tropospheric bands.";
+		case 21U: return "Uranus methane haze: Voyager 2 true-color recreation of cyan methane-rich upper atmosphere.";
+		case 22U: return "Neptune dynamic vortices: Voyager 2 true-color imagery of high-velocity atmospheric jet streams.";
+		case 23U: return "Ceres dwarf planet: Dawn spacecraft global mapping showing Occator crater faculae and carbonaceous regolith.";
+		case 24U: return "Eris trans-neptunian: photometric albedo map of frozen methane and nitrogen surface ice.";
+		case 25U: return "Haumea crystalline ice: spectral reconstruction of pure crystalline water ice surface.";
+		case 26U: return "Makemake tholin frost: photometric mapping of volatile methane ice and reddish-brown tholin macromolecules.";
 		default: return "Unknown texture mode.";
 	}
 }
@@ -371,13 +384,6 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip("Day shows the sunlit photographic map, Night shows the city-lights map as self-illumination, and Automatic masks both by the lit side of the body for a continuous blue-marble transition.");
 
-	int quality_idx = std::min(static_cast<int>(b.earth_map_quality), static_cast<int>(kEarthMapQualityNames.size()) - 1);
-	if (ImGui::Combo("Earth Map Quality", &quality_idx, kEarthMapQualityNames.data(), static_cast<int>(kEarthMapQualityNames.size()))) {
-		b.earth_map_quality = Optics::earth_map_quality_from_index(static_cast<uint32_t>(quality_idx));
-		changed = true;
-	}
-	render_setting_tooltip("Resolution of the Earth images decoded and uploaded to the GPU. When several Earth bodies request different qualities, the highest one is used on the GPU.");
-
 	if (b.earth_map_variant == Optics::EarthMapVariant::Automatic) {
 		if (ImGui::SliderFloat("Terminator Blend Softness", &b.earth_terminator_softness, 0.0f, 1.0f, "%.2f")) {
 			changed = true;
@@ -399,8 +405,8 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip("Defines the ray-traced 3D shape. Oblate and prolate spheroids deform from the J2 moment, and the triaxial ellipsoid adds a flattened second axis.");
 
-	const bool earth_texture_active = (b.surface_texture_mode == Dynamics::Body3DSurfaceTextureMode::EarthBlueMarble);
-	ImGui::BeginDisabled(earth_texture_active);
+	const bool photo_texture_active = Optics::is_photographic_surface_mode(static_cast<uint32_t>(b.surface_texture_mode));
+	ImGui::BeginDisabled(photo_texture_active);
 	int preset_idx = std::min(static_cast<int>(b.preset_3d), static_cast<int>(kBodySurfacePresetNames.size()) - 1);
 	if (ImGui::Combo("Surface Preset", &preset_idx, kBodySurfacePresetNames.data(), static_cast<int>(kBodySurfacePresetNames.size()))) {
 		apply_body_appearance_preset(b, static_cast<Dynamics::Body3DPreset>(preset_idx));
@@ -414,19 +420,47 @@ namespace Relativistic::UI {
 	}
 	render_setting_tooltip("Restores the base appearance parameters of the current preset without touching texture layers.");
 	ImGui::EndDisabled();
-	if (earth_texture_active) {
-		render_hint_text("Surface presets are locked while the Earth texture is active; change the Base Texture Mode to leave it.");
+	if (photo_texture_active) {
+		render_hint_text("Surface presets are locked while a photographic texture is active; change the Base Texture Mode to leave it.");
 	}
 
-	int texture_idx = std::min(static_cast<int>(b.surface_texture_mode), static_cast<int>(kBodyTextureModeNames.size()) - 1);
-	if (ImGui::Combo("Base Texture Mode", &texture_idx, kBodyTextureModeNames.data(), static_cast<int>(kBodyTextureModeNames.size()))) {
-		b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(texture_idx);
+	const bool is_photo_active = Optics::is_photographic_surface_mode(static_cast<uint32_t>(b.surface_texture_mode));
+	int category_idx = is_photo_active ? 13 : static_cast<int>(b.surface_texture_mode);
+	if (ImGui::Combo("Base Texture Mode", &category_idx, kBaseTextureCategoryNames.data(), static_cast<int>(kBaseTextureCategoryNames.size()))) {
+		if (category_idx == 13) {
+			b.surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::EarthBlueMarble;
+		} else {
+			b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(category_idx);
+		}
 		changed = true;
 	}
-	render_hint_text(body_texture_mode_description(static_cast<uint32_t>(texture_idx)));
+	render_setting_tooltip("Choose between procedural mathematical noise shaders or pre-rendered photographic surface texture assets.");
 
-	if (earth_texture_active) {
-		return render_earth_texture_controls(b) || changed;
+	if (Optics::is_photographic_surface_mode(static_cast<uint32_t>(b.surface_texture_mode))) {
+		const auto current_tex_id = Optics::surface_mode_to_body_texture(static_cast<uint32_t>(b.surface_texture_mode));
+		int photo_choice_idx = static_cast<int>(current_tex_id);
+		if (ImGui::Combo("Imported Celestial Texture", &photo_choice_idx, kPhotographicBodyChoiceNames.data(), static_cast<int>(kPhotographicBodyChoiceNames.size()))) {
+			b.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(Optics::body_texture_to_surface_mode(static_cast<Optics::BodyTextureId>(photo_choice_idx)));
+			changed = true;
+		}
+		render_setting_tooltip("Select which high-resolution photographic planetary or stellar texture map from the asset catalog to project onto this body.");
+
+		int quality_idx = std::min(static_cast<int>(b.earth_map_quality), static_cast<int>(kEarthMapQualityNames.size()) - 1);
+		if (ImGui::Combo("Texture Map Quality", &quality_idx, kEarthMapQualityNames.data(), static_cast<int>(kEarthMapQualityNames.size()))) {
+			b.earth_map_quality = static_cast<uint32_t>(Optics::body_texture_quality_from_index(static_cast<uint32_t>(quality_idx)));
+			changed = true;
+		}
+		render_setting_tooltip("Resolution of the photographic texture decoded and uploaded to the GPU (1K or 2K).");
+
+		const auto active_tex_id = Optics::surface_mode_to_body_texture(static_cast<uint32_t>(b.surface_texture_mode));
+		if (active_tex_id == Optics::BodyTextureId::Earth) {
+			changed = render_earth_texture_controls(b) || changed;
+		} else {
+			render_hint_text(Optics::kBodyTextureDescriptors[static_cast<size_t>(active_tex_id)].description.data());
+		}
+		return changed;
+	} else {
+		render_hint_text(body_texture_mode_description(static_cast<uint32_t>(b.surface_texture_mode)));
 	}
 
 	if (ImGui::ColorEdit4("Primary Color", b.color.data())) changed = true;
@@ -1120,12 +1154,28 @@ inline bool render_batch_object_editor(
 		if (!preset_eq) batch_hover_tooltip(bodies, [](const auto& b) { return std::string(kBodySurfacePresetNames[static_cast<size_t>(b.preset_3d)]); }, [](const std::string& s) { return s; }, "Surface Preset");
 
 		const bool texture_eq = batch_are_equal_exact(bodies, [](const auto& b) { return b.surface_texture_mode; });
-		int texture_idx = texture_eq ? static_cast<int>(bodies.front()->surface_texture_mode) : -1;
-		if (ImGui::Combo("Base Texture Mode", &texture_idx, kBodyTextureModeNames.data(), static_cast<int>(kBodyTextureModeNames.size()))) {
-			for (auto* b : bodies) b->surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(texture_idx);
+		const bool all_photo = texture_eq && Optics::is_photographic_surface_mode(static_cast<uint32_t>(bodies.front()->surface_texture_mode));
+		int category_idx = texture_eq ? (all_photo ? 13 : static_cast<int>(bodies.front()->surface_texture_mode)) : -1;
+		if (ImGui::Combo("Base Texture Mode", &category_idx, kBaseTextureCategoryNames.data(), static_cast<int>(kBaseTextureCategoryNames.size()))) {
+			if (category_idx == 13) {
+				for (auto* b : bodies) b->surface_texture_mode = Dynamics::Body3DSurfaceTextureMode::EarthBlueMarble;
+			} else {
+				for (auto* b : bodies) b->surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(category_idx);
+			}
 			changed = true;
 		}
 		if (!texture_eq) batch_hover_tooltip(bodies, [](const auto& b) { return std::string(kBodyTextureModeNames[static_cast<size_t>(b.surface_texture_mode)]); }, [](const std::string& s) { return s; }, "Base Texture Mode");
+
+		if (all_photo) {
+			const auto current_tex_id = Optics::surface_mode_to_body_texture(static_cast<uint32_t>(bodies.front()->surface_texture_mode));
+			int photo_choice_idx = static_cast<int>(current_tex_id);
+			if (ImGui::Combo("Imported Celestial Texture", &photo_choice_idx, kPhotographicBodyChoiceNames.data(), static_cast<int>(kPhotographicBodyChoiceNames.size()))) {
+				for (auto* b : bodies) {
+					b->surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(Optics::body_texture_to_surface_mode(static_cast<Optics::BodyTextureId>(photo_choice_idx)));
+				}
+				changed = true;
+			}
+		}
 
 		changed = render_batch_scalar_slider(
 			"Surface Noise Scale", bodies,

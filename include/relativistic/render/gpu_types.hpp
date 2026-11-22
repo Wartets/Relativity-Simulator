@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relativistic/optics/textures/earth_texture_catalog.hpp"
 #include "relativistic/render/skybox_renderer.hpp"
 #include <cstdint>
 #include <cstddef>
@@ -1245,6 +1246,7 @@ struct alignas(16) GpuBodyData {
 	uint32_t earth_map_variant{0};
 	uint32_t earth_map_quality{0};
 	float earth_terminator_softness{0.25f};
+	uint32_t texture_catalog_id{0};
 	std::array<double, 4> spin_axis{0.0, 0.0, 1.0, 0.0};
 	std::array<double, 4> orientation{1.0, 0.0, 0.0, 0.0};
 
@@ -1351,6 +1353,7 @@ struct alignas(16) GpuBodyGpuLayout {
 		g.surface_layer_count = std::min<uint32_t>(b.surface_layer_count, static_cast<uint32_t>(kMaxSurfaceLayers));
 		g.earth_map_quality = b.earth_map_quality;
 		g.earth_terminator_softness = b.earth_terminator_softness;
+		g.layer_pad2 = Optics::is_photographic_surface_mode(b.surface_texture_mode) ? static_cast<uint32_t>(Optics::surface_mode_to_body_texture(b.surface_texture_mode)) : 0U;
 		for (size_t i = 0; i < kMaxSurfaceLayers; ++i) {
 			g.surface_layers[i] = b.surface_layers[i];
 		}

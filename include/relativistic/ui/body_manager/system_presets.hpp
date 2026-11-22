@@ -83,7 +83,7 @@ public:
 				.axial_tilt_deg = 7.25,
 				.temperature_k = 5772.0,
 				.preset = Dynamics::Body3DPreset::Star,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::StellarGranulation,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::SunPhotosphere,
 				.color = {1.0f, 0.88f, 0.55f, 1.0f},
 				.color_secondary = {1.0f, 0.35f, 0.05f, 1.0f},
 				.color_tertiary = {1.0f, 0.98f, 0.85f, 1.0f},
@@ -106,7 +106,7 @@ public:
 				.axial_tilt_deg = 0.034,
 				.temperature_k = 440.0,
 				.preset = Dynamics::Body3DPreset::Metallic,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::CrateredTerrestrial,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::MercuryCratered,
 				.color = {0.62f, 0.60f, 0.58f, 1.0f},
 				.color_secondary = {0.35f, 0.33f, 0.32f, 1.0f},
 				.color_tertiary = {0.78f, 0.76f, 0.74f, 1.0f},
@@ -128,7 +128,7 @@ public:
 				.axial_tilt_deg = 177.36,
 				.temperature_k = 737.0,
 				.preset = Dynamics::Body3DPreset::TerrestrialPlanet,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::ProceduralNoise,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::VenusAtmosphere,
 				.color = {0.88f, 0.76f, 0.52f, 1.0f},
 				.color_secondary = {0.72f, 0.58f, 0.36f, 1.0f},
 				.color_tertiary = {0.95f, 0.85f, 0.65f, 1.0f},
@@ -200,7 +200,7 @@ public:
 				.axial_tilt_deg = 25.19,
 				.temperature_k = 210.0,
 				.preset = Dynamics::Body3DPreset::TerrestrialPlanet,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::ProceduralNoise,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::MarsDesertBasalt,
 				.color = {0.78f, 0.38f, 0.22f, 1.0f},
 				.color_secondary = {0.52f, 0.24f, 0.14f, 1.0f},
 				.color_tertiary = {0.96f, 0.94f, 0.92f, 1.0f},
@@ -225,7 +225,7 @@ public:
 				.axial_tilt_deg = 3.13,
 				.temperature_k = 165.0,
 				.preset = Dynamics::Body3DPreset::GasGiant,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::RingedGasGiant,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::JupiterStormBands,
 				.color = {0.84f, 0.68f, 0.48f, 1.0f},
 				.color_secondary = {0.64f, 0.42f, 0.26f, 1.0f},
 				.color_tertiary = {0.92f, 0.86f, 0.76f, 1.0f},
@@ -334,7 +334,7 @@ public:
 				.axial_tilt_deg = 26.73,
 				.temperature_k = 134.0,
 				.preset = Dynamics::Body3DPreset::GasGiant,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::RingedGasGiant,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::SaturnCloudBelts,
 				.color = {0.90f, 0.82f, 0.62f, 1.0f},
 				.color_secondary = {0.75f, 0.62f, 0.42f, 1.0f},
 				.color_tertiary = {0.96f, 0.90f, 0.76f, 1.0f},
@@ -382,7 +382,7 @@ public:
 				.axial_tilt_deg = 97.77,
 				.temperature_k = 76.0,
 				.preset = Dynamics::Body3DPreset::IceGiant,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::IcyCracked,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::UranusMethaneHaze,
 				.color = {0.65f, 0.85f, 0.88f, 1.0f},
 				.color_secondary = {0.45f, 0.68f, 0.74f, 1.0f},
 				.color_tertiary = {0.85f, 0.95f, 0.98f, 1.0f},
@@ -405,7 +405,7 @@ public:
 				.axial_tilt_deg = 28.32,
 				.temperature_k = 72.0,
 				.preset = Dynamics::Body3DPreset::IceGiant,
-				.texture_mode = Dynamics::Body3DSurfaceTextureMode::ProceduralNoise,
+				.texture_mode = Dynamics::Body3DSurfaceTextureMode::NeptuneVortexBands,
 				.color = {0.25f, 0.45f, 0.88f, 1.0f},
 				.color_secondary = {0.15f, 0.28f, 0.68f, 1.0f},
 				.color_tertiary = {0.55f, 0.75f, 0.98f, 1.0f},
@@ -655,7 +655,7 @@ inline void apply_system_preset(BodyManagerContext& ctx, const SystemPresetDefin
 
 		b.surface_texture_mode = spec.texture_mode;
 		b.earth_map_variant = spec.earth_variant;
-		b.earth_map_quality = spec.earth_quality;
+		b.earth_map_quality = static_cast<uint32_t>(spec.earth_quality);
 		b.color = spec.color;
 		b.color_secondary = spec.color_secondary;
 		b.color_tertiary = spec.color_tertiary;

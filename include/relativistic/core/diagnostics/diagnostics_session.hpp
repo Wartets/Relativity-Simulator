@@ -121,6 +121,7 @@ private:
 			}
 			joined.append(descriptor.arguments[index]);
 		}
+		std::replace(joined.begin(), joined.end(), '\\', '/');
 		return joined;
 	}
 
@@ -156,6 +157,7 @@ private:
 			std::ifstream marker(paths_.crash_marker_file);
 			std::getline(marker, folder);
 		}
+		std::replace(folder.begin(), folder.end(), '\\', '/');
 		log_warning("The previous session terminated with a crash. Its report folder was: " + folder);
 		set_environment("previous.crash.folder", folder);
 		record_milestone("previous session crash marker found: " + folder);

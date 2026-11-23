@@ -670,7 +670,7 @@ public:
 				}
 				const auto info = std::filesystem::space(path, ec);
 				if (!ec) {
-					std::fprintf(out, "  %-20s %.2f GiB free of %.2f GiB (%s)\n", label, static_cast<double>(info.available) / 1073741824.0, static_cast<double>(info.capacity) / 1073741824.0, path.string().c_str());
+					std::fprintf(out, "  %-20s %.2f GiB free of %.2f GiB (%s)\n", label, static_cast<double>(info.available) / 1073741824.0, static_cast<double>(info.capacity) / 1073741824.0, path.generic_string().c_str());
 				}
 				ec.clear();
 			};

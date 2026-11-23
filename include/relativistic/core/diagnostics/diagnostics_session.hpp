@@ -138,7 +138,7 @@ private:
 		configuration.command_line = join_arguments(descriptor);
 		configuration.crashes_directory = paths_.crashes_directory.generic_string();
 		configuration.session_log_path = paths_.session_log_file.generic_string();
-		configuration.settings_path = std::filesystem::absolute(std::filesystem::path("config") / "user_settings.cfg", ec).generic_string();
+		configuration.settings_path = std::filesystem::absolute(std::filesystem::path("config") / "preferences", ec).generic_string();
 		configuration.marker_path = paths_.crash_marker_file.generic_string();
 		return configuration;
 	}
@@ -260,11 +260,6 @@ private:
 				}
 				ec.clear();
 			}
-			if (!configuration.settings_path.empty()) {
-				const auto size = std::filesystem::file_size(configuration.settings_path, ec);
-				set_environment("settings.file", ec ? std::string("missing") : (std::to_string(static_cast<unsigned long long>(size)) + " bytes"));
-				ec.clear();
-			}
 			const auto count_entries = [&ec](const std::filesystem::path& directory) -> size_t {
 				size_t count = 0;
 				for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec)) {
@@ -275,6 +270,8 @@ private:
 			};
 			set_environment("logs.sessions.retained", std::to_string(count_entries(paths_.sessions_directory)));
 			set_environment("logs.reports.retained", std::to_string(count_entries(paths_.crashes_directory)));
+			set_environment("settings.preferences.directory", configuration.settings_path);
+			set_environment("settings.preferences.count", std::to_string(count_entries(std::filesystem::path("config/preferences"))));
 			char previous[512];
 			if (!copy_environment_value("previous.crash.folder", previous, sizeof(previous))) {
 				set_environment("previous.crash.folder", "none");

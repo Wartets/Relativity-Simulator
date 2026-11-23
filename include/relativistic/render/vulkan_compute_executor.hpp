@@ -143,7 +143,7 @@ private:
 		return code;
 	}
 
-	static constexpr const char* kPipelineCacheDirectory = "config/pipeline_cache";
+	static constexpr const char* kPipelineCacheDirectory = "cache/shaders";
 	static constexpr std::streamsize kMaxPipelineCacheBytes = 256LL * 1024LL * 1024LL;
 
 	[[nodiscard]] static std::filesystem::path pipeline_cache_path(std::string_view shader_name) {
@@ -151,7 +151,23 @@ private:
 	}
 
 	[[nodiscard]] static std::vector<uint8_t> read_pipeline_cache_file(const std::filesystem::path& path) {
-		std::ifstream file(path, std::ios::binary | std::ios::ate);
+		std::error_code ec;
+		std::filesystem::path resolved_path = path;
+		if (!std::filesystem::exists(resolved_path, ec)) {
+			const std::filesystem::path legacy_path = std::filesystem::path("config/pipeline_cache") / path.filename();
+			ec.clear();
+			if (std::filesystem::exists(legacy_path, ec)) {
+				std::filesystem::create_directories(path.parent_path(), ec);
+				ec.clear();
+				std::filesystem::rename(legacy_path, path, ec);
+				if (!ec) {
+					resolved_path = path;
+				} else {
+					resolved_path = legacy_path;
+				}
+			}
+		}
+		std::ifstream file(resolved_path, std::ios::binary | std::ios::ate);
 		if (!file.is_open()) {
 			return {};
 		}
@@ -282,20 +298,36 @@ private:
 		std::future<VkResult> job = std::async(std::launch::async, [device, cache, &pipeline_info, &created]() {
 			return vkCreateComputePipelines(device, cache, 1, &pipeline_info, nullptr, &created);
 		});
-		while (job.wait_for(std::chrono::milliseconds(250)) != std::future_status::ready) {
+		Startup::set_compilation_state(true, 0.02f, warm ? "Validating warm pipeline cache..." : "Parsing SPIR-V bytecode & module...", 0.0);
+		while (job.wait_for(std::chrono::milliseconds(80)) != std::future_status::ready) {
 			const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-			char text[128];
-			std::snprintf(text, sizeof(text), "The driver is compiling the compute shader (%.1f s elapsed)...", elapsed);
-			Startup::note(text);
+			float comp_fraction = 1.0f - std::exp(-static_cast<float>(elapsed) / (warm ? 1.5f : 12.0f));
+			comp_fraction = std::clamp(comp_fraction, 0.02f, 0.98f);
+			const char* stage_desc = "Analyzing control flow & inlining...";
+			if (comp_fraction >= 0.88f) {
+				stage_desc = "Finalizing machine code & linking pipeline...";
+			} else if (comp_fraction >= 0.70f) {
+				stage_desc = "Generating target GPU machine code...";
+			} else if (comp_fraction >= 0.50f) {
+				stage_desc = "Register allocation & vectorization...";
+			} else if (comp_fraction >= 0.30f) {
+				stage_desc = "Loop unrolling & SSA optimizations...";
+			} else if (comp_fraction >= 0.15f) {
+				stage_desc = "Control flow analysis & AST construction...";
+			}
+			Startup::set_compilation_state(true, comp_fraction, stage_desc, elapsed);
 		}
 		const VkResult result = job.get();
+		const double total_elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 		if (result == VK_SUCCESS) {
 			compute_pipeline_ = created;
-			const double total_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+			const double total_ms = total_elapsed * 1000.0;
 			char text[128];
 			std::snprintf(text, sizeof(text), "Compute pipeline ready in %.0f ms (%s)...", total_ms, warm ? "pipeline cache hit" : "compiled from scratch");
 			Startup::note(text);
+			Startup::set_compilation_state(true, 1.0f, "Pipeline compilation complete", total_elapsed);
 		}
+		Startup::set_compilation_state(false, 1.0f, "", total_elapsed);
 		return result;
 	}
 

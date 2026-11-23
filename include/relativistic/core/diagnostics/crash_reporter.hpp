@@ -115,6 +115,25 @@ inline void copy_scenario_attachment(const char* folder) noexcept {
 	copy_file_tail(scenario, destination, 4U * 1024U * 1024U);
 }
 
+inline void copy_preferences_tree(const char* folder) noexcept {
+	try {
+		std::error_code ec;
+		const std::filesystem::path source_dir("config/preferences");
+		if (!std::filesystem::is_directory(source_dir, ec)) {
+			return;
+		}
+		const std::filesystem::path target_dir = std::filesystem::path(folder) / "preferences";
+		std::filesystem::create_directories(target_dir, ec);
+		for (std::filesystem::directory_iterator it(source_dir, ec), end; !ec && it != end; it.increment(ec)) {
+			if (it->is_regular_file(ec)) {
+				const auto dest = target_dir / it->path().filename();
+				copy_file_tail(it->path().generic_string().c_str(), dest.generic_string().c_str(), 1024U * 1024U);
+			}
+		}
+	} catch (...) {
+	}
+}
+
 inline void write_section(std::FILE* out, const char* title) noexcept {
 	std::fprintf(out, "\n---- %s ----\n", title);
 }
@@ -600,7 +619,7 @@ inline void write_windows_report(const WindowsReportRequest& request) noexcept {
 	write_section(out, "Attachments");
 	std::fprintf(out, "  minidump.dmp         process minidump (open with WinDbg or Visual Studio)\n");
 	std::fprintf(out, "  session.log          tail of the session log written before the crash\n");
-	std::fprintf(out, "  user_settings.cfg    user settings in effect during the crash\n");
+	std::fprintf(out, "  preferences/         category preference files in effect during the crash\n");
 	std::fprintf(out, "\n==== END OF REPORT ====\n");
 	std::fflush(out);
 	if (out != stderr) {
@@ -610,8 +629,7 @@ inline void write_windows_report(const WindowsReportRequest& request) noexcept {
 	char attachment[kPathCapacity];
 	std::snprintf(attachment, sizeof(attachment), "%s/session.log", folder);
 	copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
-	std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder);
-	copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+	copy_preferences_tree(folder);
 	copy_scenario_attachment(folder);
 
 	if (have_debug_help && api.write_dump != nullptr) {
@@ -918,8 +936,7 @@ inline void write_posix_report(int number, const siginfo_t* info, const void* co
 	char attachment[kPathCapacity];
 	std::snprintf(attachment, sizeof(attachment), "%s/session.log", folder);
 	copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
-	std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder);
-	copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+	copy_preferences_tree(folder);
 	copy_scenario_attachment(folder);
 	copy_text(g_state.last_report_folder.data(), kPathCapacity, folder);
 	if (g_state.marker_path[0] != '\0') {
@@ -1059,8 +1076,7 @@ inline constexpr uint32_t kMaximumLiveReports = 12;
 			char attachment[kPathCapacity];
 			std::snprintf(attachment, sizeof(attachment), "%s/session.log", folder.c_str());
 			copy_file_tail(g_state.session_log_path.data(), attachment, 16U * 1024U * 1024U);
-			std::snprintf(attachment, sizeof(attachment), "%s/user_settings.cfg", folder.c_str());
-			copy_file_tail(g_state.settings_path.data(), attachment, 1024U * 1024U);
+			copy_preferences_tree(folder.c_str());
 			copy_scenario_attachment(folder.c_str());
 			if (with_dump) {
 				write_live_minidump(folder.c_str());

@@ -171,6 +171,10 @@ private:
 	bool tracking_mouse_{false};
 	bool ease_timer_active_{false};
 	bool cancelling_{false};
+	bool compiling_shaders_{false};
+	float compilation_fraction_{0.0f};
+	std::wstring compilation_stage_text_{};
+	double compilation_elapsed_{0.0};
 	StartupPhase phase_{StartupPhase::Running};
 	float displayed_fraction_{0.0f};
 	float target_fraction_{0.0f};
@@ -482,7 +486,18 @@ private:
 		if (filled > 0) {
 			RECT fill = bar_rect_;
 			fill.right = fill.left + filled;
-			fill_solid(device, fill, StartupPalette::kAccentBar);
+			fill_solid(device, fill, compiling_shaders_ ? StartupPalette::kAccentSymbol : StartupPalette::kAccentBar);
+		}
+
+		if (compiling_shaders_) {
+			wchar_t text[160];
+			const int comp_pct = static_cast<int>(std::clamp(compilation_fraction_, 0.0f, 1.0f) * 100.0f + 0.5f);
+			if (compilation_stage_text_.empty()) {
+				swprintf_s(text, L"Compiling Shaders: %d%% (%.1fs)", comp_pct, compilation_elapsed_);
+			} else {
+				swprintf_s(text, L"Compiling: %d%% - %ls (%.1fs)", comp_pct, compilation_stage_text_.c_str(), compilation_elapsed_);
+			}
+			draw_text(device, text, fonts_.small, StartupPalette::kTextHighlight, bar_rect_, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 		}
 	}
 
@@ -607,6 +622,10 @@ private:
 				freeze_clock(hwnd);
 			}
 			cancelling_ = snapshot.cancel_requested;
+			compiling_shaders_ = snapshot.compiling_shaders;
+			compilation_fraction_ = snapshot.compilation_fraction;
+			compilation_stage_text_ = widen_utf8(snapshot.compilation_stage);
+			compilation_elapsed_ = snapshot.compilation_elapsed;
 			stage_text_ = widen_utf8(snapshot.stage);
 			if (cancelling_) {
 				detail_text_ = L"Cancelling startup, finishing the current operation...";

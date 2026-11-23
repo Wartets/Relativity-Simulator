@@ -47,6 +47,10 @@ struct StartupSnapshot {
 	std::string error{};
 	StartupPhase phase{StartupPhase::Running};
 	bool cancel_requested{false};
+	bool compiling_shaders{false};
+	float compilation_fraction{0.0f};
+	std::string compilation_stage{};
+	double compilation_elapsed{0.0};
 };
 
 class StartupCancelled final : public std::exception {
@@ -68,6 +72,10 @@ private:
 	float creep_limit_{0.0f};
 	StartupPhase phase_{StartupPhase::Running};
 	std::atomic<bool> cancel_requested_{false};
+	bool compiling_shaders_{false};
+	float compilation_fraction_{0.0f};
+	std::string compilation_stage_{};
+	double compilation_elapsed_{0.0};
 
 	template <typename Mutator>
 	void update(Mutator&& mutator) {
@@ -125,6 +133,8 @@ public:
 			phase_ = StartupPhase::Completed;
 			stage_.assign("Ready");
 			detail_.assign("Workspace ready");
+			compiling_shaders_ = false;
+			compilation_fraction_ = 1.0f;
 		});
 	}
 
@@ -132,6 +142,7 @@ public:
 		update([&]() {
 			phase_ = StartupPhase::Failed;
 			error_.assign(message);
+			compiling_shaders_ = false;
 		});
 	}
 
@@ -150,6 +161,20 @@ public:
 		}
 	}
 
+	void set_compilation_state(bool active, float fraction, std::string_view stage_text, double elapsed = 0.0) {
+		update([&]() {
+			compiling_shaders_ = active;
+			compilation_fraction_ = std::clamp(fraction, 0.0f, 1.0f);
+			compilation_stage_.assign(stage_text);
+			compilation_elapsed_ = elapsed;
+			if (active) {
+				fraction_ = StartupStage::RenderBackend.at(0.20f + 0.75f * compilation_fraction_);
+				stage_.assign("Compiling Shaders");
+				detail_.assign(stage_text);
+			}
+		});
+	}
+
 	[[nodiscard]] StartupSnapshot snapshot() const {
 		StartupSnapshot result;
 		{
@@ -159,6 +184,10 @@ public:
 			result.detail = detail_;
 			result.error = error_;
 			result.phase = phase_;
+			result.compiling_shaders = compiling_shaders_;
+			result.compilation_fraction = compilation_fraction_;
+			result.compilation_stage = compilation_stage_;
+			result.compilation_elapsed = compilation_elapsed_;
 		}
 		result.cancel_requested = cancel_requested();
 		return result;
@@ -189,6 +218,17 @@ inline void note(std::string_view detail) noexcept {
 	}
 	try {
 		progress->note(detail);
+	} catch (...) {
+	}
+}
+
+inline void set_compilation_state(bool active, float fraction, std::string_view stage_text, double elapsed = 0.0) noexcept {
+	StartupProgress* progress = active_progress();
+	if (progress == nullptr) {
+		return;
+	}
+	try {
+		progress->set_compilation_state(active, fraction, stage_text, elapsed);
 	} catch (...) {
 	}
 }

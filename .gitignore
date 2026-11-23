@@ -84,4 +84,5 @@ output
 scripts
 captures
 screenshots
-RelativisticEngine.exe - Raccourci.lnk
+cache
+*.lnk

@@ -389,11 +389,15 @@ public:
 			ic.collisions.contact_stiffness_scale = user_settings_.interaction_collision_stiffness_scale;
 			ic.collisions.position_correction_factor = user_settings_.interaction_collision_position_correction_factor;
 			ic.fragmentation.enable_tidal_stress = user_settings_.interaction_fragmentation_tidal_stress_enabled;
+			ic.fragmentation.tidal_stress_to_integrity_loss = user_settings_.interaction_fragmentation_tidal_stress_to_integrity_loss;
 		}
 		multi_window_mode_ = user_settings_.multi_window_mode;
 		orchestrator_.parameters().sky = user_settings_.sky;
 		orchestrator_.parameters().sky.enabled = user_settings_.sky_rendering_enabled;
 		orchestrator_.parameters().sky.seed_locked = user_settings_.sky_seed_locked;
+		orchestrator_.parameters().sky_background_source = user_settings_.sky_background_source;
+		orchestrator_.parameters().sky_panorama_id = user_settings_.sky_panorama_id;
+		orchestrator_.parameters().sky_panorama_quality = user_settings_.sky_panorama_quality;
 		if (!user_settings_.sky_seed_locked) {
 			const uint32_t random_seed = static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFU);
 			orchestrator_.parameters().sky.seed = random_seed;
@@ -497,6 +501,9 @@ public:
 		user_settings_.sky = orchestrator_.parameters().sky;
 		user_settings_.sky_rendering_enabled = orchestrator_.parameters().sky.enabled;
 		user_settings_.sky_seed_locked = orchestrator_.parameters().sky.seed_locked;
+		user_settings_.sky_background_source = orchestrator_.parameters().sky_background_source;
+		user_settings_.sky_panorama_id = orchestrator_.parameters().sky_panorama_id;
+		user_settings_.sky_panorama_quality = orchestrator_.parameters().sky_panorama_quality;
 		user_settings_.unit_preferences = orchestrator_.unit_preferences();
 		user_settings_.coordinate_preferences = orchestrator_.coordinate_preferences();
 		user_settings_.multi_window_mode = multi_window_mode_;
@@ -550,6 +557,7 @@ public:
 			user_settings_.interaction_collision_stiffness_scale = ic.collisions.contact_stiffness_scale;
 			user_settings_.interaction_collision_position_correction_factor = ic.collisions.position_correction_factor;
 			user_settings_.interaction_fragmentation_tidal_stress_enabled = ic.fragmentation.enable_tidal_stress;
+			user_settings_.interaction_fragmentation_tidal_stress_to_integrity_loss = ic.fragmentation.tidal_stress_to_integrity_loss;
 #if defined(RELATIVISTIC_DISTRIBUTED_COMPUTE) && RELATIVISTIC_DISTRIBUTED_COMPUTE
 		if (cluster_master_) {
 			const auto status = cluster_master_->status();

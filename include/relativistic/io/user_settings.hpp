@@ -67,6 +67,9 @@ struct UserSettings {
 	bool sky_rendering_enabled{true};
 	bool sky_seed_locked{false};
 	Render::ProceduralSkySettings sky{};
+	uint32_t sky_background_source{0};
+	uint32_t sky_panorama_id{0};
+	uint32_t sky_panorama_quality{1};
 	static constexpr size_t kMaxSecondaryViews = 8;
 	std::array<SecondaryViewPersistedState, kMaxSecondaryViews> secondary_views{};
 
@@ -168,6 +171,7 @@ struct UserSettings {
 	double interaction_collision_stiffness_scale{1.0e-9};
 	double interaction_collision_position_correction_factor{0.2};
 	bool interaction_fragmentation_tidal_stress_enabled{false};
+	double interaction_fragmentation_tidal_stress_to_integrity_loss{1e-7};
 	std::string system_preset_selected{"solar_system_real"};
 	UI::BodyRandomizerConfig body_randomizer{};
 	bool cluster_enabled{false};
@@ -291,7 +295,10 @@ struct UserSettings {
 	}
 
 	void read_general(const std::unordered_map<std::string, std::string>& kv) {
-		format_version = get_u32(kv, "format_version", format_version);
+		const uint32_t file_ver = get_u32(kv, "format_version", format_version);
+		if (file_ver > 0 && file_ver <= USER_SETTINGS_FORMAT_VERSION) {
+			format_version = file_ver;
+		}
 		load_policy = static_cast<SettingsLoadPolicy>(get_u32(kv, "load_policy", static_cast<uint32_t>(load_policy)));
 		default_performance_preset = get_u32(kv, "default_performance_preset", default_performance_preset);
 		default_use_gpu_compute = get_bool(kv, "default_use_gpu_compute", default_use_gpu_compute);
@@ -628,6 +635,9 @@ struct UserSettings {
 		sky.orientation_yaw_deg = get_dbl(kv, "sky_orientation_yaw_deg", sky.orientation_yaw_deg);
 		sky.orientation_pitch_deg = get_dbl(kv, "sky_orientation_pitch_deg", sky.orientation_pitch_deg);
 		sky.orientation_roll_deg = get_dbl(kv, "sky_orientation_roll_deg", sky.orientation_roll_deg);
+		sky_background_source = get_u32(kv, "sky_background_source", sky_background_source);
+		sky_panorama_id = get_u32(kv, "sky_panorama_id", sky_panorama_id);
+		sky_panorama_quality = get_u32(kv, "sky_panorama_quality", sky_panorama_quality);
 	}
 
 	void read_interface(const std::unordered_map<std::string, std::string>& kv) {
@@ -749,6 +759,7 @@ struct UserSettings {
 		interaction_collision_stiffness_scale = get_dbl(kv, "interaction_collision_stiffness_scale", interaction_collision_stiffness_scale);
 		interaction_collision_position_correction_factor = get_dbl(kv, "interaction_collision_position_correction_factor", interaction_collision_position_correction_factor);
 		interaction_fragmentation_tidal_stress_enabled = get_bool(kv, "interaction_fragmentation_tidal_stress_enabled", interaction_fragmentation_tidal_stress_enabled);
+		interaction_fragmentation_tidal_stress_to_integrity_loss = get_dbl(kv, "interaction_fragmentation_tidal_stress_to_integrity_loss", interaction_fragmentation_tidal_stress_to_integrity_loss);
 	}
 
 	void read_bodies(const std::unordered_map<std::string, std::string>& kv) {
@@ -1119,6 +1130,9 @@ struct UserSettings {
 		out << "sky_orientation_yaw_deg=" << sky.orientation_yaw_deg << "\n";
 		out << "sky_orientation_pitch_deg=" << sky.orientation_pitch_deg << "\n";
 		out << "sky_orientation_roll_deg=" << sky.orientation_roll_deg << "\n";
+		out << "sky_background_source=" << sky_background_source << "\n";
+		out << "sky_panorama_id=" << sky_panorama_id << "\n";
+		out << "sky_panorama_quality=" << sky_panorama_quality << "\n";
 	}
 
 	void write_interface(std::ostream& out) const {
@@ -1234,6 +1248,7 @@ struct UserSettings {
 		out << "interaction_collision_stiffness_scale=" << interaction_collision_stiffness_scale << "\n";
 		out << "interaction_collision_position_correction_factor=" << interaction_collision_position_correction_factor << "\n";
 		out << "interaction_fragmentation_tidal_stress_enabled=" << (interaction_fragmentation_tidal_stress_enabled ? 1 : 0) << "\n";
+		out << "interaction_fragmentation_tidal_stress_to_integrity_loss=" << interaction_fragmentation_tidal_stress_to_integrity_loss << "\n";
 	}
 
 	void write_bodies(std::ostream& out) const {
@@ -1319,6 +1334,54 @@ struct UserSettings {
 	[[nodiscard]] static UserSettings load_or_default() {
 		UserSettings result{};
 		std::error_code ec;
+
+		if (!std::filesystem::exists(general_settings_path(), ec) && std::filesystem::exists(settings_file_path(), ec)) {
+			const auto legacy_kv = parse_kv_file(settings_file_path());
+			const uint32_t legacy_file_version = get_u32(legacy_kv, "format_version", 0);
+			if (legacy_file_version == 0 || legacy_file_version > USER_SETTINGS_FORMAT_VERSION) {
+				return result;
+			}
+			result.read_general(legacy_kv);
+			result.read_camera(legacy_kv);
+			result.read_render_sky(legacy_kv);
+			result.read_interface(legacy_kv);
+			result.read_units(legacy_kv);
+			result.read_physics(legacy_kv);
+			result.read_bodies(legacy_kv);
+			result.read_capture(legacy_kv);
+			result.read_cluster(legacy_kv);
+			if (legacy_file_version < 3) {
+				result.camera_controls.free_fly.invert_forward = false;
+				result.camera_controls.free_fly.invert_lateral = false;
+				result.camera_controls.free_fly.invert_vertical = false;
+			}
+			if (legacy_file_version < 5) {
+				result.camera_controls.surface_walk.head_bob_enabled = false;
+			}
+			if (legacy_file_version < 6) {
+				result.constants_preset = 1;
+				result.constants_c = 1.0;
+				result.constants_g = 1.0;
+				result.constants_h = 2.0 * std::numbers::pi;
+				result.constants_kb = 1.0;
+				result.constants_ke = 1.0;
+				result.constants_kcd = 1.0;
+				result.unit_preferences.mass = Units::MassUnit::SolarMasses;
+				result.unit_preferences.distance = Units::DistanceUnit::Kilometers;
+				result.unit_preferences.velocity = Units::VelocityUnit::KilometersPerSecond;
+			}
+			result.format_version = USER_SETTINGS_FORMAT_VERSION;
+			if (result.load_policy == SettingsLoadPolicy::AlwaysResetToDefaults) {
+				const auto preserved_policy = result.load_policy;
+				const auto preserved_dir = result.screenshot_output_directory;
+				result = UserSettings{};
+				result.load_policy = preserved_policy;
+				result.screenshot_output_directory = preserved_dir;
+			}
+			result.save();
+			std::filesystem::remove(settings_file_path(), ec);
+			return result;
+		}
 
 		if (std::filesystem::exists(settings_file_path(), ec)) {
 			std::filesystem::remove(settings_file_path(), ec);

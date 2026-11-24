@@ -3,6 +3,7 @@
 #include "relativistic/core/spsc_queue.hpp"
 #include "relativistic/core/engine_log.hpp"
 #include "relativistic/core/diagnostics/diagnostics_registry.hpp"
+#include "relativistic/core/diagnostics/crash_reporter.hpp"
 #include "relativistic/orchestrator/command.hpp"
 #include "relativistic/orchestrator/scheduler.hpp"
 #include "relativistic/orchestrator/performance_profiler.hpp"
@@ -23,6 +24,7 @@
 #include "relativistic/core/physical_constants_engine.hpp"
 #include "relativistic/units/unit_system.hpp"
 #include "relativistic/observer/coordinate_systems.hpp"
+#include "relativistic/dynamics/bulk_body_actions.hpp"
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -820,11 +822,177 @@ public:
 			case CommandType::CaptureScreenshot:
 				std::strncpy(res.message, "Screenshot requested", sizeof(res.message) - 1);
 				break;
+			case CommandType::CameraTeleport:
+				camera_.position = {cmd.vec_values[0], cmd.vec_values[1], cmd.vec_values[2]};
+				sync_camera_spherical_from_cartesian();
+				camera_.orbit_distance = camera_.radius;
+				std::strncpy(res.message, "Camera teleported", sizeof(res.message) - 1);
+				break;
+			case CommandType::CameraLookAt: {
+				const double dx = cmd.vec_values[0] - camera_.position[0];
+				const double dy = cmd.vec_values[1] - camera_.position[1];
+				const double dz = cmd.vec_values[2] - camera_.position[2];
+				const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+				if (d_tot > 1e-9) {
+					constexpr double r2d = 180.0 / std::numbers::pi_v<double>;
+					camera_.yaw = std::remainder(std::atan2(dy, dx) * r2d, 360.0);
+					camera_.pitch = std::clamp(std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * r2d, -89.0, 89.0);
+					camera_.roll = 0.0;
+					std::strncpy(res.message, "Camera oriented toward target", sizeof(res.message) - 1);
+				} else {
+					res.success = false;
+					std::strncpy(res.message, "Camera lookat rejected: target coincides with camera position", sizeof(res.message) - 1);
+				}
+				break;
+			}
+			case CommandType::CameraSnap: {
+				const double m = std::max(params_.mass, 1e-4);
+				if (cmd.step_count == 0) {
+					const double a = params_.spin;
+					const double r_h = (std::abs(a) > 1e-6) ? (m + std::sqrt(std::max(m * m - a * a, 0.0))) : (2.0 * m);
+					const double r_isco = (std::abs(a) > 1e-6) ? std::max(r_h * 1.05, 6.0 * m - 4.0 * a) : (6.0 * m);
+					camera_.position = {0.0, r_isco, 0.0};
+					camera_.pitch = 0.0;
+					camera_.yaw = 270.0;
+					camera_.roll = 0.0;
+					sync_camera_spherical_from_cartesian();
+					camera_.orbit_distance = r_isco;
+					std::strncpy(res.message, "Camera snapped to ISCO orbit", sizeof(res.message) - 1);
+				} else {
+					const double dist = (cmd.numeric_value > 0.0) ? cmd.numeric_value : (50.0 * m);
+					camera_.position = {0.0, dist, 0.0};
+					camera_.pitch = 0.0;
+					camera_.yaw = 270.0;
+					camera_.roll = 0.0;
+					sync_camera_spherical_from_cartesian();
+					camera_.orbit_distance = dist;
+					std::strncpy(res.message, "Camera snapped to equatorial front view", sizeof(res.message) - 1);
+				}
+				break;
+			}
+			case CommandType::BulkBodyAction: {
+				std::lock_guard<std::recursive_mutex> b_lock(nbody_system_.bodies_mutex());
+				switch (cmd.step_count) {
+					case 0:
+						Dynamics::BulkBodyActions::invert_all_velocities(nbody_system_);
+						std::strncpy(res.message, "Inverted all body orbital velocities", sizeof(res.message) - 1);
+						break;
+					case 1:
+						Dynamics::BulkBodyActions::scatter_positions(nbody_system_);
+						std::strncpy(res.message, "Scattered all body positions", sizeof(res.message) - 1);
+						break;
+					case 2:
+						Dynamics::BulkBodyActions::snap_to_grid(nbody_system_, cmd.numeric_value > 0.0 ? cmd.numeric_value : 1.0);
+						std::strncpy(res.message, "Snapped bodies to spatial grid", sizeof(res.message) - 1);
+						break;
+					case 3:
+						Dynamics::BulkBodyActions::cull_outside_radius(nbody_system_, cmd.numeric_value > 0.0 ? cmd.numeric_value : 1000.0);
+						std::strncpy(res.message, "Culled bodies outside radius", sizeof(res.message) - 1);
+						break;
+					case 4:
+						Dynamics::BulkBodyActions::equalize_masses(nbody_system_);
+						std::strncpy(res.message, "Equalized all body masses", sizeof(res.message) - 1);
+						break;
+					case 5:
+						Dynamics::BulkBodyActions::average_masses(nbody_system_);
+						std::strncpy(res.message, "Averaged all body masses", sizeof(res.message) - 1);
+						break;
+					case 6:
+						Dynamics::BulkBodyActions::zero_all_spins(nbody_system_);
+						std::strncpy(res.message, "Zeroed all body spin angular momenta", sizeof(res.message) - 1);
+						break;
+					case 7:
+						nbody_system_.clear_bodies();
+						sync_central_body_with_system();
+						std::strncpy(res.message, "Cleared all bodies from catalog", sizeof(res.message) - 1);
+						break;
+					case 8: {
+						const uint32_t remove_id = static_cast<uint32_t>(cmd.numeric_value);
+						const bool removed = nbody_system_.remove_body(remove_id);
+						if (removed) {
+							std::snprintf(res.message, sizeof(res.message), "Removed body #%u", remove_id);
+						} else {
+							res.success = false;
+							std::snprintf(res.message, sizeof(res.message), "Body #%u not found", remove_id);
+						}
+						break;
+					}
+					default:
+						res.success = false;
+						std::strncpy(res.message, "Unknown bulk body action", sizeof(res.message) - 1);
+						break;
+				}
+				break;
+			}
+			case CommandType::ModifyBody: {
+				std::lock_guard<std::recursive_mutex> b_lock(nbody_system_.bodies_mutex());
+				if (cmd.step_count == 0) {
+					uint32_t next_id = 1;
+					for (const auto& b : nbody_system_.bodies()) {
+						if (b.id >= next_id) next_id = b.id + 1;
+					}
+					const double m = std::max(cmd.numeric_value, 1e-9);
+					const double r = (cmd.vec_values[3] > 0.0) ? cmd.vec_values[3] : 1.0;
+					Dynamics::PostNewtonianBody new_b(
+						next_id, m, r,
+						{cmd.vec_values[0], cmd.vec_values[1], cmd.vec_values[2]},
+						{0.0, 0.0, 0.0},
+						{0.0, 0.0, 0.0}
+					);
+					if (cmd.text_payload[0] != '\0') {
+						new_b.set_name(cmd.text_payload);
+					}
+					nbody_system_.add_body(new_b);
+					std::snprintf(res.message, sizeof(res.message), "Added body #%u (M=%.4g, R=%.4g)", next_id, m, r);
+				}
+				break;
+			}
+			case CommandType::ResetPostProcessing:
+				params_.post_contrast = 1.0;
+				params_.post_saturation = 1.0;
+				params_.post_lift = 0.0;
+				params_.post_gamma = 1.0;
+				params_.post_gain = 1.0;
+				params_.post_vignette_strength = 0.0;
+				params_.post_highlights = 0.0;
+				params_.post_shadows = 0.0;
+				std::strncpy(res.message, "Reset post-processing color grading to defaults", sizeof(res.message) - 1);
+				break;
+			case CommandType::Help:
+				if (cmd.text_payload[0] != '\0') {
+					std::snprintf(res.message, sizeof(res.message), "Help topic '%s' processed", cmd.text_payload);
+				} else {
+					std::snprintf(res.message, sizeof(res.message), "Help page %llu processed", static_cast<unsigned long long>(cmd.step_count));
+				}
+				break;
+			case CommandType::TriggerExport:
+				std::snprintf(res.message, sizeof(res.message), "Export triggered for: %s", cmd.text_payload[0] != '\0' ? cmd.text_payload : "all");
+				Core::log_info(res.message);
+				break;
+			case CommandType::DiagnosticSnapshot: {
+				const char* reason = cmd.text_payload[0] != '\0' ? cmd.text_payload : "diagnostic snapshot from console";
+				const std::string folder = Core::Diagnostics::CrashReporter::capture_snapshot(reason);
+				if (!folder.empty()) {
+					std::snprintf(res.message, sizeof(res.message), "Snapshot saved to: %s", folder.c_str());
+					Core::log_info(res.message);
+				} else {
+					res.success = false;
+					std::strncpy(res.message, "Failed to capture snapshot", sizeof(res.message) - 1);
+				}
+				break;
+			}
+			case CommandType::ResetUnits:
+				unit_preferences_ = Units::UnitDisplayPreferences{};
+				std::strncpy(res.message, "Unit preferences reset to SI defaults", sizeof(res.message) - 1);
+				break;
+			case CommandType::TriggerCaptureSequence:
+				std::snprintf(res.message, sizeof(res.message), "Capture sequence command registered (%s)", cmd.numeric_value > 0.5 ? "start" : "stop");
+				break;
 			case CommandType::Shutdown:
 				is_running_.store(false, std::memory_order_release);
 				std::strncpy(res.message, "Shutdown initiated", sizeof(res.message) - 1);
 				break;
-			case CommandType::TriggerExport:
+			case CommandType::ConfigureCluster:
 			case CommandType::None:
 			default:
 				res.success = false;
@@ -1728,6 +1896,135 @@ public:
 				break;
 			case ParameterType::CameraMotionLiveRefresh:
 				params_.camera_motion_live_refresh = (val > 0.5);
+				break;
+			case ParameterType::JetEnabled:
+				params_.jet.enabled = (val > 0.5);
+				break;
+			case ParameterType::JetLength:
+				params_.jet.outer_radius_mass_units = static_cast<float>(std::clamp(val, 1.0, 2000.0));
+				break;
+			case ParameterType::JetOpeningAngle:
+				params_.jet.footpoint_edge_deg = static_cast<float>(std::clamp(val, 0.5, 90.0));
+				break;
+			case ParameterType::JetLorentzFactor:
+				params_.jet.lorentz_factor_max = static_cast<float>(std::clamp(val, 1.0, 100.0));
+				break;
+			case ParameterType::JetMagneticField:
+				params_.jet.horizon_field_tesla = static_cast<float>(std::clamp(val, 0.0, 1.0e9));
+				break;
+			case ParameterType::JetPrecessionAngle:
+				break;
+			case ParameterType::DiskInnerRadius:
+				params_.primary_disk.inner_radius_scale = static_cast<float>(std::clamp(val, 0.5, 20.0));
+				break;
+			case ParameterType::DiskOuterRadius:
+				params_.primary_disk.outer_radius_mass_units = static_cast<float>(std::clamp(val, 2.0, 500.0));
+				break;
+			case ParameterType::DarkMatterEnabled:
+				params_.dark_matter.enabled = (val > 0.5);
+				break;
+			case ParameterType::DarkMatterLensing:
+				params_.dark_matter.lensing_enabled = (val > 0.5);
+				break;
+			case ParameterType::DarkMatterVisualization:
+				params_.dark_matter.visualization_enabled = (val > 0.5);
+				break;
+			case ParameterType::DarkMatterVizMode:
+				params_.dark_matter.visualization_mode = static_cast<uint32_t>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::DarkMatterAffectsBodies:
+				params_.dark_matter.affects_bodies = (val > 0.5);
+				break;
+			case ParameterType::CosmologyVoidRadius:
+				params_.cosmology.ltb.void_radius = std::clamp(val, 1.0, 1.0e6);
+				break;
+			case ParameterType::CosmologyVoidWidth:
+				params_.cosmology.ltb.void_width = std::clamp(val, 0.1, 1.0e5);
+				break;
+			case ParameterType::CosmologyHubble0:
+				params_.cosmology.ltb.hubble0 = std::clamp(val, 0.001, 10.0);
+				break;
+			case ParameterType::CosmologyEvaporationEnabled:
+				params_.cosmology.evaporation.enabled = (val > 0.5);
+				break;
+			case ParameterType::CosmologyEvaporationTimeAccel:
+				params_.cosmology.evaporation.time_acceleration = std::max(val, 1.0);
+				break;
+			case ParameterType::SurfaceWalkTargetBodyId:
+				params_.surface_walk_body_id = static_cast<uint32_t>(val);
+				break;
+			case ParameterType::SkyStarsEnabled:
+				params_.sky.stars_enabled = (val > 0.5);
+				params_.sync_sky_fields();
+				break;
+			case ParameterType::SkyGalaxiesEnabled:
+				params_.sky.galaxies_enabled = (val > 0.5);
+				params_.sync_sky_fields();
+				break;
+			case ParameterType::SkyDustEnabled:
+				params_.sky.dust_enabled = (val > 0.5);
+				params_.sync_sky_fields();
+				break;
+			case ParameterType::SkyClustersEnabled:
+				params_.sky.clusters_enabled = (val > 0.5);
+				params_.sync_sky_fields();
+				break;
+			case ParameterType::UnitDistanceSelect:
+				unit_preferences_.distance = static_cast<Units::DistanceUnit>(std::clamp(val, 0.0, 9.0));
+				break;
+			case ParameterType::UnitVelocitySelect:
+				unit_preferences_.velocity = static_cast<Units::VelocityUnit>(std::clamp(val, 0.0, 6.0));
+				break;
+			case ParameterType::UnitMassSelect:
+				unit_preferences_.mass = static_cast<Units::MassUnit>(std::clamp(val, 0.0, 7.0));
+				break;
+			case ParameterType::UnitEnergySelect:
+				unit_preferences_.energy = static_cast<Units::EnergyUnit>(std::clamp(val, 0.0, 7.0));
+				break;
+			case ParameterType::UnitTemperatureSelect:
+				unit_preferences_.temperature = static_cast<Units::TemperatureUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitAngleSelect:
+				unit_preferences_.angle = static_cast<Units::AngleUnit>(std::clamp(val, 0.0, 6.0));
+				break;
+			case ParameterType::UnitChargeSelect:
+				unit_preferences_.charge = static_cast<Units::ChargeUnit>(std::clamp(val, 0.0, 5.0));
+				break;
+			case ParameterType::UnitCurrentSelect:
+				unit_preferences_.current = static_cast<Units::CurrentUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitTimeSelect:
+				unit_preferences_.time = static_cast<Units::TimeUnit>(std::clamp(val, 0.0, 7.0));
+				break;
+			case ParameterType::UnitAccelerationSelect:
+				unit_preferences_.acceleration = static_cast<Units::AccelerationUnit>(std::clamp(val, 0.0, 4.0));
+				break;
+			case ParameterType::UnitDensitySelect:
+				unit_preferences_.density = static_cast<Units::DensityUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitPressureSelect:
+				unit_preferences_.pressure = static_cast<Units::PressureUnit>(std::clamp(val, 0.0, 6.0));
+				break;
+			case ParameterType::UnitPowerSelect:
+				unit_preferences_.power = static_cast<Units::PowerUnit>(std::clamp(val, 0.0, 4.0));
+				break;
+			case ParameterType::UnitFrequencySelect:
+				unit_preferences_.frequency = static_cast<Units::FrequencyUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitForceSelect:
+				unit_preferences_.force = static_cast<Units::ForceUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitMagneticSelect:
+				unit_preferences_.magnetic_field = static_cast<Units::MagneticFieldUnit>(std::clamp(val, 0.0, 2.0));
+				break;
+			case ParameterType::UnitVoltageSelect:
+				unit_preferences_.voltage = static_cast<Units::VoltageUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::UnitFrameRateSelect:
+				unit_preferences_.frame_rate = static_cast<Units::FrameRateUnit>(std::clamp(val, 0.0, 3.0));
+				break;
+			case ParameterType::CoordDefaultSelect:
+				coordinate_preferences_.widget_default = Observer::coordinate_system_from_index(static_cast<uint32_t>(val));
 				break;
 			case ParameterType::Custom:
 				if (custom_name != nullptr && custom_name[0] != '\0') {

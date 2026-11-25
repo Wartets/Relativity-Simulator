@@ -1663,6 +1663,19 @@ public:
 			render_setting_tooltip("Increases polar region integration damping precision scale to eliminate axis artifacts.");
 		}
 
+		if (tb.arrow_keys_mode_toggle) {
+			ImGui::SameLine();
+			const auto current_am = camera_controller_.config().arrow_keys_mode;
+			const char* am_label = (current_am == ArrowKeysMode::Movement) ? "Arrows: Move" :
+								   (current_am == ArrowKeysMode::LookPitchYaw) ? "Arrows: Look (P/Y)" :
+								   (current_am == ArrowKeysMode::LookPitchRoll) ? "Arrows: Look (P/R)" : "Arrows: Look (R/Y)";
+			if (ImGui::Button(am_label, ImVec2(0.0f, 24.0f))) {
+				const uint32_t next = (static_cast<uint32_t>(current_am) + 1U) % 4U;
+				camera_controller_.config().arrow_keys_mode = static_cast<ArrowKeysMode>(next);
+			}
+			render_setting_tooltip("Cycles arrow keys behavior between translational movement and camera inclination look modes.");
+		}
+
 		if (tb.coordinate_cycle) {
 			ImGui::SameLine();
 			auto& display = hud_layout_.coordinates;
@@ -2365,19 +2378,57 @@ private:
 		}
 
 		{
+			const auto& style = hud_layout_.element(HudElementId::ArrowKeysModeReadout);
+			if (style.enabled) {
+				const auto am = camera_controller_.config().arrow_keys_mode;
+				char buf[128];
+				std::snprintf(buf, sizeof(buf), "Arrow Keys Mode: %s", arrow_keys_mode_name(am));
+				const ImU32 col = (am != ArrowKeysMode::Movement) ? IM_COL32(255, 215, 60, 240) : IM_COL32(180, 200, 220, 200);
+				push_block(HudElementId::ArrowKeysModeReadout, {HudTextLine{buf, col}});
+			}
+		}
+
+		{
 			const auto& kb = camera_controller_.config().keybinds;
+			const auto& gpc = camera_controller_.config().gamepad;
 			std::vector<HudTextLine> nav_lines;
-			nav_lines.push_back(HudTextLine{"Keybind Summary:", IM_COL32(102, 204, 255, 255)});
+			nav_lines.push_back(HudTextLine{"Control Summary:", IM_COL32(102, 204, 255, 255)});
 			for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
 				const auto action = static_cast<InputAction>(i);
 				const auto& b = kb.get(action);
-				const bool bound = (b.primary_key != GLFW_KEY_UNKNOWN) || (b.secondary_key != GLFW_KEY_UNKNOWN);
-				if (!bound || !hud_layout_.keybind_summary_visible[i]) {
+				const bool kb_bound = (b.primary_key != GLFW_KEY_UNKNOWN) || (b.secondary_key != GLFW_KEY_UNKNOWN);
+				const bool kb_visible = kb_bound && hud_layout_.keybind_summary_visible[i];
+
+				bool gp_bound = false;
+				bool gp_visible = false;
+				std::string gp_str;
+				if (hud_layout_.show_gamepad_in_summary && i < gpc.bindings.size()) {
+					const auto& gpb = gpc.bindings[i];
+					gp_bound = !gpb.empty();
+					gp_visible = gp_bound && hud_layout_.gamepad_summary_visible[i];
+					if (gp_visible) {
+						gp_str = format_gamepad_binding(gpb);
+					}
+				}
+
+				if (!kb_visible && !gp_visible) {
 					continue;
 				}
-				const bool active = (window != nullptr) && kb.is_pressed(action, window);
+
+				std::string combo_desc;
+				if (kb_visible && gp_visible) {
+					combo_desc = format_key_binding(b) + " [GP: " + gp_str + "]";
+				} else if (kb_visible) {
+					combo_desc = format_key_binding(b);
+				} else {
+					combo_desc = "GP: " + gp_str;
+				}
+
+				const bool kb_active = (window != nullptr) && kb.is_pressed(action, window);
+				const bool gp_active = (i < gpc.bindings.size()) && camera_controller_.is_gamepad_action_active(i);
+				const bool active = kb_active || gp_active;
 				const ImU32 col = active ? IM_COL32(255, 242, 51, 255) : IM_COL32(178, 191, 204, 204);
-				nav_lines.push_back(HudTextLine{format_key_binding(b) + ": " + std::string(input_action_name(action)), col});
+				nav_lines.push_back(HudTextLine{combo_desc + ": " + std::string(input_action_name(action)), col});
 			}
 			if (nav_lines.size() > 1) {
 				push_block(HudElementId::NavigationControlsPanel, std::move(nav_lines));

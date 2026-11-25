@@ -58,6 +58,7 @@ enum class HudElementId : uint32_t {
 	DarkMatterQuickReadout,
 	CameraPositionReadout,
 	CursorReadout,
+	ArrowKeysModeReadout,
 	Count
 };
 
@@ -96,6 +97,7 @@ enum class HudElementId : uint32_t {
 		case HudElementId::DarkMatterQuickReadout: return "Dark Matter Field Summary (Linked)";
 		case HudElementId::CameraPositionReadout: return "Camera Position (Selectable Coordinates)";
 		case HudElementId::CursorReadout: return "Mouse Cursor: Pixel & Ray Coordinates";
+		case HudElementId::ArrowKeysModeReadout: return "Arrow Keys Mode (Move vs Look)";
 		default: return "Unknown Element";
 	}
 }
@@ -159,6 +161,7 @@ struct ToolbarButtonVisibility {
 	bool render_distance_toggle{false};
 	bool pole_precision_nudge{false};
 	bool coordinate_cycle{false};
+	bool arrow_keys_mode_toggle{true};
 };
 
 struct HudCoordinateDisplay {
@@ -176,12 +179,22 @@ struct HudLayoutConfig {
 	std::array<HudElementStyle, static_cast<size_t>(HudElementId::Count)> elements{};
 	ToolbarButtonVisibility toolbar_buttons{};
 	HudCoordinateDisplay coordinates{};
+	bool show_gamepad_in_summary{false};
 	std::array<bool, static_cast<size_t>(InputAction::Count)> keybind_summary_visible{};
+	std::array<bool, static_cast<size_t>(InputAction::Count)> gamepad_summary_visible{};
 
 	HudLayoutConfig() noexcept {
 		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
-			keybind_summary_visible[i] = (input_action_category(static_cast<InputAction>(i)) == InputActionCategory::Movement)
-				|| (static_cast<InputAction>(i) == InputAction::ZoomModifier);
+			const bool is_nav = (input_action_category(static_cast<InputAction>(i)) == InputActionCategory::Movement)
+				|| (static_cast<InputAction>(i) == InputAction::ZoomModifier)
+				|| (static_cast<InputAction>(i) == InputAction::ResetRoll)
+				|| (static_cast<InputAction>(i) == InputAction::TogglePausePlay)
+				|| (static_cast<InputAction>(i) == InputAction::SingleStepTick)
+				|| (static_cast<InputAction>(i) == InputAction::CycleProjectionMode)
+				|| (static_cast<InputAction>(i) == InputAction::FovIncrease)
+				|| (static_cast<InputAction>(i) == InputAction::FovDecrease);
+			keybind_summary_visible[i] = is_nav;
+			gamepad_summary_visible[i] = is_nav;
 		}
 		element(HudElementId::FrameTimeReadout).offset_x = 16.0f;
 		element(HudElementId::FrameTimeReadout).offset_y = 48.0f;
@@ -371,6 +384,14 @@ struct HudLayoutConfig {
 		cursor_ro.offset_x = 16.0f;
 		cursor_ro.offset_y = 544.0f;
 		cursor_ro.text_color = {1.0f, 0.95f, 0.6f, 1.0f};
+
+		auto& arrow_ro = element(HudElementId::ArrowKeysModeReadout);
+		arrow_ro.enabled = false;
+		arrow_ro.anchor = HudAnchor::BottomLeft;
+		arrow_ro.offset_x = 16.0f;
+		arrow_ro.offset_y = 566.0f;
+		arrow_ro.text_color = {1.0f, 0.85f, 0.25f, 1.0f};
+		arrow_ro.draw_priority = -10;
 	}
 
 	[[nodiscard]] HudElementStyle& element(HudElementId id) noexcept {

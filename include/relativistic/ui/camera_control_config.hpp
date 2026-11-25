@@ -1,11 +1,29 @@
 #pragma once
 
 #include "relativistic/ui/input_actions.hpp"
+#include "relativistic/ui/gamepad_input.hpp"
 #include "relativistic/observer/surface_walker.hpp"
 #include "relativistic/observer/planet_orbit.hpp"
 #include <cstdint>
 
 namespace Relativistic::UI {
+
+enum class ArrowKeysMode : uint32_t {
+	Movement = 0,
+	LookPitchYaw = 1,
+	LookPitchRoll = 2,
+	LookRollYaw = 3
+};
+
+[[nodiscard]] constexpr const char* arrow_keys_mode_name(ArrowKeysMode mode) noexcept {
+	switch (mode) {
+		case ArrowKeysMode::LookPitchYaw: return "Look Inclination (Pitch & Yaw)";
+		case ArrowKeysMode::LookPitchRoll: return "Look Inclination (Pitch & Roll)";
+		case ArrowKeysMode::LookRollYaw: return "Look Inclination (Roll & Yaw)";
+		case ArrowKeysMode::Movement:
+		default: return "Translational Movement";
+	}
+}
 
 struct AxisSpeedProfile {
 	double forward_speed{10.0};
@@ -54,6 +72,12 @@ struct CameraControlConfig {
 	Observer::SurfaceWalkerParameters surface_walk{};
 	Observer::PlanetOrbitParameters planet_orbit{};
 	ZoomConfig zoom{};
+	ArrowKeysMode arrow_keys_mode{ArrowKeysMode::Movement};
+	double arrow_look_sensitivity{1.0};
+	bool arrow_look_invert_pitch{false};
+	bool arrow_look_invert_yaw{false};
+	bool arrow_look_invert_roll{false};
+	GamepadConfig gamepad{};
 
 	void apply_keyboard_layout(KeyboardLayout layout) noexcept {
 		keyboard_layout = layout;

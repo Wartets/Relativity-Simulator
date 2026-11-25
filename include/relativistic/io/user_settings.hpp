@@ -383,23 +383,67 @@ struct UserSettings {
 		const auto loaded_layout = static_cast<UI::KeyboardLayout>(get_u32(kv, "cam_keyboard_layout", static_cast<uint32_t>(UI::KeyboardLayout::Qwerty)));
 		camera_controls.apply_keyboard_layout(loaded_layout);
 
+		camera_controls.arrow_keys_mode = static_cast<UI::ArrowKeysMode>(get_u32(kv, "cam_arrow_keys_mode", static_cast<uint32_t>(camera_controls.arrow_keys_mode)));
+		camera_controls.arrow_look_sensitivity = get_dbl(kv, "cam_arrow_look_sens", camera_controls.arrow_look_sensitivity);
+		camera_controls.arrow_look_invert_pitch = get_bool(kv, "cam_arrow_invert_pitch", camera_controls.arrow_look_invert_pitch);
+		camera_controls.arrow_look_invert_yaw = get_bool(kv, "cam_arrow_invert_yaw", camera_controls.arrow_look_invert_yaw);
+		camera_controls.arrow_look_invert_roll = get_bool(kv, "cam_arrow_invert_roll", camera_controls.arrow_look_invert_roll);
+
+		camera_controls.gamepad.enabled = get_bool(kv, "gp_enabled", camera_controls.gamepad.enabled);
+		camera_controls.gamepad.selected_joystick = get_i32(kv, "gp_selected_joystick", camera_controls.gamepad.selected_joystick);
+		camera_controls.gamepad.axes.left_stick_deadzone = static_cast<float>(get_dbl(kv, "gp_left_deadzone", camera_controls.gamepad.axes.left_stick_deadzone));
+		camera_controls.gamepad.axes.right_stick_deadzone = static_cast<float>(get_dbl(kv, "gp_right_deadzone", camera_controls.gamepad.axes.right_stick_deadzone));
+		camera_controls.gamepad.axes.trigger_deadzone = static_cast<float>(get_dbl(kv, "gp_trigger_deadzone", camera_controls.gamepad.axes.trigger_deadzone));
+		camera_controls.gamepad.axes.look_sensitivity_x = static_cast<float>(get_dbl(kv, "gp_look_sens_x", camera_controls.gamepad.axes.look_sensitivity_x));
+		camera_controls.gamepad.axes.look_sensitivity_y = static_cast<float>(get_dbl(kv, "gp_look_sens_y", camera_controls.gamepad.axes.look_sensitivity_y));
+		camera_controls.gamepad.axes.move_sensitivity = static_cast<float>(get_dbl(kv, "gp_move_sens", camera_controls.gamepad.axes.move_sensitivity));
+		camera_controls.gamepad.axes.roll_sensitivity = static_cast<float>(get_dbl(kv, "gp_roll_sens", camera_controls.gamepad.axes.roll_sensitivity));
+		camera_controls.gamepad.axes.invert_look_y = get_bool(kv, "gp_invert_y", camera_controls.gamepad.axes.invert_look_y);
+		camera_controls.gamepad.axes.invert_look_x = get_bool(kv, "gp_invert_x", camera_controls.gamepad.axes.invert_look_x);
+		camera_controls.gamepad.axes.invert_roll = get_bool(kv, "gp_invert_roll", camera_controls.gamepad.axes.invert_roll);
+		camera_controls.gamepad.axes.invert_vertical = get_bool(kv, "gp_invert_vertical", camera_controls.gamepad.axes.invert_vertical);
+
 		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {
 			const std::string primary_key = "kb_" + std::to_string(i) + "_primary";
 			const std::string secondary_key = "kb_" + std::to_string(i) + "_secondary";
-			auto it_primary = kv.find(primary_key);
-			auto it_secondary = kv.find(secondary_key);
-			if (it_primary != kv.end() || it_secondary != kv.end()) {
-				const auto action = static_cast<UI::InputAction>(i);
-				const auto& current_bind = camera_controls.keybinds.get(action);
-				const int primary = (it_primary != kv.end()) ? get_i32(kv, primary_key.c_str(), current_bind.primary_key) : current_bind.primary_key;
-				const int secondary = (it_secondary != kv.end()) ? get_i32(kv, secondary_key.c_str(), current_bind.secondary_key) : current_bind.secondary_key;
-				camera_controls.keybinds.set(action, primary, secondary);
-			}
+			const std::string p_mod1_key = "kb_" + std::to_string(i) + "_pmod1";
+			const std::string p_mod2_key = "kb_" + std::to_string(i) + "_pmod2";
+			const std::string s_mod1_key = "kb_" + std::to_string(i) + "_smod1";
+			const std::string s_mod2_key = "kb_" + std::to_string(i) + "_smod2";
+			const auto action = static_cast<UI::InputAction>(i);
+			const auto& current_bind = camera_controls.keybinds.get(action);
+
+			const int primary = get_i32(kv, primary_key.c_str(), current_bind.primary_key);
+			const int p_mod1 = get_i32(kv, p_mod1_key.c_str(), current_bind.primary_modifier);
+			const int p_mod2 = get_i32(kv, p_mod2_key.c_str(), current_bind.primary_modifier2);
+			const int secondary = get_i32(kv, secondary_key.c_str(), current_bind.secondary_key);
+			const int s_mod1 = get_i32(kv, s_mod1_key.c_str(), current_bind.secondary_modifier);
+			const int s_mod2 = get_i32(kv, s_mod2_key.c_str(), current_bind.secondary_modifier2);
+
+			camera_controls.keybinds.set_primary_chord(action, primary, p_mod1, p_mod2);
+			camera_controls.keybinds.set_secondary_chord(action, secondary, s_mod1, s_mod2);
+
 			const std::string mode_key = "kb_" + std::to_string(i) + "_mode";
-			auto it_mode = kv.find(mode_key);
-			if (it_mode != kv.end()) {
-				const auto action = static_cast<UI::InputAction>(i);
-				camera_controls.keybinds.set_mode(action, static_cast<UI::InputActivationMode>(get_u32(kv, mode_key.c_str(), 0)));
+			camera_controls.keybinds.set_mode(action, static_cast<UI::InputActivationMode>(get_u32(kv, mode_key.c_str(), static_cast<uint32_t>(current_bind.mode))));
+
+			const std::string tap_key = "kb_" + std::to_string(i) + "_tap";
+			const std::string dbl_key = "kb_" + std::to_string(i) + "_dbl";
+			const float tap_dur = static_cast<float>(get_dbl(kv, tap_key.c_str(), current_bind.tap_duration_seconds));
+			const float dbl_win = static_cast<float>(get_dbl(kv, dbl_key.c_str(), current_bind.double_tap_window_seconds));
+			camera_controls.keybinds.set_timing(action, tap_dur, dbl_win);
+
+			if (i < camera_controls.gamepad.bindings.size()) {
+				auto& gpb = camera_controls.gamepad.bindings[i];
+				const std::string gp_b_key = "gp_" + std::to_string(i) + "_btn";
+				const std::string gp_m_key = "gp_" + std::to_string(i) + "_mod";
+				const std::string gp_mode_key = "gp_" + std::to_string(i) + "_mode";
+				const std::string gp_tap_key = "gp_" + std::to_string(i) + "_tap";
+				const std::string gp_dbl_key = "gp_" + std::to_string(i) + "_dbl";
+				gpb.button = get_i32(kv, gp_b_key.c_str(), gpb.button);
+				gpb.modifier_button = get_i32(kv, gp_m_key.c_str(), gpb.modifier_button);
+				gpb.mode = get_u32(kv, gp_mode_key.c_str(), gpb.mode);
+				gpb.tap_duration_seconds = static_cast<float>(get_dbl(kv, gp_tap_key.c_str(), gpb.tap_duration_seconds));
+				gpb.double_tap_window_seconds = static_cast<float>(get_dbl(kv, gp_dbl_key.c_str(), gpb.double_tap_window_seconds));
 			}
 		}
 	}
@@ -913,11 +957,46 @@ struct UserSettings {
 		out << "cam_planet_crawl=" << camera_controls.planet_orbit.crawl_multiplier << "\n";
 		out << "cam_planet_invert_drag=" << (camera_controls.planet_orbit.invert_drag ? 1 : 0) << "\n";
 		out << "cam_keyboard_layout=" << static_cast<uint32_t>(camera_controls.keyboard_layout) << "\n";
+		out << "cam_arrow_keys_mode=" << static_cast<uint32_t>(camera_controls.arrow_keys_mode) << "\n";
+		out << "cam_arrow_look_sens=" << camera_controls.arrow_look_sensitivity << "\n";
+		out << "cam_arrow_invert_pitch=" << (camera_controls.arrow_look_invert_pitch ? 1 : 0) << "\n";
+		out << "cam_arrow_invert_yaw=" << (camera_controls.arrow_look_invert_yaw ? 1 : 0) << "\n";
+		out << "cam_arrow_invert_roll=" << (camera_controls.arrow_look_invert_roll ? 1 : 0) << "\n";
+
+		out << "gp_enabled=" << (camera_controls.gamepad.enabled ? 1 : 0) << "\n";
+		out << "gp_selected_joystick=" << camera_controls.gamepad.selected_joystick << "\n";
+		out << "gp_left_deadzone=" << camera_controls.gamepad.axes.left_stick_deadzone << "\n";
+		out << "gp_right_deadzone=" << camera_controls.gamepad.axes.right_stick_deadzone << "\n";
+		out << "gp_trigger_deadzone=" << camera_controls.gamepad.axes.trigger_deadzone << "\n";
+		out << "gp_look_sens_x=" << camera_controls.gamepad.axes.look_sensitivity_x << "\n";
+		out << "gp_look_sens_y=" << camera_controls.gamepad.axes.look_sensitivity_y << "\n";
+		out << "gp_move_sens=" << camera_controls.gamepad.axes.move_sensitivity << "\n";
+		out << "gp_roll_sens=" << camera_controls.gamepad.axes.roll_sensitivity << "\n";
+		out << "gp_invert_y=" << (camera_controls.gamepad.axes.invert_look_y ? 1 : 0) << "\n";
+		out << "gp_invert_x=" << (camera_controls.gamepad.axes.invert_look_x ? 1 : 0) << "\n";
+		out << "gp_invert_roll=" << (camera_controls.gamepad.axes.invert_roll ? 1 : 0) << "\n";
+		out << "gp_invert_vertical=" << (camera_controls.gamepad.axes.invert_vertical ? 1 : 0) << "\n";
+
 		for (size_t i = 0; i < static_cast<size_t>(UI::InputAction::Count); ++i) {
 			const auto& binding = camera_controls.keybinds.get(static_cast<UI::InputAction>(i));
 			out << "kb_" << i << "_primary=" << binding.primary_key << "\n";
 			out << "kb_" << i << "_secondary=" << binding.secondary_key << "\n";
+			out << "kb_" << i << "_pmod1=" << binding.primary_modifier << "\n";
+			out << "kb_" << i << "_pmod2=" << binding.primary_modifier2 << "\n";
+			out << "kb_" << i << "_smod1=" << binding.secondary_modifier << "\n";
+			out << "kb_" << i << "_smod2=" << binding.secondary_modifier2 << "\n";
 			out << "kb_" << i << "_mode=" << static_cast<uint32_t>(binding.mode) << "\n";
+			out << "kb_" << i << "_tap=" << binding.tap_duration_seconds << "\n";
+			out << "kb_" << i << "_dbl=" << binding.double_tap_window_seconds << "\n";
+
+			if (i < camera_controls.gamepad.bindings.size()) {
+				const auto& gpb = camera_controls.gamepad.bindings[i];
+				out << "gp_" << i << "_btn=" << gpb.button << "\n";
+				out << "gp_" << i << "_mod=" << gpb.modifier_button << "\n";
+				out << "gp_" << i << "_mode=" << gpb.mode << "\n";
+				out << "gp_" << i << "_tap=" << gpb.tap_duration_seconds << "\n";
+				out << "gp_" << i << "_dbl=" << gpb.double_tap_window_seconds << "\n";
+			}
 		}
 	}
 

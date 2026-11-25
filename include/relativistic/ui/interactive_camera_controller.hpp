@@ -54,6 +54,7 @@ private:
 	Observer::PlanetOrbitState planet_orbit_state_{};
 	Observer::CameraCollisionField collision_field_{};
 	SurfaceWalkTelemetry walk_telemetry_{};
+	GamepadState gamepad_state_{};
 	double look_delta_yaw_deg_{0.0};
 	double look_delta_pitch_deg_{0.0};
 	double mouse_delta_x_{0.0};
@@ -68,6 +69,12 @@ public:
 
 	[[nodiscard]] CameraControlConfig& config() noexcept { return config_; }
 	[[nodiscard]] const CameraControlConfig& config() const noexcept { return config_; }
+	[[nodiscard]] GamepadState& gamepad_state() noexcept { return gamepad_state_; }
+	[[nodiscard]] const GamepadState& gamepad_state() const noexcept { return gamepad_state_; }
+
+	[[nodiscard]] bool is_gamepad_action_active(size_t action_idx) const noexcept {
+		return gamepad_state_.is_action_active(action_idx);
+	}
 
 	void set_navigation_mode(CameraNavigationMode mode) noexcept {
 		navigation_mode_ = mode;
@@ -519,6 +526,18 @@ private:
 		}
 		if (config_.keybinds.is_pressed(InputAction::RollRight, window)) {
 			cam.roll += prof.roll_speed_deg_s * dt;
+		}
+		if (config_.keybinds.is_pressed(InputAction::LookUp, window)) {
+			cam.pitch = std::clamp(cam.pitch + prof.pitch_speed_deg_s * dt, -89.0, 89.0);
+		}
+		if (config_.keybinds.is_pressed(InputAction::LookDown, window)) {
+			cam.pitch = std::clamp(cam.pitch - prof.pitch_speed_deg_s * dt, -89.0, 89.0);
+		}
+		if (config_.keybinds.is_pressed(InputAction::LookLeft, window)) {
+			cam.yaw = std::remainder(cam.yaw - prof.yaw_speed_deg_s * dt, 360.0);
+		}
+		if (config_.keybinds.is_pressed(InputAction::LookRight, window)) {
+			cam.yaw = std::remainder(cam.yaw + prof.yaw_speed_deg_s * dt, 360.0);
 		}
 
 		const auto old_pos = cam.position;

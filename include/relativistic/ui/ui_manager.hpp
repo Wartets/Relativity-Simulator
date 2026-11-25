@@ -628,6 +628,7 @@ public:
 		last_frame_time_ = now;
 
 		glfwPollEvents();
+		process_gamepad_and_arrow_controls(dt);
 		process_global_hotkeys();
 
 		autosave_elapsed_seconds_ += dt;
@@ -1002,6 +1003,142 @@ private:
 		return format_key_binding(b);
 	}
 
+	void process_gamepad_and_arrow_controls(double dt) noexcept {
+		auto& cfg = camera_controller_.config();
+		const double cur_time = ImGui::GetTime();
+
+		if (cfg.gamepad.enabled) {
+			static GamepadState gp_state{};
+			gp_state.update(cfg.gamepad.selected_joystick, cfg.gamepad.axes, cur_time);
+
+			if (gp_state.connected) {
+				const auto deltas = gp_state.calculate_motion(cfg.gamepad.axes, static_cast<float>(dt));
+				auto& cam = orchestrator_.camera();
+
+				if (std::abs(deltas.look_yaw_deg) > 1e-4f || std::abs(deltas.look_pitch_deg) > 1e-4f || std::abs(deltas.roll_deg) > 1e-4f) {
+					cam.yaw = std::remainder(cam.yaw + static_cast<double>(deltas.look_yaw_deg), 360.0);
+					cam.pitch = std::clamp(cam.pitch + static_cast<double>(deltas.look_pitch_deg), -89.0, 89.0);
+					cam.roll = std::remainder(cam.roll + static_cast<double>(deltas.roll_deg), 360.0);
+				}
+
+				if (std::abs(deltas.move_forward) > 1e-4f || std::abs(deltas.move_right) > 1e-4f || std::abs(deltas.move_up) > 1e-4f) {
+					const auto basis = cam.orientation_basis();
+					const double speed = cam.speed * (deltas.sprint ? cfg.free_fly.sprint_multiplier : (deltas.crawl ? cfg.free_fly.crawl_multiplier : 1.0)) * dt;
+					for (size_t i = 0; i < 3; ++i) {
+						cam.position[i] += (basis.forward[i] * static_cast<double>(deltas.move_forward) +
+											basis.right[i] * static_cast<double>(deltas.move_right) +
+											basis.up[i] * static_cast<double>(deltas.move_up)) * speed;
+					}
+					cam.synchronize_spherical();
+				}
+
+				for (size_t i = 0; i < cfg.gamepad.bindings.size(); ++i) {
+					if (cfg.gamepad.bindings[i].empty()) continue;
+					if (gp_state.evaluate_action(i, cfg.gamepad.bindings[i], cur_time)) {
+						execute_action_from_input(static_cast<InputAction>(i));
+					}
+				}
+			}
+		}
+
+		if (cfg.arrow_keys_mode != ArrowKeysMode::Movement && main_window_ != nullptr) {
+			const bool up = (glfwGetKey(main_window_, GLFW_KEY_UP) == GLFW_PRESS);
+			const bool down = (glfwGetKey(main_window_, GLFW_KEY_DOWN) == GLFW_PRESS);
+			const bool left = (glfwGetKey(main_window_, GLFW_KEY_LEFT) == GLFW_PRESS);
+			const bool right = (glfwGetKey(main_window_, GLFW_KEY_RIGHT) == GLFW_PRESS);
+
+			if (up || down || left || right) {
+				auto& cam = orchestrator_.camera();
+				const double pitch_speed = cfg.free_fly.pitch_speed_deg_s * cfg.arrow_look_sensitivity * dt;
+				const double yaw_speed = cfg.free_fly.yaw_speed_deg_s * cfg.arrow_look_sensitivity * dt;
+				const double roll_speed = cfg.free_fly.roll_speed_deg_s * cfg.arrow_look_sensitivity * dt;
+
+				double vert_input = (up ? 1.0 : 0.0) - (down ? 1.0 : 0.0);
+				double horiz_input = (right ? 1.0 : 0.0) - (left ? 1.0 : 0.0);
+
+				if (cfg.arrow_look_invert_pitch) vert_input = -vert_input;
+				if (cfg.arrow_look_invert_yaw) horiz_input = -horiz_input;
+
+				switch (cfg.arrow_keys_mode) {
+					case ArrowKeysMode::LookPitchYaw:
+						cam.pitch = std::clamp(cam.pitch + vert_input * pitch_speed, -89.0, 89.0);
+						cam.yaw = std::remainder(cam.yaw + horiz_input * yaw_speed, 360.0);
+						break;
+					case ArrowKeysMode::LookPitchRoll:
+						cam.pitch = std::clamp(cam.pitch + vert_input * pitch_speed, -89.0, 89.0);
+						cam.roll = std::remainder(cam.roll + horiz_input * roll_speed, 360.0);
+						break;
+					case ArrowKeysMode::LookRollYaw:
+						cam.roll = std::remainder(cam.roll + vert_input * roll_speed, 360.0);
+						cam.yaw = std::remainder(cam.yaw + horiz_input * yaw_speed, 360.0);
+						break;
+					case ArrowKeysMode::Movement:
+					default:
+						break;
+				}
+			}
+		}
+	}
+
+	void execute_action_from_input(InputAction action) noexcept {
+		switch (action) {
+			case InputAction::TogglePausePlay:
+				if (orchestrator_.scheduler().is_paused()) {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_resume()));
+				} else {
+					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_pause()));
+				}
+				break;
+			case InputAction::SingleStepTick:
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_step(1)));
+				break;
+			case InputAction::ResetClock:
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_reset()));
+				break;
+			case InputAction::ToggleControlPanel:
+				control_panel_window_.open_state() = !control_panel_window_.open_state();
+				break;
+			case InputAction::CycleCameraMode: {
+				const uint32_t next = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next)));
+				break;
+			}
+			case InputAction::CaptureScreenshot:
+				open_capture_studio();
+				break;
+			case InputAction::ToggleArrowKeysMode: {
+				auto& cfg = camera_controller_.config();
+				const uint32_t next = (static_cast<uint32_t>(cfg.arrow_keys_mode) + 1U) % 4U;
+				cfg.arrow_keys_mode = static_cast<ArrowKeysMode>(next);
+				break;
+			}
+			case InputAction::LookAtOrigin:
+				camera_controller_.look_at_target(std::array<double, 3>{0.0, 0.0, 0.0});
+				break;
+			case InputAction::ResetRoll:
+				orchestrator_.camera().roll = 0.0;
+				break;
+			case InputAction::SnapIsco:
+				camera_controller_.snap_to_isco();
+				break;
+			case InputAction::ToggleHudManager:
+				user_settings_.hud_layout.master_enabled = !user_settings_.hud_layout.master_enabled;
+				break;
+			case InputAction::FovIncrease: {
+				const double next_fov = std::clamp(orchestrator_.parameters().camera_fov_deg + 2.5, 5.0, 175.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(next_fov)));
+				break;
+			}
+			case InputAction::FovDecrease: {
+				const double next_fov = std::clamp(orchestrator_.parameters().camera_fov_deg - 2.5, 5.0, 175.0);
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_camera_set_fov(next_fov)));
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
 	void process_global_hotkeys() noexcept {
 		ImGuiIO& io = ImGui::GetIO();
 		if (io.WantCaptureKeyboard) return;
@@ -1058,6 +1195,11 @@ private:
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleConstantsWindow, main_window_)) {
 			constants_window_.open_state() = !constants_window_.open_state();
+		}
+		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleArrowKeysMode, main_window_)) {
+			auto& cfg = camera_controller_.config();
+			const uint32_t next = (static_cast<uint32_t>(cfg.arrow_keys_mode) + 1U) % 4U;
+			cfg.arrow_keys_mode = static_cast<ArrowKeysMode>(next);
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleCaptureStudio, main_window_)) {
 			toggle_capture_studio();

@@ -15,7 +15,9 @@ enum class KeyboardLayout : uint32_t {
 
 enum class InputActivationMode : uint32_t {
 	Hold = 0,
-	Toggle = 1
+	Toggle = 1,
+	Tap = 2,
+	DoubleTap = 3
 };
 
 enum class InputAction : uint32_t {
@@ -87,6 +89,13 @@ enum class InputAction : uint32_t {
 	BulkZeroAllSpins,
 	ToggleCaptureStudio,
 	ToggleRayProbeFreeze,
+	ToggleArrowKeysMode,
+	LookUp,
+	LookDown,
+	LookLeft,
+	LookRight,
+	FovIncrease,
+	FovDecrease,
 	Count
 };
 
@@ -131,6 +140,11 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::LookAtOrigin:
 		case InputAction::ResetRoll:
 		case InputAction::ZoomModifier:
+		case InputAction::ToggleArrowKeysMode:
+		case InputAction::LookUp:
+		case InputAction::LookDown:
+		case InputAction::LookLeft:
+		case InputAction::LookRight:
 			return InputActionCategory::CameraOrientation;
 		case InputAction::SpeedDecrease:
 		case InputAction::SpeedIncrease:
@@ -139,6 +153,8 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::CycleProjectionMode:
 		case InputAction::CycleTonemapper:
 		case InputAction::CycleSkyboxStyle:
+		case InputAction::FovIncrease:
+		case InputAction::FovDecrease:
 			return InputActionCategory::CameraFraming;
 		case InputAction::SnapEquatorialFront:
 		case InputAction::SnapEquatorialSide:
@@ -262,6 +278,13 @@ enum class InputActionCategory : uint32_t {
 		case InputAction::ToggleConstantsWindow: return "Toggle Physical Constants Engine";
 		case InputAction::ToggleCaptureStudio: return "Toggle Capture Studio";
 		case InputAction::ToggleRayProbeFreeze: return "Freeze / Unfreeze Ray Probe";
+		case InputAction::ToggleArrowKeysMode: return "Toggle Arrow Keys Mode (Move vs Look)";
+		case InputAction::LookUp: return "Look Up";
+		case InputAction::LookDown: return "Look Down";
+		case InputAction::LookLeft: return "Look Left";
+		case InputAction::LookRight: return "Look Right";
+		case InputAction::FovIncrease: return "Field of View Increase";
+		case InputAction::FovDecrease: return "Field of View Decrease";
 		case InputAction::BulkInvertAllVelocities: return "Bulk: Invert All Body Velocities";
 		case InputAction::BulkScatterBodyPositions: return "Bulk: Scatter Body Positions";
 		case InputAction::BulkSnapBodiesToGrid: return "Bulk: Snap Bodies To Grid";
@@ -276,17 +299,47 @@ enum class InputActionCategory : uint32_t {
 struct KeyBinding {
 	int primary_key{GLFW_KEY_UNKNOWN};
 	int secondary_key{GLFW_KEY_UNKNOWN};
+	int primary_modifier{GLFW_KEY_UNKNOWN};
+	int primary_modifier2{GLFW_KEY_UNKNOWN};
+	int secondary_modifier{GLFW_KEY_UNKNOWN};
+	int secondary_modifier2{GLFW_KEY_UNKNOWN};
 	InputActivationMode mode{InputActivationMode::Hold};
+	float tap_duration_seconds{0.25f};
+	float double_tap_window_seconds{0.30f};
+
+	constexpr KeyBinding() noexcept = default;
+
+	constexpr KeyBinding(int prim, int sec = GLFW_KEY_UNKNOWN, InputActivationMode m = InputActivationMode::Hold) noexcept
+		: primary_key(prim), secondary_key(sec), mode(m) {}
+
+	constexpr KeyBinding(int prim, int prim_mod, int sec, int sec_mod, InputActivationMode m) noexcept
+		: primary_key(prim), secondary_key(sec), primary_modifier(prim_mod), secondary_modifier(sec_mod), mode(m) {}
 
 	[[nodiscard]] bool matches(GLFWwindow* window) const noexcept {
 		if (window == nullptr) return false;
-		if (primary_key != GLFW_KEY_UNKNOWN && glfwGetKey(window, primary_key) == GLFW_PRESS) return true;
-		if (secondary_key != GLFW_KEY_UNKNOWN && glfwGetKey(window, secondary_key) == GLFW_PRESS) return true;
+		if (primary_key != GLFW_KEY_UNKNOWN && glfwGetKey(window, primary_key) == GLFW_PRESS) {
+			const bool m1 = (primary_modifier == GLFW_KEY_UNKNOWN) || (glfwGetKey(window, primary_modifier) == GLFW_PRESS);
+			const bool m2 = (primary_modifier2 == GLFW_KEY_UNKNOWN) || (glfwGetKey(window, primary_modifier2) == GLFW_PRESS);
+			if (m1 && m2) return true;
+		}
+		if (secondary_key != GLFW_KEY_UNKNOWN && glfwGetKey(window, secondary_key) == GLFW_PRESS) {
+			const bool m1 = (secondary_modifier == GLFW_KEY_UNKNOWN) || (glfwGetKey(window, secondary_modifier) == GLFW_PRESS);
+			const bool m2 = (secondary_modifier2 == GLFW_KEY_UNKNOWN) || (glfwGetKey(window, secondary_modifier2) == GLFW_PRESS);
+			if (m1 && m2) return true;
+		}
 		return false;
 	}
 
 	[[nodiscard]] bool contains_key(int key) const noexcept {
-		return key != GLFW_KEY_UNKNOWN && (key == primary_key || key == secondary_key);
+		if (key == GLFW_KEY_UNKNOWN) return false;
+		return key == primary_key || key == secondary_key ||
+			   key == primary_modifier || key == primary_modifier2 ||
+			   key == secondary_modifier || key == secondary_modifier2;
+	}
+
+	[[nodiscard]] bool has_modifiers() const noexcept {
+		return primary_modifier != GLFW_KEY_UNKNOWN || primary_modifier2 != GLFW_KEY_UNKNOWN ||
+			   secondary_modifier != GLFW_KEY_UNKNOWN || secondary_modifier2 != GLFW_KEY_UNKNOWN;
 	}
 };
 
@@ -429,19 +482,29 @@ struct KeyBinding {
 	}
 }
 
+[[nodiscard]] inline std::string format_single_chord(int key, int mod1, int mod2, KeyboardLayout layout = KeyboardLayout::Qwerty) noexcept {
+	if (key == GLFW_KEY_UNKNOWN && mod1 == GLFW_KEY_UNKNOWN && mod2 == GLFW_KEY_UNKNOWN) return "";
+	std::string s;
+	if (mod1 != GLFW_KEY_UNKNOWN) {
+		s += glfw_key_display_name(mod1, layout);
+		s += "+";
+	}
+	if (mod2 != GLFW_KEY_UNKNOWN) {
+		s += glfw_key_display_name(mod2, layout);
+		s += "+";
+	}
+	if (key != GLFW_KEY_UNKNOWN) {
+		s += glfw_key_display_name(key, layout);
+	}
+	return s;
+}
+
 [[nodiscard]] inline std::string format_key_binding(const KeyBinding& binding, KeyboardLayout layout = KeyboardLayout::Qwerty) noexcept {
-	const bool has_primary = binding.primary_key != GLFW_KEY_UNKNOWN;
-	const bool has_secondary = binding.secondary_key != GLFW_KEY_UNKNOWN;
-	if (!has_primary && !has_secondary) {
-		return "---";
-	}
-	if (has_primary && has_secondary) {
-		std::string s = glfw_key_display_name(binding.primary_key, layout);
-		s += "/";
-		s += glfw_key_display_name(binding.secondary_key, layout);
-		return s;
-	}
-	return has_primary ? std::string(glfw_key_display_name(binding.primary_key, layout)) : std::string(glfw_key_display_name(binding.secondary_key, layout));
+	const std::string prim_str = format_single_chord(binding.primary_key, binding.primary_modifier, binding.primary_modifier2, layout);
+	const std::string sec_str = format_single_chord(binding.secondary_key, binding.secondary_modifier, binding.secondary_modifier2, layout);
+	if (prim_str.empty() && sec_str.empty()) return "---";
+	if (!prim_str.empty() && !sec_str.empty()) return prim_str + " / " + sec_str;
+	return !prim_str.empty() ? prim_str : sec_str;
 }
 
 class ActionKeybindMap {
@@ -450,6 +513,9 @@ private:
 	KeyboardLayout layout_{KeyboardLayout::Qwerty};
 	mutable std::array<bool, static_cast<size_t>(InputAction::Count)> toggle_state_{};
 	mutable std::array<bool, static_cast<size_t>(InputAction::Count)> toggle_prev_raw_{};
+	mutable std::array<double, static_cast<size_t>(InputAction::Count)> press_time_{};
+	mutable std::array<double, static_cast<size_t>(InputAction::Count)> release_time_{};
+	mutable std::array<uint8_t, static_cast<size_t>(InputAction::Count)> tap_count_{};
 
 	void apply_layout_defaults(KeyboardLayout layout) noexcept {
 		layout_ = layout;
@@ -525,6 +591,13 @@ public:
 			case InputAction::QuickSaveBenchmarkRun: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			case InputAction::ToggleConstantsWindow: return KeyBinding{GLFW_KEY_SEMICOLON, GLFW_KEY_UNKNOWN};
 			case InputAction::ToggleRayProbeFreeze: return KeyBinding{GLFW_KEY_BACKSLASH, GLFW_KEY_UNKNOWN};
+			case InputAction::ToggleArrowKeysMode: return KeyBinding{GLFW_KEY_BACKSLASH, GLFW_KEY_RIGHT_ALT, GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN, InputActivationMode::Hold};
+			case InputAction::LookUp: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::LookDown: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::LookLeft: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::LookRight: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::FovIncrease: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
+			case InputAction::FovDecrease: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 			default: return KeyBinding{GLFW_KEY_UNKNOWN, GLFW_KEY_UNKNOWN};
 		}
 	}
@@ -553,6 +626,26 @@ public:
 		bindings_[static_cast<size_t>(action)].secondary_key = key;
 	}
 
+	void set_primary_chord(InputAction action, int key, int mod1 = GLFW_KEY_UNKNOWN, int mod2 = GLFW_KEY_UNKNOWN) noexcept {
+		auto& b = bindings_[static_cast<size_t>(action)];
+		b.primary_key = key;
+		b.primary_modifier = mod1;
+		b.primary_modifier2 = mod2;
+	}
+
+	void set_secondary_chord(InputAction action, int key, int mod1 = GLFW_KEY_UNKNOWN, int mod2 = GLFW_KEY_UNKNOWN) noexcept {
+		auto& b = bindings_[static_cast<size_t>(action)];
+		b.secondary_key = key;
+		b.secondary_modifier = mod1;
+		b.secondary_modifier2 = mod2;
+	}
+
+	void set_timing(InputAction action, float tap_duration, float double_tap_window) noexcept {
+		auto& b = bindings_[static_cast<size_t>(action)];
+		b.tap_duration_seconds = tap_duration;
+		b.double_tap_window_seconds = double_tap_window;
+	}
+
 	[[nodiscard]] const KeyBinding& get(InputAction action) const noexcept {
 		return bindings_[static_cast<size_t>(action)];
 	}
@@ -561,18 +654,58 @@ public:
 		return bindings_[static_cast<size_t>(action)].matches(window);
 	}
 
-	[[nodiscard]] bool is_active(InputAction action, GLFWwindow* window) const noexcept {
+	[[nodiscard]] bool is_active(InputAction action, GLFWwindow* window, double current_time = 0.0) const noexcept {
 		const size_t idx = static_cast<size_t>(action);
-		const bool raw = bindings_[idx].matches(window);
-		if (bindings_[idx].mode == InputActivationMode::Toggle) {
-			if (raw && !toggle_prev_raw_[idx]) {
-				toggle_state_[idx] = !toggle_state_[idx];
-			}
-			toggle_prev_raw_[idx] = raw;
-			return toggle_state_[idx];
+		const auto& b = bindings_[idx];
+		const bool raw = b.matches(window);
+		const bool prev = toggle_prev_raw_[idx];
+
+		if (raw && !prev) {
+			press_time_[idx] = current_time;
+		}
+
+		bool triggered = false;
+		switch (b.mode) {
+			case InputActivationMode::Toggle:
+				if (raw && !prev) {
+					toggle_state_[idx] = !toggle_state_[idx];
+				}
+				triggered = toggle_state_[idx];
+				break;
+			case InputActivationMode::Tap:
+				if (!raw && prev) {
+					const double duration = current_time - press_time_[idx];
+					if (duration <= static_cast<double>(b.tap_duration_seconds)) {
+						triggered = true;
+					}
+				}
+				break;
+			case InputActivationMode::DoubleTap:
+				if (!raw && prev) {
+					const double duration = current_time - press_time_[idx];
+					if (duration <= static_cast<double>(b.tap_duration_seconds)) {
+						const double since_last = current_time - release_time_[idx];
+						if (since_last <= static_cast<double>(b.double_tap_window_seconds)) {
+							triggered = true;
+							tap_count_[idx] = 0;
+						} else {
+							tap_count_[idx] = 1;
+						}
+					}
+					release_time_[idx] = current_time;
+				}
+				break;
+			case InputActivationMode::Hold:
+			default:
+				triggered = raw;
+				break;
+		}
+
+		if (!raw && prev) {
+			release_time_[idx] = current_time;
 		}
 		toggle_prev_raw_[idx] = raw;
-		return raw;
+		return triggered;
 	}
 
 	void set_mode(InputAction action, InputActivationMode mode) noexcept {
@@ -605,6 +738,96 @@ public:
 		return bindings_;
 	}
 };
+
+[[nodiscard]] constexpr const char* input_activation_mode_name(InputActivationMode mode) noexcept {
+	switch (mode) {
+		case InputActivationMode::Hold: return "Hold (Continuous)";
+		case InputActivationMode::Toggle: return "Toggle (Flip On/Off)";
+		case InputActivationMode::Tap: return "Tap (Quick Press)";
+		case InputActivationMode::DoubleTap: return "Double-Tap";
+		default: return "Hold";
+	}
+}
+
+[[nodiscard]] constexpr bool action_supports_activation_mode(InputAction action, InputActivationMode mode) noexcept {
+	if (mode == InputActivationMode::Hold) return true;
+	switch (action) {
+		case InputAction::MoveForward:
+		case InputAction::MoveBackward:
+		case InputAction::MoveLeft:
+		case InputAction::MoveRight:
+		case InputAction::MoveUp:
+		case InputAction::MoveDown:
+		case InputAction::RollLeft:
+		case InputAction::RollRight:
+		case InputAction::LookUp:
+		case InputAction::LookDown:
+		case InputAction::LookLeft:
+		case InputAction::LookRight:
+			return true;
+		case InputAction::Sprint:
+		case InputAction::Crawl:
+		case InputAction::ZoomModifier:
+			return mode == InputActivationMode::Hold || mode == InputActivationMode::Toggle;
+		case InputAction::SpeedDecrease:
+		case InputAction::SpeedIncrease:
+		case InputAction::IncreaseExposure:
+		case InputAction::DecreaseExposure:
+		case InputAction::IncreaseTimeWarp:
+		case InputAction::DecreaseTimeWarp:
+		case InputAction::FovIncrease:
+		case InputAction::FovDecrease:
+			return mode == InputActivationMode::Hold || mode == InputActivationMode::Tap || mode == InputActivationMode::DoubleTap;
+		case InputAction::LookAtOrigin:
+		case InputAction::ResetRoll:
+		case InputAction::SnapEquatorialFront:
+		case InputAction::SnapEquatorialSide:
+		case InputAction::SnapNorthPole:
+		case InputAction::SnapSouthPole:
+		case InputAction::SnapIsco:
+		case InputAction::TogglePausePlay:
+		case InputAction::SingleStepTick:
+		case InputAction::ResetClock:
+		case InputAction::CycleCameraMode:
+		case InputAction::CaptureScreenshot:
+		case InputAction::ToggleControlPanel:
+		case InputAction::LayoutMultiWindow:
+		case InputAction::LayoutDocked:
+		case InputAction::LayoutViewportFocus:
+		case InputAction::ToggleBodyManager:
+		case InputAction::ToggleTelemetryWindow:
+		case InputAction::TogglePerformanceWindow:
+		case InputAction::ToggleHudManager:
+		case InputAction::ToggleKeybindSettings:
+		case InputAction::CycleMetric:
+		case InputAction::CycleIntegrator:
+		case InputAction::CycleProjectionMode:
+		case InputAction::CycleTonemapper:
+		case InputAction::CycleSkyboxStyle:
+		case InputAction::ToggleGpuCompute:
+		case InputAction::ToggleSpaceSkipping:
+		case InputAction::ToggleLodSystem:
+		case InputAction::ToggleFullscreenViewport:
+		case InputAction::ToggleScenarioWindow:
+		case InputAction::ToggleDiagnosticsWindow:
+		case InputAction::ToggleSpectrographWindow:
+		case InputAction::TogglePerformanceAnalysisWindow:
+		case InputAction::ToggleConstantsWindow:
+		case InputAction::ToggleCaptureStudio:
+		case InputAction::ToggleRayProbeFreeze:
+		case InputAction::ToggleArrowKeysMode:
+		case InputAction::BulkInvertAllVelocities:
+		case InputAction::BulkScatterBodyPositions:
+		case InputAction::BulkSnapBodiesToGrid:
+		case InputAction::BulkCullBodiesOutsideView:
+		case InputAction::BulkEqualizeBodyMasses:
+		case InputAction::BulkAverageBodyMasses:
+		case InputAction::BulkZeroAllSpins:
+			return mode == InputActivationMode::Tap || mode == InputActivationMode::DoubleTap || mode == InputActivationMode::Toggle;
+		default:
+			return mode == InputActivationMode::Hold || mode == InputActivationMode::Toggle;
+	}
+}
 
 class ActionEdgeTracker {
 private:

@@ -798,6 +798,41 @@ private:
 		render_setting_tooltip("Reverses orbital polar colatitude inclination key responses.");
 
 		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Arrow Keys Function Mode:");
+		const char* arrow_modes[] = {
+			"Translational Movement (Forward / Strafe)",
+			"Camera Inclination & Look (Pitch & Yaw)",
+			"Camera Inclination & Roll (Pitch & Roll)",
+			"Camera Roll & Turn (Roll & Yaw)"
+		};
+		int cur_arrow_mode = static_cast<int>(cfg.arrow_keys_mode);
+		if (ImGui::Combo("Arrow Keys Mode", &cur_arrow_mode, arrow_modes, IM_ARRAYSIZE(arrow_modes))) {
+			cfg.arrow_keys_mode = static_cast<UI::ArrowKeysMode>(cur_arrow_mode);
+		}
+		render_setting_tooltip("Switches whether arrow keys move the observer through space or rotate the camera view along chosen axes.");
+
+		if (cfg.arrow_keys_mode != UI::ArrowKeysMode::Movement) {
+			float arrow_sens = static_cast<float>(cfg.arrow_look_sensitivity);
+			if (ImGui::SliderFloat("Arrow Look Sensitivity", &arrow_sens, 0.1f, 5.0f, "%.2fx")) {
+				cfg.arrow_look_sensitivity = static_cast<double>(arrow_sens);
+			}
+			ImGui::Checkbox("Invert Arrow Vertical", &cfg.arrow_look_invert_pitch);
+			ImGui::SameLine();
+			ImGui::Checkbox("Invert Arrow Horizontal", &cfg.arrow_look_invert_yaw);
+			ImGui::SameLine();
+			ImGui::Checkbox("Invert Arrow Roll", &cfg.arrow_look_invert_roll);
+		}
+
+		ImGui::Separator();
+		ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "External Gamepad Controller:");
+		ImGui::Checkbox("Enable Gamepad Flight Controls", &cfg.gamepad.enabled);
+		render_setting_tooltip("Enables connected Xbox, Bluetooth, and USB gamepads with Star Citizen / Outer Wilds flight controls.");
+		ImGui::SameLine();
+		if (ImGui::Button("Configure Gamepad In Keybinds", ImVec2(220.0f, 22.0f))) {
+			keybind_settings_open_ = true;
+		}
+
+		ImGui::Separator();
 		render_rocket_controls_section();
 
 		ImGui::Separator();

@@ -36,8 +36,10 @@ public:
 				emit(out, prefix + name, field);
 			});
 		}
+		emit(out, "hud_show_gamepad_in_summary", hud.show_gamepad_in_summary);
 		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
 			emit(out, "hud_kbs_" + std::to_string(i), static_cast<bool>(hud.keybind_summary_visible[i]));
+			emit(out, "hud_gp_vis_" + std::to_string(i), static_cast<bool>(hud.gamepad_summary_visible[i]));
 		}
 		visit_schematic(schematic, [&out](const std::string& name, const auto& field) {
 			emit(out, "schem_" + name, field);
@@ -68,10 +70,14 @@ public:
 			element.warning_rule.comparison = static_cast<HudColorRuleComparison>(std::min<uint32_t>(static_cast<uint32_t>(element.warning_rule.comparison), 1U));
 			element.critical_rule.comparison = static_cast<HudColorRuleComparison>(std::min<uint32_t>(static_cast<uint32_t>(element.critical_rule.comparison), 1U));
 		}
+		ingest(entries, "hud_show_gamepad_in_summary", hud.show_gamepad_in_summary);
 		for (size_t i = 0; i < static_cast<size_t>(InputAction::Count); ++i) {
 			bool visible = static_cast<bool>(hud.keybind_summary_visible[i]);
 			ingest(entries, "hud_kbs_" + std::to_string(i), visible);
 			hud.keybind_summary_visible[i] = visible;
+			bool gp_visible = static_cast<bool>(hud.gamepad_summary_visible[i]);
+			ingest(entries, "hud_gp_vis_" + std::to_string(i), gp_visible);
+			hud.gamepad_summary_visible[i] = gp_visible;
 		}
 		visit_schematic(schematic, [&entries](const std::string& name, auto& field) {
 			ingest(entries, "schem_" + name, field);

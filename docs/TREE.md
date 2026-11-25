@@ -710,6 +710,7 @@ Relativity-Simulator/
 │       │   ├── coordinate_display.hpp
 │       │   ├── cosmology_panel.hpp
 │       │   ├── dark_matter_panel.hpp
+│       │   ├── gamepad_input.hpp
 │       │   ├── horizon_zone_strip.hpp
 │       │   ├── input_actions.hpp
 │       │   ├── interactive_camera_controller.hpp

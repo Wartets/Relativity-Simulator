@@ -105,6 +105,8 @@ private:
 	bool pending_layout_reset_{false};
 	bool window_skybox_editor_open_{false};
 	UiLayoutPreset current_layout_{UiLayoutPreset::MultiWindowDetached};
+	std::string last_active_window_{"Master Simulation Controls"};
+	int focus_restore_frames_{5};
 
 	std::chrono::steady_clock::time_point last_frame_time_;
 	double autosave_elapsed_seconds_{0.0};
@@ -332,6 +334,26 @@ public:
 		log_console_window_.open_state() = user_settings_.window_log_console_open;
 		log_console_window_.attach_system_console_flag(user_settings_.show_system_console);
 
+		last_active_window_ = user_settings_.last_active_window;
+		if (last_active_window_.empty()) {
+			last_active_window_ = "Master Simulation Controls";
+		}
+		focus_restore_frames_ = 5;
+
+		if (last_active_window_ == "Scenario Manager & Presets" && scenario_window_) scenario_window_->open_state() = true;
+		else if (last_active_window_ == "Master Simulation Controls") control_panel_window_.open_state() = true;
+		else if (last_active_window_ == "Performance & Engine Optimization") performance_window_.open_state() = true;
+		else if (last_active_window_ == "Celestial Body & N-Body Manager") body_manager_window_.open_state() = true;
+		else if (last_active_window_ == "Curvature Diagnostics & Tensor Inspector") diagnostics_window_.open_state() = true;
+		else if (last_active_window_ == "Telemetry & Invariants") telemetry_window_.open_state() = true;
+		else if (last_active_window_ == "Radiative Transfer & Spectrograph Monitor") spectrograph_window_.open_state() = true;
+		else if (last_active_window_ == "Performance Analysis & Profiling") performance_analysis_window_.open_state() = true;
+		else if (last_active_window_ == "HUD Manager") hud_manager_window_.open_state() = true;
+		else if (last_active_window_ == "Keybind Settings") keybind_window_.open_state() = true;
+		else if (last_active_window_ == "Physical Constants Engine") constants_window_.open_state() = true;
+		else if (last_active_window_ == "Capture Studio" && capture_studio_window_) capture_studio_window_->open_state() = true;
+		else if (last_active_window_ == "Engine Log Console") log_console_window_.open_state() = true;
+
 		report_startup(Startup::StartupStage::Interface, 0.6f, "Building interface", "Applying unit system and coordinate preferences...");
 		orchestrator_.unit_preferences() = user_settings_.unit_preferences;
 		orchestrator_.coordinate_preferences() = user_settings_.coordinate_preferences;
@@ -509,6 +531,9 @@ public:
 		user_settings_.multi_window_mode = multi_window_mode_;
 		user_settings_.last_window_layout = static_cast<uint32_t>(current_layout_);
 		user_settings_.default_camera_mode = orchestrator_.parameters().camera_mode;
+		if (!last_active_window_.empty()) {
+			user_settings_.last_active_window = last_active_window_;
+		}
 		window_chrome_.capture_geometries();
 		Orchestrator::SessionStateStore::capture(orchestrator_, user_settings_.session_values);
 		user_settings_.window_control_panel_open = control_panel_window_.open_state();
@@ -744,6 +769,20 @@ public:
 
 		window_chrome_.process_context_requests();
 		window_chrome_.render_popup();
+
+		if (focus_restore_frames_ > 0 && !last_active_window_.empty()) {
+			ImGui::SetWindowFocus(last_active_window_.c_str());
+			--focus_restore_frames_;
+		}
+
+		ImGuiContext* active_ctx = ImGui::GetCurrentContext();
+		if (active_ctx != nullptr && active_ctx->NavWindow != nullptr && active_ctx->NavWindow->Name != nullptr) {
+			const std::string_view nav_win_name(active_ctx->NavWindow->Name);
+			if (!nav_win_name.empty() && nav_win_name.rfind("##", 0) != 0 && nav_win_name != "##MainMenuBar") {
+				last_active_window_ = std::string(nav_win_name);
+				user_settings_.last_active_window = last_active_window_;
+			}
+		}
 
 		ImGui::Render();
 
@@ -1099,7 +1138,8 @@ private:
 				control_panel_window_.open_state() = !control_panel_window_.open_state();
 				break;
 			case InputAction::CycleCameraMode: {
-				const uint32_t next = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
+				const uint32_t max_modes = orchestrator_.has_walkable_bodies() ? Observer::kCameraNavigationModeCount : 4U;
+				const uint32_t next = (orchestrator_.parameters().camera_mode + 1U) % max_modes;
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next)));
 				break;
 			}
@@ -1174,7 +1214,8 @@ private:
 			body_manager_window_.open_state() = !body_manager_window_.open_state();
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::CycleCameraMode, main_window_)) {
-			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
+			const uint32_t max_modes = orchestrator_.has_walkable_bodies() ? Observer::kCameraNavigationModeCount : 4U;
+			const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1U) % max_modes;
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 		}
 		if (global_action_tracker_.just_pressed(keybinds, InputAction::ToggleTelemetryWindow, main_window_)) {
@@ -1442,7 +1483,8 @@ private:
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Cycle Camera Navigation Mode", "F9")) {
-					const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1) % Observer::kCameraNavigationModeCount;
+					const uint32_t max_modes = orchestrator_.has_walkable_bodies() ? Observer::kCameraNavigationModeCount : 4U;
+					const uint32_t next_mode = (orchestrator_.parameters().camera_mode + 1U) % max_modes;
 					static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(next_mode)));
 				}
 				if (ImGui::MenuItem("Snap Camera to Equatorial (r=50)")) {

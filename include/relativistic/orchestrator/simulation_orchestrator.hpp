@@ -2144,6 +2144,16 @@ public:
 		return coordinate_preferences_;
 	}
 
+	[[nodiscard]] bool has_walkable_bodies() const noexcept {
+		std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
+		for (const auto& b : nbody_system_.bodies()) {
+			if (b.enabled && !b.is_spacetime_source) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	[[nodiscard]] double physical_speed_of_light() const noexcept {
 		return constants_engine_.sim_speed_of_light();
 	}

@@ -414,6 +414,12 @@ private:
 			raw_mode = 0U;
 			orchestrator_.parameters().camera_mode = raw_mode;
 		}
+		if ((raw_mode == static_cast<uint32_t>(CameraNavigationMode::SurfaceWalk) ||
+			 raw_mode == static_cast<uint32_t>(CameraNavigationMode::PlanetOrbit)) &&
+			!orchestrator_.has_walkable_bodies()) {
+			raw_mode = static_cast<uint32_t>(CameraNavigationMode::FreeFly6DOF);
+			orchestrator_.parameters().camera_mode = raw_mode;
+		}
 		const auto requested_mode = static_cast<CameraNavigationMode>(raw_mode);
 		if (requested_mode != previous_mode_) {
 			if (previous_mode_ == CameraNavigationMode::SurfaceWalk) {

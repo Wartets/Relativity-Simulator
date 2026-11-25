@@ -118,6 +118,7 @@ struct UserSettings {
 
 	UI::WindowChromeSettings window_chrome{};
 	std::unordered_map<std::string, std::string> session_values{};
+	std::string last_active_window{"Master Simulation Controls"};
 
 	UI::CameraControlConfig camera_controls{};
 	UI::HudLayoutConfig hud_layout{};
@@ -685,6 +686,7 @@ struct UserSettings {
 	}
 
 	void read_interface(const std::unordered_map<std::string, std::string>& kv) {
+		last_active_window = get_str(kv, "last_active_window", last_active_window);
 		window_log_console_open = get_bool(kv, "window_log_console_open", window_log_console_open);
 		window_control_panel_open = get_bool(kv, "window_control_panel_open", window_control_panel_open);
 		window_performance_open = get_bool(kv, "window_performance_open", window_performance_open);
@@ -1215,6 +1217,7 @@ struct UserSettings {
 	}
 
 	void write_interface(std::ostream& out) const {
+		out << "last_active_window=" << last_active_window << "\n";
 		out << "window_log_console_open=" << (window_log_console_open ? 1 : 0) << "\n";
 		out << "window_control_panel_open=" << (window_control_panel_open ? 1 : 0) << "\n";
 		out << "window_performance_open=" << (window_performance_open ? 1 : 0) << "\n";

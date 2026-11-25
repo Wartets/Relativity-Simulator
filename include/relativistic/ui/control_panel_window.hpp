@@ -641,12 +641,39 @@ private:
 
 		ImGui::Separator();
 
-		const char* cam_modes[] = {"Free Fly 6-DOF", "Orbit Center Target", "Spherical (Boyer-Lindquist)", "Rocket 6-DOF Thrust", "Surface Walk On Body", "Planet Orbit (Simple, No Physics)"};
-		int mode = static_cast<int>(orchestrator_.parameters().camera_mode);
-		if (ImGui::Combo("Camera Mode", &mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
-			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(mode))));
+		struct CameraModeEntry {
+			uint32_t mode{0};
+			const char* label{nullptr};
+		};
+		std::vector<CameraModeEntry> available_modes;
+		available_modes.push_back({0, "Free Fly 6-DOF"});
+		available_modes.push_back({1, "Orbit Center Target"});
+		available_modes.push_back({2, "Spherical (Boyer-Lindquist)"});
+		available_modes.push_back({3, "Rocket 6-DOF Thrust"});
+		const bool has_walkable = orchestrator_.has_walkable_bodies();
+		if (has_walkable) {
+			available_modes.push_back({4, "Surface Walk On Body"});
+			available_modes.push_back({5, "Planet Orbit (Simple, No Physics)"});
 		}
-		render_setting_tooltip("Observer navigation paradigm (6-DOF Free Fly, Spherical Boyer-Lindquist Orbit, Cockpit Flight).");
+
+		int selected_mode_idx = 0;
+		std::vector<const char*> mode_labels;
+		mode_labels.reserve(available_modes.size());
+		for (size_t i = 0; i < available_modes.size(); ++i) {
+			mode_labels.push_back(available_modes[i].label);
+			if (available_modes[i].mode == orchestrator_.parameters().camera_mode) {
+				selected_mode_idx = static_cast<int>(i);
+			}
+		}
+
+		if (ImGui::Combo("Camera Mode", &selected_mode_idx, mode_labels.data(), static_cast<int>(mode_labels.size()))) {
+			const uint32_t new_mode = available_modes[static_cast<size_t>(selected_mode_idx)].mode;
+			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(new_mode)));
+		}
+		render_setting_tooltip("Observer navigation paradigm (6-DOF Free Fly, Orbit, Spherical, Rocket flight). Surface Walk and Planet Orbit require at least one celestial body.");
+		if (!has_walkable) {
+			ImGui::TextDisabled("Surface Walk and Planet Orbit are hidden (no celestial body available).");
+		}
 
 		{
 			double fov_rad_disp = static_cast<double>(camera_fov_) * (std::numbers::pi / 180.0);
@@ -907,7 +934,7 @@ private:
 				}
 			}
 			render_setting_tooltip("Celestial body to walk on. Independent black holes cannot be walked on. Changing the target while walking teleports the walker to the new body.");
-			ImGui::BeginDisabled(selection < 0);
+			ImGui::BeginDisabled(selection < 0 || !orchestrator_.has_walkable_bodies());
 			if (ImGui::Button("Start Walking On Selected Body", ImVec2(250.0f, 26.0f)) && selection >= 0) {
 				camera_controller_.enter_surface_walk(targets[static_cast<size_t>(selection)].id);
 			}
@@ -995,9 +1022,12 @@ private:
 		ImGui::TextDisabled("Simplified navigation on a sphere around the Walk Target Body (or the nearest body). No gravity, falling, bobbing or collisions: arrows or movement keys orbit, mouse drag orbits, wheel or Page Up/Down changes the altitude, Shift sprints, Ctrl crawls.");
 
 		const bool active = orchestrator_.parameters().camera_mode == Observer::kPlanetOrbitNavigationMode;
+		const bool can_orbit = orchestrator_.has_walkable_bodies();
+		ImGui::BeginDisabled(!can_orbit && !active);
 		if (ImGui::Button(active ? "Stop Orbiting" : "Start Orbiting Walk Target Body", ImVec2(260.0f, 26.0f))) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(active ? 0U : Observer::kPlanetOrbitNavigationMode)));
 		}
+		ImGui::EndDisabled();
 		render_setting_tooltip("Switches between Free Fly and the simplified planet orbit navigation. The camera follows the target body and can never enter it.");
 
 		slider_double_with_input("Orbit Speed", &profile.angular_speed_deg_s, 1.0, 360.0, "%.1f deg/s");

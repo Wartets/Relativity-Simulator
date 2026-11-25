@@ -1266,40 +1266,60 @@ public:
 		const double m = std::max(p.mass, 1e-4);
 		const double a = p.spin;
 		const std::string& metric = orchestrator_.active_metric_name();
+		const auto& cam_pos = orchestrator_.camera().position;
+		const auto& unit_prefs = orchestrator_.unit_preferences();
+		const double meters_per_geo = orchestrator_.constants_engine().length_scale();
 
-		targets.push_back(DynamicLookAtTarget{"Spacetime Singularity / Origin (r=0)", {0.0, 0.0, 0.0}, 25.0 * m});
+		auto format_tgt_distance = [&](const std::array<double, 3>& pos) noexcept -> std::string {
+			const double dx = pos[0] - cam_pos[0];
+			const double dy = pos[1] - cam_pos[1];
+			const double dz = pos[2] - cam_pos[2];
+			const double dist_geo = std::sqrt(dx * dx + dy * dy + dz * dz);
+			return Units::format_distance(dist_geo * meters_per_geo, unit_prefs.distance, 2);
+		};
+
+		auto add_target = [&](std::string name, std::array<double, 3> pos, double rec_dist) {
+			const std::string dist_label = format_tgt_distance(pos);
+			targets.push_back(DynamicLookAtTarget{std::move(name) + " [" + dist_label + "]", pos, rec_dist});
+		};
+
+		add_target("Spacetime Origin (r=0)", {0.0, 0.0, 0.0}, 25.0 * m);
 		const double r_h = (std::abs(a) > 1e-6) ? (m + std::sqrt(std::max(m * m - a * a, 0.0))) : (2.0 * m);
 
 		if (metric.find("Morris") != std::string::npos || metric.find("Wormhole") != std::string::npos) {
 			const double b0 = std::max(p.wormhole_throat, 0.1);
-			targets.push_back(DynamicLookAtTarget{"Wormhole Throat (b0=" + std::to_string(b0).substr(0, 4) + ")", {0.0, b0, 0.0}, b0 * 2.5});
-			targets.push_back(DynamicLookAtTarget{"Alternate Universe Mouth (+l)", {0.0, b0 * 2.0, 0.0}, b0 * 3.5});
+			add_target("Wormhole Throat", {0.0, b0, 0.0}, b0 * 2.5);
+			add_target("Alternate Universe Mouth (+l)", {0.0, b0 * 2.0, 0.0}, b0 * 3.5);
 		} else if (metric.find("Alcubierre") != std::string::npos) {
-			targets.push_back(DynamicLookAtTarget{"Warp Bubble Center", {0.0, 0.0, 0.0}, 30.0});
-			targets.push_back(DynamicLookAtTarget{"Forward Contraction Boundary", {15.0, 0.0, 0.0}, 25.0});
-			targets.push_back(DynamicLookAtTarget{"Rear Expansion Boundary", {-15.0, 0.0, 0.0}, 25.0});
+			add_target("Warp Bubble Center", {0.0, 0.0, 0.0}, 30.0);
+			add_target("Forward Contraction Boundary", {15.0, 0.0, 0.0}, 25.0);
+			add_target("Rear Expansion Boundary", {-15.0, 0.0, 0.0}, 25.0);
 		} else {
-			targets.push_back(DynamicLookAtTarget{"Event Horizon (r=" + std::to_string(r_h).substr(0, 4) + "M)", {0.0, r_h * 1.05, 0.0}, r_h * 2.2});
+			add_target("Event Horizon", {0.0, r_h * 1.05, 0.0}, r_h * 2.2);
 		}
 
 		const double r_ph = (std::abs(a) > 1e-6) ? (2.0 * m * (1.0 + std::cos(2.0 / 3.0 * std::acos(-std::clamp(a / m, -1.0, 1.0))))) : (3.0 * m);
-		targets.push_back(DynamicLookAtTarget{"Photon Sphere (r=" + std::to_string(r_ph).substr(0, 4) + "M)", {0.0, r_ph, 0.0}, r_ph * 2.0});
+		add_target("Photon Sphere", {0.0, r_ph, 0.0}, r_ph * 2.0);
 
 		const double r_isco = (std::abs(a) > 1e-6) ? std::max(r_h * 1.05, 6.0 * m - 4.0 * a) : (6.0 * m);
-		targets.push_back(DynamicLookAtTarget{"Accretion ISCO (r=" + std::to_string(r_isco).substr(0, 4) + "M)", {0.0, r_isco, 0.0}, r_isco * 1.8});
+		add_target("Accretion ISCO", {0.0, r_isco, 0.0}, r_isco * 1.8);
 
-		targets.push_back(DynamicLookAtTarget{"Accretion Outer Edge (r=24M)", {0.0, 24.0 * m, 0.0}, 35.0 * m});
-		targets.push_back(DynamicLookAtTarget{"North Polar Axis (+Z)", {0.0, 0.001, 20.0 * m}, 30.0 * m});
-		targets.push_back(DynamicLookAtTarget{"South Polar Axis (-Z)", {0.0, 0.001, -20.0 * m}, 30.0 * m});
+		add_target("Accretion Outer Edge", {0.0, 24.0 * m, 0.0}, 35.0 * m);
+		add_target("North Polar Axis (+Z)", {0.0, 0.001, 20.0 * m}, 30.0 * m);
+		add_target("South Polar Axis (-Z)", {0.0, 0.001, -20.0 * m}, 30.0 * m);
 
-		const auto& sys = orchestrator_.nbody_system();
-		for (const auto& b : sys.bodies()) {
+		std::lock_guard<std::recursive_mutex> lock(orchestrator_.nbody_system().bodies_mutex());
+		for (const auto& b : orchestrator_.nbody_system().bodies()) {
 			if (!b.enabled) continue;
-			targets.push_back(DynamicLookAtTarget{
-				(b.is_spacetime_source ? "Independent Black Hole #" : "Celestial Body #") + std::to_string(b.id) + " (M=" + std::to_string(b.mass).substr(0, 4) + ")",
-				b.position,
-				std::max(b.effective_radius() * 4.0, 10.0)
-			});
+			std::string exact_name;
+			if (b.has_name()) {
+				exact_name = std::string(b.name_view());
+			} else if (b.is_spacetime_source) {
+				exact_name = "Black Hole #" + std::to_string(b.id);
+			} else {
+				exact_name = "Celestial Body #" + std::to_string(b.id);
+			}
+			add_target(exact_name, b.position, std::max(b.effective_radius() * 4.0, 10.0));
 		}
 
 		return targets;
@@ -1448,13 +1468,34 @@ public:
 		}
 
 		if (tb.camera_mode_combo) {
-			const char* cam_modes[] = {"Free Fly", "Orbit Center", "Spherical", "Rocket", "Surface Walk", "Planet Orbit"};
-			int cur_mode = static_cast<int>(orchestrator_.parameters().camera_mode);
-			ImGui::SetNextItemWidth(115.0f);
-			if (ImGui::Combo("##CamModeCombo", &cur_mode, cam_modes, IM_ARRAYSIZE(cam_modes))) {
-				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(static_cast<uint32_t>(cur_mode))));
+			struct ToolbarModeItem {
+				uint32_t mode{0};
+				const char* label{nullptr};
+			};
+			std::vector<ToolbarModeItem> tb_modes;
+			tb_modes.push_back({0, "Free Fly"});
+			tb_modes.push_back({1, "Orbit Center"});
+			tb_modes.push_back({2, "Spherical"});
+			tb_modes.push_back({3, "Rocket"});
+			if (orchestrator_.has_walkable_bodies()) {
+				tb_modes.push_back({4, "Surface Walk"});
+				tb_modes.push_back({5, "Planet Orbit"});
 			}
-			render_setting_tooltip("Switches observer navigation model between 6-DOF Free Fly, Center Orbit, Spherical, and Rocket flight.");
+			int cur_mode_idx = 0;
+			std::vector<const char*> tb_labels;
+			tb_labels.reserve(tb_modes.size());
+			for (size_t i = 0; i < tb_modes.size(); ++i) {
+				tb_labels.push_back(tb_modes[i].label);
+				if (tb_modes[i].mode == orchestrator_.parameters().camera_mode) {
+					cur_mode_idx = static_cast<int>(i);
+				}
+			}
+			ImGui::SetNextItemWidth(115.0f);
+			if (ImGui::Combo("##CamModeCombo", &cur_mode_idx, tb_labels.data(), static_cast<int>(tb_labels.size()))) {
+				const uint32_t selected_mode = tb_modes[static_cast<size_t>(cur_mode_idx)].mode;
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_camera_mode(selected_mode)));
+			}
+			render_setting_tooltip("Switches observer navigation model between available camera modes.");
 			ImGui::SameLine();
 		}
 
@@ -1712,6 +1753,7 @@ public:
 	void render_loading_indicator(const ImVec2& avail) noexcept {
 		const auto& style = hud_layout_.element(HudElementId::LoadingIndicator);
 		if (!style.enabled) return;
+		if (capture_coordinator_ && capture_coordinator_->is_busy()) return;
 
 		const bool is_loading = pipeline_.is_rendering() || !has_received_frame_;
 		if (!is_loading) return;

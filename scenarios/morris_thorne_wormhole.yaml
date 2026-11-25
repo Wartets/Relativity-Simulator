@@ -1,7 +1,16 @@
 scenario_name: "Morris-Thorne Traversable Wormhole"
 description: "Static spherically symmetric traversable wormhole connecting two asymptotically flat spacetime sheets."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
+units:
+  distance: "km"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "MorrisThorne"
   central_mass: 0.0
@@ -80,4 +89,8 @@ observers:
     fov_deg: 75.0
     resolution: [1920, 1080]
     position: [0.0, 0.0, 20.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

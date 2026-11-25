@@ -1,7 +1,16 @@
 scenario_name: "Hulse-Taylor Pulsar PSR B1913+16"
 description: "High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
+units:
+  distance: "km"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Schwarzschild"
   central_mass: 2.8284
@@ -101,9 +110,19 @@ bodies:
     j3: 0.0
     j4: 0.0
     reference_radius: 0.05
+    mass_unit: "M_sun"
+    radius_unit: "km"
+    position_unit: "km"
+    velocity_unit: "km/s"
+    temperature_unit: "K"
+    charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
     fov_deg: 40.0
     resolution: [1920, 1080]
     position: [0.0, 0.0, 120.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

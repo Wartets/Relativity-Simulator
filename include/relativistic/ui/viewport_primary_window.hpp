@@ -2027,7 +2027,8 @@ private:
 				std::snprintf(buf, sizeof(buf), "alpha=%.3f", lapse);
 			} else if (style.display_mode == HudDisplayMode::Extended) {
 				const double omega_zamo = (std::abs(params.spin) > 1e-9 && Observer::StaticObserverFrame::has_frame_dragging(tel_metric_id)) ? Metrics::compute_zamo_angular_velocity(tel_metric, tel_pos) : 0.0;
-				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx | ZAMO Omega: %.4f rad/M", lapse, 1.0 / std::max(lapse, 1e-12), omega_zamo);
+				const std::string omega_str = Units::format_angular_velocity(omega_zamo, orchestrator_.unit_preferences().angular_velocity);
+				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx | ZAMO Omega: %s", lapse, 1.0 / std::max(lapse, 1e-12), omega_str.c_str());
 			} else {
 				std::snprintf(buf, sizeof(buf), "Lapse (alpha): %.4f | Time Dilation: %.3fx", lapse, 1.0 / std::max(lapse, 1e-12));
 			}

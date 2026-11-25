@@ -1,7 +1,16 @@
 scenario_name: "Grand Tour Multi-Planet System"
 description: "Extended terrestrial-to-gas-giant planetary system (Mercury, Venus, Earth, Mars, Jupiter) around a solar-mass star, exercising multi-body 1PN dynamics and zonal harmonic perturbations simultaneously."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.0"
+version_tag: "1.0.1"
+units:
+  distance: "m"
+  mass: "kg"
+  velocity: "m/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "rad"
 spacetime:
   metric_type: "Schwarzschild"
   central_mass: 1.98847e30
@@ -184,4 +193,8 @@ observers:
     fov_deg: 55.0
     resolution: [1920, 1080]
     position: [0.0, 0.0, 9.0e11, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "m"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

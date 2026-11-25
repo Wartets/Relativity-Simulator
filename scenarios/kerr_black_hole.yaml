@@ -1,7 +1,16 @@
 scenario_name: "Kerr Rotating Black Hole (a=0.94)"
 description: "Rapidly spinning Kerr black hole (a=0.94) surrounded by an asymmetric beaming accretion disk."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
+units:
+  distance: "km"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Kerr"
   central_mass: 1.0
@@ -54,4 +63,8 @@ observers:
     fov_deg: 60.0
     resolution: [1920, 1080]
     position: [0.0, 0.0, 33.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

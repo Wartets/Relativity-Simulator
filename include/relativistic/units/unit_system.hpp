@@ -1103,4 +1103,94 @@ namespace Detail {
 	return ss.str();
 }
 
+[[nodiscard]] inline DistanceUnit parse_distance_unit(std::string_view name, DistanceUnit fallback = DistanceUnit::Meters) noexcept {
+	if (name == "m" || name == "meters" || name == "meter") return DistanceUnit::Meters;
+	if (name == "km" || name == "kilometers" || name == "kilometer") return DistanceUnit::Kilometers;
+	if (name == "ft" || name == "feet" || name == "foot") return DistanceUnit::Feet;
+	if (name == "mi" || name == "miles" || name == "mile") return DistanceUnit::Miles;
+	if (name == "nmi" || name == "nauticalmiles") return DistanceUnit::NauticalMiles;
+	if (name == "au" || name == "AU" || name == "astronomicalunits") return DistanceUnit::AstronomicalUnits;
+	if (name == "ly" || name == "lightyears" || name == "lightyear") return DistanceUnit::LightYears;
+	if (name == "pc" || name == "parsecs" || name == "parsec") return DistanceUnit::Parsecs;
+	if (name == "kpc" || name == "kiloparsecs") return DistanceUnit::Kiloparsecs;
+	if (name == "R_sun" || name == "rsun" || name == "solarradii") return DistanceUnit::SolarRadii;
+	return fallback;
+}
+
+[[nodiscard]] inline MassUnit parse_mass_unit(std::string_view name, MassUnit fallback = MassUnit::Kilograms) noexcept {
+	if (name == "kg" || name == "kilograms" || name == "kilogram") return MassUnit::Kilograms;
+	if (name == "g" || name == "grams" || name == "gram") return MassUnit::Grams;
+	if (name == "lb" || name == "pounds" || name == "pound") return MassUnit::Pounds;
+	if (name == "t" || name == "tonnes" || name == "tonne") return MassUnit::MetricTonnes;
+	if (name == "M_sun" || name == "msun" || name == "solarmasses" || name == "solarmass") return MassUnit::SolarMasses;
+	if (name == "M_earth" || name == "mearth" || name == "earthmasses") return MassUnit::EarthMasses;
+	if (name == "M_jup" || name == "mjup" || name == "jupitermasses") return MassUnit::JupiterMasses;
+	if (name == "turkeys" || name == "turkey") return MassUnit::Turkeys;
+	return fallback;
+}
+
+[[nodiscard]] inline VelocityUnit parse_velocity_unit(std::string_view name, VelocityUnit fallback = VelocityUnit::MetersPerSecond) noexcept {
+	if (name == "m/s" || name == "mps") return VelocityUnit::MetersPerSecond;
+	if (name == "km/h" || name == "kmh") return VelocityUnit::KilometersPerHour;
+	if (name == "mph") return VelocityUnit::MilesPerHour;
+	if (name == "km/s" || name == "kms") return VelocityUnit::KilometersPerSecond;
+	if (name == "c" || name == "fraction_of_c") return VelocityUnit::FractionOfC;
+	if (name == "pc/yr") return VelocityUnit::ParsecsPerYear;
+	if (name == "AU/day") return VelocityUnit::AstronomicalUnitsPerDay;
+	return fallback;
+}
+
+[[nodiscard]] inline TimeUnit parse_time_unit(std::string_view name, TimeUnit fallback = TimeUnit::Seconds) noexcept {
+	if (name == "s" || name == "sec" || name == "seconds" || name == "second") return TimeUnit::Seconds;
+	if (name == "ms" || name == "milliseconds") return TimeUnit::Milliseconds;
+	if (name == "us" || name == "microseconds") return TimeUnit::Microseconds;
+	if (name == "ns" || name == "nanoseconds") return TimeUnit::Nanoseconds;
+	if (name == "min" || name == "minutes") return TimeUnit::Minutes;
+	if (name == "h" || name == "hours" || name == "hour") return TimeUnit::Hours;
+	if (name == "d" || name == "days" || name == "day") return TimeUnit::Days;
+	if (name == "yr" || name == "years" || name == "year") return TimeUnit::Years;
+	return fallback;
+}
+
+[[nodiscard]] inline TemperatureUnit parse_temperature_unit(std::string_view name, TemperatureUnit fallback = TemperatureUnit::Kelvin) noexcept {
+	if (name == "K" || name == "kelvin") return TemperatureUnit::Kelvin;
+	if (name == "C" || name == "degc" || name == "celsius") return TemperatureUnit::Celsius;
+	if (name == "F" || name == "degf" || name == "fahrenheit") return TemperatureUnit::Fahrenheit;
+	if (name == "R" || name == "rankine") return TemperatureUnit::Rankine;
+	return fallback;
+}
+
+[[nodiscard]] inline ChargeUnit parse_charge_unit(std::string_view name, ChargeUnit fallback = ChargeUnit::Coulombs) noexcept {
+	if (name == "C" || name == "coulombs" || name == "coulomb") return ChargeUnit::Coulombs;
+	if (name == "mC" || name == "millicoulombs") return ChargeUnit::Millicoulombs;
+	if (name == "uC" || name == "microcoulombs") return ChargeUnit::Microcoulombs;
+	if (name == "e" || name == "elementary_charges") return ChargeUnit::ElementaryCharges;
+	if (name == "Ah" || name == "ampere_hours") return ChargeUnit::AmpereHours;
+	if (name == "statC" || name == "statcoulombs") return ChargeUnit::Statcoulombs;
+	return fallback;
+}
+
+[[nodiscard]] inline AngleUnit parse_angle_unit(std::string_view name, AngleUnit fallback = AngleUnit::Radians) noexcept {
+	if (name == "rad" || name == "radians" || name == "radian") return AngleUnit::Radians;
+	if (name == "deg" || name == "degrees" || name == "degree") return AngleUnit::Degrees;
+	if (name == "arcmin" || name == "arcminutes") return AngleUnit::Arcminutes;
+	if (name == "arcsec" || name == "arcseconds") return AngleUnit::Arcseconds;
+	if (name == "gon" || name == "gradians") return AngleUnit::Gradians;
+	if (name == "rev" || name == "revolutions") return AngleUnit::Revolutions;
+	if (name == "mrad" || name == "milliradians") return AngleUnit::Milliradians;
+	return fallback;
+}
+
+[[nodiscard]] inline EnergyUnit parse_energy_unit(std::string_view name, EnergyUnit fallback = EnergyUnit::Joules) noexcept {
+	if (name == "J" || name == "joules" || name == "joule") return EnergyUnit::Joules;
+	if (name == "kJ" || name == "kilojoules") return EnergyUnit::Kilojoules;
+	if (name == "MJ" || name == "megajoules") return EnergyUnit::Megajoules;
+	if (name == "eV" || name == "electronvolts") return EnergyUnit::ElectronVolts;
+	if (name == "kWh" || name == "kilowatt_hours") return EnergyUnit::KilowattHours;
+	if (name == "erg" || name == "ergs") return EnergyUnit::Ergs;
+	if (name == "ft*lb" || name == "foot_pounds") return EnergyUnit::FootPounds;
+	if (name == "cal" || name == "calories") return EnergyUnit::Calories;
+	return fallback;
+}
+
 }

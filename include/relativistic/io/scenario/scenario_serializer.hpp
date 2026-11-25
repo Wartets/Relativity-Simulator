@@ -40,6 +40,12 @@ struct ScenarioBodyConfig {
 	double j3{0.0};
 	double j4{0.0};
 	double reference_radius{0.0};
+	std::string mass_unit{"kg"};
+	std::string radius_unit{"m"};
+	std::string position_unit{"m"};
+	std::string velocity_unit{"m/s"};
+	std::string temperature_unit{"K"};
+	std::string charge_unit{"C"};
 };
 
 struct ScenarioObserverConfig {
@@ -52,6 +58,8 @@ struct ScenarioObserverConfig {
 	std::array<double, 3> orientation{0.0, 180.0, 0.0};
 	bool has_explicit_orientation{false};
 	uint32_t orientation_convention{1};
+	std::string position_unit{"m"};
+	std::string fov_unit{"deg"};
 };
 
 struct ScenarioIntegratorConfig {
@@ -97,6 +105,17 @@ struct ScenarioInteractionConfig {
 	bool annihilation_require_opposite_charge{true};
 };
 
+struct ScenarioUnitsConfig {
+	std::string distance_unit{"m"};
+	std::string mass_unit{"kg"};
+	std::string velocity_unit{"m/s"};
+	std::string time_unit{"s"};
+	std::string energy_unit{"J"};
+	std::string temperature_unit{"K"};
+	std::string charge_unit{"C"};
+	std::string angle_unit{"rad"};
+};
+
 struct ScenarioValidationResult {
 	bool is_valid{true};
 	std::string error_message{};
@@ -109,6 +128,7 @@ struct ScenarioDefinition {
 	std::string author{"Unknown"};
 	std::string created_at{};
 	std::string version_tag{"1.0.0"};
+	ScenarioUnitsConfig units{};
 	std::string metric_type{"Schwarzschild"};
 	double central_mass{1.0};
 	double central_spin{0.0};
@@ -137,6 +157,15 @@ public:
 		ss << "author: \"" << s.author << "\"\n";
 		ss << "created_at: \"" << s.created_at << "\"\n";
 		ss << "version_tag: \"" << s.version_tag << "\"\n";
+		ss << "units:\n";
+		ss << "  distance: \"" << s.units.distance_unit << "\"\n";
+		ss << "  mass: \"" << s.units.mass_unit << "\"\n";
+		ss << "  velocity: \"" << s.units.velocity_unit << "\"\n";
+		ss << "  time: \"" << s.units.time_unit << "\"\n";
+		ss << "  energy: \"" << s.units.energy_unit << "\"\n";
+		ss << "  temperature: \"" << s.units.temperature_unit << "\"\n";
+		ss << "  charge: \"" << s.units.charge_unit << "\"\n";
+		ss << "  angle: \"" << s.units.angle_unit << "\"\n";
 		ss << "spacetime:\n";
 		ss << "  metric_type: \"" << s.metric_type << "\"\n";
 		ss << "  central_mass: " << s.central_mass << "\n";
@@ -215,6 +244,12 @@ public:
 			ss << "    j3: " << b.j3 << "\n";
 			ss << "    j4: " << b.j4 << "\n";
 			ss << "    reference_radius: " << b.reference_radius << "\n";
+			ss << "    mass_unit: \"" << b.mass_unit << "\"\n";
+			ss << "    radius_unit: \"" << b.radius_unit << "\"\n";
+			ss << "    position_unit: \"" << b.position_unit << "\"\n";
+			ss << "    velocity_unit: \"" << b.velocity_unit << "\"\n";
+			ss << "    temperature_unit: \"" << b.temperature_unit << "\"\n";
+			ss << "    charge_unit: \"" << b.charge_unit << "\"\n";
 		}
 
 		ss << "observers:\n";
@@ -225,6 +260,8 @@ public:
 			ss << "    position: [" << o.position[0] << ", " << o.position[1] << ", " << o.position[2] << ", " << o.position[3] << "]\n";
 			ss << "    orientation: [" << o.orientation[0] << ", " << o.orientation[1] << ", " << o.orientation[2] << "]\n";
 			ss << "    orientation_convention: " << o.orientation_convention << "\n";
+			ss << "    position_unit: \"" << o.position_unit << "\"\n";
+			ss << "    fov_unit: \"" << o.fov_unit << "\"\n";
 			ss << "    four_velocity: [" << o.four_velocity[0] << ", " << o.four_velocity[1] << ", " << o.four_velocity[2] << ", " << o.four_velocity[3] << "]\n";
 		}
 
@@ -334,7 +371,7 @@ public:
 			return {static_cast<float>(values[0]), static_cast<float>(values[1]), static_cast<float>(values[2]), static_cast<float>(values[3])};
 		};
 
-		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Observers };
+		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Observers, Units };
 		Section current_section = Section::Root;
 
 		while (std::getline(stream, line)) {
@@ -347,12 +384,25 @@ public:
 			const std::string_view key = trim(sv.substr(0, colon));
 			const std::string_view val = trim(sv.substr(colon + 1));
 
+			if (key == "units") { current_section = Section::Units; continue; }
 			if (key == "spacetime") { current_section = Section::Spacetime; continue; }
 			if (key == "integrator") { current_section = Section::Integrator; continue; }
 			if (key == "output") { current_section = Section::Output; continue; }
 			if (key == "interactions") { current_section = Section::Interactions; continue; }
 			if (key == "bodies") { current_section = Section::Bodies; continue; }
 			if (key == "observers") { current_section = Section::Observers; continue; }
+
+			if (current_section == Section::Units) {
+				if (key == "distance") s.units.distance_unit = unquote(val);
+				else if (key == "mass") s.units.mass_unit = unquote(val);
+				else if (key == "velocity") s.units.velocity_unit = unquote(val);
+				else if (key == "time") s.units.time_unit = unquote(val);
+				else if (key == "energy") s.units.energy_unit = unquote(val);
+				else if (key == "temperature") s.units.temperature_unit = unquote(val);
+				else if (key == "charge") s.units.charge_unit = unquote(val);
+				else if (key == "angle") s.units.angle_unit = unquote(val);
+				continue;
+			}
 
 			if (current_section == Section::Bodies) {
 				if (sv.starts_with("-")) {
@@ -392,6 +442,12 @@ public:
 					else if (key == "j3") s.bodies.back().j3 = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "j4") s.bodies.back().j4 = std::strtod(std::string(val).c_str(), nullptr);
 					else if (key == "reference_radius") s.bodies.back().reference_radius = std::strtod(std::string(val).c_str(), nullptr);
+					else if (key == "mass_unit") s.bodies.back().mass_unit = unquote(val);
+					else if (key == "radius_unit") s.bodies.back().radius_unit = unquote(val);
+					else if (key == "position_unit") s.bodies.back().position_unit = unquote(val);
+					else if (key == "velocity_unit") s.bodies.back().velocity_unit = unquote(val);
+					else if (key == "temperature_unit") s.bodies.back().temperature_unit = unquote(val);
+					else if (key == "charge_unit") s.bodies.back().charge_unit = unquote(val);
 				}
 				continue;
 			}
@@ -399,7 +455,7 @@ public:
 			if (current_section == Section::Observers) {
 				if (sv.starts_with("-")) {
 					s.observers.emplace_back();
-					s.observers.back().orientation_convention = 0;
+					s.observers.back().orientation_convention = 1;
 					const size_t sub_colon = sv.find(':');
 					if (sub_colon != std::string_view::npos) {
 						const std::string_view skey = trim(sv.substr(1, sub_colon - 1));
@@ -424,6 +480,8 @@ public:
 					}
 					else if (key == "four_velocity") s.observers.back().four_velocity = parse_vec4(val);
 					else if (key == "orientation_convention") s.observers.back().orientation_convention = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10));
+					else if (key == "position_unit") s.observers.back().position_unit = unquote(val);
+					else if (key == "fov_unit") s.observers.back().fov_unit = unquote(val);
 				}
 				continue;
 			}

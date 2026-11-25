@@ -503,7 +503,10 @@ private:
 		}
 
 		if (needs_throat) {
-			if (ImGui::SliderFloat("Wormhole Throat (b0)", &throat_, 0.1f, 20.0f, "%.2f")) {
+			const double throat_meters = static_cast<double>(throat_) * orchestrator_.constants_engine().length_scale();
+			const std::string throat_unit_str = Units::format_distance(throat_meters, orchestrator_.unit_preferences().distance, 2);
+			const std::string throat_label = "Wormhole Throat (b0) [" + throat_unit_str + "]";
+			if (ImGui::SliderFloat(throat_label.c_str(), &throat_, 0.1f, 20.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WormholeThroat, static_cast<double>(throat_))));
 			}
 			render_setting_tooltip("Non-singular throat radius b0 connecting two asymptotically flat Riemannian universe sheets.");
@@ -515,12 +518,18 @@ private:
 		}
 
 		if (needs_warp_velocity) {
-			if (ImGui::SliderFloat("Warp Bubble Velocity (vs)", &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
+			const double warp_mps = static_cast<double>(warp_vel_) * orchestrator_.constants_engine().sim_speed_of_light();
+			const std::string warp_vel_unit_str = Units::format_velocity(warp_mps, orchestrator_.unit_preferences().velocity, 2);
+			const std::string warp_label = "Warp Bubble Velocity (vs) [" + warp_vel_unit_str + "]";
+			if (ImGui::SliderFloat(warp_label.c_str(), &warp_vel_, 0.0f, 10.0f, "%.2f c")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpVelocity, static_cast<double>(warp_vel_))));
 			}
 			render_setting_tooltip("Apparent transluminal shift velocity vs of the Alcubierre spacetime perturbation bubble.");
 			float warp_radius = static_cast<float>(orchestrator_.parameters().warp_bubble_radius);
-			if (slider_float_with_input("Warp Bubble Radius (R)", &warp_radius, 0.5f, 200.0f, "%.2f")) {
+			const double warp_radius_m = static_cast<double>(warp_radius) * orchestrator_.constants_engine().length_scale();
+			const std::string warp_rad_unit_str = Units::format_distance(warp_radius_m, orchestrator_.unit_preferences().distance, 2);
+			const std::string warp_rad_label = "Warp Bubble Radius (R) [" + warp_rad_unit_str + "]";
+			if (slider_float_with_input(warp_rad_label.c_str(), &warp_radius, 0.5f, 200.0f, "%.2f")) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::WarpBubbleRadius, static_cast<double>(warp_radius))));
 			}
 			render_setting_tooltip("Radius of the Alcubierre bubble, in simulation length units, centred on the coordinate origin.");
@@ -533,12 +542,14 @@ private:
 
 		if (needs_teves) {
 			float teves_a0 = static_cast<float>(orchestrator_.parameters().teves_critical_acceleration);
-			if (slider_float_with_input("TeVeS Critical Acceleration (a0)", &teves_a0, 1e-6f, 1e-1f, "%.3e", &teves_log_mode_)) {
+			const std::string teves_label = "TeVeS Critical Acceleration (a0) (" + std::string(Units::acceleration_unit_suffix(orchestrator_.unit_preferences().acceleration)) + ")";
+			if (slider_float_with_input(teves_label.c_str(), &teves_a0, 1e-6f, 1e-1f, "%.3e", &teves_log_mode_)) {
 				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::TevesCriticalAcceleration, static_cast<double>(teves_a0))));
 			}
 			render_setting_tooltip("Acceleration scale of the TeVeS scalar field. Below it the scalar potential strengthens the pull like a dark halo; it sets the transition radius r0 = sqrt(M / a0) at which the metric departs from Schwarzschild.");
 			const double teves_transition = std::sqrt(static_cast<double>(mass_) / std::max(static_cast<double>(teves_a0), 1e-12));
-			ImGui::TextDisabled("Scalar transition radius r0 = %.2f (simulation length units)", teves_transition);
+			const std::string r0_str = Units::format_distance(teves_transition * orchestrator_.constants_engine().length_scale(), orchestrator_.unit_preferences().distance, 2);
+			ImGui::TextDisabled("Scalar transition radius r0 = %.2f [%s]", teves_transition, r0_str.c_str());
 		}
 		if (metric_selection_ >= 10 && metric_selection_ <= 12) {
 			ImGui::TextDisabled("Cosmological parameters of this spacetime are edited in the Cosmology & Evaporation tab.");
@@ -711,7 +722,8 @@ private:
 		}
 		render_setting_tooltip("Prevents the camera from entering black hole event horizons and celestial bodies in every navigation mode, and also constrains scripted capture paths. The camera slides along surfaces instead of passing through. Surface Walk mode is already bound to the surface of its body.");
 		float collision_clearance = static_cast<float>(orchestrator_.parameters().camera_collision_clearance);
-		if (slider_float_with_input("Collision Clearance", &collision_clearance, 1e-4f, 100.0f, "%.4f", &collision_clearance_log_mode_, 1e-4f, 100.0f)) {
+		const std::string clearance_label = "Collision Clearance (" + std::string(Units::distance_unit_suffix(orchestrator_.unit_preferences().distance)) + ")";
+		if (slider_float_with_input(clearance_label.c_str(), &collision_clearance, 1e-4f, 100.0f, "%.4f", &collision_clearance_log_mode_, 1e-4f, 100.0f)) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_param(Orchestrator::ParameterType::CameraCollisionClearance, static_cast<double>(collision_clearance))));
 		}
 		render_setting_tooltip("Minimum distance kept between the camera and any obstacle surface, in simulation length units.");
@@ -959,20 +971,26 @@ private:
 				profile.convert_scale_mode(relative, reference_length);
 			}
 			render_setting_tooltip("When enabled, height, speed, step length and jump height are expressed in body radii so the walker always fits the chosen body. When disabled they are absolute simulation units. Toggling converts the current values using the selected body radius.");
-			const char* unit_label = relative ? "body radii" : "world units";
+			const char* dist_sfx = Units::distance_unit_suffix(orchestrator_.unit_preferences().distance);
+			const char* vel_sfx = Units::velocity_unit_suffix(orchestrator_.unit_preferences().velocity);
+			const char* unit_label = relative ? "body radii" : dist_sfx;
 			const double unit = relative ? 1.0 : std::max(reference_length, 1e-9);
 			ImGui::TextDisabled("Length values are expressed in %s.", unit_label);
 
-			slider_double_with_input("Walker Height", &profile.walker_height, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_height_log_mode_);
+			const std::string height_label = std::string("Walker Height (") + unit_label + ")";
+			slider_double_with_input(height_label.c_str(), &profile.walker_height, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_height_log_mode_);
 			render_setting_tooltip("Total height of the walker. The camera sits at the eye height fraction below.");
 			float eye_fraction = static_cast<float>(profile.eye_height_fraction);
 			if (slider_float_with_input("Eye Height Fraction", &eye_fraction, 0.5f, 1.0f, "%.3f")) profile.eye_height_fraction = eye_fraction;
 			render_setting_tooltip("Fraction of the walker height at which the camera is placed.");
-			slider_double_with_input("Walking Speed", &profile.walk_speed, 1e-4 * unit, 10.0 * unit, "%.6g", &walk_speed_log_mode_);
+			const std::string speed_label = std::string("Walking Speed (") + (relative ? "body radii/s" : vel_sfx) + ")";
+			slider_double_with_input(speed_label.c_str(), &profile.walk_speed, 1e-4 * unit, 10.0 * unit, "%.6g", &walk_speed_log_mode_);
 			render_setting_tooltip("Ground speed per second while walking.");
-			slider_double_with_input("Step Length", &profile.step_length, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_step_log_mode_);
+			const std::string step_label = std::string("Step Length (") + unit_label + ")";
+			slider_double_with_input(step_label.c_str(), &profile.step_length, 1e-4 * unit, 1.0 * unit, "%.6g", &walk_step_log_mode_);
 			render_setting_tooltip("Distance covered by one step. It sets the cadence of the head bob.");
-			slider_double_with_input("Jump Height", &profile.jump_height, 1e-4 * unit, 2.0 * unit, "%.6g", &walk_jump_log_mode_);
+			const std::string jump_label = std::string("Jump Height (") + unit_label + ")";
+			slider_double_with_input(jump_label.c_str(), &profile.jump_height, 1e-4 * unit, 2.0 * unit, "%.6g", &walk_jump_log_mode_);
 			render_setting_tooltip("Apex height reached by a jump under the effective gravity.");
 			slider_double_with_input("Sprint Multiplier", &profile.sprint_multiplier, 1.0, 20.0, "%.2f");
 			slider_double_with_input("Crawl Multiplier", &profile.crawl_multiplier, 0.01, 1.0, "%.2f");
@@ -1230,12 +1248,17 @@ private:
 			}
 			render_setting_tooltip("Throttle percentage regulating sustained forward relativistic engine thrust.");
 
+			const char* accel_sfx = Units::acceleration_unit_suffix(orchestrator_.unit_preferences().acceleration);
+			char thrust_x_fmt[32], thrust_y_fmt[32], thrust_z_fmt[32];
+			std::snprintf(thrust_x_fmt, sizeof(thrust_x_fmt), "%%.1f %s", accel_sfx);
+			std::snprintf(thrust_y_fmt, sizeof(thrust_y_fmt), "%%.1f %s", accel_sfx);
+			std::snprintf(thrust_z_fmt, sizeof(thrust_z_fmt), "%%.1f %s", accel_sfx);
 			bool thrust_changed = false;
-			if (ImGui::SliderFloat("Thrust X (Longitudinal)", &rocket_thrust_x_, -100.0f, 100.0f, "%.1f m/s^2")) thrust_changed = true;
+			if (ImGui::SliderFloat("Thrust X (Longitudinal)", &rocket_thrust_x_, -100.0f, 100.0f, thrust_x_fmt)) thrust_changed = true;
 			render_setting_tooltip("Proper thrust component directed along the vehicle forward longitudinal tetrad axis.");
-			if (ImGui::SliderFloat("Thrust Y (Lateral)", &rocket_thrust_y_, -50.0f, 50.0f, "%.1f m/s^2")) thrust_changed = true;
+			if (ImGui::SliderFloat("Thrust Y (Lateral)", &rocket_thrust_y_, -50.0f, 50.0f, thrust_y_fmt)) thrust_changed = true;
 			render_setting_tooltip("Proper thrust component directed along the vehicle horizontal lateral tetrad axis.");
-			if (ImGui::SliderFloat("Thrust Z (Normal)", &rocket_thrust_z_, -50.0f, 50.0f, "%.1f m/s^2")) thrust_changed = true;
+			if (ImGui::SliderFloat("Thrust Z (Normal)", &rocket_thrust_z_, -50.0f, 50.0f, thrust_z_fmt)) thrust_changed = true;
 			render_setting_tooltip("Proper thrust component directed along the vehicle vertical normal tetrad axis.");
 
 			if (thrust_changed) {
@@ -1288,7 +1311,8 @@ private:
 		const double c = 1.0;
 		const double beta = std::min(v_mag / c, 0.99999999);
 		const double gamma = 1.0 / std::sqrt(std::max(1.0 - beta * beta, 1e-12));
-		ImGui::TextDisabled("Velocity: %.4f c | Lorentz Factor (gamma): %.4f | Status: %s", v_mag, gamma, is_rocket_mode ? "Active" : "Standby");
+		const std::string vel_str = Units::format_velocity(v_mag * orchestrator_.constants_engine().sim_speed_of_light(), orchestrator_.unit_preferences().velocity);
+		ImGui::TextDisabled("Velocity: %s (%.4f c) | Lorentz Factor (gamma): %.4f | Status: %s", vel_str.c_str(), v_mag, gamma, is_rocket_mode ? "Active" : "Standby");
 	}
 
 	void render_execution_tab() noexcept {
@@ -1297,7 +1321,8 @@ private:
 		const bool schematic_locked = params.schematic_mode_enabled && !params.schematic_allow_simulation;
 
 		ImGui::Text("Simulation Cycle: #%llu", static_cast<unsigned long long>(snap.tick_index));
-		ImGui::Text("Logical Time:     %.4f s", snap.logical_time);
+		const std::string time_display = Units::format_time(snap.logical_time, orchestrator_.unit_preferences().time, 4);
+		ImGui::Text("Logical Time:     %s", time_display.c_str());
 
 		if (schematic_locked) {
 			ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "Simulation clock is frozen: Schematic Orbital View is active and 'Allow Simulation Clock To Run In Schematic View' is disabled.");
@@ -1325,7 +1350,8 @@ private:
 		render_setting_tooltip("Resets logical time rate to real-time 1:1 speed.");
 
 		float rate = static_cast<float>(snap.tick_rate_hz);
-		if (slider_float_with_input("Scheduler Rate", &rate, 10.0f, 1000.0f, "%.0f")) {
+		const std::string rate_label = "Scheduler Rate (" + std::string(Units::frequency_unit_suffix(orchestrator_.unit_preferences().frequency)) + ")";
+		if (slider_float_with_input(rate_label.c_str(), &rate, 10.0f, 1000.0f, "%.0f")) {
 			static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_set_tickrate(static_cast<double>(rate))));
 		}
 		render_setting_tooltip("Fixed logical simulation clock frequency decoupled from display frame rates (10 Hz to 1000 Hz).");
@@ -1732,9 +1758,11 @@ private:
 			enqueue_lighting_param(PT::LightAttenuationMode, static_cast<double>(attenuation));
 		}
 		render_setting_tooltip("Inverse-square falloff dims bodies the further they are from the light. Distant directional light has no falloff.");
+		const char* dist_sfx = Units::distance_unit_suffix(orchestrator_.unit_preferences().distance);
 		if (attenuation == static_cast<int>(Render::LightAttenuationMode::InverseSquare)) {
 			float reference_distance = static_cast<float>(params.light_reference_distance);
-			if (slider_float_with_input("Falloff Reference Distance", &reference_distance, 1.0f, 10000.0f, "%.1f", &light_reference_distance_log_mode_, 1.0f, 10000.0f)) {
+			const std::string ref_dist_label = "Falloff Reference Distance (" + std::string(dist_sfx) + ")";
+			if (slider_float_with_input(ref_dist_label.c_str(), &reference_distance, 1.0f, 10000.0f, "%.1f", &light_reference_distance_log_mode_, 1.0f, 10000.0f)) {
 				enqueue_lighting_param(PT::LightReferenceDistance, static_cast<double>(reference_distance));
 			}
 			render_setting_tooltip("Distance from the light at which the irradiance equals the Light Intensity.");
@@ -1784,7 +1812,8 @@ private:
 			}
 			render_setting_tooltip("Global multiplier on the light cast by emissive bodies.");
 			float emission_reference = static_cast<float>(params.body_emission_lighting_reference_distance);
-			if (slider_float_with_input("Emission Reference Distance", &emission_reference, 1.0f, 10000.0f, "%.1f", &emission_lighting_reference_log_mode_, 1.0f, 10000.0f)) {
+			const std::string emiss_ref_label = "Emission Reference Distance (" + std::string(dist_sfx) + ")";
+			if (slider_float_with_input(emiss_ref_label.c_str(), &emission_reference, 1.0f, 10000.0f, "%.1f", &emission_lighting_reference_log_mode_, 1.0f, 10000.0f)) {
 				enqueue_lighting_param(PT::BodyEmissionLightingReferenceDistance, static_cast<double>(emission_reference));
 			}
 			render_setting_tooltip("Distance at which an emissive body with Emission Intensity 1 lights a facing surface with unit irradiance.");

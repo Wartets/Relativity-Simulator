@@ -1,7 +1,16 @@
 scenario_name: "Alcubierre Superluminal Warp Bubble"
 description: "Dynamic spacetime curvature bubble contracting space in front and expanding behind at apparent speed vs=2.0c."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
+units:
+  distance: "km"
+  mass: "kg"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Alcubierre"
   central_mass: 0.0
@@ -77,5 +86,11 @@ bodies:
     reference_radius: 0.5
 observers:
   - name: "PrimaryCamera"
+    fov_deg: 60.0
+    resolution: [1920, 1080]
     position: [0.0, 0.0, 40.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

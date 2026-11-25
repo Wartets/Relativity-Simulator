@@ -1,7 +1,16 @@
 scenario_name: "Relativistic Shock Tube"
 description: "Relativistic Sod shock tube benchmark with WENO-Z spatial reconstruction and HLLC approximate Riemann solver"
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.0"
+version_tag: "1.2.1"
+units:
+  distance: "m"
+  mass: "kg"
+  velocity: "m/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Minkowski"
   central_mass: 0.0
@@ -49,4 +58,13 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
-observers: []
+observers:
+  - name: "ShockObserver"
+    fov_deg: 60.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 10.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "m"
+    fov_unit: "deg"
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

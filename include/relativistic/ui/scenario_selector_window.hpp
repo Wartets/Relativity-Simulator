@@ -334,29 +334,105 @@ private:
 				ImGui::Spacing();
 				ImGui::Separator();
 
-				ImGui::Text("Spacetime Metric: %s", def.metric_type.c_str());
-				ImGui::Text("Central Mass:     %.2f M", def.central_mass);
-				ImGui::Text("Central Spin:     %.2f a", def.central_spin);
-				ImGui::Text("Electric Charge:  %.2f Q", def.central_charge);
-				if (def.metric_type.find("de Sitter") != std::string::npos) {
-					ImGui::Text("Cosmological Lambda: %.4e", def.cosmological_lambda);
+				const auto& unit_prefs = orchestrator_.unit_preferences();
+				const double meters_per_l = orchestrator_.constants_engine().length_scale();
+				const double kg_per_m = orchestrator_.constants_engine().mass_scale();
+
+				ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "Spacetime & Physical Constants:");
+				ImGui::Text("Metric Manifold:      %s", def.metric_type.c_str());
+				const std::string mass_str = Units::format_mass(def.central_mass * kg_per_m, unit_prefs.mass);
+				ImGui::Text("Central Mass (M):     %.4g (%s)", def.central_mass, mass_str.c_str());
+				ImGui::Text("Central Spin (a):     %.4g", def.central_spin);
+				const std::string charge_str = Units::format_charge(def.central_charge, unit_prefs.charge);
+				ImGui::Text("Central Charge (Q):   %.4g (%s)", def.central_charge, charge_str.c_str());
+				if (def.metric_type.find("de Sitter") != std::string::npos || def.cosmological_lambda != 0.0) {
+					ImGui::Text("Cosmological Lambda:  %.4e", def.cosmological_lambda);
 				}
-				if (def.metric_type.find("Wormhole") != std::string::npos || def.metric_type.find("Morris") != std::string::npos) {
-					ImGui::Text("Wormhole Throat:  %.2f b0", def.wormhole_throat);
+				if (def.metric_type.find("Wormhole") != std::string::npos || def.metric_type.find("Morris") != std::string::npos || def.wormhole_throat != 0.0) {
+					const std::string throat_str = Units::format_distance(def.wormhole_throat * meters_per_l, unit_prefs.distance);
+					ImGui::Text("Wormhole Throat (b0): %.4g (%s)", def.wormhole_throat, throat_str.c_str());
 				}
-				if (def.metric_type.find("Warp") != std::string::npos || def.metric_type.find("Alcubierre") != std::string::npos) {
-					ImGui::Text("Warp Bubble Velocity: %.2f c", def.warp_velocity);
+				if (def.metric_type.find("Warp") != std::string::npos || def.metric_type.find("Alcubierre") != std::string::npos || def.warp_velocity != 0.0) {
+					const std::string vel_str = Units::format_velocity(def.warp_velocity * orchestrator_.constants_engine().sim_speed_of_light(), unit_prefs.velocity);
+					ImGui::Text("Warp Velocity (vs):   %.4g c (%s)", def.warp_velocity, vel_str.c_str());
 				}
-				ImGui::Text("Integrator:       %s", def.integrator.scheme.c_str());
-				ImGui::Text("Rel/Abs Tolerance: %.2e / %.2e", def.integrator.relative_tolerance, def.integrator.absolute_tolerance);
-				ImGui::Text("Bodies:           %zu", def.bodies.size());
-				if (!def.bodies.empty() && ImGui::TreeNode("BodyPreview", "Body Preview")) {
+				ImGui::Text("Speed of Light (c):   %.9g", def.speed_of_light);
+				ImGui::Text("Gravitational (G):    %.9g", def.gravitational_constant);
+
+				ImGui::Spacing();
+				ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "Integrator Configuration:");
+				ImGui::Text("Scheme:               %s", def.integrator.scheme.c_str());
+				ImGui::Text("Initial Step:         %.4g", def.integrator.initial_step);
+				ImGui::Text("Step Bounds:          [%.2e, %.2e]", def.integrator.min_step, def.integrator.max_step);
+				ImGui::Text("Tolerances (rel/abs): %.2e / %.2e", def.integrator.relative_tolerance, def.integrator.absolute_tolerance);
+
+				ImGui::Spacing();
+				ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "Observers (%zu):", def.observers.size());
+				for (size_t oi = 0; oi < def.observers.size(); ++oi) {
+					const auto& obs = def.observers[oi];
+					const double ox = obs.position[1];
+					const double oy = obs.position[2];
+					const double oz = obs.position[3];
+					const double odist = std::sqrt(ox * ox + oy * oy + oz * oz);
+					const std::string dist_str = Units::format_distance(odist * meters_per_l, unit_prefs.distance);
+					ImGui::BulletText("%s:", obs.name.c_str());
+					ImGui::Text("  Position: (%.4g, %.4g, %.4g) [r = %s]", ox, oy, oz, dist_str.c_str());
+					if (obs.has_explicit_orientation) {
+						constexpr double deg_to_rad = std::numbers::pi / 180.0;
+						const double p_rad = obs.orientation[0] * deg_to_rad;
+						const double y_rad = obs.orientation[1] * deg_to_rad;
+						const double fwd_x = std::cos(p_rad) * std::cos(y_rad);
+						const double fwd_y = std::cos(p_rad) * std::sin(y_rad);
+						const double fwd_z = std::sin(p_rad);
+						ImGui::Text("  Orientation: Pitch=%.2f deg, Yaw=%.2f deg, Roll=%.2f deg", obs.orientation[0], obs.orientation[1], obs.orientation[2]);
+						ImGui::Text("  Gaze Vector: (%.3f, %.3f, %.3f)", fwd_x, fwd_y, fwd_z);
+					} else {
+						const double d_tot = std::max(odist, 1e-9);
+						const double auto_yaw = std::atan2(-oy, -ox) * (180.0 / std::numbers::pi);
+						const double auto_pitch = std::asin(std::clamp(-oz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi);
+						ImGui::Text("  Orientation: Auto-targeted to origin (Pitch=%.2f deg, Yaw=%.2f deg)", auto_pitch, auto_yaw);
+					}
+					ImGui::Text("  FOV: %.1f deg | Resolution: %u x %u", obs.field_of_view_deg, obs.resolution_x, obs.resolution_y);
+					ImGui::Text("  Four-Velocity: (%.3f, %.3f, %.3f, %.3f)", obs.four_velocity[0], obs.four_velocity[1], obs.four_velocity[2], obs.four_velocity[3]);
+				}
+
+				ImGui::Spacing();
+				ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "Bodies (%zu):", def.bodies.size());
+				if (!def.bodies.empty() && ImGui::TreeNode("BodyCatalogDetail", "Detailed Body Catalog")) {
 					for (const auto& b : def.bodies) {
-						ImGui::BulletText("%s (M=%.3e, r=%.3f)", b.name.c_str(), b.mass, std::sqrt(b.initial_position[1] * b.initial_position[1] + b.initial_position[2] * b.initial_position[2] + b.initial_position[3] * b.initial_position[3]));
+						const double bx = b.initial_position[1];
+						const double by = b.initial_position[2];
+						const double bz = b.initial_position[3];
+						const double bdist = std::sqrt(bx * bx + by * by + bz * bz);
+						const double bspeed = std::sqrt(b.initial_velocity[1] * b.initial_velocity[1] + b.initial_velocity[2] * b.initial_velocity[2] + b.initial_velocity[3] * b.initial_velocity[3]);
+						const std::string bmass_str = Units::format_mass(b.mass * kg_per_m, unit_prefs.mass);
+						const std::string brad_str = Units::format_distance(b.radius * meters_per_l, unit_prefs.distance);
+						const std::string bdist_str = Units::format_distance(bdist * meters_per_l, unit_prefs.distance);
+						const std::string bspd_str = Units::format_velocity(bspeed * orchestrator_.constants_engine().sim_speed_of_light(), unit_prefs.velocity);
+						ImGui::BulletText("%s [ID #%u] - %s", b.name.c_str(), b.body_id, b.enabled ? "Enabled" : "Disabled");
+						ImGui::Text("  Mass: %s (%.4g) | Radius: %s (%.4g)", bmass_str.c_str(), b.mass, brad_str.c_str(), b.radius);
+						ImGui::Text("  Position: (%.4g, %.4g, %.4g) [r = %s]", bx, by, bz, bdist_str.c_str());
+						ImGui::Text("  Velocity: (%.4g, %.4g, %.4g) [|v| = %s]", b.initial_velocity[1], b.initial_velocity[2], b.initial_velocity[3], bspd_str.c_str());
+						if (b.temperature > 0.0) {
+							const std::string btemp_str = Units::format_temperature(b.temperature, unit_prefs.temperature);
+							ImGui::Text("  Temperature: %s | Heat Cap: %.3e", btemp_str.c_str(), b.heat_capacity);
+						}
+						if (!b.composition.empty()) {
+							ImGui::Text("  Composition: %s", b.composition.c_str());
+						}
 					}
 					ImGui::TreePop();
 				}
-				ImGui::Text("Observers:        %zu", def.observers.size());
+
+				ImGui::Spacing();
+				if (ImGui::TreeNode("InteractionsPreview", "Physical Interaction Models")) {
+					ImGui::Text("Electromagnetism: %s", (def.interactions.electricity_enabled || def.interactions.magnetism_enabled) ? "Active" : "Disabled");
+					ImGui::Text("Collisions:       %s (Model=%u, Restitution=%.2f)", def.interactions.collisions_enabled ? "Active" : "Disabled", def.interactions.collision_response_model, def.interactions.collision_restitution_multiplier);
+					ImGui::Text("Thermodynamics:   %s (Ambient=%.1f K)", def.interactions.thermodynamics_enabled ? "Active" : "Disabled", def.interactions.ambient_temperature_kelvin);
+					ImGui::Text("Fragmentation:    %s", def.interactions.fragmentation_enabled ? "Active" : "Disabled");
+					ImGui::Text("Annihilation:     %s", def.interactions.annihilation_enabled ? "Active" : "Disabled");
+					ImGui::TreePop();
+				}
 
 				ImGui::Spacing();
 				if (ImGui::Button("Load Scenario", ImVec2(240.0f, 32.0f))) {

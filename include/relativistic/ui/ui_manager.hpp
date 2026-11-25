@@ -1003,8 +1003,12 @@ private:
 		if (user_settings_.session_values.empty()) {
 			return;
 		}
-		orchestrator_.queue_post_command_action([values = user_settings_.session_values](Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
+		orchestrator_.queue_post_command_action([values = user_settings_.session_values, preserve_scenario_camera = user_settings_.load_scenario_on_startup](Orchestrator::SimulationOrchestrator<1024>& orchestrator) {
+			const auto scenario_camera = orchestrator.camera();
 			Orchestrator::SessionStateStore::apply(orchestrator, values);
+			if (preserve_scenario_camera) {
+				orchestrator.camera() = scenario_camera;
+			}
 			Core::Diagnostics::record_milestone("session state restored (" + std::to_string(values.size()) + " entries)");
 		});
 	}

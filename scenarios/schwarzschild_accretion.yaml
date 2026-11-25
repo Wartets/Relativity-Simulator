@@ -1,7 +1,16 @@
 scenario_name: "Schwarzschild Black Hole & Accretion Disk"
 description: "Static Schwarzschild black hole with an equatorial Novikov-Thorne accretion disk and gravitational lensing."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.1.2"
+units:
+  distance: "km"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Schwarzschild"
   central_mass: 60.0
@@ -55,4 +64,7 @@ observers:
     resolution: [1920, 1080]
     position: [0, -2028, 266, 350]
     orientation: [-9.449, -61.607, 0]
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

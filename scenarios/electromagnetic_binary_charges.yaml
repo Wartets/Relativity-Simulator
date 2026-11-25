@@ -1,7 +1,16 @@
 scenario_name: "Electromagnetic Binary Charges"
 description: "Two oppositely charged bodies in flat spacetime showcasing Coulomb attraction as a live-toggleable interaction alongside Newtonian gravity."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.0"
+version_tag: "1.0.1"
+units:
+  distance: "m"
+  mass: "kg"
+  velocity: "m/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
 spacetime:
   metric_type: "Minkowski"
   central_mass: 0.0
@@ -101,9 +110,19 @@ bodies:
     j3: 0.0
     j4: 0.0
     reference_radius: 0.3
+    mass_unit: "kg"
+    radius_unit: "m"
+    position_unit: "m"
+    velocity_unit: "m/s"
+    temperature_unit: "K"
+    charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
     fov_deg: 55.0
     resolution: [1920, 1080]
     position: [0.0, 0.0, 22.0, 0.0]
+    orientation: [0.0, 180.0, 0.0]
+    orientation_convention: 1
+    position_unit: "m"
+    fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

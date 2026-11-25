@@ -1199,6 +1199,30 @@ public:
 		params_.warp_velocity = s.warp_velocity;
 		active_integrator_name_ = s.integrator.scheme;
 
+		if (std::abs(s.speed_of_light - 1.0) < 1e-6 && std::abs(s.gravitational_constant - 1.0) < 1e-6) {
+			constants_engine_.apply_preset(Core::ConstantsPreset::Geometrized);
+		} else if (std::abs(s.speed_of_light - Core::SIReferenceConstants::SPEED_OF_LIGHT) < 1.0) {
+			constants_engine_.apply_preset(Core::ConstantsPreset::SI);
+		} else {
+			constants_engine_.set_speed_of_light(s.speed_of_light);
+			constants_engine_.set_gravitational_constant(s.gravitational_constant);
+		}
+		if (s.central_mass > 0.0) {
+			constants_engine_.set_reference_mass(s.central_mass);
+		}
+		sync_nbody_constants_with_engine();
+		interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
+		interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
+
+		if (!s.units.distance_unit.empty()) unit_preferences_.distance = Units::parse_distance_unit(s.units.distance_unit, unit_preferences_.distance);
+		if (!s.units.mass_unit.empty()) unit_preferences_.mass = Units::parse_mass_unit(s.units.mass_unit, unit_preferences_.mass);
+		if (!s.units.velocity_unit.empty()) unit_preferences_.velocity = Units::parse_velocity_unit(s.units.velocity_unit, unit_preferences_.velocity);
+		if (!s.units.time_unit.empty()) unit_preferences_.time = Units::parse_time_unit(s.units.time_unit, unit_preferences_.time);
+		if (!s.units.energy_unit.empty()) unit_preferences_.energy = Units::parse_energy_unit(s.units.energy_unit, unit_preferences_.energy);
+		if (!s.units.temperature_unit.empty()) unit_preferences_.temperature = Units::parse_temperature_unit(s.units.temperature_unit, unit_preferences_.temperature);
+		if (!s.units.charge_unit.empty()) unit_preferences_.charge = Units::parse_charge_unit(s.units.charge_unit, unit_preferences_.charge);
+		if (!s.units.angle_unit.empty()) unit_preferences_.angle = Units::parse_angle_unit(s.units.angle_unit, unit_preferences_.angle);
+
 		interaction_config_.electromagnetic.electricity_enabled = s.interactions.electricity_enabled;
 		interaction_config_.electromagnetic.magnetism_enabled = s.interactions.magnetism_enabled;
 		interaction_config_.electromagnetic.vacuum_permittivity = s.interactions.vacuum_permittivity;
@@ -1233,7 +1257,7 @@ public:
 			camera_.orbit_distance = camera_.radius;
 			camera_.target = {0.0, 0.0, 0.0};
 			camera_.velocity = {0.0, 0.0, 0.0};
-			if (s.observers[0].has_explicit_orientation && s.observers[0].orientation_convention >= 1) {
+			if (s.observers[0].has_explicit_orientation) {
 				camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
 				camera_.yaw = s.observers[0].orientation[1];
 				camera_.roll = s.observers[0].orientation[2];
@@ -1333,6 +1357,16 @@ public:
 		s.cosmological_lambda = params_.cosmological_lambda;
 		s.wormhole_throat = params_.wormhole_throat;
 		s.warp_velocity = params_.warp_velocity;
+		s.speed_of_light = constants_engine_.sim_speed_of_light();
+		s.gravitational_constant = constants_engine_.sim_gravitational_constant();
+		s.units.distance_unit = Units::distance_unit_suffix(unit_preferences_.distance);
+		s.units.mass_unit = Units::mass_unit_suffix(unit_preferences_.mass);
+		s.units.velocity_unit = Units::velocity_unit_suffix(unit_preferences_.velocity);
+		s.units.time_unit = Units::time_unit_suffix(unit_preferences_.time);
+		s.units.energy_unit = Units::energy_unit_suffix(unit_preferences_.energy);
+		s.units.temperature_unit = Units::temperature_unit_suffix(unit_preferences_.temperature);
+		s.units.charge_unit = Units::charge_unit_suffix(unit_preferences_.charge);
+		s.units.angle_unit = Units::angle_unit_suffix(unit_preferences_.angle);
 		s.integrator.scheme = active_integrator_name_;
 		s.integrator.relative_tolerance = params_.integration_rtol;
 		s.integrator.absolute_tolerance = params_.integration_atol;
@@ -1366,6 +1400,9 @@ public:
 		obs.field_of_view_deg = camera_.fov_deg;
 		obs.orientation = {camera_.pitch, camera_.yaw, camera_.roll};
 		obs.has_explicit_orientation = true;
+		obs.orientation_convention = 1;
+		obs.position_unit = Units::distance_unit_suffix(unit_preferences_.distance);
+		obs.fov_unit = "deg";
 		s.observers.push_back(obs);
 
 		for (const auto& body : nbody_system_.bodies()) {
@@ -1396,6 +1433,12 @@ public:
 			bc.j3 = body.j3;
 			bc.j4 = body.j4;
 			bc.reference_radius = body.reference_radius;
+			bc.mass_unit = Units::mass_unit_suffix(unit_preferences_.mass);
+			bc.radius_unit = Units::distance_unit_suffix(unit_preferences_.distance);
+			bc.position_unit = Units::distance_unit_suffix(unit_preferences_.distance);
+			bc.velocity_unit = Units::velocity_unit_suffix(unit_preferences_.velocity);
+			bc.temperature_unit = Units::temperature_unit_suffix(unit_preferences_.temperature);
+			bc.charge_unit = Units::charge_unit_suffix(unit_preferences_.charge);
 			s.bodies.push_back(bc);
 		}
 
@@ -1792,10 +1835,13 @@ public:
 			case ParameterType::ConstantsPresetSelect:
 				constants_engine_.apply_preset_by_index(static_cast<uint32_t>(val));
 				sync_nbody_constants_with_engine();
+				interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
+				interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
 				break;
 			case ParameterType::ConstantSimC:
 				constants_engine_.set_speed_of_light(val);
 				sync_nbody_constants_with_engine();
+				interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
 				break;
 			case ParameterType::ConstantSimG:
 				constants_engine_.set_gravitational_constant(val);
@@ -1812,6 +1858,8 @@ public:
 				break;
 			case ParameterType::ConstantSimKe:
 				constants_engine_.set_coulomb_constant(val);
+				interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
+				interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
 				break;
 			case ParameterType::ConstantSimKcd:
 				constants_engine_.set_luminous_efficacy(val);

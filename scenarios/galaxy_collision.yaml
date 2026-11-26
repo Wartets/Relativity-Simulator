@@ -1,31 +1,42 @@
 scenario_name: "Galaxy Collision"
 description: "Direct collision and merger of two spiral galaxies with Navarro-Frenk-White dark matter halos and stellar disks"
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.1"
+version_tag: "1.3.0"
 units:
-  distance: "m"
-  mass: "kg"
-  velocity: "m/s"
-  time: "s"
+  distance: "kpc"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "yr"
   energy: "J"
   temperature: "K"
   charge: "C"
-  angle: "rad"
+  angle: "deg"
 spacetime:
-  metric_type: "Minkowski"
+  metric_type: "FlatMinkowski"
   central_mass: 0.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
   wormhole_throat: 0.0
   warp_velocity: 0.0
-  speed_of_light: 299792458.0
-  gravitational_constant: 6.67430e-11
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+time:
+  warp_factor: 1.0e6
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 80.0
+  galaxies_enabled: true
+  galaxy_density: 1.8
+  nebula_enabled: true
 integrator:
-  scheme: "BarnesHutLeapfrog"
-  initial_step: 3.15576e13
-  min_step: 3.15576e11
-  max_step: 3.15576e14
+  scheme: "RK45"
+  initial_step: 1000.0
+  min_step: 1.0
+  max_step: 50000.0
   relative_tolerance: 1.0e-8
   absolute_tolerance: 1.0e-12
 output:
@@ -58,123 +69,123 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Galaxy1_Core"
+  - name: "Spiral Galaxy 1 Core"
     body_id: 1001
     mass: 1.0e11
-    radius: 1.0e20
+    radius: 2.5
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.9, 0.85, 0.6, 1.0]
-    color_secondary: [0.6, 0.5, 0.3, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 0.0
-    heat_capacity: 0.0
-    absorption_factor: 1.0
-    composition: "NFW dark matter halo + stellar bulge tracer"
-    position: [0.0, -1.0e21, 0.0, 0.0]
-    velocity: [299792458.0, 1.5e5, 0.0, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 1.0e20
-  - name: "Galaxy1_HaloTracer"
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [1.0, 0.85, 0.6, 1.0]
+    color_secondary: [0.65, 0.45, 0.25, 1.0]
+    emission_intensity: 1.8
+    composition: "Supermassive core + bulge"
+    position: [0.0, -25.0, 0.0, 0.0]
+    velocity: [0.0, 0.035, 0.015, 0.0]
+    reference_radius: 2.5
+  - name: "Spiral Galaxy 2 Core"
     body_id: 1002
-    mass: 3.0e10
-    radius: 5.0e19
+    mass: 8.0e10
+    radius: 2.2
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.5, 0.6, 0.85, 1.0]
-    color_secondary: [0.3, 0.35, 0.55, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 0.0
-    heat_capacity: 0.0
-    absorption_factor: 1.0
-    composition: "NFW dark matter halo tracer"
-    position: [3.0e20, -1.0e21, 0.0, 0.0]
-    velocity: [299792458.0, 1.5e5, 4.0e4, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 5.0e19
-  - name: "Galaxy2_Core"
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [0.65, 0.8, 1.0, 1.0]
+    color_secondary: [0.3, 0.5, 0.85, 1.0]
+    emission_intensity: 1.8
+    composition: "Supermassive core + bulge"
+    position: [0.0, 25.0, 0.0, 0.0]
+    velocity: [0.0, -0.035, -0.015, 0.0]
+    reference_radius: 2.2
+  - name: "G1 Arm Star Alpha"
     body_id: 1003
-    mass: 1.0e11
-    radius: 1.0e20
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.75, 0.8, 0.95, 1.0]
-    color_secondary: [0.4, 0.45, 0.6, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 0.0
-    heat_capacity: 0.0
-    absorption_factor: 1.0
-    composition: "NFW dark matter halo + stellar bulge tracer"
-    position: [0.0, 1.0e21, 0.0, 0.0]
-    velocity: [299792458.0, -1.5e5, 0.0, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 1.0e20
-  - name: "Galaxy2_HaloTracer"
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 1 Core"
+    semi_major_axis: 12.0
+    eccentricity: 0.05
+    inclination: 15.0
+    true_anomaly: 45.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [0.9, 0.95, 1.0, 1.0]
+    emission_intensity: 1.2
+  - name: "G1 Arm Star Beta"
     body_id: 1004
-    mass: 3.0e10
-    radius: 5.0e19
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.95, 0.7, 0.6, 1.0]
-    color_secondary: [0.55, 0.4, 0.35, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 0.0
-    heat_capacity: 0.0
-    absorption_factor: 1.0
-    composition: "NFW dark matter halo tracer"
-    position: [-3.0e20, 1.0e21, 0.0, 0.0]
-    velocity: [299792458.0, -1.5e5, -4.0e4, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 5.0e19
-    mass_unit: "kg"
-    radius_unit: "m"
-    position_unit: "m"
-    velocity_unit: "m/s"
-    temperature_unit: "K"
-    charge_unit: "C"
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 1 Core"
+    semi_major_axis: 18.0
+    eccentricity: 0.04
+    inclination: 15.0
+    true_anomaly: 165.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [1.0, 0.85, 0.6, 1.0]
+    emission_intensity: 1.2
+  - name: "G1 Arm Star Gamma"
+    body_id: 1005
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 1 Core"
+    semi_major_axis: 24.0
+    eccentricity: 0.06
+    inclination: 15.0
+    true_anomaly: 285.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [0.8, 0.9, 1.0, 1.0]
+    emission_intensity: 1.2
+  - name: "G2 Arm Star Alpha"
+    body_id: 1006
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 2 Core"
+    semi_major_axis: 10.0
+    eccentricity: 0.04
+    inclination: 45.0
+    true_anomaly: 30.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [0.95, 0.85, 0.7, 1.0]
+    emission_intensity: 1.2
+  - name: "G2 Arm Star Beta"
+    body_id: 1007
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 2 Core"
+    semi_major_axis: 16.0
+    eccentricity: 0.05
+    inclination: 45.0
+    true_anomaly: 150.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [0.7, 0.85, 1.0, 1.0]
+    emission_intensity: 1.2
+  - name: "G2 Arm Star Gamma"
+    body_id: 1008
+    mass: 1.0e8
+    radius: 0.8
+    parent_name: "Spiral Galaxy 2 Core"
+    semi_major_axis: 22.0
+    eccentricity: 0.06
+    inclination: 45.0
+    true_anomaly: 270.0
+    preset_3d: "star"
+    surface_texture_mode: "stellargranulation"
+    color: [1.0, 0.75, 0.55, 1.0]
+    emission_intensity: 1.2
 observers:
   - name: "IntergalacticObserver"
-    fov_deg: 60.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 3.0e21, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 75.0, 20.0]
+    target_name: "origin"
     orientation_convention: 1
-    position_unit: "m"
+    position_unit: "kpc"
     fov_unit: "deg"
     four_velocity: [1.0, 0.0, 0.0, 0.0]

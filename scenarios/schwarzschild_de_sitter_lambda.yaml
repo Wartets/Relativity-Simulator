@@ -1,7 +1,7 @@
 scenario_name: "Schwarzschild-de Sitter Cosmological Horizon"
 description: "Static black hole embedded in a de Sitter background, exhibiting both an event horizon and an outer cosmological horizon driven by dark energy."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.0.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -21,13 +21,17 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
   scheme: "RK45"
   initial_step: 0.01
   min_step: 1.0e-08
-  max_step: 12.0
-  relative_tolerance: 1.0e-10
-  absolute_tolerance: 1.0e-14
+  max_step: 2.5
+  relative_tolerance: 1.0e-9
+  absolute_tolerance: 1.0e-13
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -60,10 +64,10 @@ interactions:
 bodies: []
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 65.0
+    fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 25.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 16.0, 4.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

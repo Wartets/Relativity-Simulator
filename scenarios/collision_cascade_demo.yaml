@@ -1,7 +1,7 @@
 scenario_name: "Collision Cascade Demonstration"
 description: "Four rigid bodies converging in flat spacetime, showcasing Hertzian contact repulsion, restitution-based bounce, friction, and rotational spin-up on impact."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "m"
   mass: "kg"
@@ -33,6 +33,16 @@ output:
   hdf5_enabled: true
   vtk_enabled: false
   export_directory: "./output"
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: false
+  nebula_enabled: false
+  grid_enabled: true
+  grid_opacity: 0.25
 interactions:
   electricity_enabled: false
   magnetism_enabled: false
@@ -43,8 +53,8 @@ interactions:
   collision_consider_rotation: true
   collision_consider_friction: true
   collision_restitution_multiplier: 1.0
-  collision_stiffness_scale: 5.0e-3
-  collision_position_correction_factor: 0.25
+  collision_stiffness_scale: 0.05
+  collision_position_correction_factor: 0.3
   thermodynamics_enabled: false
   ambient_temperature_kelvin: -1.0
   radiative_coupling_scale: 1.0
@@ -60,25 +70,27 @@ interactions:
 bodies:
   - name: "Impactor North"
     body_id: 1
-    mass: 1.0
-    radius: 0.5
+    mass: "[0.8, 1.2]"
+    radius: "[0.45, 0.55]"
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [1.0, 0.55, 0.3, 1.0]
-    color_secondary: [0.7, 0.35, 0.15, 1.0]
+    preset_3d: "metallic"
+    surface_texture_mode: "crateredterrestrial"
+    color: [1.0, 0.5, 0.3, 1.0]
+    color_secondary: [0.7, 0.3, 0.15, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.4
-    restitution: 0.7
+    friction_coefficient: 0.45
+    restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Elastic composite sphere"
-    position: [0.0, 8.0, 0.0, 0.0]
-    velocity: [0.0, -0.4, 0.0, 0.0]
+    composition: "Elastic silicate impactor"
+    position: [0.0, "[5.0, 6.2]", 0.0, 0.0]
+    velocity: [0.0, "[-0.24, -0.18]", 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -86,25 +98,27 @@ bodies:
     reference_radius: 0.5
   - name: "Impactor South"
     body_id: 2
-    mass: 1.0
-    radius: 0.5
+    mass: "[0.8, 1.2]"
+    radius: "[0.45, 0.55]"
     spin: 0.0
     charge: 0.0
     enabled: true
+    preset_3d: "metallic"
+    surface_texture_mode: "crateredterrestrial"
     color: [0.3, 0.55, 1.0, 1.0]
     color_secondary: [0.15, 0.35, 0.7, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.4
-    restitution: 0.7
+    friction_coefficient: 0.45
+    restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Elastic composite sphere"
-    position: [0.0, -8.0, 0.0, 0.0]
-    velocity: [0.0, 0.4, 0.0, 0.0]
+    composition: "Elastic silicate impactor"
+    position: [0.0, "[-6.2, -5.0]", 0.0, 0.0]
+    velocity: [0.0, "[0.18, 0.24]", 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -112,25 +126,27 @@ bodies:
     reference_radius: 0.5
   - name: "Impactor East"
     body_id: 3
-    mass: 0.6
-    radius: 0.4
+    mass: "[0.5, 0.8]"
+    radius: "[0.35, 0.45]"
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.6, 1.0, 0.4, 1.0]
-    color_secondary: [0.35, 0.7, 0.2, 1.0]
+    preset_3d: "terrestrial"
+    surface_texture_mode: "marbledstone"
+    color: [0.5, 0.95, 0.4, 1.0]
+    color_secondary: [0.3, 0.65, 0.2, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.5
-    restitution: 0.6
+    friction_coefficient: 0.45
+    restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Elastic composite sphere"
-    position: [8.0, 0.0, 0.0, 0.0]
-    velocity: [-0.4, 0.05, 0.0, 0.0]
+    composition: "Elastic silicate impactor"
+    position: ["[5.0, 6.2]", 0.0, 0.0, 0.0]
+    velocity: ["[-0.24, -0.18]", 0.02, 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -138,25 +154,27 @@ bodies:
     reference_radius: 0.4
   - name: "Impactor West"
     body_id: 4
-    mass: 0.6
-    radius: 0.4
+    mass: "[0.5, 0.8]"
+    radius: "[0.35, 0.45]"
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [1.0, 0.9, 0.35, 1.0]
-    color_secondary: [0.7, 0.6, 0.2, 1.0]
+    preset_3d: "terrestrial"
+    surface_texture_mode: "marbledstone"
+    color: [1.0, 0.85, 0.3, 1.0]
+    color_secondary: [0.7, 0.55, 0.15, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.5
-    restitution: 0.6
+    friction_coefficient: 0.45
+    restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Elastic composite sphere"
-    position: [-8.0, 0.0, 0.0, 0.0]
-    velocity: [0.4, -0.05, 0.0, 0.0]
+    composition: "Elastic silicate impactor"
+    position: ["[-6.2, -5.0]", 0.0, 0.0, 0.0]
+    velocity: ["[0.18, 0.24]", -0.02, 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -170,10 +188,10 @@ bodies:
     charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 65.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 30.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 15.0, 0.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "m"
     fov_unit: "deg"

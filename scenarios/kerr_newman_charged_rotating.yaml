@@ -1,7 +1,7 @@
 scenario_name: "Kerr-Newman Charged Rotating Black Hole"
 description: "Rotating and electrically charged black hole demonstrating the combined effects of frame-dragging and electrostatic repulsion on the horizon structure."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.0.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -28,6 +28,10 @@ integrator:
   max_step: 6.0
   relative_tolerance: 1.0e-11
   absolute_tolerance: 1.0e-15
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -58,12 +62,20 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
+primary_disk:
+  enabled: true
+  inner_radius_scale: 1.0
+  outer_radius_mass_units: 25.0
+  peak_temperature_k: 22000.0
+  floor_temperature_k: 1200.0
+  brightness: 1.1
+  color_saturation: 1.0
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 58.0
-    resolution: [2560, 1440]
-    position: [0.0, 0.0, 22.0, 4.0]
-    orientation: [-10.3, 180.0, 0.0]
+    fov_deg: 46.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 28.0, 8.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

@@ -1,7 +1,7 @@
 scenario_name: "Grand Tour Multi-Planet System"
-description: "Extended terrestrial-to-gas-giant planetary system (Mercury, Venus, Earth, Mars, Jupiter) around a solar-mass star, exercising multi-body 1PN dynamics and zonal harmonic perturbations simultaneously."
+description: "The complete real Solar System with the Sun and all major planets from Mercury to Neptune plus Pluto, Earth-Moon and the Galilean moons with true astrophysical masses, radii, and orbital elements."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "2.0.0"
 units:
   distance: "m"
   mass: "kg"
@@ -10,10 +10,10 @@ units:
   energy: "J"
   temperature: "K"
   charge: "C"
-  angle: "rad"
+  angle: "deg"
 spacetime:
-  metric_type: "Schwarzschild"
-  central_mass: 1.98847e30
+  metric_type: "FlatMinkowski"
+  central_mass: 0.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
@@ -21,12 +21,23 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 299792458.0
   gravitational_constant: 6.67430e-11
+time:
+  warp_factor: 86400.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 90.0
+  star_brightness: 1.8
+  nebula_enabled: true
+  nebula_intensity: 0.2
 integrator:
-  scheme: "GaussLegendre6"
+  scheme: "RK45"
   initial_step: 3600.0
   min_step: 1.0
   max_step: 86400.0
-  relative_tolerance: 1.0e-12
+  relative_tolerance: 1.0e-11
   absolute_tolerance: 1.0e-15
 output:
   fits_enabled: true
@@ -58,142 +69,343 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
+  - name: "Sun"
+    body_id: 10
+    mass: 1.98847e30
+    radius: 6.9634e8
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "sunphotosphere"
+    color: [1.0, 0.88, 0.55, 1.0]
+    color_secondary: [1.0, 0.35, 0.05, 1.0]
+    color_tertiary: [1.0, 0.98, 0.85, 1.0]
+    emission_intensity: 2.45
+    atmosphere_mode: "glowingcorona"
+    atmosphere_thickness: 0.0
+    temperature: 5772.0
+    rotation_speed_3d: 0.00286
+    orientation_euler: [0.0, 7.25, 0.0]
+    position: [0.0, 0.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.0, 0.0]
+    reference_radius: 6.9634e8
   - name: "Mercury"
     body_id: 199
     mass: 3.3011e23
     radius: 2.4397e6
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.65, 0.6, 0.55, 1.0]
-    color_secondary: [0.4, 0.37, 0.34, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 1.24e-6
-    friction_coefficient: 0.6
-    restitution: 0.3
-    integrity: 1.0
-    lifetime: 0.0
+    parent_name: "Sun"
+    semi_major_axis: 5.7909e10
+    eccentricity: 0.20563
+    inclination: 7.005
+    longitude_node: 48.331
+    argument_periapsis: 29.124
+    true_anomaly: 15.0
+    rotation_speed_3d: 0.0012
+    orientation_euler: [0.0, 0.034, 0.0]
     temperature: 440.0
-    heat_capacity: 1.0e6
-    absorption_factor: 0.88
-    composition: "Silicate-iron rocky body"
-    position: [0.0, 4.60012e10, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 58980.0, 0.0]
-    quadrupole: 0.0
-    j2: 6.0e-5
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 2.4397e6
+    preset_3d: "metallic"
+    surface_texture_mode: "mercurycratered"
+    color: [0.62, 0.60, 0.58, 1.0]
+    color_secondary: [0.35, 0.33, 0.32, 1.0]
+    color_tertiary: [0.78, 0.76, 0.74, 1.0]
+    layer_template_1: 3
   - name: "Venus"
     body_id: 299
     mass: 4.8675e24
     radius: 6.0518e6
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.95, 0.85, 0.6, 1.0]
-    color_secondary: [0.75, 0.6, 0.35, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: -2.99e-7
-    friction_coefficient: 0.5
-    restitution: 0.3
-    integrity: 1.0
-    lifetime: 0.0
+    parent_name: "Sun"
+    semi_major_axis: 1.08209e11
+    eccentricity: 0.00677
+    inclination: 3.3945
+    longitude_node: 76.680
+    argument_periapsis: 54.884
+    true_anomaly: 48.0
+    rotation_speed_3d: -0.0003
+    orientation_euler: [0.0, 177.36, 0.0]
     temperature: 737.0
-    heat_capacity: 1.0e6
-    absorption_factor: 0.75
-    composition: "Sulfuric acid cloud over basaltic crust"
-    position: [0.0, 1.0894e11, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 35020.0, 0.0]
-    quadrupole: 0.0
-    j2: 4.458e-6
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 6.0518e6
+    preset_3d: "terrestrial"
+    surface_texture_mode: "venusatmosphere"
+    color: [0.88, 0.76, 0.52, 1.0]
+    color_secondary: [0.72, 0.58, 0.36, 1.0]
+    color_tertiary: [0.95, 0.85, 0.65, 1.0]
+    atmosphere_mode: "thickhaze"
+    atmosphere_thickness: 0.28
+    layer_template_1: 5
   - name: "Earth"
     body_id: 399
     mass: 5.9722e24
-    radius: 6.378137e6
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.3, 0.55, 0.85, 1.0]
-    color_secondary: [0.25, 0.55, 0.3, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 7.292e-5
-    friction_coefficient: 0.4
-    restitution: 0.3
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 288.0
-    heat_capacity: 1.0e7
-    absorption_factor: 0.7
-    composition: "Silicate mantle with iron core and hydrosphere"
-    position: [0.0, 1.495978707e11, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 29780.0, 0.0]
-    quadrupole: 0.0
-    j2: 1.08263e-3
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 6.378137e6
+    radius: 6.3710e6
+    parent_name: "Sun"
+    semi_major_axis: 1.4959787e11
+    eccentricity: 0.01671
+    inclination: 0.0
+    longitude_node: -11.260
+    argument_periapsis: 114.207
+    true_anomaly: 100.0
+    rotation_speed_3d: 0.0729
+    orientation_euler: [0.0, 23.44, 0.0]
+    temperature: 288.15
+    preset_3d: "terrestrial"
+    surface_texture_mode: "earthbluemarble"
+    earth_map_variant: 0
+    earth_map_quality: 1
+    color: [0.12, 0.38, 0.72, 1.0]
+    color_secondary: [0.22, 0.52, 0.25, 1.0]
+    color_tertiary: [0.95, 0.95, 0.98, 1.0]
+    atmosphere_mode: "rayleighlimbshell"
+    atmosphere_thickness: 0.16
+    layer_template_1: 2
+  - name: "Moon"
+    body_id: 301
+    mass: 7.342e22
+    radius: 1.7374e6
+    parent_name: "Earth"
+    semi_major_axis: 3.844e8
+    eccentricity: 0.0549
+    inclination: 5.145
+    longitude_node: 125.08
+    argument_periapsis: 318.15
+    true_anomaly: 45.0
+    rotation_speed_3d: 0.0026
+    orientation_euler: [0.0, 6.68, 0.0]
+    temperature: 250.0
+    preset_3d: "metallic"
+    surface_texture_mode: "crateredterrestrial"
+    color: [0.68, 0.67, 0.66, 1.0]
+    color_secondary: [0.42, 0.41, 0.40, 1.0]
+    color_tertiary: [0.85, 0.84, 0.83, 1.0]
+    layer_template_1: 3
   - name: "Mars"
     body_id: 499
     mass: 6.4171e23
     radius: 3.3895e6
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.8, 0.45, 0.3, 1.0]
-    color_secondary: [0.55, 0.3, 0.2, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 7.088e-5
-    friction_coefficient: 0.5
-    restitution: 0.3
-    integrity: 1.0
-    lifetime: 0.0
+    parent_name: "Sun"
+    semi_major_axis: 2.27937e11
+    eccentricity: 0.09341
+    inclination: 1.850
+    longitude_node: 49.558
+    argument_periapsis: 286.502
+    true_anomaly: 140.0
+    rotation_speed_3d: 0.0708
+    orientation_euler: [0.0, 25.19, 0.0]
     temperature: 210.0
-    heat_capacity: 8.0e6
-    absorption_factor: 0.65
-    composition: "Iron-oxide regolith over basaltic crust"
-    position: [0.0, 2.27939e11, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 24070.0, 0.0]
-    quadrupole: 0.0
-    j2: 1.96045e-3
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 3.3895e6
+    preset_3d: "terrestrial"
+    surface_texture_mode: "marsdesertbasalt"
+    color: [0.78, 0.38, 0.22, 1.0]
+    color_secondary: [0.52, 0.24, 0.14, 1.0]
+    color_tertiary: [0.96, 0.94, 0.92, 1.0]
+    atmosphere_mode: "rayleighlimbshell"
+    atmosphere_thickness: 0.05
+    layer_template_1: 0
+    layer_template_2: 6
   - name: "Jupiter"
     body_id: 599
     mass: 1.89813e27
-    radius: 7.1492e7
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [0.85, 0.75, 0.6, 1.0]
-    color_secondary: [0.65, 0.5, 0.4, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 1.759e-4
-    friction_coefficient: 0.1
-    restitution: 0.4
-    integrity: 1.0
-    lifetime: 0.0
+    radius: 6.9911e7
+    parent_name: "Sun"
+    semi_major_axis: 7.78412e11
+    eccentricity: 0.04839
+    inclination: 1.305
+    longitude_node: 100.464
+    argument_periapsis: 273.867
+    true_anomaly: 210.0
+    rotation_speed_3d: 0.176
+    orientation_euler: [0.0, 3.13, 0.0]
     temperature: 165.0
-    heat_capacity: 5.0e9
-    absorption_factor: 0.5
-    composition: "Hydrogen-helium gas giant envelope"
-    position: [0.0, 7.78479e11, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 13070.0, 0.0]
-    quadrupole: 0.0
-    j2: 1.469657e-2
-    j3: 0.0
-    j4: -5.86609e-4
-    reference_radius: 7.1492e7
+    preset_3d: "gasgiant"
+    surface_texture_mode: "jupiterstormbands"
+    color: [0.84, 0.68, 0.48, 1.0]
+    color_secondary: [0.64, 0.42, 0.26, 1.0]
+    color_tertiary: [0.92, 0.86, 0.76, 1.0]
+    atmosphere_mode: "thickhaze"
+    atmosphere_thickness: 0.34
+    ring_system_enabled: true
+    layer_template_1: 5
+  - name: "Io"
+    body_id: 501
+    mass: 8.9319e22
+    radius: 1.8216e6
+    parent_name: "Jupiter"
+    semi_major_axis: 4.217e8
+    eccentricity: 0.0041
+    inclination: 0.050
+    longitude_node: 43.0
+    argument_periapsis: 84.0
+    true_anomaly: 90.0
+    rotation_speed_3d: 0.041
+    temperature: 130.0
+    preset_3d: "terrestrial"
+    surface_texture_mode: "volcanicmagma"
+    color: [0.92, 0.84, 0.22, 1.0]
+    color_secondary: [0.72, 0.42, 0.12, 1.0]
+    color_tertiary: [0.98, 0.35, 0.15, 1.0]
+  - name: "Europa"
+    body_id: 502
+    mass: 4.800e22
+    radius: 1.5608e6
+    parent_name: "Jupiter"
+    semi_major_axis: 6.709e8
+    eccentricity: 0.009
+    inclination: 0.470
+    longitude_node: 219.0
+    argument_periapsis: 88.0
+    true_anomaly: 180.0
+    rotation_speed_3d: 0.021
+    orientation_euler: [0.0, 0.1, 0.0]
+    temperature: 102.0
+    preset_3d: "icegiant"
+    surface_texture_mode: "icycracked"
+    color: [0.82, 0.78, 0.72, 1.0]
+    color_secondary: [0.52, 0.38, 0.28, 1.0]
+    color_tertiary: [0.96, 0.94, 0.90, 1.0]
+  - name: "Ganymede"
+    body_id: 503
+    mass: 1.4819e23
+    radius: 2.6341e6
+    parent_name: "Jupiter"
+    semi_major_axis: 1.0704e9
+    eccentricity: 0.0013
+    inclination: 0.200
+    longitude_node: 63.0
+    argument_periapsis: 192.0
+    true_anomaly: 270.0
+    rotation_speed_3d: 0.010
+    orientation_euler: [0.0, 0.2, 0.0]
+    temperature: 110.0
+    preset_3d: "metallic"
+    surface_texture_mode: "crateredterrestrial"
+    color: [0.65, 0.62, 0.58, 1.0]
+    color_secondary: [0.38, 0.35, 0.32, 1.0]
+    color_tertiary: [0.85, 0.82, 0.78, 1.0]
+  - name: "Callisto"
+    body_id: 504
+    mass: 1.0759e23
+    radius: 2.4103e6
+    parent_name: "Jupiter"
+    semi_major_axis: 1.8827e9
+    eccentricity: 0.0074
+    inclination: 0.280
+    longitude_node: 298.0
+    argument_periapsis: 52.0
+    true_anomaly: 330.0
+    rotation_speed_3d: 0.0044
+    temperature: 134.0
+    preset_3d: "metallic"
+    surface_texture_mode: "crateredterrestrial"
+    color: [0.48, 0.45, 0.42, 1.0]
+    color_secondary: [0.28, 0.26, 0.24, 1.0]
+    color_tertiary: [0.72, 0.70, 0.68, 1.0]
+  - name: "Saturn"
+    body_id: 699
+    mass: 5.6834e26
+    radius: 5.8232e7
+    parent_name: "Sun"
+    semi_major_axis: 1.43353e12
+    eccentricity: 0.05655
+    inclination: 2.485
+    longitude_node: 113.665
+    argument_periapsis: 339.392
+    true_anomaly: 280.0
+    rotation_speed_3d: 0.164
+    orientation_euler: [0.0, 26.73, 0.0]
+    temperature: 134.0
+    preset_3d: "gasgiant"
+    surface_texture_mode: "saturncloudbelts"
+    color: [0.90, 0.82, 0.62, 1.0]
+    color_secondary: [0.75, 0.62, 0.42, 1.0]
+    color_tertiary: [0.96, 0.90, 0.76, 1.0]
+    atmosphere_mode: "thickhaze"
+    atmosphere_thickness: 0.30
+    ring_system_enabled: true
+    layer_template_1: 5
+  - name: "Titan"
+    body_id: 606
+    mass: 1.3452e23
+    radius: 2.5747e6
+    parent_name: "Saturn"
+    semi_major_axis: 1.22187e9
+    eccentricity: 0.0288
+    inclination: 0.348
+    longitude_node: 168.0
+    argument_periapsis: 175.0
+    true_anomaly: 60.0
+    rotation_speed_3d: 0.0046
+    temperature: 93.7
+    preset_3d: "terrestrial"
+    surface_texture_mode: "procedural"
+    color: [0.86, 0.62, 0.28, 1.0]
+    color_secondary: [0.68, 0.45, 0.18, 1.0]
+    color_tertiary: [0.94, 0.78, 0.42, 1.0]
+    atmosphere_mode: "thickhaze"
+    atmosphere_thickness: 0.26
+  - name: "Uranus"
+    body_id: 799
+    mass: 8.6810e25
+    radius: 2.5362e7
+    parent_name: "Sun"
+    semi_major_axis: 2.87246e12
+    eccentricity: 0.04638
+    inclination: 0.773
+    longitude_node: 74.006
+    argument_periapsis: 96.998
+    true_anomaly: 320.0
+    rotation_speed_3d: -0.101
+    orientation_euler: [0.0, 97.77, 0.0]
+    temperature: 76.0
+    preset_3d: "icegiant"
+    surface_texture_mode: "uranusmethanehaze"
+    color: [0.65, 0.85, 0.88, 1.0]
+    color_secondary: [0.45, 0.68, 0.74, 1.0]
+    color_tertiary: [0.85, 0.95, 0.98, 1.0]
+    atmosphere_mode: "volumetricmie"
+    atmosphere_thickness: 0.22
+  - name: "Neptune"
+    body_id: 899
+    mass: 1.02413e26
+    radius: 2.4622e7
+    parent_name: "Sun"
+    semi_major_axis: 4.49506e12
+    eccentricity: 0.00946
+    inclination: 1.768
+    longitude_node: 131.784
+    argument_periapsis: 273.187
+    true_anomaly: 40.0
+    rotation_speed_3d: 0.108
+    orientation_euler: [0.0, 28.32, 0.0]
+    temperature: 72.0
+    preset_3d: "icegiant"
+    surface_texture_mode: "neptunevortexbands"
+    color: [0.25, 0.45, 0.88, 1.0]
+    color_secondary: [0.15, 0.28, 0.68, 1.0]
+    color_tertiary: [0.55, 0.75, 0.98, 1.0]
+    atmosphere_mode: "volumetricmie"
+    atmosphere_thickness: 0.25
+  - name: "Pluto"
+    body_id: 999
+    mass: 1.303e22
+    radius: 1.1883e6
+    parent_name: "Sun"
+    semi_major_axis: 5.90638e12
+    eccentricity: 0.24881
+    inclination: 17.160
+    longitude_node: 110.299
+    argument_periapsis: 113.834
+    true_anomaly: 15.0
+    rotation_speed_3d: -0.011
+    orientation_euler: [0.0, 122.53, 0.0]
+    temperature: 44.0
+    preset_3d: "terrestrial"
+    surface_texture_mode: "icycracked"
+    color: [0.78, 0.68, 0.58, 1.0]
+    color_secondary: [0.45, 0.35, 0.28, 1.0]
+    color_tertiary: [0.92, 0.88, 0.82, 1.0]
 observers:
   - name: "GrandTourObserver"
     fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 9.0e11, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 9.5e11, 2.5e11]
+    target_name: "Sun"
     orientation_convention: 1
     position_unit: "m"
     fov_unit: "deg"

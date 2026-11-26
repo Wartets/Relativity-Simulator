@@ -1,7 +1,7 @@
 scenario_name: "Near-Extremal Kerr Horizon Close-Up"
 description: "Kerr black hole spinning near the theoretical extremality limit (a=0.999M), placing the camera close to the photon sphere to observe extreme frame-dragging and horizon flattening."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "km"
   mass: "M_sun"
@@ -21,13 +21,26 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+primary_disk:
+  enabled: true
+  inner_radius_scale: 1.0
+  outer_radius_mass_units: 30.0
+  peak_temperature_k: 32000.0
+  floor_temperature_k: 1200.0
+  brightness: 1.5
+  doppler_beaming_exponent: 1.0
+  color_saturation: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
-  scheme: "Vernier9"
-  initial_step: -0.005
-  min_step: 1.0e-09
-  max_step: 2.0
-  relative_tolerance: 1.0e-12
-  absolute_tolerance: 1.0e-16
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 4.0
+  relative_tolerance: 1.0e-10
+  absolute_tolerance: 1.0e-14
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -60,10 +73,10 @@ interactions:
 bodies: []
 observers:
   - name: "PhotonSphereCamera"
-    fov_deg: 80.0
-    resolution: [2560, 1440]
-    position: [0.0, 3.4, 1.5707963267948966, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    fov_deg: 45.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 22.0, 4.5]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

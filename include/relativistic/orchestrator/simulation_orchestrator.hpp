@@ -599,6 +599,7 @@ public:
 		state_version_.fetch_add(1, std::memory_order_release);
 	}
 	SimulationOrchestrator() noexcept {
+		scheduler_.pause();
 		sync_camera_spherical_from_cartesian();
 		camera_.orbit_distance = camera_.radius;
 		home_camera_ = camera_;
@@ -1214,6 +1215,84 @@ public:
 		interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
 		interaction_config_.electromagnetic.vacuum_permeability = constants_engine_.sim_vacuum_permeability();
 
+		params_.warp_bubble_radius = s.warp_bubble_radius;
+		params_.warp_wall_sharpness = s.warp_wall_sharpness;
+		params_.wormhole_tidal_potential = s.wormhole_tidal_potential;
+		params_.teves_critical_acceleration = s.teves_critical_acceleration;
+		params_.pole_guard_precision_scale = s.pole_guard_precision_scale;
+		params_.far_field_step_scale = s.far_field_step_scale;
+
+		if (s.time.warp_factor > 0.0) {
+			scheduler_.set_warp_factor(s.time.warp_factor);
+		}
+		if (s.time.tick_rate_hz >= 10.0 && s.time.tick_rate_hz <= 1000.0) {
+			scheduler_.set_tick_rate(s.time.tick_rate_hz);
+		}
+		if (s.time.is_paused) {
+			scheduler_.pause();
+		} else {
+			scheduler_.resume();
+		}
+
+		if (s.has_skybox) {
+			params_.sky.enabled = s.skybox.enabled;
+			params_.sky.stars_enabled = s.skybox.stars_enabled;
+			params_.sky.star_density = s.skybox.star_density;
+			params_.sky.star_brightness = s.skybox.star_brightness;
+			params_.sky.nebula_enabled = s.skybox.nebulae_enabled;
+			params_.sky.nebula_intensity = s.skybox.nebula_intensity;
+			params_.sky.galaxies_enabled = s.skybox.galaxies_enabled;
+			params_.sky.galaxy_density = s.skybox.galaxy_density;
+			params_.sky.galaxy_brightness = s.skybox.galaxy_brightness;
+			params_.sky.clusters_enabled = s.skybox.clusters_enabled;
+			params_.sky.cluster_density = s.skybox.cluster_density;
+			params_.sky.cluster_brightness = s.skybox.cluster_brightness;
+			params_.sky.dust_enabled = s.skybox.dust_enabled;
+			params_.sky.dust_density = s.skybox.dust_density;
+			params_.sky.dust_intensity = s.skybox.dust_intensity;
+			params_.sky.grid_enabled = s.skybox.grid_enabled;
+			params_.sky.grid_opacity = s.skybox.grid_opacity;
+			params_.sky.grid_line_width = s.skybox.grid_line_width;
+			params_.sky.grid_cell_fill_mode = s.skybox.grid_cell_fill_mode;
+			params_.sky.grid_cell_opacity = s.skybox.grid_cell_opacity;
+			params_.sky.grid_cell_color_count = s.skybox.grid_cell_color_count;
+			for (size_t c = 0; c < s.skybox.grid_cell_color_count && c < Render::ProceduralSkySettings::kMaxGridCellColors; ++c) {
+				params_.sky.grid_cell_colors[c] = s.skybox.grid_cell_colors[c];
+			}
+			params_.sky.background_color = s.skybox.background_color;
+			params_.sky_background_source = s.skybox.background_source;
+			params_.sky_panorama_id = s.skybox.panorama_id;
+			params_.sky.orientation_yaw_deg = s.skybox.orientation_yaw_deg;
+			params_.sky.orientation_pitch_deg = s.skybox.orientation_pitch_deg;
+			params_.sky.orientation_roll_deg = s.skybox.orientation_roll_deg;
+			if (s.skybox.seed != 0U) {
+				params_.sky.seed = s.skybox.seed;
+			}
+			params_.sync_sky_fields();
+		}
+
+		if (s.has_primary_disk) {
+			params_.primary_disk.enabled = s.primary_disk.enabled;
+			params_.primary_disk.inner_radius_scale = s.primary_disk.inner_radius_scale;
+			params_.primary_disk.outer_radius_mass_units = s.primary_disk.outer_radius_mass_units;
+			params_.primary_disk.peak_temperature_k = s.primary_disk.peak_temperature_k;
+			params_.primary_disk.floor_temperature_k = s.primary_disk.floor_temperature_k;
+			params_.primary_disk.brightness = s.primary_disk.brightness;
+			params_.primary_disk.opacity_scale = s.primary_disk.opacity_scale;
+			params_.primary_disk.extra_beaming_exponent = s.primary_disk.doppler_beaming_exponent;
+			params_.disk_doppler_beaming_exponent = static_cast<double>(s.primary_disk.doppler_beaming_exponent);
+			params_.primary_disk.color_saturation = s.primary_disk.color_saturation;
+			params_.disk_color_saturation = static_cast<double>(s.primary_disk.color_saturation);
+		}
+
+		if (s.has_primary_jet) {
+			params_.jet.enabled = s.primary_jet.enabled;
+			params_.jet.footpoint_edge_deg = s.primary_jet.footpoint_edge_deg;
+			params_.jet.outer_radius_mass_units = s.primary_jet.outer_radius_mass_units;
+			params_.jet.lorentz_factor_max = s.primary_jet.lorentz_factor_max;
+			params_.jet.horizon_field_tesla = s.primary_jet.horizon_field_tesla;
+		}
+
 		if (!s.units.distance_unit.empty()) unit_preferences_.distance = Units::parse_distance_unit(s.units.distance_unit, unit_preferences_.distance);
 		if (!s.units.mass_unit.empty()) unit_preferences_.mass = Units::parse_mass_unit(s.units.mass_unit, unit_preferences_.mass);
 		if (!s.units.velocity_unit.empty()) unit_preferences_.velocity = Units::parse_velocity_unit(s.units.velocity_unit, unit_preferences_.velocity);
@@ -1247,44 +1326,87 @@ public:
 		interaction_config_.annihilation.contact_distance_scale = s.interactions.annihilation_contact_scale;
 		interaction_config_.annihilation.require_opposite_charge = s.interactions.annihilation_require_opposite_charge;
 
-		if (!s.observers.empty()) {
-			camera_.position[0] = s.observers[0].position[1];
-			camera_.position[1] = s.observers[0].position[2];
-			camera_.position[2] = s.observers[0].position[3];
-			camera_.fov_deg = s.observers[0].field_of_view_deg;
-			params_.camera_fov_deg = camera_.fov_deg;
-			sync_camera_spherical_from_cartesian();
-			camera_.orbit_distance = camera_.radius;
-			camera_.target = {0.0, 0.0, 0.0};
-			camera_.velocity = {0.0, 0.0, 0.0};
-			if (s.observers[0].has_explicit_orientation) {
-				camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
-				camera_.yaw = s.observers[0].orientation[1];
-				camera_.roll = s.observers[0].orientation[2];
-			} else {
-				const double dx = -camera_.position[0];
-				const double dy = -camera_.position[1];
-				const double dz = -camera_.position[2];
-				const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
-				if (d_tot > 1e-6) {
-					camera_.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>);
-					camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
-					camera_.roll = 0.0;
-				}
-			}
-		}
-
-		if (!s.observers.empty()) {
-			home_camera_ = camera_;
-		}
-
 		nbody_system_.clear_bodies();
 		surface_layers_.clear();
 		for (const auto& b : s.bodies) {
+			std::array<double, 3> init_p{b.initial_position[1], b.initial_position[2], b.initial_position[3]};
+			std::array<double, 3> init_v{b.initial_velocity[1], b.initial_velocity[2], b.initial_velocity[3]};
+
+			if (b.has_orbit && b.semi_major_axis > 0.0) {
+				std::array<double, 3> parent_p{0.0, 0.0, 0.0};
+				std::array<double, 3> parent_v{0.0, 0.0, 0.0};
+				double parent_m = std::max(params_.mass, 1e-12);
+				if (!b.parent_name.empty()) {
+					for (const auto& existing_b : nbody_system_.bodies()) {
+						if (existing_b.has_name() && existing_b.name_view() == b.parent_name) {
+							parent_p = existing_b.position;
+							parent_v = existing_b.velocity;
+							parent_m = existing_b.mass;
+							break;
+						}
+					}
+				} else if (b.parent_id >= 0) {
+					for (const auto& existing_b : nbody_system_.bodies()) {
+						if (static_cast<int32_t>(existing_b.id) == b.parent_id) {
+							parent_p = existing_b.position;
+							parent_v = existing_b.velocity;
+							parent_m = existing_b.mass;
+							break;
+						}
+					}
+				}
+
+				const double a_sim = b.semi_major_axis;
+				const double e = std::clamp(b.eccentricity, 0.0, 0.999);
+				const double inc_rad = b.inclination_deg * (std::numbers::pi_v<double> / 180.0);
+				const double node_rad = b.longitude_node_deg * (std::numbers::pi_v<double> / 180.0);
+				const double peri_rad = b.argument_periapsis_deg * (std::numbers::pi_v<double> / 180.0);
+				const double nu_rad = b.true_anomaly_deg * (std::numbers::pi_v<double> / 180.0);
+
+				const double r_orb = a_sim * (1.0 - e * e) / std::max(1.0 + e * std::cos(nu_rad), 1e-6);
+				const double mu = constants_engine_.sim_gravitational_constant() * (parent_m + b.mass);
+				const double h_orb = std::sqrt(std::max(mu * a_sim * (1.0 - e * e), 1e-18));
+
+				const double cos_o = std::cos(node_rad);
+				const double sin_o = std::sin(node_rad);
+				const double cos_i = std::cos(inc_rad);
+				const double sin_i = std::sin(inc_rad);
+				const double cos_w = std::cos(peri_rad);
+				const double sin_w = std::sin(peri_rad);
+
+				const std::array<double, 3> P_hat{
+					cos_o * cos_w - sin_o * sin_w * cos_i,
+					sin_o * cos_w + cos_o * sin_w * cos_i,
+					sin_w * sin_i
+				};
+				const std::array<double, 3> Q_hat{
+					-cos_o * sin_w - sin_o * cos_w * cos_i,
+					-sin_o * sin_w + cos_o * cos_w * cos_i,
+					cos_w * sin_i
+				};
+
+				const double cos_nu = std::cos(nu_rad);
+				const double sin_nu = std::sin(nu_rad);
+
+				const std::array<double, 3> r_rel{
+					r_orb * (cos_nu * P_hat[0] + sin_nu * Q_hat[0]),
+					r_orb * (cos_nu * P_hat[1] + sin_nu * Q_hat[1]),
+					r_orb * (cos_nu * P_hat[2] + sin_nu * Q_hat[2])
+				};
+
+				const std::array<double, 3> v_rel{
+					(mu / h_orb) * (-sin_nu * P_hat[0] + (e + cos_nu) * Q_hat[0]),
+					(mu / h_orb) * (-sin_nu * P_hat[1] + (e + cos_nu) * Q_hat[1]),
+					(mu / h_orb) * (-sin_nu * P_hat[2] + (e + cos_nu) * Q_hat[2])
+				};
+
+				init_p = {parent_p[0] + r_rel[0], parent_p[1] + r_rel[1], parent_p[2] + r_rel[2]};
+				init_v = {parent_v[0] + v_rel[0], parent_v[1] + v_rel[1], parent_v[2] + v_rel[2]};
+			}
+
 			Dynamics::PostNewtonianBody body(
 				b.body_id, b.mass, b.radius,
-				{b.initial_position[1], b.initial_position[2], b.initial_position[3]},
-				{b.initial_velocity[1], b.initial_velocity[2], b.initial_velocity[3]},
+				init_p, init_v,
 				{0.0, 0.0, b.spin}, b.quadrupole_moment, b.j2, b.j3, b.j4,
 				(b.reference_radius > 0.0) ? b.reference_radius : b.radius
 			);
@@ -1304,11 +1426,155 @@ public:
 			body.temperature = b.temperature;
 			body.heat_capacity = b.heat_capacity;
 			body.absorption_factor = b.absorption_factor;
+			body.transmission_factor = b.transmission_factor;
+			body.elasticity = b.elasticity;
+			body.critical_temperature = b.critical_temperature;
+			body.cold_resistance = b.cold_resistance;
+			body.hot_resistance = b.hot_resistance;
+			body.youngs_modulus_cold = b.youngs_modulus_cold;
+			body.youngs_modulus_hot = b.youngs_modulus_hot;
+			body.preset_3d = static_cast<Dynamics::Body3DPreset>(b.preset_3d);
+			body.surface_texture_mode = static_cast<Dynamics::Body3DSurfaceTextureMode>(b.surface_texture_mode);
+			body.geometry_model = static_cast<Dynamics::Body3DGeometryModel>(b.geometry_model);
+			body.color_tertiary = b.color_tertiary;
+			body.surface_noise_scale = b.surface_noise_scale;
+			body.surface_roughness = b.surface_roughness;
+			body.texture_detail_scale = b.texture_detail_scale;
+			body.polar_cap_strength = b.polar_cap_strength;
+			body.night_side_light_intensity = b.night_side_light_intensity;
+			body.ring_system_enabled = b.ring_system_enabled;
+			body.atmosphere_mode = static_cast<Dynamics::Body3DAtmosphereMode>(b.atmosphere_mode);
+			body.atmosphere_thickness = b.atmosphere_thickness;
+			body.atmosphere_color = b.atmosphere_color;
+			body.emission_intensity = b.emission_intensity;
+			body.specular_roughness = b.specular_roughness;
+			body.rotation_speed_3d = b.rotation_speed_3d;
+			body.rotation_axis_3d = b.rotation_axis_3d;
+			body.set_orientation_euler_degrees(b.orientation_euler[0], b.orientation_euler[1], b.orientation_euler[2]);
+			body.earth_map_variant = static_cast<Optics::EarthMapVariant>(b.earth_map_variant);
+			body.earth_map_quality = b.earth_map_quality;
+			body.earth_terminator_softness = b.earth_terminator_softness;
 			body.set_composition(b.composition);
-			nbody_system_.add_body(body);
+
+			if (b.is_spacetime_source) {
+				body.is_spacetime_source = true;
+				body.set_spin_state(b.spin, b.spin_axis);
+				body.radius = body.kerr_outer_horizon_radius();
+				body.reference_radius = body.radius;
+				body.enforce_spacetime_source_invariants();
+				body.accretion_disk.enabled = b.disk_enabled;
+				body.accretion_disk.inner_radius_scale = b.disk_inner_scale;
+				body.accretion_disk.outer_radius_mass_units = b.disk_outer_rg;
+				body.accretion_disk.peak_temperature_k = b.disk_peak_temp;
+				body.accretion_disk.floor_temperature_k = b.disk_floor_temp;
+				body.accretion_disk.brightness = b.disk_brightness;
+			}
+
+			const uint32_t added_id = nbody_system_.add_body(body);
+			Dynamics::BodySurfaceLayerSet layers{};
+			if (b.layer_template_1 >= 0) {
+				static_cast<void>(layers.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(b.layer_template_1))));
+			}
+			if (b.layer_template_2 >= 0) {
+				static_cast<void>(layers.add(Dynamics::SurfaceLayerDefinition::from_template(static_cast<Dynamics::SurfaceLayerTemplate>(b.layer_template_2))));
+			}
+			if (layers.count > 0U) {
+				surface_layers_.set(added_id, layers);
+			}
 		}
 		if (!s.bodies.empty()) {
 			nbody_system_.update_accelerations();
+		}
+
+		if (!s.observers.empty()) {
+			camera_.position[0] = s.observers[0].position[1];
+			camera_.position[1] = s.observers[0].position[2];
+			camera_.position[2] = s.observers[0].position[3];
+			camera_.fov_deg = s.observers[0].field_of_view_deg;
+			params_.camera_fov_deg = camera_.fov_deg;
+			sync_camera_spherical_from_cartesian();
+			camera_.orbit_distance = camera_.radius;
+			camera_.target = {0.0, 0.0, 0.0};
+			camera_.velocity = {0.0, 0.0, 0.0};
+			bool target_oriented = false;
+			if (s.observers[0].has_target) {
+				std::array<double, 3> tgt_pos{0.0, 0.0, 0.0};
+				bool found_tgt = false;
+				std::string tname_lower;
+				tname_lower.reserve(s.observers[0].target_name.size());
+				for (char c : s.observers[0].target_name) {
+					tname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+				}
+				if (tname_lower == "origin" || tname_lower == "center" || tname_lower == "central" || tname_lower == "black hole" || tname_lower == "singularity") {
+					tgt_pos = {0.0, 0.0, 0.0};
+					found_tgt = true;
+				} else if (tname_lower == "horizon" || tname_lower == "event horizon") {
+					const double rh = (params_.mass > 0.0) ? (params_.mass + std::sqrt(std::max(params_.mass * params_.mass - params_.spin * params_.spin, 0.0))) : 2.0;
+					tgt_pos = {0.0, rh * 1.02, 0.0};
+					found_tgt = true;
+				} else if (tname_lower == "isco") {
+					tgt_pos = {0.0, 6.0 * std::max(params_.mass, 1.0), 0.0};
+					found_tgt = true;
+				} else if (tname_lower == "throat" || tname_lower == "wormhole throat") {
+					tgt_pos = {0.0, std::max(params_.wormhole_throat, 1.0), 0.0};
+					found_tgt = true;
+				} else if (tname_lower == "warp" || tname_lower == "warp bubble") {
+					tgt_pos = {0.0, 0.0, 0.0};
+					found_tgt = true;
+				} else if (!s.observers[0].target_name.empty()) {
+					for (const auto& b_item : nbody_system_.bodies()) {
+						if (b_item.has_name()) {
+							std::string bname_lower;
+							for (char c : b_item.name_view()) bname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+							if (bname_lower == tname_lower) {
+								tgt_pos = b_item.position;
+								found_tgt = true;
+								break;
+							}
+						}
+					}
+				} else if (s.observers[0].target_body_id >= 0) {
+					for (const auto& b_item : nbody_system_.bodies()) {
+						if (static_cast<int32_t>(b_item.id) == s.observers[0].target_body_id) {
+							tgt_pos = b_item.position;
+							found_tgt = true;
+							break;
+						}
+					}
+				}
+				if (found_tgt) {
+					const double dx = tgt_pos[0] - camera_.position[0];
+					const double dy = tgt_pos[1] - camera_.position[1];
+					const double dz = tgt_pos[2] - camera_.position[2];
+					const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+					if (d_tot > 1e-6) {
+						camera_.yaw = std::remainder(std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>), 360.0);
+						camera_.pitch = std::clamp(std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>), -89.0, 89.0);
+						camera_.roll = 0.0;
+						camera_.target = tgt_pos;
+						target_oriented = true;
+					}
+				}
+			}
+
+			if (!target_oriented) {
+				if (s.observers[0].has_explicit_orientation) {
+					camera_.pitch = std::clamp(s.observers[0].orientation[0], -89.0, 89.0);
+					camera_.yaw = s.observers[0].orientation[1];
+					camera_.roll = s.observers[0].orientation[2];
+				} else {
+					const double dx = -camera_.position[0];
+					const double dy = -camera_.position[1];
+					const double dz = -camera_.position[2];
+					const double d_tot = std::sqrt(dx * dx + dy * dy + dz * dz);
+					if (d_tot > 1e-6) {
+						camera_.yaw = std::atan2(dy, dx) * (180.0 / std::numbers::pi_v<double>);
+						camera_.pitch = std::asin(std::clamp(dz / d_tot, -0.9999, 0.9999)) * (180.0 / std::numbers::pi_v<double>);
+						camera_.roll = 0.0;
+					}
+				}
+			}
+			home_camera_ = camera_;
 		}
 
 		state_version_.fetch_add(1, std::memory_order_release);
@@ -1357,6 +1623,66 @@ public:
 		s.cosmological_lambda = params_.cosmological_lambda;
 		s.wormhole_throat = params_.wormhole_throat;
 		s.warp_velocity = params_.warp_velocity;
+		s.warp_bubble_radius = params_.warp_bubble_radius;
+		s.warp_wall_sharpness = params_.warp_wall_sharpness;
+		s.wormhole_tidal_potential = params_.wormhole_tidal_potential;
+		s.teves_critical_acceleration = params_.teves_critical_acceleration;
+		s.pole_guard_precision_scale = params_.pole_guard_precision_scale;
+		s.far_field_step_scale = params_.far_field_step_scale;
+
+		s.time.warp_factor = scheduler_.warp_factor();
+		s.time.tick_rate_hz = scheduler_.snapshot().tick_rate_hz;
+		s.time.is_paused = scheduler_.is_paused();
+
+		s.has_skybox = true;
+		s.skybox.enabled = params_.sky.enabled;
+		s.skybox.stars_enabled = params_.sky.stars_enabled;
+		s.skybox.star_density = params_.sky.star_density;
+		s.skybox.star_brightness = params_.sky.star_brightness;
+		s.skybox.nebulae_enabled = params_.sky.nebula_enabled;
+		s.skybox.nebula_intensity = params_.sky.nebula_intensity;
+		s.skybox.galaxies_enabled = params_.sky.galaxies_enabled;
+		s.skybox.galaxy_density = params_.sky.galaxy_density;
+		s.skybox.galaxy_brightness = params_.sky.galaxy_brightness;
+		s.skybox.clusters_enabled = params_.sky.clusters_enabled;
+		s.skybox.cluster_density = params_.sky.cluster_density;
+		s.skybox.cluster_brightness = params_.sky.cluster_brightness;
+		s.skybox.dust_enabled = params_.sky.dust_enabled;
+		s.skybox.dust_density = params_.sky.dust_density;
+		s.skybox.dust_intensity = params_.sky.dust_intensity;
+		s.skybox.grid_enabled = params_.sky.grid_enabled;
+		s.skybox.grid_opacity = params_.sky.grid_opacity;
+		s.skybox.grid_line_width = params_.sky.grid_line_width;
+		s.skybox.grid_cell_fill_mode = params_.sky.grid_cell_fill_mode;
+		s.skybox.grid_cell_color_count = params_.sky.grid_cell_color_count;
+		for (size_t c = 0; c < params_.sky.grid_cell_color_count && c < Render::ProceduralSkySettings::kMaxGridCellColors; ++c) {
+			s.skybox.grid_cell_colors[c] = params_.sky.grid_cell_colors[c];
+		}
+		s.skybox.background_color = params_.sky.background_color;
+		s.skybox.background_source = params_.sky_background_source;
+		s.skybox.panorama_id = params_.sky_panorama_id;
+		s.skybox.orientation_yaw_deg = params_.sky.orientation_yaw_deg;
+		s.skybox.seed = params_.sky.seed;
+
+		s.has_primary_disk = params_.primary_disk.enabled;
+		s.primary_disk.enabled = params_.primary_disk.enabled;
+		s.primary_disk.inner_radius_scale = params_.primary_disk.inner_radius_scale;
+		s.primary_disk.outer_radius_mass_units = params_.primary_disk.outer_radius_mass_units;
+		s.primary_disk.peak_temperature_k = params_.primary_disk.peak_temperature_k;
+		s.primary_disk.floor_temperature_k = params_.primary_disk.floor_temperature_k;
+		s.primary_disk.brightness = params_.primary_disk.brightness;
+		s.primary_disk.opacity_scale = params_.primary_disk.opacity_scale;
+		s.primary_disk.doppler_beaming_exponent = params_.primary_disk.extra_beaming_exponent;
+		s.primary_disk.color_saturation = params_.primary_disk.color_saturation;
+
+		s.has_primary_jet = params_.jet.enabled;
+		s.primary_jet.enabled = params_.jet.enabled;
+		s.primary_jet.footpoint_edge_deg = params_.jet.footpoint_edge_deg;
+		s.primary_jet.outer_radius_mass_units = params_.jet.outer_radius_mass_units;
+		s.primary_jet.lorentz_factor_max = params_.jet.lorentz_factor_max;
+		s.primary_jet.horizon_field_tesla = params_.jet.horizon_field_tesla;
+		s.primary_jet.core_density_scale = 1.0f;
+
 		s.speed_of_light = constants_engine_.sim_speed_of_light();
 		s.gravitational_constant = constants_engine_.sim_gravitational_constant();
 		s.units.distance_unit = Units::distance_unit_suffix(unit_preferences_.distance);
@@ -1414,8 +1740,46 @@ public:
 			bc.spin = std::sqrt(body.spin[0] * body.spin[0] + body.spin[1] * body.spin[1] + body.spin[2] * body.spin[2]);
 			bc.charge = body.charge;
 			bc.enabled = body.enabled;
+			bc.is_spacetime_source = body.is_spacetime_source;
+			bc.preset_3d = static_cast<uint32_t>(body.preset_3d);
+			bc.surface_texture_mode = static_cast<uint32_t>(body.surface_texture_mode);
+			bc.geometry_model = static_cast<uint32_t>(body.geometry_model);
 			bc.color = body.color;
 			bc.color_secondary = body.color_secondary;
+			bc.color_tertiary = body.color_tertiary;
+			bc.surface_noise_scale = body.surface_noise_scale;
+			bc.surface_roughness = body.surface_roughness;
+			bc.texture_detail_scale = body.texture_detail_scale;
+			bc.polar_cap_strength = body.polar_cap_strength;
+			bc.night_side_light_intensity = body.night_side_light_intensity;
+			bc.ring_system_enabled = body.ring_system_enabled;
+			bc.atmosphere_mode = static_cast<uint32_t>(body.atmosphere_mode);
+			bc.atmosphere_thickness = body.atmosphere_thickness;
+			bc.atmosphere_color = body.atmosphere_color;
+			bc.emission_intensity = body.emission_intensity;
+			bc.specular_roughness = body.specular_roughness;
+			bc.rotation_speed_3d = body.rotation_speed_3d;
+			bc.rotation_axis_3d = body.rotation_axis_3d;
+			bc.orientation_euler = body.orientation_euler_degrees();
+			bc.spin_axis = body.spin_axis_unit();
+			bc.earth_map_variant = static_cast<uint32_t>(body.earth_map_variant);
+			bc.earth_map_quality = body.earth_map_quality;
+			bc.earth_terminator_softness = body.earth_terminator_softness;
+			bc.elasticity = body.elasticity;
+			bc.youngs_modulus_cold = body.youngs_modulus_cold;
+			bc.youngs_modulus_hot = body.youngs_modulus_hot;
+			bc.critical_temperature = body.critical_temperature;
+			bc.cold_resistance = body.cold_resistance;
+			bc.hot_resistance = body.hot_resistance;
+			bc.transmission_factor = body.transmission_factor;
+			if (body.is_spacetime_source) {
+				bc.disk_enabled = body.accretion_disk.enabled;
+				bc.disk_inner_scale = body.accretion_disk.inner_radius_scale;
+				bc.disk_outer_rg = body.accretion_disk.outer_radius_mass_units;
+				bc.disk_peak_temp = body.accretion_disk.peak_temperature_k;
+				bc.disk_floor_temp = body.accretion_disk.floor_temperature_k;
+				bc.disk_brightness = body.accretion_disk.brightness;
+			}
 			bc.magnetic_moment = body.magnetic_moment;
 			bc.rotation_speed = body.rotation_speed;
 			bc.friction_coefficient = body.friction_coefficient;

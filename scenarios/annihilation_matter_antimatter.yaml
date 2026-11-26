@@ -1,7 +1,7 @@
 scenario_name: "Matter-Antimatter Annihilation"
 description: "Two oppositely charged particles attracted by Coulomb force and Newtonian gravity, annihilating upon contact."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "m"
   mass: "kg"
@@ -21,11 +21,23 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: false
+  nebula_enabled: false
+  dust_enabled: false
+  clusters_enabled: false
+  grid_enabled: true
+  grid_opacity: 0.15
 integrator:
   scheme: "RK45"
   initial_step: 0.005
   min_step: 1.0e-08
-  max_step: 0.2
+  max_step: 0.05
   relative_tolerance: 1.0e-10
   absolute_tolerance: 1.0e-14
 output:
@@ -36,15 +48,15 @@ output:
 interactions:
   electricity_enabled: true
   magnetism_enabled: false
-  vacuum_permittivity: 0.0795774715
+  vacuum_permittivity: 0.1
   vacuum_permeability: 1.25663706212e-6
   collisions_enabled: false
   collision_response_model: 0
-  collision_consider_rotation: true
-  collision_consider_friction: true
-  collision_restitution_multiplier: 1.0
-  collision_stiffness_scale: 1.0e-9
-  collision_position_correction_factor: 0.2
+  collision_consider_rotation: false
+  collision_consider_friction: false
+  collision_restitution_multiplier: 0.0
+  collision_stiffness_scale: 0.0
+  collision_position_correction_factor: 0.0
   thermodynamics_enabled: false
   ambient_temperature_kelvin: -1.0
   radiative_coupling_scale: 1.0
@@ -55,18 +67,21 @@ interactions:
   collision_energy_to_integrity_loss: 1.0e-6
   tidal_stress_to_integrity_loss: 1.0e-6
   annihilation_enabled: true
-  annihilation_contact_scale: 1.1
+  annihilation_contact_scale: 1.2
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Particle"
+  - name: "Positron Sphere"
     body_id: 1
     mass: 0.5
-    radius: 0.2
+    radius: 0.4
     spin: 0.0
     charge: 1.0
     enabled: true
-    color: [1.0, 0.5, 0.9, 1.0]
-    color_secondary: [0.7, 0.25, 0.55, 1.0]
+    preset_3d: "star"
+    surface_texture_mode: "solidcolor"
+    color: [1.0, 0.25, 0.55, 1.0]
+    color_secondary: [0.8, 0.15, 0.4, 1.0]
+    emission_intensity: 1.5
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
@@ -76,29 +91,32 @@ bodies:
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Matter test particle"
-    position: [0.0, 6.0, 0.0, 0.0]
-    velocity: [0.0, -0.05, 0.0, 0.0]
+    composition: "Positron matter packet"
+    position: [0.0, 0.0, 2.5, 0.0]
+    velocity: [0.0, 0.0, -0.3, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.2
+    reference_radius: 0.4
     mass_unit: "kg"
     radius_unit: "m"
     position_unit: "m"
     velocity_unit: "m/s"
     temperature_unit: "K"
     charge_unit: "C"
-  - name: "Antiparticle"
+  - name: "Electron Sphere"
     body_id: 2
     mass: 0.5
-    radius: 0.2
+    radius: 0.4
     spin: 0.0
     charge: -1.0
     enabled: true
-    color: [0.4, 0.9, 1.0, 1.0]
-    color_secondary: [0.2, 0.55, 0.7, 1.0]
+    preset_3d: "star"
+    surface_texture_mode: "solidcolor"
+    color: [0.25, 0.65, 1.0, 1.0]
+    color_secondary: [0.15, 0.45, 0.85, 1.0]
+    emission_intensity: 1.5
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
@@ -108,14 +126,14 @@ bodies:
     temperature: 293.0
     heat_capacity: 1.0
     absorption_factor: 1.0
-    composition: "Antimatter test particle"
-    position: [0.0, -6.0, 0.0, 0.0]
-    velocity: [0.0, 0.05, 0.0, 0.0]
+    composition: "Electron matter packet"
+    position: [0.0, 0.0, -2.5, 0.0]
+    velocity: [0.0, 0.0, 0.3, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.2
+    reference_radius: 0.4
     mass_unit: "kg"
     radius_unit: "m"
     position_unit: "m"
@@ -126,8 +144,8 @@ observers:
   - name: "PrimaryCamera"
     fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 20.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 6.0, 0.0, 0.8]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "m"
     fov_unit: "deg"

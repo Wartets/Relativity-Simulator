@@ -1,7 +1,7 @@
 scenario_name: "Solar System Mercury"
-description: "High-precision 1PN Post-Newtonian Solar System Ephemeris validation for Mercury perihelion precession"
+description: "High-precision 1PN Post-Newtonian Solar System Ephemeris validation for Mercury perihelion precession."
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.1"
+version_tag: "1.3.0"
 units:
   distance: "m"
   mass: "kg"
@@ -21,13 +21,17 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 299792458.0
   gravitational_constant: 6.67430e-11
+time:
+  warp_factor: 86400.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
   scheme: "RK45"
-  initial_step: 100.0
+  initial_step: 60.0
   min_step: 1.0
   max_step: 3600.0
-  relative_tolerance: 1.0e-13
-  absolute_tolerance: 1.0e-16
+  relative_tolerance: 1.0e-9
+  absolute_tolerance: 1.0e-13
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -58,38 +62,6 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Sun"
-    body_id: 10
-    mass: 1.98847e30
-    radius: 6.9634e8
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    color: [1.0, 0.92, 0.6, 1.0]
-    color_secondary: [1.0, 0.55, 0.1, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 2.865e-6
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 5778.0
-    heat_capacity: 1.0e10
-    absorption_factor: 1.0
-    composition: "Plasma - G2V main-sequence star"
-    position: [0.0, 0.0, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 0.0, 0.0]
-    quadrupole: 0.0
-    j2: 2.2e-7
-    j3: 0.0
-    j4: -4.0e-9
-    reference_radius: 6.9634e8
-    mass_unit: "kg"
-    radius_unit: "m"
-    position_unit: "m"
-    velocity_unit: "m/s"
-    temperature_unit: "K"
-    charge_unit: "C"
   - name: "Mercury"
     body_id: 199
     mass: 3.3011e23
@@ -97,6 +69,8 @@ bodies:
     spin: 0.0
     charge: 0.0
     enabled: true
+    preset_3d: "metallic"
+    surface_texture_mode: "mercurycratered"
     color: [0.65, 0.6, 0.55, 1.0]
     color_secondary: [0.4, 0.37, 0.34, 1.0]
     magnetic_moment: 0.0
@@ -110,12 +84,13 @@ bodies:
     absorption_factor: 0.88
     composition: "Silicate-iron rocky body"
     position: [0.0, 4.60012e10, 0.0, 0.0]
-    velocity: [299792458.0, 0.0, 58980.0, 0.0]
+    velocity: [0.0, 0.0, 58980.0, 0.0]
     quadrupole: 0.0
     j2: 6.0e-5
     j3: 0.0
     j4: 0.0
     reference_radius: 2.4397e6
+    layer_template_1: 3
     mass_unit: "kg"
     radius_unit: "m"
     position_unit: "m"
@@ -124,10 +99,10 @@ bodies:
     charge_unit: "C"
 observers:
   - name: "EclipticObserver"
-    fov_deg: 60.0
+    fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 1.495978707e11, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 1.1e11, 4.5e10]
+    target_name: "Mercury"
     orientation_convention: 1
     position_unit: "m"
     fov_unit: "deg"

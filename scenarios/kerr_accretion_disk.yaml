@@ -1,7 +1,7 @@
 scenario_name: "Kerr Accretion Disk"
 description: "Rapidly spinning Kerr black hole (a=0.98M) with Novikov-Thorne geometrically thin accretion disk and relativistic beaming"
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.1"
+version_tag: "1.2.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -21,6 +21,10 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
   scheme: "Vernier9"
   initial_step: -0.02
@@ -58,12 +62,21 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
+primary_disk:
+  enabled: true
+  inner_radius_scale: 1.0
+  outer_radius_mass_units: 35.0
+  peak_temperature_k: 24000.0
+  floor_temperature_k: 1500.0
+  brightness: 1.2
+  doppler_beaming_exponent: 0.0
+  color_saturation: 1.0
 observers:
   - name: "PrimaryKerrCamera"
-    fov_deg: 60.0
+    fov_deg: 45.0
     resolution: [1920, 1080]
-    position: [0.0, 30.0, 1.3962634, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 48.0, 18.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

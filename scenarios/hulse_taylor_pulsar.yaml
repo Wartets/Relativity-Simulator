@@ -1,7 +1,7 @@
 scenario_name: "Hulse-Taylor Pulsar PSR B1913+16"
 description: "High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.2.0"
 units:
   distance: "km"
   mass: "M_sun"
@@ -12,15 +12,24 @@ units:
   charge: "C"
   angle: "deg"
 spacetime:
-  metric_type: "Schwarzschild"
-  central_mass: 2.8284
+  metric_type: "FlatMinkowski"
+  central_mass: 0.0
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
-  wormhole_throat: 1.0
+  wormhole_throat: 0.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 85.0
+  nebula_enabled: true
 integrator:
   scheme: "Hermite4"
   initial_step: 0.01
@@ -61,55 +70,46 @@ bodies:
   - name: "Pulsar PSR B1913+16"
     body_id: 1
     mass: 1.44
-    radius: 0.05
-    spin: 0.0
+    radius: 0.4
+    spin: 0.2
     charge: 0.0
     enabled: true
-    color: [0.85, 0.9, 1.0, 1.0]
-    color_secondary: [0.4, 0.55, 0.9, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.1
-    integrity: 1.0
-    lifetime: 0.0
+    preset_3d: "pulsar"
+    surface_texture_mode: "stellargranulation"
+    color: [0.75, 0.88, 1.0, 1.0]
+    color_secondary: [0.45, 0.65, 0.95, 1.0]
+    color_tertiary: [1.0, 1.0, 1.0, 1.0]
+    emission_intensity: 2.8
+    atmosphere_mode: "glowingcorona"
+    atmosphere_thickness: 0.15
+    rotation_speed_3d: 6.0
+    magnetic_moment: 1.0e4
     temperature: 600000.0
-    heat_capacity: 1.0e5
-    absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, 15.0, 0.0, 0.0]
-    velocity: [1.0, 0.0, 0.22, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 0.05
+    composition: "Radio pulsar neutron star"
+    position: [0.0, 14.8, 0.0, 0.0]
+    velocity: [1.0, 0.0, 0.218, 0.0]
+    reference_radius: 0.4
   - name: "Companion Neutron Star"
     body_id: 2
     mass: 1.388
-    radius: 0.05
-    spin: 0.0
+    radius: 0.4
+    spin: 0.1
     charge: 0.0
     enabled: true
-    color: [0.9, 0.85, 0.8, 1.0]
-    color_secondary: [0.6, 0.5, 0.45, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.1
-    integrity: 1.0
-    lifetime: 0.0
+    preset_3d: "neutronstar"
+    surface_texture_mode: "stellargranulation"
+    color: [0.92, 0.86, 0.8, 1.0]
+    color_secondary: [0.65, 0.52, 0.45, 1.0]
+    color_tertiary: [1.0, 1.0, 1.0, 1.0]
+    emission_intensity: 2.0
+    atmosphere_mode: "glowingcorona"
+    atmosphere_thickness: 0.1
+    rotation_speed_3d: 3.0
     temperature: 500000.0
-    heat_capacity: 1.0e5
-    absorption_factor: 1.0
-    composition: "Neutron-degenerate matter"
-    position: [0.0, -15.56, 0.0, 0.0]
-    velocity: [1.0, 0.0, -0.228, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 0.05
+    composition: "Companion neutron star"
+    position: [0.0, -15.35, 0.0, 0.0]
+    velocity: [1.0, 0.0, -0.226, 0.0]
+    reference_radius: 0.4
     mass_unit: "M_sun"
     radius_unit: "km"
     position_unit: "km"
@@ -118,10 +118,10 @@ bodies:
     charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 40.0
+    fov_deg: 45.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 120.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 65.0, 12.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

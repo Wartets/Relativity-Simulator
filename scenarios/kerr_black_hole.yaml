@@ -1,7 +1,7 @@
 scenario_name: "Kerr Rotating Black Hole (a=0.94)"
 description: "Rapidly spinning Kerr black hole (a=0.94) surrounded by an asymmetric beaming accretion disk."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.1.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -28,6 +28,10 @@ integrator:
   max_step: 10.0
   relative_tolerance: 1.0e-10
   absolute_tolerance: 1.0e-14
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -58,12 +62,20 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies: []
+primary_disk:
+  enabled: true
+  inner_radius_scale: 1.0
+  outer_radius_mass_units: 28.0
+  peak_temperature_k: 18000.0
+  floor_temperature_k: 1200.0
+  brightness: 1.0
+  color_saturation: 1.0
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 60.0
+    fov_deg: 48.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 33.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 30.0, 10.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

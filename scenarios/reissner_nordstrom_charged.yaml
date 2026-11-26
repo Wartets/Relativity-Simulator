@@ -19,15 +19,20 @@ spacetime:
   cosmological_lambda: 0.0
   wormhole_throat: 1.0
   warp_velocity: 0.0
+  pole_guard_precision_scale: 0.8
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
   scheme: "Cash-Karp"
   initial_step: 0.01
   min_step: 1.0e-08
-  max_step: 8.0
-  relative_tolerance: 1.0e-11
-  absolute_tolerance: 1.0e-15
+  max_step: 4.0
+  relative_tolerance: 1.0e-10
+  absolute_tolerance: 1.0e-14
 output:
   fits_enabled: true
   hdf5_enabled: true
@@ -60,10 +65,10 @@ interactions:
 bodies: []
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 55.0
+    fov_deg: 48.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 18.0, 3.0]
-    orientation: [-9.46, 180.0, 0.0]
+    position: [0.0, 0.0, 24.0, 6.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

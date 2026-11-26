@@ -271,6 +271,9 @@ private:
 				selected_index_ = static_cast<int>(idx);
 				delete_confirm_index_ = -1;
 			}
+			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && item.is_compatible) {
+				static_cast<void>(orchestrator_.enqueue_command(Orchestrator::Command::make_load_scenario(item.filepath)));
+			}
 			ImGui::PopStyleColor();
 
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {

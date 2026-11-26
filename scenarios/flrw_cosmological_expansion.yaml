@@ -1,7 +1,7 @@
 scenario_name: "FLRW Flat Lambda-CDM Expansion"
 description: "Homogeneous and isotropic Friedmann-Lemaitre-Robertson-Walker spacetime demonstrating cosmological expansion under a flat Lambda-CDM model."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "kpc"
   mass: "M_sun"
@@ -57,13 +57,99 @@ interactions:
   annihilation_enabled: false
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
-bodies: []
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 60.0
+  galaxies_enabled: true
+  galaxy_density: 2.5
+  galaxy_brightness: 1.2
+bodies:
+  - name: "Galaxy Cluster Core"
+    body_id: 1
+    mass: 1.0e4
+    radius: 3.5
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [1.0, 0.9, 0.7, 1.0]
+    color_secondary: [0.7, 0.5, 0.3, 1.0]
+    emission_intensity: 1.5
+    position: [0.0, 0.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.0, 0.0]
+    reference_radius: 3.5
+  - name: "Galaxy Node East"
+    body_id: 2
+    mass: 1.0e3
+    radius: 1.8
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [0.6, 0.8, 1.0, 1.0]
+    color_secondary: [0.3, 0.5, 0.8, 1.0]
+    emission_intensity: 1.2
+    position: [18.0, 0.0, 0.0, 0.0]
+    velocity: [0.05, 0.0, 0.0, 0.0]
+    reference_radius: 1.8
+  - name: "Galaxy Node West"
+    body_id: 3
+    mass: 1.0e3
+    radius: 1.8
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [1.0, 0.65, 0.45, 1.0]
+    color_secondary: [0.8, 0.35, 0.2, 1.0]
+    emission_intensity: 1.2
+    position: [-18.0, 0.0, 0.0, 0.0]
+    velocity: [-0.05, 0.0, 0.0, 0.0]
+    reference_radius: 1.8
+  - name: "Galaxy Node North"
+    body_id: 4
+    mass: 800.0
+    radius: 1.5
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [0.7, 0.95, 0.8, 1.0]
+    color_secondary: [0.35, 0.65, 0.45, 1.0]
+    emission_intensity: 1.1
+    position: [0.0, 22.0, 0.0, 0.0]
+    velocity: [0.0, 0.06, 0.0, 0.0]
+    reference_radius: 1.5
+  - name: "Galaxy Node South"
+    body_id: 5
+    mass: 800.0
+    radius: 1.5
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "star"
+    surface_texture_mode: "nebulousgascloud"
+    color: [0.95, 0.6, 0.9, 1.0]
+    color_secondary: [0.65, 0.3, 0.6, 1.0]
+    emission_intensity: 1.1
+    position: [0.0, -22.0, 0.0, 0.0]
+    velocity: [0.0, -0.06, 0.0, 0.0]
+    reference_radius: 1.5
 observers:
   - name: "ComovingObserver"
-    fov_deg: 70.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 30.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 50.0, 15.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "kpc"
     fov_unit: "deg"

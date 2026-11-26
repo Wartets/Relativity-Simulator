@@ -779,6 +779,7 @@ Relativity-Simulator/
 │   ├── electromagnetic_binary_charges.yaml
 │   ├── extremal_kerr_near_horizon.yaml
 │   ├── flrw_cosmological_expansion.yaml
+│   ├── full_feature_test.yaml
 │   ├── galaxy_collision.yaml
 │   ├── grand_tour_multiplanet_system.yaml
 │   ├── hulse_taylor_pulsar.yaml
@@ -786,8 +787,8 @@ Relativity-Simulator/
 │   ├── kerr_black_hole.yaml
 │   ├── kerr_newman_charged_rotating.yaml
 │   ├── morris_thorne_wormhole.yaml
+│   ├── random_accretion_and_jets.yaml
 │   ├── reissner_nordstrom_charged.yaml
-│   ├── relativistic_shock_tube.yaml
 │   ├── schwarzschild_accretion.yaml
 │   ├── schwarzschild_de_sitter_lambda.yaml
 │   ├── solar_system_mercury.yaml

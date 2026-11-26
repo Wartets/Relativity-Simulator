@@ -1,7 +1,7 @@
 scenario_name: "Alcubierre Superluminal Warp Bubble"
 description: "Dynamic spacetime curvature bubble contracting space in front and expanding behind at apparent speed vs=2.0c."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.2.0"
 units:
   distance: "km"
   mass: "kg"
@@ -18,9 +18,22 @@ spacetime:
   central_charge: 0.0
   cosmological_lambda: 0.0
   wormhole_throat: 1.0
-  warp_velocity: 2.0
+  warp_velocity: 1.5
+  warp_bubble_radius: 12.0
+  warp_wall_sharpness: 0.8
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 85.0
+  star_brightness: 1.6
+  nebula_enabled: true
+  nebula_intensity: 0.25
 integrator:
   scheme: "RK45"
   initial_step: 0.01
@@ -61,12 +74,16 @@ bodies:
   - name: "Warp Ship"
     body_id: 1
     mass: 1.0e-9
-    radius: 0.5
+    radius: 0.8
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.7, 0.9, 1.0, 1.0]
-    color_secondary: [0.3, 0.6, 0.9, 1.0]
+    preset_3d: "metallic"
+    surface_texture_mode: "marbledstone"
+    color: [0.85, 0.92, 1.0, 1.0]
+    color_secondary: [0.35, 0.65, 0.95, 1.0]
+    color_tertiary: [0.95, 0.95, 1.0, 1.0]
+    emission_intensity: 0.4
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
@@ -83,13 +100,13 @@ bodies:
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.5
+    reference_radius: 0.8
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 60.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 40.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, -32.0, 4.0]
+    target_name: "Warp Ship"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

@@ -1,7 +1,7 @@
 scenario_name: "High-Eccentricity Cometary Flyby"
 description: "A small icy body on a highly eccentric hyperbolic-like flyby trajectory around a Schwarzschild black hole, exercising adaptive step-size control near periapsis."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "km"
   mass: "M_sun"
@@ -57,16 +57,26 @@ interactions:
   annihilation_enabled: false
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
+time:
+  warp_factor: 0.5
+  tick_rate: 60.0
+  is_paused: true
 bodies:
   - name: "Icy Comet"
     body_id: 1
     mass: 1.0e-8
-    radius: 0.02
+    radius: 0.9
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [0.75, 0.9, 1.0, 1.0]
-    color_secondary: [0.5, 0.7, 0.85, 1.0]
+    preset_3d: "icegiant"
+    surface_texture_mode: "icycracked"
+    color: [0.8, 0.95, 1.0, 1.0]
+    color_secondary: [0.55, 0.75, 0.9, 1.0]
+    color_tertiary: [0.95, 0.98, 1.0, 1.0]
+    emission_intensity: 1.0
+    atmosphere_mode: "volumetricmie"
+    atmosphere_thickness: 0.35
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0
@@ -77,13 +87,13 @@ bodies:
     heat_capacity: 100.0
     absorption_factor: 0.6
     composition: "Volatile ice-dust nucleus"
-    position: [0.0, 60.0, 0.0, 0.0]
-    velocity: [0.0, -0.02, 0.19, 0.0]
+    position: [0.0, 50.0, 0.0, 0.0]
+    velocity: [0.0, -0.025, 0.175, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.02
+    reference_radius: 0.5
     mass_unit: "M_sun"
     radius_unit: "km"
     position_unit: "km"
@@ -92,10 +102,10 @@ bodies:
     charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 60.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 45.0, 10.0]
-    orientation: [-12.5, 180.0, 0.0]
+    position: [0.0, -15.0, 25.0, 6.0]
+    target_name: "Icy Comet"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

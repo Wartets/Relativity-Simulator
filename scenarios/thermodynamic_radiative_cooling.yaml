@@ -1,7 +1,7 @@
 scenario_name: "Radiative Cooling Demonstration"
-description: "A single overheated body cooling toward a fixed ambient temperature via Stefan-Boltzmann radiative exchange in flat spacetime."
+description: "Multiple celestial bodies at contrasting initial temperatures cooling and heating smoothly toward radiative equilibrium in flat spacetime."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.1.0"
 units:
   distance: "m"
   mass: "kg"
@@ -21,11 +21,15 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
 integrator:
   scheme: "RK45"
   initial_step: 0.05
   min_step: 1.0e-06
-  max_step: 5.0
+  max_step: 1.0
   relative_tolerance: 1.0e-8
   absolute_tolerance: 1.0e-12
 output:
@@ -46,8 +50,8 @@ interactions:
   collision_stiffness_scale: 1.0e-9
   collision_position_correction_factor: 0.2
   thermodynamics_enabled: true
-  ambient_temperature_kelvin: 300.0
-  radiative_coupling_scale: 1.0
+  ambient_temperature_kelvin: 288.0
+  radiative_coupling_scale: 0.05
   fragmentation_enabled: false
   fragmentation_tidal_stress_enabled: false
   minimum_fragment_mass: 1.0e-6
@@ -58,44 +62,68 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 bodies:
-  - name: "Overheated Sphere"
+  - name: "Superheated Magma World"
     body_id: 1
     mass: 1.0
-    radius: 1.0
+    radius: 0.9
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [1.0, 0.3, 0.1, 1.0]
-    color_secondary: [1.0, 0.75, 0.2, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.0
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 5000.0
-    heat_capacity: 500.0
-    absorption_factor: 1.0
-    composition: "Isotropic graybody radiator"
-    position: [0.0, 0.0, 0.0, 0.0]
+    preset_3d: "terrestrial"
+    surface_texture_mode: "volcanicmagma"
+    color: [1.0, 0.35, 0.1, 1.0]
+    color_secondary: [0.8, 0.1, 0.05, 1.0]
+    color_tertiary: [1.0, 0.85, 0.2, 1.0]
+    emission_intensity: 1.2
+    temperature: 3200.0
+    heat_capacity: 50000.0
+    absorption_factor: 0.95
+    position: [0.0, -3.5, 0.0, 0.0]
     velocity: [0.0, 0.0, 0.0, 0.0]
-    quadrupole: 0.0
-    j2: 0.0
-    j3: 0.0
-    j4: 0.0
-    reference_radius: 1.0
-    mass_unit: "kg"
-    radius_unit: "m"
-    position_unit: "m"
-    velocity_unit: "m/s"
-    temperature_unit: "K"
-    charge_unit: "C"
+    reference_radius: 0.9
+  - name: "Cryogenic Ice Sphere"
+    body_id: 2
+    mass: 0.8
+    radius: 0.8
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "icegiant"
+    surface_texture_mode: "icycracked"
+    color: [0.55, 0.8, 1.0, 1.0]
+    color_secondary: [0.35, 0.6, 0.9, 1.0]
+    color_tertiary: [0.9, 0.95, 1.0, 1.0]
+    emission_intensity: 0.0
+    temperature: 45.0
+    heat_capacity: 40000.0
+    absorption_factor: 0.75
+    position: [0.0, 3.5, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.0, 0.0]
+    reference_radius: 0.8
+  - name: "Temperate Silicate Body"
+    body_id: 3
+    mass: 0.6
+    radius: 0.65
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "metallic"
+    surface_texture_mode: "marbledstone"
+    color: [0.65, 0.62, 0.58, 1.0]
+    color_secondary: [0.4, 0.38, 0.35, 1.0]
+    emission_intensity: 0.0
+    temperature: 550.0
+    heat_capacity: 30000.0
+    absorption_factor: 0.8
+    position: [0.0, 0.0, 3.5, 0.0]
+    velocity: [0.0, 0.0, 0.0, 0.0]
+    reference_radius: 0.65
 observers:
-  - name: "PrimaryCamera"
-    fov_deg: 60.0
+  - name: "ThermalObserver"
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 15.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 12.0, 3.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "m"
     fov_unit: "deg"

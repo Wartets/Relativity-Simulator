@@ -1,0 +1,136 @@
+scenario_name: "Full Feature Test"
+description: "Multi-element integration test scenario featuring a primary Kerr black hole, a secondary Kerr black hole source, an orbiting terrestrial body, and an invisible-line 4-color skybox grid."
+author: "C. Bossu Réaubourg"
+version_tag: "1.0.0"
+units:
+  distance: "km"
+  mass: "M_sun"
+  velocity: "km/s"
+  time: "s"
+  energy: "J"
+  temperature: "K"
+  charge: "C"
+  angle: "deg"
+spacetime:
+  metric_type: "Kerr"
+  central_mass: 1.0
+  central_spin: 0.75
+  central_charge: 0.0
+  cosmological_lambda: 0.0
+  wormhole_throat: 0.0
+  warp_velocity: 0.0
+  speed_of_light: 1.0
+  gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: false
+  nebula_enabled: false
+  galaxies_enabled: false
+  dust_enabled: false
+  clusters_enabled: false
+  grid_enabled: true
+  grid_opacity: 0.0
+  grid_line_width: 0.0
+  grid_cell_fill_mode: 1
+  grid_cell_opacity: 0.8
+  grid_cell_color_count: 4
+  grid_cell_color_0: [1.0, 0.0, 0.0]
+  grid_cell_color_1: [0.0, 0.0, 1.0]
+  grid_cell_color_2: [0.0, 1.0, 0.0]
+  grid_cell_color_3: [1.0, 1.0, 0.0]
+integrator:
+  scheme: "RK45"
+  initial_step: 0.01
+  min_step: 1.0e-08
+  max_step: 5.0
+  relative_tolerance: 1.0e-10
+  absolute_tolerance: 1.0e-14
+output:
+  fits_enabled: true
+  hdf5_enabled: true
+  vtk_enabled: true
+  export_directory: "./output"
+interactions:
+  electricity_enabled: false
+  magnetism_enabled: false
+  vacuum_permittivity: 8.8541878128e-12
+  vacuum_permeability: 1.25663706212e-6
+  collisions_enabled: false
+  collision_response_model: 0
+  collision_consider_rotation: true
+  collision_consider_friction: true
+  collision_restitution_multiplier: 1.0
+  collision_stiffness_scale: 1.0e-9
+  collision_position_correction_factor: 0.2
+  thermodynamics_enabled: false
+  ambient_temperature_kelvin: -1.0
+  radiative_coupling_scale: 1.0
+  fragmentation_enabled: false
+  fragmentation_tidal_stress_enabled: false
+  minimum_fragment_mass: 1.0e-6
+  max_fragments_per_event: 2
+  collision_energy_to_integrity_loss: 1.0e-6
+  tidal_stress_to_integrity_loss: 1.0e-6
+  annihilation_enabled: false
+  annihilation_contact_scale: 1.0
+  annihilation_require_opposite_charge: true
+primary_disk:
+  enabled: true
+  inner_radius_scale: 1.0
+  outer_radius_mass_units: 25.0
+  peak_temperature_k: 18000.0
+  floor_temperature_k: 1200.0
+  brightness: 1.0
+  doppler_beaming_exponent: 1.0
+  color_saturation: 1.0
+sources:
+  - name: "Secondary Kerr Source"
+    body_id: 101
+    is_spacetime_source: true
+    mass: 0.4
+    radius: 0.75
+    spin: 0.6
+    charge: 0.0
+    enabled: true
+    preset_3d: "blackhole"
+    disk_enabled: true
+    disk_inner_scale: 1.0
+    disk_outer_rg: 16.0
+    disk_peak_temp: 22000.0
+    disk_floor_temp: 1500.0
+    disk_brightness: 1.1
+    position: [0.0, 22.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.23, 0.0]
+    reference_radius: 0.75
+bodies:
+  - name: "Orbiting Terrestrial Body"
+    body_id: 201
+    mass: 1.0e-5
+    radius: 0.65
+    spin: 0.0
+    charge: 0.0
+    enabled: true
+    preset_3d: "terrestrial"
+    surface_texture_mode: "procedural"
+    color: [0.2, 0.55, 0.85, 1.0]
+    color_secondary: [0.15, 0.65, 0.25, 1.0]
+    color_tertiary: [0.95, 0.95, 0.98, 1.0]
+    atmosphere_mode: "rayleighlimbshell"
+    atmosphere_thickness: 0.15
+    position: [0.0, -32.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, -0.19, 0.0]
+    reference_radius: 0.65
+observers:
+  - name: "TestObserver"
+    fov_deg: 55.0
+    resolution: [1920, 1080]
+    position: [0.0, 0.0, 38.0, 12.0]
+    target_name: "Secondary Kerr Source"
+    orientation_convention: 1
+    position_unit: "km"
+    fov_unit: "deg"
+    four_velocity: [1.0, 0.0, 0.0, 0.0]

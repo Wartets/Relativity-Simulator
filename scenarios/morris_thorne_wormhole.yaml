@@ -1,7 +1,7 @@
 scenario_name: "Morris-Thorne Traversable Wormhole"
 description: "Static spherically symmetric traversable wormhole connecting two asymptotically flat spacetime sheets."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.2.0"
 units:
   distance: "km"
   mass: "M_sun"
@@ -17,12 +17,23 @@ spacetime:
   central_spin: 0.0
   central_charge: 0.0
   cosmological_lambda: 0.0
-  wormhole_throat: 5.0
+  wormhole_throat: 4.0
+  wormhole_tidal_potential: 0.0
+  pole_guard_precision_scale: 1.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+time:
+  warp_factor: 1.0
+  tick_rate: 60.0
+  is_paused: true
+skybox:
+  enabled: true
+  stars_enabled: true
+  star_density: 80.0
+  nebula_enabled: true
 integrator:
-  scheme: "GaussLegendre6"
+  scheme: "RK45"
   initial_step: 0.01
   min_step: 1.0e-08
   max_step: 10.0
@@ -61,35 +72,29 @@ bodies:
   - name: "Traversal Probe"
     body_id: 1
     mass: 1.0e-6
-    radius: 0.05
+    radius: 0.4
     spin: 0.0
     charge: 0.0
     enabled: true
-    color: [1.0, 0.95, 0.6, 1.0]
-    color_secondary: [0.8, 0.7, 0.3, 1.0]
-    magnetic_moment: 0.0
-    rotation_speed: 0.0
-    friction_coefficient: 0.0
-    restitution: 0.5
-    integrity: 1.0
-    lifetime: 0.0
-    temperature: 293.0
-    heat_capacity: 1.0
-    absorption_factor: 1.0
-    composition: "Composite hull test particle"
-    position: [0.0, 12.0, 0.0, 0.0]
-    velocity: [1.0, -0.08, 0.0, 0.0]
+    preset_3d: "metallic"
+    surface_texture_mode: "marbledstone"
+    color: [1.0, 0.9, 0.5, 1.0]
+    color_secondary: [0.8, 0.6, 0.2, 1.0]
+    emission_intensity: 0.5
+    composition: "Composite hull test probe"
+    position: [0.0, 14.0, 0.0, 0.0]
+    velocity: [1.0, -0.15, 0.0, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
     j4: 0.0
-    reference_radius: 0.05
+    reference_radius: 0.4
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 75.0
+    fov_deg: 60.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 20.0, 0.0]
-    orientation: [0.0, 180.0, 0.0]
+    position: [0.0, 0.0, 22.0, 0.0]
+    target_name: "origin"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

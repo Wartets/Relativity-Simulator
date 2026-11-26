@@ -146,12 +146,16 @@ struct ScenarioBodyConfig {
 	double longitude_node_deg{0.0};
 	double argument_periapsis_deg{0.0};
 	double true_anomaly_deg{0.0};
+	uint32_t count{1};
 	bool disk_enabled{false};
 	float disk_inner_scale{1.0f};
 	float disk_outer_rg{25.0f};
 	float disk_peak_temp{15000.0f};
 	float disk_floor_temp{1200.0f};
 	float disk_brightness{1.0f};
+	float disk_opacity{1.0f};
+	float disk_beaming{0.0f};
+	float disk_saturation{1.0f};
 	std::string mass_unit{"kg"};
 	std::string radius_unit{"m"};
 	std::string position_unit{"m"};
@@ -562,6 +566,9 @@ public:
 				ss << "    disk_peak_temp: " << b.disk_peak_temp << "\n";
 				ss << "    disk_floor_temp: " << b.disk_floor_temp << "\n";
 				ss << "    disk_brightness: " << b.disk_brightness << "\n";
+				ss << "    disk_opacity: " << b.disk_opacity << "\n";
+				ss << "    disk_beaming: " << b.disk_beaming << "\n";
+				ss << "    disk_saturation: " << b.disk_saturation << "\n";
 			}
 			ss << "    magnetic_moment: " << b.magnetic_moment << "\n";
 			ss << "    rotation_speed: " << b.rotation_speed << "\n";
@@ -811,6 +818,120 @@ public:
 		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Sources, Observers, Units, Time, Skybox, PrimaryDisk, PrimaryJet };
 		Section current_section = Section::Root;
 
+		std::vector<std::pair<std::string, std::string>> current_body_raw_props;
+
+		auto apply_body_prop = [&](ScenarioBodyConfig& b, std::string_view key, std::string_view val) {
+			if (key == "name") b.name = unquote(val);
+			else if (key == "count") b.count = static_cast<uint32_t>(std::max(1.0, ScenarioValueSampler::sample(val, 1.0)));
+			else if (key == "body_id") b.body_id = static_cast<uint32_t>(ScenarioValueSampler::sample(val, b.body_id));
+			else if (key == "mass") b.mass = ScenarioValueSampler::sample(val, b.mass);
+			else if (key == "radius") b.radius = ScenarioValueSampler::sample(val, b.radius);
+			else if (key == "spin") b.spin = ScenarioValueSampler::sample(val, b.spin);
+			else if (key == "charge") b.charge = ScenarioValueSampler::sample(val, b.charge);
+			else if (key == "enabled") b.enabled = (val != "false");
+			else if (key == "is_spacetime_source" || key == "is_source") b.is_spacetime_source = (val == "true");
+			else if (key == "color") b.color = parse_color(val);
+			else if (key == "color_secondary") b.color_secondary = parse_color(val);
+			else if (key == "color_tertiary") b.color_tertiary = parse_color(val);
+			else if (key == "preset" || key == "preset_3d") b.preset_3d = parse_body_preset(val);
+			else if (key == "texture" || key == "texture_mode" || key == "surface_texture_mode") b.surface_texture_mode = parse_texture_mode(val);
+			else if (key == "geometry" || key == "geometry_model") b.geometry_model = parse_geometry_model(val);
+			else if (key == "surface_noise_scale" || key == "noise_scale") b.surface_noise_scale = static_cast<float>(ScenarioValueSampler::sample(val, b.surface_noise_scale));
+			else if (key == "surface_roughness" || key == "roughness") b.surface_roughness = static_cast<float>(ScenarioValueSampler::sample(val, b.surface_roughness));
+			else if (key == "texture_detail_scale" || key == "detail_scale") b.texture_detail_scale = static_cast<float>(ScenarioValueSampler::sample(val, b.texture_detail_scale));
+			else if (key == "polar_cap_strength" || key == "polar_cap") b.polar_cap_strength = static_cast<float>(ScenarioValueSampler::sample(val, b.polar_cap_strength));
+			else if (key == "night_side_light_intensity" || key == "night_lights") b.night_side_light_intensity = static_cast<float>(ScenarioValueSampler::sample(val, b.night_side_light_intensity));
+			else if (key == "ring_system_enabled" || key == "ring_system" || key == "rings") b.ring_system_enabled = (val == "true");
+			else if (key == "atmosphere_mode" || key == "atmosphere") b.atmosphere_mode = parse_atmosphere_mode(val);
+			else if (key == "atmosphere_thickness") b.atmosphere_thickness = static_cast<float>(ScenarioValueSampler::sample(val, b.atmosphere_thickness));
+			else if (key == "atmosphere_color") b.atmosphere_color = parse_color(val);
+			else if (key == "emission_intensity" || key == "emission") b.emission_intensity = static_cast<float>(ScenarioValueSampler::sample(val, b.emission_intensity));
+			else if (key == "specular_roughness") b.specular_roughness = static_cast<float>(ScenarioValueSampler::sample(val, b.specular_roughness));
+			else if (key == "rotation_speed_3d") b.rotation_speed_3d = static_cast<float>(ScenarioValueSampler::sample(val, b.rotation_speed_3d));
+			else if (key == "rotation_axis_3d") { auto v = parse_vec4(val); b.rotation_axis_3d = {v[0], v[1], v[2]}; }
+			else if (key == "orientation_euler" || key == "orientation") { auto v = parse_vec4(val); b.orientation_euler = {v[0], v[1], v[2]}; }
+			else if (key == "spin_axis") { auto v = parse_vec4(val); b.spin_axis = {v[0], v[1], v[2]}; }
+			else if (key == "earth_map_variant") b.earth_map_variant = static_cast<uint32_t>(ScenarioValueSampler::sample(val, 0.0));
+			else if (key == "earth_map_quality") b.earth_map_quality = static_cast<uint32_t>(ScenarioValueSampler::sample(val, 0.0));
+			else if (key == "earth_terminator_softness") b.earth_terminator_softness = static_cast<float>(ScenarioValueSampler::sample(val, 0.15));
+			else if (key == "layer_template_1") b.layer_template_1 = static_cast<int>(ScenarioValueSampler::sample(val, -1.0));
+			else if (key == "layer_template_2") b.layer_template_2 = static_cast<int>(ScenarioValueSampler::sample(val, -1.0));
+			else if (key == "parent_name" || key == "parent") { b.parent_name = unquote(val); b.has_orbit = true; }
+			else if (key == "parent_id") { b.parent_id = static_cast<int32_t>(ScenarioValueSampler::sample(val, -2.0)); b.has_orbit = true; }
+			else if (key == "semi_major_axis" || key == "a") { b.semi_major_axis = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "eccentricity" || key == "e") { b.eccentricity = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "inclination_deg" || key == "inclination" || key == "inc") { b.inclination_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "longitude_node_deg" || key == "longitude_node" || key == "node") { b.longitude_node_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "argument_periapsis_deg" || key == "argument_periapsis" || key == "periapsis") { b.argument_periapsis_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "true_anomaly_deg" || key == "true_anomaly" || key == "nu") { b.true_anomaly_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
+			else if (key == "disk_enabled") b.disk_enabled = (val == "true");
+			else if (key == "disk_inner_scale") b.disk_inner_scale = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
+			else if (key == "disk_outer_rg") b.disk_outer_rg = static_cast<float>(ScenarioValueSampler::sample(val, 25.0));
+			else if (key == "disk_peak_temp") b.disk_peak_temp = static_cast<float>(ScenarioValueSampler::sample(val, 15000.0));
+			else if (key == "disk_floor_temp") b.disk_floor_temp = static_cast<float>(ScenarioValueSampler::sample(val, 1200.0));
+			else if (key == "disk_brightness") b.disk_brightness = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
+			else if (key == "disk_opacity") b.disk_opacity = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
+			else if (key == "disk_beaming" || key == "disk_doppler_beaming") b.disk_beaming = static_cast<float>(ScenarioValueSampler::sample(val, 0.0));
+			else if (key == "disk_saturation") b.disk_saturation = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
+			else if (key == "magnetic_moment") b.magnetic_moment = ScenarioValueSampler::sample(val, b.magnetic_moment);
+			else if (key == "rotation_speed") b.rotation_speed = ScenarioValueSampler::sample(val, b.rotation_speed);
+			else if (key == "friction_coefficient") b.friction_coefficient = ScenarioValueSampler::sample(val, b.friction_coefficient);
+			else if (key == "restitution") b.restitution = ScenarioValueSampler::sample(val, b.restitution);
+			else if (key == "elasticity") b.elasticity = ScenarioValueSampler::sample(val, b.elasticity);
+			else if (key == "integrity") b.integrity = ScenarioValueSampler::sample(val, b.integrity);
+			else if (key == "lifetime") b.lifetime = ScenarioValueSampler::sample(val, b.lifetime);
+			else if (key == "temperature") b.temperature = ScenarioValueSampler::sample(val, b.temperature);
+			else if (key == "heat_capacity") b.heat_capacity = ScenarioValueSampler::sample(val, b.heat_capacity);
+			else if (key == "absorption_factor") b.absorption_factor = ScenarioValueSampler::sample(val, b.absorption_factor);
+			else if (key == "transmission_factor") b.transmission_factor = ScenarioValueSampler::sample(val, b.transmission_factor);
+			else if (key == "critical_temperature") b.critical_temperature = ScenarioValueSampler::sample(val, b.critical_temperature);
+			else if (key == "cold_resistance") b.cold_resistance = ScenarioValueSampler::sample(val, b.cold_resistance);
+			else if (key == "hot_resistance") b.hot_resistance = ScenarioValueSampler::sample(val, b.hot_resistance);
+			else if (key == "youngs_modulus_cold" || key == "youngs_modulus") b.youngs_modulus_cold = ScenarioValueSampler::sample(val, b.youngs_modulus_cold);
+			else if (key == "youngs_modulus_hot") b.youngs_modulus_hot = ScenarioValueSampler::sample(val, b.youngs_modulus_hot);
+			else if (key == "composition") b.composition = unquote(val);
+			else if (key == "position") b.initial_position = parse_vec4(val);
+			else if (key == "velocity") b.initial_velocity = parse_vec4(val);
+			else if (key == "quadrupole") b.quadrupole_moment = ScenarioValueSampler::sample(val, b.quadrupole_moment);
+			else if (key == "j2") b.j2 = ScenarioValueSampler::sample(val, b.j2);
+			else if (key == "j3") b.j3 = ScenarioValueSampler::sample(val, b.j3);
+			else if (key == "j4") b.j4 = ScenarioValueSampler::sample(val, b.j4);
+			else if (key == "reference_radius") b.reference_radius = ScenarioValueSampler::sample(val, b.reference_radius);
+			else if (key == "mass_unit") b.mass_unit = unquote(val);
+			else if (key == "radius_unit") b.radius_unit = unquote(val);
+			else if (key == "position_unit") b.position_unit = unquote(val);
+			else if (key == "velocity_unit") b.velocity_unit = unquote(val);
+			else if (key == "temperature_unit") b.temperature_unit = unquote(val);
+			else if (key == "charge_unit") b.charge_unit = unquote(val);
+		};
+
+		auto expand_current_body = [&]() {
+			if (s.bodies.empty() || current_body_raw_props.empty()) return;
+			const uint32_t total_count = s.bodies.back().count;
+			if (total_count <= 1) {
+				current_body_raw_props.clear();
+				return;
+			}
+			const auto base_props = current_body_raw_props;
+			current_body_raw_props.clear();
+			const uint32_t base_id = s.bodies.back().body_id;
+			const std::string base_name = s.bodies.back().name;
+			const bool is_source = s.bodies.back().is_spacetime_source;
+			s.bodies.back().count = 1;
+			s.bodies.back().name = base_name + " 1";
+			for (uint32_t rep = 1; rep < total_count; ++rep) {
+				s.bodies.emplace_back();
+				auto& nb = s.bodies.back();
+				nb.is_spacetime_source = is_source;
+				for (const auto& [k, v] : base_props) {
+					apply_body_prop(nb, k, v);
+				}
+				nb.count = 1;
+				nb.body_id = base_id + rep;
+				nb.name = base_name + " " + std::to_string(rep + 1);
+			}
+		};
+
 		while (std::getline(stream, line)) {
 			std::string_view sv = trim(line);
 			if (sv.empty() || sv.front() == '#') continue;
@@ -821,18 +942,18 @@ public:
 			const std::string_view key = trim(sv.substr(0, colon));
 			const std::string_view val = trim(sv.substr(colon + 1));
 
-			if (key == "units") { current_section = Section::Units; continue; }
-			if (key == "spacetime") { current_section = Section::Spacetime; continue; }
-			if (key == "time" || key == "scheduler") { current_section = Section::Time; continue; }
-			if (key == "skybox" || key == "sky") { current_section = Section::Skybox; s.has_skybox = true; continue; }
-			if (key == "primary_disk" || key == "accretion_disk") { current_section = Section::PrimaryDisk; s.has_primary_disk = true; continue; }
-			if (key == "primary_jet" || key == "jet") { current_section = Section::PrimaryJet; s.has_primary_jet = true; continue; }
-			if (key == "integrator") { current_section = Section::Integrator; continue; }
-			if (key == "output") { current_section = Section::Output; continue; }
-			if (key == "interactions") { current_section = Section::Interactions; continue; }
-			if (key == "bodies") { current_section = Section::Bodies; continue; }
-			if (key == "sources") { current_section = Section::Sources; continue; }
-			if (key == "observers") { current_section = Section::Observers; continue; }
+			if (key == "units") { expand_current_body(); current_section = Section::Units; continue; }
+			if (key == "spacetime") { expand_current_body(); current_section = Section::Spacetime; continue; }
+			if (key == "time" || key == "scheduler") { expand_current_body(); current_section = Section::Time; continue; }
+			if (key == "skybox" || key == "sky") { expand_current_body(); current_section = Section::Skybox; s.has_skybox = true; continue; }
+			if (key == "primary_disk" || key == "accretion_disk") { expand_current_body(); current_section = Section::PrimaryDisk; s.has_primary_disk = true; continue; }
+			if (key == "primary_jet" || key == "jet") { expand_current_body(); current_section = Section::PrimaryJet; s.has_primary_jet = true; continue; }
+			if (key == "integrator") { expand_current_body(); current_section = Section::Integrator; continue; }
+			if (key == "output") { expand_current_body(); current_section = Section::Output; continue; }
+			if (key == "interactions") { expand_current_body(); current_section = Section::Interactions; continue; }
+			if (key == "bodies") { expand_current_body(); current_section = Section::Bodies; continue; }
+			if (key == "sources") { expand_current_body(); current_section = Section::Sources; continue; }
+			if (key == "observers") { expand_current_body(); current_section = Section::Observers; continue; }
 
 			if (current_section == Section::Units) {
 				if (key == "distance") s.units.distance_unit = unquote(val);
@@ -917,6 +1038,7 @@ public:
 
 			if (current_section == Section::Bodies || current_section == Section::Sources) {
 				if (sv.starts_with("-")) {
+					expand_current_body();
 					s.bodies.emplace_back();
 					if (current_section == Section::Sources) {
 						s.bodies.back().is_spacetime_source = true;
@@ -925,90 +1047,14 @@ public:
 					if (sub_colon != std::string_view::npos) {
 						const std::string_view skey = trim(sv.substr(1, sub_colon - 1));
 						const std::string_view sval = trim(sv.substr(sub_colon + 1));
-						if (skey == "name") s.bodies.back().name = unquote(sval);
+						current_body_raw_props.emplace_back(std::string(skey), std::string(sval));
+						apply_body_prop(s.bodies.back(), skey, sval);
 					}
 					continue;
 				}
 				if (!s.bodies.empty()) {
-					auto& b = s.bodies.back();
-					if (key == "name") b.name = unquote(val);
-					else if (key == "body_id") b.body_id = static_cast<uint32_t>(ScenarioValueSampler::sample(val, b.body_id));
-					else if (key == "mass") b.mass = ScenarioValueSampler::sample(val, b.mass);
-					else if (key == "radius") b.radius = ScenarioValueSampler::sample(val, b.radius);
-					else if (key == "spin") b.spin = ScenarioValueSampler::sample(val, b.spin);
-					else if (key == "charge") b.charge = ScenarioValueSampler::sample(val, b.charge);
-					else if (key == "enabled") b.enabled = (val != "false");
-					else if (key == "is_spacetime_source" || key == "is_source") b.is_spacetime_source = (val == "true");
-					else if (key == "color") b.color = parse_color(val);
-					else if (key == "color_secondary") b.color_secondary = parse_color(val);
-					else if (key == "color_tertiary") b.color_tertiary = parse_color(val);
-					else if (key == "preset" || key == "preset_3d") b.preset_3d = parse_body_preset(val);
-					else if (key == "texture" || key == "texture_mode" || key == "surface_texture_mode") b.surface_texture_mode = parse_texture_mode(val);
-					else if (key == "geometry" || key == "geometry_model") b.geometry_model = parse_geometry_model(val);
-					else if (key == "surface_noise_scale" || key == "noise_scale") b.surface_noise_scale = static_cast<float>(ScenarioValueSampler::sample(val, b.surface_noise_scale));
-					else if (key == "surface_roughness" || key == "roughness") b.surface_roughness = static_cast<float>(ScenarioValueSampler::sample(val, b.surface_roughness));
-					else if (key == "texture_detail_scale" || key == "detail_scale") b.texture_detail_scale = static_cast<float>(ScenarioValueSampler::sample(val, b.texture_detail_scale));
-					else if (key == "polar_cap_strength" || key == "polar_cap") b.polar_cap_strength = static_cast<float>(ScenarioValueSampler::sample(val, b.polar_cap_strength));
-					else if (key == "night_side_light_intensity" || key == "night_lights") b.night_side_light_intensity = static_cast<float>(ScenarioValueSampler::sample(val, b.night_side_light_intensity));
-					else if (key == "ring_system_enabled" || key == "ring_system" || key == "rings") b.ring_system_enabled = (val == "true");
-					else if (key == "atmosphere_mode" || key == "atmosphere") b.atmosphere_mode = parse_atmosphere_mode(val);
-					else if (key == "atmosphere_thickness") b.atmosphere_thickness = static_cast<float>(ScenarioValueSampler::sample(val, b.atmosphere_thickness));
-					else if (key == "atmosphere_color") b.atmosphere_color = parse_color(val);
-					else if (key == "emission_intensity" || key == "emission") b.emission_intensity = static_cast<float>(ScenarioValueSampler::sample(val, b.emission_intensity));
-					else if (key == "specular_roughness") b.specular_roughness = static_cast<float>(ScenarioValueSampler::sample(val, b.specular_roughness));
-					else if (key == "rotation_speed_3d") b.rotation_speed_3d = static_cast<float>(ScenarioValueSampler::sample(val, b.rotation_speed_3d));
-					else if (key == "rotation_axis_3d") { auto v = parse_vec4(val); b.rotation_axis_3d = {v[0], v[1], v[2]}; }
-					else if (key == "orientation_euler" || key == "orientation") { auto v = parse_vec4(val); b.orientation_euler = {v[0], v[1], v[2]}; }
-					else if (key == "spin_axis") { auto v = parse_vec4(val); b.spin_axis = {v[0], v[1], v[2]}; }
-					else if (key == "earth_map_variant") b.earth_map_variant = static_cast<uint32_t>(ScenarioValueSampler::sample(val, 0.0));
-					else if (key == "earth_map_quality") b.earth_map_quality = static_cast<uint32_t>(ScenarioValueSampler::sample(val, 1.0));
-					else if (key == "earth_terminator_softness") b.earth_terminator_softness = static_cast<float>(ScenarioValueSampler::sample(val, 0.15));
-					else if (key == "layer_template_1") b.layer_template_1 = static_cast<int>(ScenarioValueSampler::sample(val, -1.0));
-					else if (key == "layer_template_2") b.layer_template_2 = static_cast<int>(ScenarioValueSampler::sample(val, -1.0));
-					else if (key == "parent_name" || key == "parent") { b.parent_name = unquote(val); b.has_orbit = true; }
-					else if (key == "parent_id") { b.parent_id = static_cast<int32_t>(ScenarioValueSampler::sample(val, -2.0)); b.has_orbit = true; }
-					else if (key == "semi_major_axis" || key == "a") { b.semi_major_axis = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "eccentricity" || key == "e") { b.eccentricity = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "inclination_deg" || key == "inclination" || key == "inc") { b.inclination_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "longitude_node_deg" || key == "longitude_node" || key == "node") { b.longitude_node_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "argument_periapsis_deg" || key == "argument_periapsis" || key == "periapsis") { b.argument_periapsis_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "true_anomaly_deg" || key == "true_anomaly" || key == "nu") { b.true_anomaly_deg = ScenarioValueSampler::sample(val, 0.0); b.has_orbit = true; }
-					else if (key == "disk_enabled") b.disk_enabled = (val == "true");
-					else if (key == "disk_inner_scale") b.disk_inner_scale = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
-					else if (key == "disk_outer_rg") b.disk_outer_rg = static_cast<float>(ScenarioValueSampler::sample(val, 25.0));
-					else if (key == "disk_peak_temp") b.disk_peak_temp = static_cast<float>(ScenarioValueSampler::sample(val, 15000.0));
-					else if (key == "disk_floor_temp") b.disk_floor_temp = static_cast<float>(ScenarioValueSampler::sample(val, 1200.0));
-					else if (key == "disk_brightness") b.disk_brightness = static_cast<float>(ScenarioValueSampler::sample(val, 1.0));
-					else if (key == "magnetic_moment") b.magnetic_moment = ScenarioValueSampler::sample(val, b.magnetic_moment);
-					else if (key == "rotation_speed") b.rotation_speed = ScenarioValueSampler::sample(val, b.rotation_speed);
-					else if (key == "friction_coefficient") b.friction_coefficient = ScenarioValueSampler::sample(val, b.friction_coefficient);
-					else if (key == "restitution") b.restitution = ScenarioValueSampler::sample(val, b.restitution);
-					else if (key == "elasticity") b.elasticity = ScenarioValueSampler::sample(val, b.elasticity);
-					else if (key == "integrity") b.integrity = ScenarioValueSampler::sample(val, b.integrity);
-					else if (key == "lifetime") b.lifetime = ScenarioValueSampler::sample(val, b.lifetime);
-					else if (key == "temperature") b.temperature = ScenarioValueSampler::sample(val, b.temperature);
-					else if (key == "heat_capacity") b.heat_capacity = ScenarioValueSampler::sample(val, b.heat_capacity);
-					else if (key == "absorption_factor") b.absorption_factor = ScenarioValueSampler::sample(val, b.absorption_factor);
-					else if (key == "transmission_factor") b.transmission_factor = ScenarioValueSampler::sample(val, b.transmission_factor);
-					else if (key == "critical_temperature") b.critical_temperature = ScenarioValueSampler::sample(val, b.critical_temperature);
-					else if (key == "cold_resistance") b.cold_resistance = ScenarioValueSampler::sample(val, b.cold_resistance);
-					else if (key == "hot_resistance") b.hot_resistance = ScenarioValueSampler::sample(val, b.hot_resistance);
-					else if (key == "youngs_modulus_cold" || key == "youngs_modulus") b.youngs_modulus_cold = ScenarioValueSampler::sample(val, b.youngs_modulus_cold);
-					else if (key == "youngs_modulus_hot") b.youngs_modulus_hot = ScenarioValueSampler::sample(val, b.youngs_modulus_hot);
-					else if (key == "composition") b.composition = unquote(val);
-					else if (key == "position") b.initial_position = parse_vec4(val);
-					else if (key == "velocity") b.initial_velocity = parse_vec4(val);
-					else if (key == "quadrupole") b.quadrupole_moment = ScenarioValueSampler::sample(val, b.quadrupole_moment);
-					else if (key == "j2") b.j2 = ScenarioValueSampler::sample(val, b.j2);
-					else if (key == "j3") b.j3 = ScenarioValueSampler::sample(val, b.j3);
-					else if (key == "j4") b.j4 = ScenarioValueSampler::sample(val, b.j4);
-					else if (key == "reference_radius") b.reference_radius = ScenarioValueSampler::sample(val, b.reference_radius);
-					else if (key == "mass_unit") b.mass_unit = unquote(val);
-					else if (key == "radius_unit") b.radius_unit = unquote(val);
-					else if (key == "position_unit") b.position_unit = unquote(val);
-					else if (key == "velocity_unit") b.velocity_unit = unquote(val);
-					else if (key == "temperature_unit") b.temperature_unit = unquote(val);
-					else if (key == "charge_unit") b.charge_unit = unquote(val);
+					current_body_raw_props.emplace_back(std::string(key), std::string(val));
+					apply_body_prop(s.bodies.back(), key, val);
 				}
 				continue;
 			}
@@ -1112,6 +1158,7 @@ public:
 			else if (key == "annihilation_contact_scale") s.interactions.annihilation_contact_scale = std::strtod(std::string(val).c_str(), nullptr);
 			else if (key == "annihilation_require_opposite_charge") s.interactions.annihilation_require_opposite_charge = (val == "true");
 		}
+		expand_current_body();
 
 		return s;
 	}

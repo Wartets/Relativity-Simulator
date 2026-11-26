@@ -1,7 +1,7 @@
 scenario_name: "Collision Cascade Demonstration"
 description: "Four rigid bodies converging in flat spacetime, showcasing Hertzian contact repulsion, restitution-based bounce, friction, and rotational spin-up on impact."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "m"
   mass: "kg"
@@ -70,8 +70,8 @@ interactions:
 bodies:
   - name: "Impactor North"
     body_id: 1
-    mass: "[0.8, 1.2]"
-    radius: "[0.45, 0.55]"
+    mass: 1.0
+    radius: 0.5
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -81,7 +81,7 @@ bodies:
     color_secondary: [0.7, 0.3, 0.15, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.45
+    friction_coefficient: 0.35
     restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
@@ -89,8 +89,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Elastic silicate impactor"
-    position: [0.0, "[5.0, 6.2]", 0.0, 0.0]
-    velocity: [0.0, "[-0.24, -0.18]", 0.0, 0.0]
+    position: [0.0, 0.0, 5.0, 0.0]
+    velocity: [0.0, 0.0, -0.2, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -98,8 +98,8 @@ bodies:
     reference_radius: 0.5
   - name: "Impactor South"
     body_id: 2
-    mass: "[0.8, 1.2]"
-    radius: "[0.45, 0.55]"
+    mass: 1.0
+    radius: 0.5
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -109,7 +109,7 @@ bodies:
     color_secondary: [0.15, 0.35, 0.7, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.45
+    friction_coefficient: 0.35
     restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
@@ -117,8 +117,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Elastic silicate impactor"
-    position: [0.0, "[-6.2, -5.0]", 0.0, 0.0]
-    velocity: [0.0, "[0.18, 0.24]", 0.0, 0.0]
+    position: [0.0, 0.0, -5.0, 0.0]
+    velocity: [0.0, 0.0, 0.2, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -126,8 +126,8 @@ bodies:
     reference_radius: 0.5
   - name: "Impactor East"
     body_id: 3
-    mass: "[0.5, 0.8]"
-    radius: "[0.35, 0.45]"
+    mass: 0.8
+    radius: 0.4
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -137,7 +137,7 @@ bodies:
     color_secondary: [0.3, 0.65, 0.2, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.45
+    friction_coefficient: 0.35
     restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
@@ -145,8 +145,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Elastic silicate impactor"
-    position: ["[5.0, 6.2]", 0.0, 0.0, 0.0]
-    velocity: ["[-0.24, -0.18]", 0.02, 0.0, 0.0]
+    position: [0.0, 5.0, 0.0, 0.0]
+    velocity: [0.0, -0.2, 0.02, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -154,8 +154,8 @@ bodies:
     reference_radius: 0.4
   - name: "Impactor West"
     body_id: 4
-    mass: "[0.5, 0.8]"
-    radius: "[0.35, 0.45]"
+    mass: 0.8
+    radius: 0.4
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -165,7 +165,7 @@ bodies:
     color_secondary: [0.7, 0.55, 0.15, 1.0]
     magnetic_moment: 0.0
     rotation_speed: 0.0
-    friction_coefficient: 0.45
+    friction_coefficient: 0.35
     restitution: 0.65
     integrity: 1.0
     lifetime: 0.0
@@ -173,8 +173,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Elastic silicate impactor"
-    position: ["[-6.2, -5.0]", 0.0, 0.0, 0.0]
-    velocity: ["[0.18, 0.24]", -0.02, 0.0, 0.0]
+    position: [0.0, -5.0, 0.0, 0.0]
+    velocity: [0.0, 0.2, -0.02, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0

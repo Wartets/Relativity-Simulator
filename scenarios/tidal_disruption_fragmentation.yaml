@@ -1,7 +1,7 @@
 scenario_name: "Tidal Disruption and Rubble Fragmentation"
 description: "A loosely bound rubble-pile asteroid on a near-plunging orbit around a Schwarzschild black hole, disintegrating under tidal stress and fragmenting into debris."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.1"
+version_tag: "1.0.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -22,8 +22,8 @@ spacetime:
   speed_of_light: 1.0
   gravitational_constant: 1.0
 time:
-  warp_factor: 1.0
-  tick_rate: 60.0
+  warp_factor: 100
+  tick_rate: 15
   is_paused: true
 integrator:
   scheme: "RK45"
@@ -65,7 +65,7 @@ bodies:
   - name: "Rubble Pile Asteroid"
     body_id: 1
     mass: 1.0e-5
-    radius: 0.45
+    radius: 10
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -98,10 +98,10 @@ bodies:
     charge_unit: "C"
 observers:
   - name: "PrimaryCamera"
-    fov_deg: 60.0
+    fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 40.0, 8.0]
-    orientation: [-11.3, 180.0, 0.0]
+    position: [0.0, -15.0, 68.0, 28.0]
+    orientation: [-18.5, 168.0, 0.0]
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

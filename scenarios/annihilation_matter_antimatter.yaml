@@ -1,7 +1,7 @@
 scenario_name: "Matter-Antimatter Annihilation"
 description: "Two oppositely charged particles attracted by Coulomb force and Newtonian gravity, annihilating upon contact."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "m"
   mass: "kg"
@@ -92,8 +92,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Positron matter packet"
-    position: [0.0, 0.0, 2.5, 0.0]
-    velocity: [0.0, 0.0, -0.3, 0.0]
+    position: [0.0, 0.0, 1.2, 0.0]
+    velocity: [0.0, 0.0, -0.6, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0
@@ -127,8 +127,8 @@ bodies:
     heat_capacity: 1.0
     absorption_factor: 1.0
     composition: "Electron matter packet"
-    position: [0.0, 0.0, -2.5, 0.0]
-    velocity: [0.0, 0.0, 0.3, 0.0]
+    position: [0.0, 0.0, -1.2, 0.0]
+    velocity: [0.0, 0.0, 0.6, 0.0]
     quadrupole: 0.0
     j2: 0.0
     j3: 0.0

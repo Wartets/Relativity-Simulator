@@ -1,7 +1,7 @@
 scenario_name: "Radiative Cooling Demonstration"
 description: "Multiple celestial bodies at contrasting initial temperatures cooling and heating smoothly toward radiative equilibrium in flat spacetime."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "m"
   mass: "kg"
@@ -50,8 +50,8 @@ interactions:
   collision_stiffness_scale: 1.0e-9
   collision_position_correction_factor: 0.2
   thermodynamics_enabled: true
-  ambient_temperature_kelvin: 288.0
-  radiative_coupling_scale: 0.05
+  ambient_temperature_kelvin: 120.0
+  radiative_coupling_scale: 0.1
   fragmentation_enabled: false
   fragmentation_tidal_stress_enabled: false
   minimum_fragment_mass: 1.0e-6
@@ -64,7 +64,7 @@ interactions:
 bodies:
   - name: "Superheated Magma World"
     body_id: 1
-    mass: 1.0
+    mass: 1.2
     radius: 0.9
     spin: 0.0
     charge: 0.0
@@ -78,16 +78,36 @@ bodies:
     temperature: 3200.0
     heat_capacity: 50000.0
     absorption_factor: 0.95
-    position: [0.0, -3.5, 0.0, 0.0]
+    position: [0.0, 0.0, 0.0, 0.0]
     velocity: [0.0, 0.0, 0.0, 0.0]
     reference_radius: 0.9
-  - name: "Cryogenic Ice Sphere"
+  - name: "Temperate Silicate Body"
     body_id: 2
-    mass: 0.8
+    mass: 0.4
+    radius: 0.65
+    parent_name: "Superheated Magma World"
+    semi_major_axis: 7.5
+    eccentricity: 0.04
+    inclination: 5.0
+    true_anomaly: 60.0
+    preset_3d: "metallic"
+    surface_texture_mode: "marbledstone"
+    color: [0.65, 0.62, 0.58, 1.0]
+    color_secondary: [0.4, 0.38, 0.35, 1.0]
+    emission_intensity: 0.0
+    temperature: 550.0
+    heat_capacity: 30000.0
+    absorption_factor: 0.8
+    reference_radius: 0.65
+  - name: "Cryogenic Ice Sphere"
+    body_id: 3
+    mass: 0.3
     radius: 0.8
-    spin: 0.0
-    charge: 0.0
-    enabled: true
+    parent_name: "Superheated Magma World"
+    semi_major_axis: 14.0
+    eccentricity: 0.06
+    inclination: 12.0
+    true_anomaly: 210.0
     preset_3d: "icegiant"
     surface_texture_mode: "icycracked"
     color: [0.55, 0.8, 1.0, 1.0]
@@ -97,32 +117,12 @@ bodies:
     temperature: 45.0
     heat_capacity: 40000.0
     absorption_factor: 0.75
-    position: [0.0, 3.5, 0.0, 0.0]
-    velocity: [0.0, 0.0, 0.0, 0.0]
     reference_radius: 0.8
-  - name: "Temperate Silicate Body"
-    body_id: 3
-    mass: 0.6
-    radius: 0.65
-    spin: 0.0
-    charge: 0.0
-    enabled: true
-    preset_3d: "metallic"
-    surface_texture_mode: "marbledstone"
-    color: [0.65, 0.62, 0.58, 1.0]
-    color_secondary: [0.4, 0.38, 0.35, 1.0]
-    emission_intensity: 0.0
-    temperature: 550.0
-    heat_capacity: 30000.0
-    absorption_factor: 0.8
-    position: [0.0, 0.0, 3.5, 0.0]
-    velocity: [0.0, 0.0, 0.0, 0.0]
-    reference_radius: 0.65
 observers:
   - name: "ThermalObserver"
     fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 12.0, 3.0]
+    position: [0.0, 0.0, 24.0, 8.0]
     target_name: "origin"
     orientation_convention: 1
     position_unit: "m"

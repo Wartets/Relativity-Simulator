@@ -1,7 +1,7 @@
 scenario_name: "High-Eccentricity Cometary Flyby"
 description: "A small icy body on a highly eccentric hyperbolic-like flyby trajectory around a Schwarzschild black hole, exercising adaptive step-size control near periapsis."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "km"
   mass: "M_sun"
@@ -59,24 +59,28 @@ interactions:
   annihilation_require_opposite_charge: true
 time:
   warp_factor: 0.5
-  tick_rate: 60.0
+  tick_rate: 10.0
   is_paused: true
 bodies:
   - name: "Icy Comet"
     body_id: 1
     mass: 1.0e-8
-    radius: 0.9
-    spin: 0.0
+    radius: 1.5
+    spin: 0.05
     charge: 0.0
     enabled: true
     preset_3d: "icegiant"
     surface_texture_mode: "icycracked"
-    color: [0.8, 0.95, 1.0, 1.0]
-    color_secondary: [0.55, 0.75, 0.9, 1.0]
+    color: [0.35, 0.45, 0.55, 1.0]
+    color_secondary: [0.65, 0.85, 0.98, 1.0]
     color_tertiary: [0.95, 0.98, 1.0, 1.0]
-    emission_intensity: 1.0
-    atmosphere_mode: "volumetricmie"
-    atmosphere_thickness: 0.35
+    surface_noise_scale: 8.0
+    surface_roughness: 0.85
+    texture_detail_scale: 2.0
+    emission_intensity: 0.2
+    atmosphere_mode: "thickhaze"
+    atmosphere_thickness: 0.32
+    atmosphere_color: [0.3, 0.65, 1.0, 0.7]
     magnetic_moment: 0.0
     rotation_speed: 0.0
     friction_coefficient: 0.0

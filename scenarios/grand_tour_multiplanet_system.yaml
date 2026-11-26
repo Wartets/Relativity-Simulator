@@ -1,7 +1,7 @@
 scenario_name: "Grand Tour Multi-Planet System"
 description: "The complete real Solar System with the Sun and all major planets from Mercury to Neptune plus Pluto, Earth-Moon and the Galilean moons with true astrophysical masses, radii, and orbital elements."
 author: "C. Bossu Réaubourg"
-version_tag: "2.0.0"
+version_tag: "2.0.1"
 units:
   distance: "m"
   mass: "kg"
@@ -149,7 +149,7 @@ bodies:
     preset_3d: "terrestrial"
     surface_texture_mode: "earthbluemarble"
     earth_map_variant: 0
-    earth_map_quality: 1
+    earth_map_quality: 0
     color: [0.12, 0.38, 0.72, 1.0]
     color_secondary: [0.22, 0.52, 0.25, 1.0]
     color_tertiary: [0.95, 0.95, 0.98, 1.0]

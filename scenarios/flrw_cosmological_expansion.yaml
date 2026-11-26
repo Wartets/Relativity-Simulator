@@ -1,7 +1,7 @@
 scenario_name: "FLRW Flat Lambda-CDM Expansion"
 description: "Homogeneous and isotropic Friedmann-Lemaitre-Robertson-Walker spacetime demonstrating cosmological expansion under a flat Lambda-CDM model."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.2.0"
 units:
   distance: "kpc"
   mass: "M_sun"
@@ -13,19 +13,19 @@ units:
   angle: "deg"
 spacetime:
   metric_type: "FLRW"
-  central_mass: 1.0
+  central_mass: 0.0
   central_spin: 0.0
   central_charge: 0.0
-  cosmological_lambda: 0.7
-  wormhole_throat: 1.0
+  cosmological_lambda: 0.001
+  wormhole_throat: 0.0
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
 integrator:
   scheme: "RK45"
-  initial_step: 0.01
+  initial_step: 0.02
   min_step: 1.0e-08
-  max_step: 10.0
+  max_step: 5.0
   relative_tolerance: 1.0e-9
   absolute_tolerance: 1.0e-13
 output:
@@ -58,8 +58,8 @@ interactions:
   annihilation_contact_scale: 1.0
   annihilation_require_opposite_charge: true
 time:
-  warp_factor: 1.0
-  tick_rate: 60.0
+  warp_factor: 25.0
+  tick_rate: 20.0
   is_paused: true
 skybox:
   enabled: true
@@ -71,8 +71,8 @@ skybox:
 bodies:
   - name: "Galaxy Cluster Core"
     body_id: 1
-    mass: 1.0e4
-    radius: 3.5
+    mass: 50.0
+    radius: 2.0
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -83,11 +83,11 @@ bodies:
     emission_intensity: 1.5
     position: [0.0, 0.0, 0.0, 0.0]
     velocity: [0.0, 0.0, 0.0, 0.0]
-    reference_radius: 3.5
+    reference_radius: 2.0
   - name: "Galaxy Node East"
     body_id: 2
-    mass: 1.0e3
-    radius: 1.8
+    mass: 10.0
+    radius: 1.2
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -96,13 +96,13 @@ bodies:
     color: [0.6, 0.8, 1.0, 1.0]
     color_secondary: [0.3, 0.5, 0.8, 1.0]
     emission_intensity: 1.2
-    position: [18.0, 0.0, 0.0, 0.0]
-    velocity: [0.05, 0.0, 0.0, 0.0]
-    reference_radius: 1.8
+    position: [0.0, 24.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.05, 0.0]
+    reference_radius: 1.2
   - name: "Galaxy Node West"
     body_id: 3
-    mass: 1.0e3
-    radius: 1.8
+    mass: 10.0
+    radius: 1.2
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -111,13 +111,13 @@ bodies:
     color: [1.0, 0.65, 0.45, 1.0]
     color_secondary: [0.8, 0.35, 0.2, 1.0]
     emission_intensity: 1.2
-    position: [-18.0, 0.0, 0.0, 0.0]
-    velocity: [-0.05, 0.0, 0.0, 0.0]
-    reference_radius: 1.8
+    position: [0.0, -24.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, -0.05, 0.0]
+    reference_radius: 1.2
   - name: "Galaxy Node North"
     body_id: 4
-    mass: 800.0
-    radius: 1.5
+    mass: 8.0
+    radius: 1.0
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -126,13 +126,13 @@ bodies:
     color: [0.7, 0.95, 0.8, 1.0]
     color_secondary: [0.35, 0.65, 0.45, 1.0]
     emission_intensity: 1.1
-    position: [0.0, 22.0, 0.0, 0.0]
-    velocity: [0.0, 0.06, 0.0, 0.0]
-    reference_radius: 1.5
+    position: [0.0, 0.0, 24.0, 0.0]
+    velocity: [0.0, -0.05, 0.0, 0.0]
+    reference_radius: 1.0
   - name: "Galaxy Node South"
     body_id: 5
-    mass: 800.0
-    radius: 1.5
+    mass: 8.0
+    radius: 1.0
     spin: 0.0
     charge: 0.0
     enabled: true
@@ -141,14 +141,14 @@ bodies:
     color: [0.95, 0.6, 0.9, 1.0]
     color_secondary: [0.65, 0.3, 0.6, 1.0]
     emission_intensity: 1.1
-    position: [0.0, -22.0, 0.0, 0.0]
-    velocity: [0.0, -0.06, 0.0, 0.0]
-    reference_radius: 1.5
+    position: [0.0, 0.0, -24.0, 0.0]
+    velocity: [0.0, 0.05, 0.0, 0.0]
+    reference_radius: 1.0
 observers:
   - name: "ComovingObserver"
     fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 50.0, 15.0]
+    position: [0.0, 0.0, 65.0, 25.0]
     target_name: "origin"
     orientation_convention: 1
     position_unit: "kpc"

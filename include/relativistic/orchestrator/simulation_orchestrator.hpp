@@ -556,8 +556,31 @@ private:
 			handle_horizon_absorption();
 			{
 				std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
-				for (const auto& [index, state] : disabled_bodies) {
-					if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
+				bool any_annihilated = false;
+				for (const auto& b : nbody_system_.bodies()) {
+					if (!b.enabled && b.integrity <= 0.0) {
+						any_annihilated = true;
+						break;
+					}
+				}
+				if (any_annihilated) {
+					std::vector<Dynamics::PostNewtonianBody> survivors;
+					survivors.reserve(nbody_system_.body_count());
+					for (const auto& b : nbody_system_.bodies()) {
+						if (b.enabled && b.integrity > 0.0) {
+							survivors.push_back(b);
+						}
+					}
+					nbody_system_.clear_bodies();
+					for (auto& sb : survivors) {
+						nbody_system_.add_body(sb);
+					}
+					nbody_system_.update_accelerations();
+					sync_central_body_with_system();
+				} else {
+					for (const auto& [index, state] : disabled_bodies) {
+						if (index < nbody_system_.bodies().size()) nbody_system_.bodies()[index] = state;
+					}
 				}
 			}
 		}
@@ -1222,6 +1245,8 @@ public:
 		params_.pole_guard_precision_scale = s.pole_guard_precision_scale;
 		params_.far_field_step_scale = s.far_field_step_scale;
 
+		scheduler_.reset();
+
 		if (s.time.warp_factor > 0.0) {
 			scheduler_.set_warp_factor(s.time.warp_factor);
 		}
@@ -1269,6 +1294,12 @@ public:
 				params_.sky.seed = s.skybox.seed;
 			}
 			params_.sync_sky_fields();
+		} else {
+			params_.sky = Render::ProceduralSkySettings{};
+			params_.sky_background_source = 0;
+			params_.sky_panorama_id = 0;
+			params_.sky_panorama_quality = 0;
+			params_.sync_sky_fields();
 		}
 
 		if (s.has_primary_disk) {
@@ -1283,6 +1314,10 @@ public:
 			params_.disk_doppler_beaming_exponent = static_cast<double>(s.primary_disk.doppler_beaming_exponent);
 			params_.primary_disk.color_saturation = s.primary_disk.color_saturation;
 			params_.disk_color_saturation = static_cast<double>(s.primary_disk.color_saturation);
+		} else {
+			params_.primary_disk = Render::AccretionDiskSettings{};
+			params_.disk_doppler_beaming_exponent = 0.0;
+			params_.disk_color_saturation = 1.0;
 		}
 
 		if (s.has_primary_jet) {
@@ -1291,6 +1326,8 @@ public:
 			params_.jet.outer_radius_mass_units = s.primary_jet.outer_radius_mass_units;
 			params_.jet.lorentz_factor_max = s.primary_jet.lorentz_factor_max;
 			params_.jet.horizon_field_tesla = s.primary_jet.horizon_field_tesla;
+		} else {
+			params_.jet = Render::JetSettings{};
 		}
 
 		if (!s.units.distance_unit.empty()) unit_preferences_.distance = Units::parse_distance_unit(s.units.distance_unit, unit_preferences_.distance);
@@ -1468,6 +1505,19 @@ public:
 				body.accretion_disk.peak_temperature_k = b.disk_peak_temp;
 				body.accretion_disk.floor_temperature_k = b.disk_floor_temp;
 				body.accretion_disk.brightness = b.disk_brightness;
+				body.accretion_disk.opacity_scale = b.disk_opacity;
+				body.accretion_disk.extra_beaming_exponent = b.disk_beaming;
+				body.accretion_disk.color_saturation = b.disk_saturation;
+			} else if (b.disk_enabled) {
+				body.accretion_disk.enabled = true;
+				body.accretion_disk.inner_radius_scale = b.disk_inner_scale;
+				body.accretion_disk.outer_radius_mass_units = b.disk_outer_rg;
+				body.accretion_disk.peak_temperature_k = b.disk_peak_temp;
+				body.accretion_disk.floor_temperature_k = b.disk_floor_temp;
+				body.accretion_disk.brightness = b.disk_brightness;
+				body.accretion_disk.opacity_scale = b.disk_opacity;
+				body.accretion_disk.extra_beaming_exponent = b.disk_beaming;
+				body.accretion_disk.color_saturation = b.disk_saturation;
 			}
 
 			const uint32_t added_id = nbody_system_.add_body(body);
@@ -1779,6 +1829,9 @@ public:
 				bc.disk_peak_temp = body.accretion_disk.peak_temperature_k;
 				bc.disk_floor_temp = body.accretion_disk.floor_temperature_k;
 				bc.disk_brightness = body.accretion_disk.brightness;
+				bc.disk_opacity = body.accretion_disk.opacity_scale;
+				bc.disk_beaming = body.accretion_disk.extra_beaming_exponent;
+				bc.disk_saturation = body.accretion_disk.color_saturation;
 			}
 			bc.magnetic_moment = body.magnetic_moment;
 			bc.rotation_speed = body.rotation_speed;

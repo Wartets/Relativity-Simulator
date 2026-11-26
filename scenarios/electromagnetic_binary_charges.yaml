@@ -1,7 +1,7 @@
 scenario_name: "Electromagnetic Binary Charges"
 description: "Two oppositely charged bodies in flat spacetime showcasing Coulomb attraction as a live-toggleable interaction alongside Newtonian gravity."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "m"
   mass: "kg"
@@ -96,7 +96,7 @@ bodies:
     reference_radius: 0.35
   - name: "Cation Beta"
     body_id: 3
-    mass: "[0.6, 0.9]"
+    mass: 0.8
     radius: 0.28
     spin: 0.0
     charge: 1.0
@@ -107,12 +107,12 @@ bodies:
     color_secondary: [0.8, 0.35, 0.1, 1.0]
     emission_intensity: 0.5
     composition: "Positively charged ion"
-    position: ["[4.0, 5.0]", 0.0, 0.0, 0.0]
-    velocity: [0.0, "[-0.32, -0.26]", 0.05, 0.0]
+    position: [0.0, 0.0, 4.5, 0.0]
+    velocity: [0.0, -0.3, 0.0, 0.0]
     reference_radius: 0.28
   - name: "Anion Beta"
     body_id: 4
-    mass: "[0.6, 0.9]"
+    mass: 0.8
     radius: 0.28
     spin: 0.0
     charge: -1.0
@@ -123,8 +123,8 @@ bodies:
     color_secondary: [0.2, 0.5, 0.8, 1.0]
     emission_intensity: 0.5
     composition: "Negatively charged ion"
-    position: ["[-5.0, -4.0]", 0.0, 0.0, 0.0]
-    velocity: [0.0, "[0.26, 0.32]", -0.05, 0.0]
+    position: [0.0, 0.0, -4.5, 0.0]
+    velocity: [0.0, 0.3, 0.0, 0.0]
     reference_radius: 0.28
   - name: "Cation Gamma"
     body_id: 5

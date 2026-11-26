@@ -32,7 +32,7 @@ struct SystemBodyPresetSpec {
 	Dynamics::Body3DPreset preset{Dynamics::Body3DPreset::TerrestrialPlanet};
 	Dynamics::Body3DSurfaceTextureMode texture_mode{Dynamics::Body3DSurfaceTextureMode::ProceduralNoise};
 	Optics::EarthMapVariant earth_variant{Optics::EarthMapVariant::Automatic};
-	Optics::EarthMapQuality earth_quality{Optics::EarthMapQuality::Q2K};
+	Optics::EarthMapQuality earth_quality{Optics::EarthMapQuality::Q1K};
 	std::array<float, 4> color{0.5f, 0.5f, 0.5f, 1.0f};
 	std::array<float, 4> color_secondary{0.3f, 0.3f, 0.3f, 1.0f};
 	std::array<float, 4> color_tertiary{0.7f, 0.7f, 0.7f, 1.0f};

@@ -1,7 +1,7 @@
 scenario_name: "Tidal Disruption and Rubble Fragmentation"
 description: "A loosely bound rubble-pile asteroid on a near-plunging orbit around a Schwarzschild black hole, disintegrating under tidal stress and fragmenting into debris."
 author: "C. Bossu Réaubourg"
-version_tag: "1.0.2"
+version_tag: "1.0.3"
 units:
   distance: "km"
   mass: "M_sun"
@@ -100,8 +100,8 @@ observers:
   - name: "PrimaryCamera"
     fov_deg: 55.0
     resolution: [1920, 1080]
-    position: [0.0, -15.0, 68.0, 28.0]
-    orientation: [-18.5, 168.0, 0.0]
+    position: [0.0, 10.0, 52.0, 18.0]
+    target_name: "Rubble Pile Asteroid"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

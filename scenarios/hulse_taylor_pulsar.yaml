@@ -1,7 +1,7 @@
 scenario_name: "Hulse-Taylor Pulsar PSR B1913+16"
 description: "High-precision binary neutron star system reproducing Peters-Mathews gravitational radiation orbital decay."
 author: "C. Bossu Réaubourg"
-version_tag: "1.2.1"
+version_tag: "1.2.2"
 units:
   distance: "km"
   mass: "M_sun"
@@ -22,8 +22,8 @@ spacetime:
   speed_of_light: 1.0
   gravitational_constant: 1.0
 time:
-  warp_factor: 1.0
-  tick_rate: 60.0
+  warp_factor: 85
+  tick_rate: 10.0
   is_paused: true
 skybox:
   enabled: true
@@ -86,8 +86,8 @@ bodies:
     magnetic_moment: 1.0e4
     temperature: 600000.0
     composition: "Radio pulsar neutron star"
-    position: [0.0, 20.62, 0.0, 0.0]
-    velocity: [0.0, 0.0, 0.0787, 0.0]
+    position: [0.0, 14.5, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.152, 0.0]
     reference_radius: 0.4
   - name: "Companion Neutron Star"
     body_id: 2
@@ -107,8 +107,8 @@ bodies:
     rotation_speed_3d: 3.0
     temperature: 500000.0
     composition: "Companion neutron star"
-    position: [0.0, -21.425, 0.0, 0.0]
-    velocity: [0.0, 0.0, -0.0818, 0.0]
+    position: [0.0, -15.06, 0.0, 0.0]
+    velocity: [0.0, 0.0, -0.158, 0.0]
     reference_radius: 0.4
     mass_unit: "M_sun"
     radius_unit: "km"
@@ -120,8 +120,9 @@ observers:
   - name: "PrimaryCamera"
     fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 75.0, 18.0]
-    target_name: "origin"
+    position: [0.0, 0.0, 52.0, 16.0]
+    target_name: "Pulsar PSR B1913+16, Companion Neutron Star"
+    target_mode: "center_of_mass"
     orientation_convention: 1
     position_unit: "km"
     fov_unit: "deg"

@@ -1,7 +1,7 @@
 scenario_name: "Electromagnetic Binary Charges"
 description: "Two oppositely charged bodies in flat spacetime showcasing Coulomb attraction as a live-toggleable interaction alongside Newtonian gravity."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.1"
+version_tag: "1.1.2"
 units:
   distance: "m"
   mass: "kg"
@@ -40,7 +40,7 @@ time:
 interactions:
   electricity_enabled: true
   magnetism_enabled: false
-  vacuum_permittivity: 0.06
+  vacuum_permittivity: 0.25
   vacuum_permeability: 1.25663706212e-6
   collisions_enabled: true
   collision_response_model: 0
@@ -64,7 +64,7 @@ interactions:
 bodies:
   - name: "Cation Alpha"
     body_id: 1
-    mass: "[0.8, 1.2]"
+    mass: 1.0
     radius: 0.35
     spin: 0.0
     charge: 1.0
@@ -75,12 +75,12 @@ bodies:
     color_secondary: [0.8, 0.2, 0.15, 1.0]
     emission_intensity: 0.5
     composition: "Positively charged ion"
-    position: [0.0, "[4.5, 5.5]", 0.0, 0.0]
-    velocity: [0.0, 0.0, "[0.28, 0.35]", 0.0]
+    position: [0.0, 6.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, 0.18, 0.0]
     reference_radius: 0.35
   - name: "Anion Alpha"
     body_id: 2
-    mass: "[0.8, 1.2]"
+    mass: 1.0
     radius: 0.35
     spin: 0.0
     charge: -1.0
@@ -91,8 +91,8 @@ bodies:
     color_secondary: [0.15, 0.35, 0.8, 1.0]
     emission_intensity: 0.5
     composition: "Negatively charged ion"
-    position: [0.0, "[-5.5, -4.5]", 0.0, 0.0]
-    velocity: [0.0, 0.0, "[-0.35, -0.28]", 0.0]
+    position: [0.0, -6.0, 0.0, 0.0]
+    velocity: [0.0, 0.0, -0.18, 0.0]
     reference_radius: 0.35
   - name: "Cation Beta"
     body_id: 3
@@ -168,7 +168,7 @@ observers:
   - name: "PrimaryCamera"
     fov_deg: 50.0
     resolution: [1920, 1080]
-    position: [0.0, 0.0, 16.0, 0.0]
+    position: [0.0, 0.0, 18.0, 14.0]
     target_name: "origin"
     orientation_convention: 1
     position_unit: "m"

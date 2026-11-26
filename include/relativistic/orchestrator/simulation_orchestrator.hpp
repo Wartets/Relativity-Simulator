@@ -399,7 +399,7 @@ private:
 			for (auto& b : bodies_copy) {
 				if (!b.enabled || b.is_spacetime_source) continue;
 				const double r = std::sqrt(b.position[0] * b.position[0] + b.position[1] * b.position[1] + b.position[2] * b.position[2]);
-				if (r <= r_h * 1.001) {
+				if (r > 1e-6 && r <= r_h * 1.001) {
 					params_.mass += b.mass;
 					b.enabled = false;
 					b.integrity = 0.0;
@@ -558,7 +558,7 @@ private:
 				std::lock_guard<std::recursive_mutex> lock(nbody_system_.bodies_mutex());
 				bool any_annihilated = false;
 				for (const auto& b : nbody_system_.bodies()) {
-					if (!b.enabled && b.integrity <= 0.0) {
+					if (!b.enabled || b.integrity <= 0.0 || b.mass <= 0.0) {
 						any_annihilated = true;
 						break;
 					}
@@ -567,8 +567,10 @@ private:
 					std::vector<Dynamics::PostNewtonianBody> survivors;
 					survivors.reserve(nbody_system_.body_count());
 					for (const auto& b : nbody_system_.bodies()) {
-						if (b.enabled && b.integrity > 0.0) {
+						if (b.enabled && b.integrity > 0.0 && b.mass > 0.0) {
 							survivors.push_back(b);
+						} else {
+							surface_layers_.erase(b.id);
 						}
 					}
 					nbody_system_.clear_bodies();
@@ -1231,8 +1233,12 @@ public:
 			constants_engine_.set_speed_of_light(s.speed_of_light);
 			constants_engine_.set_gravitational_constant(s.gravitational_constant);
 		}
+		const Units::MassUnit scenario_m_unit = Units::parse_mass_unit(s.units.mass_unit, Units::MassUnit::SolarMasses);
 		if (s.central_mass > 0.0) {
-			constants_engine_.set_reference_mass(s.central_mass);
+			const double ref_kg = Units::convert_mass_to_kg(s.central_mass, scenario_m_unit);
+			constants_engine_.set_reference_mass(ref_kg);
+		} else {
+			constants_engine_.set_reference_mass(Core::SIReferenceConstants::SOLAR_MASS);
 		}
 		sync_nbody_constants_with_engine();
 		interaction_config_.electromagnetic.vacuum_permittivity = constants_engine_.sim_vacuum_permittivity();
@@ -1314,18 +1320,81 @@ public:
 			params_.disk_doppler_beaming_exponent = static_cast<double>(s.primary_disk.doppler_beaming_exponent);
 			params_.primary_disk.color_saturation = s.primary_disk.color_saturation;
 			params_.disk_color_saturation = static_cast<double>(s.primary_disk.color_saturation);
+			params_.primary_disk.edge_softness = s.primary_disk.edge_softness;
+			params_.primary_disk.temperature_exponent = s.primary_disk.temperature_exponent;
+			params_.primary_disk.zero_torque_strength = s.primary_disk.zero_torque_strength;
+			params_.primary_disk.tint_strength = s.primary_disk.tint_strength;
+			params_.primary_disk.tint = s.primary_disk.tint;
+			params_.primary_disk.rotation_speed_scale = s.primary_disk.rotation_speed_scale;
+			params_.primary_disk.ring_amplitude = s.primary_disk.ring_amplitude;
+			params_.primary_disk.ring_frequency = s.primary_disk.ring_frequency;
+			params_.primary_disk.ring_sharpness = s.primary_disk.ring_sharpness;
+			params_.primary_disk.spiral_arm_count = s.primary_disk.spiral_arm_count;
+			params_.primary_disk.spiral_amplitude = s.primary_disk.spiral_amplitude;
+			params_.primary_disk.spiral_pitch = s.primary_disk.spiral_pitch;
+			params_.primary_disk.turbulence_amplitude = s.primary_disk.turbulence_amplitude;
+			params_.primary_disk.turbulence_scale = s.primary_disk.turbulence_scale;
+			params_.primary_disk.turbulence_octaves = s.primary_disk.turbulence_octaves;
+			params_.primary_disk.radial_stretch = s.primary_disk.radial_stretch;
+			params_.primary_disk.grain_amplitude = s.primary_disk.grain_amplitude;
+			params_.primary_disk.grain_scale = s.primary_disk.grain_scale;
+			params_.primary_disk.noise_seed = s.primary_disk.noise_seed;
+			params_.hydro_disk.model = static_cast<Render::HydroDiskModel>(s.primary_disk.hydro_model);
+			params_.hydro_disk.accretion_rate_scale = s.primary_disk.accretion_rate_scale;
+			params_.hydro_disk.torus_inner_radius = s.primary_disk.torus_inner_radius;
+			params_.hydro_disk.torus_center_radius = s.primary_disk.torus_center_radius;
+			params_.hydro_disk.adiabatic_index = s.primary_disk.adiabatic_index;
+			params_.hydro_disk.optical_depth_scale = s.primary_disk.optical_depth_scale;
+			params_.hydro_disk.sampling_density = s.primary_disk.hydro_sampling_density;
 		} else {
 			params_.primary_disk = Render::AccretionDiskSettings{};
+			params_.hydro_disk = Render::HydroDiskSettings{};
 			params_.disk_doppler_beaming_exponent = 0.0;
 			params_.disk_color_saturation = 1.0;
 		}
 
 		if (s.has_primary_jet) {
 			params_.jet.enabled = s.primary_jet.enabled;
+			params_.jet.geometry = static_cast<Render::JetFieldGeometry>(s.primary_jet.geometry);
+			params_.jet.field_line_index = s.primary_jet.field_line_index;
+			params_.jet.angular_velocity_law = static_cast<Render::JetAngularVelocityLaw>(s.primary_jet.angular_velocity_law);
+			params_.jet.angular_velocity_fraction = s.primary_jet.angular_velocity_fraction;
+			params_.jet.angular_velocity_variation = s.primary_jet.angular_velocity_variation;
+			params_.jet.fixed_angular_velocity = s.primary_jet.fixed_angular_velocity;
+			params_.jet.toroidal_field_scale = s.primary_jet.toroidal_field_scale;
+			params_.jet.rotation_coupling = s.primary_jet.rotation_coupling;
+			params_.jet.magnetization = s.primary_jet.magnetization;
+			params_.jet.magnetization_index = s.primary_jet.magnetization_index;
+			params_.jet.inner_radius_scale = s.primary_jet.inner_radius_scale;
 			params_.jet.footpoint_edge_deg = s.primary_jet.footpoint_edge_deg;
+			params_.jet.footpoint_softness_deg = s.primary_jet.footpoint_softness_deg;
 			params_.jet.outer_radius_mass_units = s.primary_jet.outer_radius_mass_units;
+			params_.jet.lorentz_factor_inner = s.primary_jet.lorentz_factor_inner;
 			params_.jet.lorentz_factor_max = s.primary_jet.lorentz_factor_max;
+			params_.jet.acceleration_radius_mass_units = s.primary_jet.acceleration_radius_mass_units;
+			params_.jet.acceleration_index = s.primary_jet.acceleration_index;
+			params_.jet.doppler_beaming_enabled = s.primary_jet.doppler_beaming_enabled;
+			params_.jet.gravitational_redshift_enabled = s.primary_jet.gravitational_redshift_enabled;
+			params_.jet.emission_model = static_cast<Render::JetEmissionModel>(s.primary_jet.emission_model);
+			params_.jet.power_law_index = s.primary_jet.power_law_index;
+			params_.jet.minimum_lorentz_factor = s.primary_jet.minimum_lorentz_factor;
+			params_.jet.non_thermal_fraction = s.primary_jet.non_thermal_fraction;
+			params_.jet.electron_temperature_k = s.primary_jet.electron_temperature_k;
+			params_.jet.temperature_index = s.primary_jet.temperature_index;
+			params_.jet.observing_frequency_hz = s.primary_jet.observing_frequency_hz;
+			params_.jet.absorption_scale = s.primary_jet.absorption_scale;
+			params_.jet.faraday_scale = s.primary_jet.faraday_scale;
+			params_.jet.display_mode = static_cast<Render::JetDisplayMode>(s.primary_jet.display_mode);
+			params_.jet.auto_normalization = s.primary_jet.auto_normalization;
+			params_.jet.reference_brightness_temperature_k = s.primary_jet.reference_brightness_temperature_k;
 			params_.jet.horizon_field_tesla = s.primary_jet.horizon_field_tesla;
+			params_.jet.brightness = s.primary_jet.brightness;
+			params_.jet.tint = s.primary_jet.tint;
+			params_.jet.polarization_coherence = s.primary_jet.polarization_coherence;
+			params_.jet.sampling_density = s.primary_jet.sampling_density;
+			params_.jet.max_samples = s.primary_jet.max_samples;
+			params_.jet.use_engine_length_scale = s.primary_jet.use_engine_length_scale;
+			params_.jet.meters_per_length_unit = s.primary_jet.meters_per_length_unit;
 		} else {
 			params_.jet = Render::JetSettings{};
 		}
@@ -1532,7 +1601,127 @@ public:
 				surface_layers_.set(added_id, layers);
 			}
 		}
-		if (!s.bodies.empty()) {
+		if (!s.patterns.empty()) {
+			for (const auto& pat : s.patterns) {
+				std::mt19937_64 prng(pat.seed > 0 ? pat.seed : 1337ULL);
+				std::uniform_real_distribution<double> u01(0.0, 1.0);
+				std::normal_distribution<double> norm01(0.0, 1.0);
+
+				std::array<double, 3> p_center = pat.center_position;
+				std::array<double, 3> v_center = pat.center_velocity;
+				double p_mass = std::max(params_.mass, 1e-12);
+				if (!pat.parent_name.empty()) {
+					for (const auto& existing_b : nbody_system_.bodies()) {
+						if (existing_b.has_name() && existing_b.name_view() == pat.parent_name) {
+							p_center = existing_b.position;
+							v_center = existing_b.velocity;
+							p_mass = existing_b.mass;
+							break;
+						}
+					}
+				}
+
+				const double i_rad = pat.plane_inclination_deg * (std::numbers::pi / 180.0);
+				const double o_rad = pat.plane_longitude_node_deg * (std::numbers::pi / 180.0);
+				const double w_rad = pat.plane_argument_periapsis_deg * (std::numbers::pi / 180.0);
+				static_cast<void>(w_rad);
+				const double sin_i = std::sin(i_rad), cos_i = std::cos(i_rad);
+				const double sin_o = std::sin(o_rad), cos_o = std::cos(o_rad);
+				const std::array<double, 3> u_hat{cos_o, sin_o, 0.0};
+				const std::array<double, 3> v_hat{-cos_i * sin_o, cos_i * cos_o, sin_i};
+				const std::array<double, 3> n_hat{sin_i * sin_o, -sin_i * cos_o, cos_i};
+				const double g_sim = constants_engine_.sim_gravitational_constant();
+				const double m_scale = constants_engine_.mass_scale();
+				const double l_scale = constants_engine_.length_scale();
+
+				uint32_t next_id = 1000;
+				for (const auto& b_item : nbody_system_.bodies()) {
+					if (b_item.id >= next_id) next_id = b_item.id + 1;
+				}
+
+				for (uint32_t k = 0; k < pat.object_count; ++k) {
+					double r = pat.mean_semi_major_axis;
+					if (pat.pattern_type.find("spherical") != std::string::npos) {
+						const double q = std::clamp(u01(prng), 0.001, 0.99);
+						r = pat.plummer_scale_radius * std::cbrt(q) / std::sqrt(std::max(1.0 - std::pow(q, 2.0 / 3.0), 1e-4));
+					} else {
+						if (pat.radial_distribution == "gaussian") {
+							r = pat.mean_semi_major_axis + norm01(prng) * pat.radial_gaussian_sigma;
+						} else {
+							r = pat.mean_semi_major_axis + (u01(prng) - 0.5) * pat.radial_thickness;
+						}
+					}
+					r = std::max(r, 0.2);
+
+					std::array<double, 3> pos_rel{0.0, 0.0, 0.0};
+					double theta_orb = u01(prng) * 2.0 * std::numbers::pi;
+					if (pat.pattern_type.find("spherical") != std::string::npos) {
+						const double cos_t = u01(prng) * 2.0 - 1.0;
+						const double sin_t = std::sqrt(std::max(1.0 - cos_t * cos_t, 0.0));
+						const double phi_s = u01(prng) * 2.0 * std::numbers::pi;
+						pos_rel = {r * sin_t * std::cos(phi_s), r * sin_t * std::sin(phi_s), r * cos_t};
+					} else {
+						const double z_off = norm01(prng) * pat.vertical_scale_height;
+						const double cos_th = std::cos(theta_orb);
+						const double sin_th = std::sin(theta_orb);
+						pos_rel = {
+							r * (cos_th * u_hat[0] + sin_th * v_hat[0]) + z_off * n_hat[0],
+							r * (cos_th * u_hat[1] + sin_th * v_hat[1]) + z_off * n_hat[1],
+							r * (cos_th * u_hat[2] + sin_th * v_hat[2]) + z_off * n_hat[2]
+						};
+					}
+
+					double m_b = pat.fixed_mass;
+					if (pat.mass_distribution == "power_law") {
+						const double p = 1.0 - pat.mass_power_law_alpha;
+						const double u = u01(prng);
+						const double v = std::pow(pat.min_mass, p) + u * (std::pow(pat.max_mass, p) - std::pow(pat.min_mass, p));
+						m_b = std::pow(std::max(v, 1e-300), 1.0 / p);
+					} else if (pat.mass_distribution == "log_uniform" || pat.mass_distribution == "log") {
+						m_b = std::pow(10.0, std::log10(pat.min_mass) + u01(prng) * (std::log10(pat.max_mass) - std::log10(pat.min_mass)));
+					} else if (pat.mass_distribution == "uniform") {
+						m_b = pat.min_mass + u01(prng) * (pat.max_mass - pat.min_mass);
+					}
+
+					double rad_b = pat.fixed_radius;
+					if (pat.radius_from_density) {
+						const double mass_kg = m_b * m_scale;
+						const double vol = mass_kg / std::max(pat.mean_density, 10.0);
+						const double r_m = std::cbrt(3.0 * vol / (4.0 * std::numbers::pi));
+						rad_b = std::clamp(r_m / l_scale, pat.min_radius, pat.max_radius);
+					}
+
+					const double mu = g_sim * (p_mass + m_b);
+					std::array<double, 3> vel_rel{0.0, 0.0, 0.0};
+					if (pat.velocity_mode == "keplerian_circular" || pat.velocity_mode == "circular") {
+						const double v_c = std::sqrt(mu / r) * pat.mean_velocity_multiplier;
+						const double cos_th = std::cos(theta_orb);
+						const double sin_th = std::sin(theta_orb);
+						const std::array<double, 3> e_t{-sin_th * u_hat[0] + cos_th * v_hat[0], -sin_th * u_hat[1] + cos_th * v_hat[1], -sin_th * u_hat[2] + cos_th * v_hat[2]};
+						const double sgn = (u01(prng) < pat.prograde_fraction) ? 1.0 : -1.0;
+						vel_rel = {sgn * v_c * e_t[0], sgn * v_c * e_t[1], sgn * v_c * e_t[2]};
+					} else if (pat.velocity_mode == "isotropic_virial" || pat.velocity_mode == "virial") {
+						const double v_rms = std::sqrt(mu / (2.0 * r));
+						vel_rel = {norm01(prng) * v_rms * 0.577, norm01(prng) * v_rms * 0.577, norm01(prng) * v_rms * 0.577};
+					}
+
+					Dynamics::PostNewtonianBody nb(
+						next_id++, m_b, rad_b,
+						{p_center[0] + pos_rel[0], p_center[1] + pos_rel[1], p_center[2] + pos_rel[2]},
+						{v_center[0] + vel_rel[0], v_center[1] + vel_rel[1], v_center[2] + vel_rel[2]},
+						{0.0, 0.0, 0.0}
+					);
+					nb.reference_radius = rad_b;
+					nb.set_name(pat.name_prefix + " " + std::to_string(k + 1));
+					if (pat.temperature_equilibrium) {
+						nb.temperature = pat.reference_temperature_k * std::pow(std::max(pat.mean_semi_major_axis / r, 1e-4), pat.temperature_falloff_exponent);
+					}
+					nbody_system_.add_body(nb);
+				}
+			}
+		}
+
+		if (!s.bodies.empty() || !s.patterns.empty()) {
 			nbody_system_.update_accelerations();
 		}
 
@@ -1550,49 +1739,94 @@ public:
 			if (s.observers[0].has_target) {
 				std::array<double, 3> tgt_pos{0.0, 0.0, 0.0};
 				bool found_tgt = false;
-				std::string tname_lower;
-				tname_lower.reserve(s.observers[0].target_name.size());
-				for (char c : s.observers[0].target_name) {
-					tname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+				const auto& obs_cfg = s.observers[0];
+
+				std::vector<std::string> target_tokens;
+				std::stringstream ss(obs_cfg.target_name);
+				std::string item;
+				while (std::getline(ss, item, ',')) {
+					while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.erase(item.begin());
+					while (!item.empty() && (item.back() == ' ' || item.back() == '\t')) item.pop_back();
+					if (!item.empty()) target_tokens.push_back(item);
 				}
-				if (tname_lower == "origin" || tname_lower == "center" || tname_lower == "central" || tname_lower == "black hole" || tname_lower == "singularity") {
-					tgt_pos = {0.0, 0.0, 0.0};
-					found_tgt = true;
-				} else if (tname_lower == "horizon" || tname_lower == "event horizon") {
-					const double rh = (params_.mass > 0.0) ? (params_.mass + std::sqrt(std::max(params_.mass * params_.mass - params_.spin * params_.spin, 0.0))) : 2.0;
-					tgt_pos = {0.0, rh * 1.02, 0.0};
-					found_tgt = true;
-				} else if (tname_lower == "isco") {
-					tgt_pos = {0.0, 6.0 * std::max(params_.mass, 1.0), 0.0};
-					found_tgt = true;
-				} else if (tname_lower == "throat" || tname_lower == "wormhole throat") {
-					tgt_pos = {0.0, std::max(params_.wormhole_throat, 1.0), 0.0};
-					found_tgt = true;
-				} else if (tname_lower == "warp" || tname_lower == "warp bubble") {
-					tgt_pos = {0.0, 0.0, 0.0};
-					found_tgt = true;
-				} else if (!s.observers[0].target_name.empty()) {
-					for (const auto& b_item : nbody_system_.bodies()) {
-						if (b_item.has_name()) {
-							std::string bname_lower;
-							for (char c : b_item.name_view()) bname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-							if (bname_lower == tname_lower) {
+
+				if (target_tokens.size() > 1) {
+					std::array<double, 3> accum{0.0, 0.0, 0.0};
+					double weight_sum = 0.0;
+					const bool use_geometric = (obs_cfg.target_mode == "geometric" || obs_cfg.target_mode == "geometric_barycenter");
+					for (const auto& tok : target_tokens) {
+						std::string tok_l;
+						for (char c : tok) tok_l.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+						for (const auto& b_item : nbody_system_.bodies()) {
+							if (b_item.has_name()) {
+								std::string bname_l;
+								for (char c : b_item.name_view()) bname_l.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+								if (bname_l == tok_l) {
+									const double w = use_geometric ? 1.0 : std::max(b_item.mass, 1e-9);
+									accum[0] += b_item.position[0] * w;
+									accum[1] += b_item.position[1] * w;
+									accum[2] += b_item.position[2] * w;
+									weight_sum += w;
+									break;
+								}
+							}
+						}
+					}
+					if (weight_sum > 0.0) {
+						tgt_pos = {accum[0] / weight_sum, accum[1] / weight_sum, accum[2] / weight_sum};
+						found_tgt = true;
+					}
+				}
+
+				if (!found_tgt) {
+					std::string tname_lower;
+					tname_lower.reserve(obs_cfg.target_name.size());
+					for (char c : obs_cfg.target_name) {
+						tname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+					}
+					if (tname_lower == "origin" || tname_lower == "center" || tname_lower == "central" || tname_lower == "black hole" || tname_lower == "singularity") {
+						tgt_pos = {0.0, 0.0, 0.0};
+						found_tgt = true;
+					} else if (tname_lower == "horizon" || tname_lower == "event horizon") {
+						const double rh = (params_.mass > 0.0) ? (params_.mass + std::sqrt(std::max(params_.mass * params_.mass - params_.spin * params_.spin, 0.0))) : 2.0;
+						tgt_pos = {0.0, rh * 1.02, 0.0};
+						found_tgt = true;
+					} else if (tname_lower == "isco") {
+						tgt_pos = {0.0, 6.0 * std::max(params_.mass, 1.0), 0.0};
+						found_tgt = true;
+					} else if (tname_lower == "throat" || tname_lower == "wormhole throat") {
+						tgt_pos = {0.0, std::max(params_.wormhole_throat, 1.0), 0.0};
+						found_tgt = true;
+					} else if (tname_lower == "warp" || tname_lower == "warp bubble") {
+						tgt_pos = {0.0, 0.0, 0.0};
+						found_tgt = true;
+					} else if (!obs_cfg.target_name.empty()) {
+						for (const auto& b_item : nbody_system_.bodies()) {
+							if (b_item.has_name()) {
+								std::string bname_lower;
+								for (char c : b_item.name_view()) bname_lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+								if (bname_lower == tname_lower) {
+									tgt_pos = b_item.position;
+									found_tgt = true;
+									break;
+								}
+							}
+						}
+					} else if (obs_cfg.target_body_id >= 0) {
+						for (const auto& b_item : nbody_system_.bodies()) {
+							if (static_cast<int32_t>(b_item.id) == obs_cfg.target_body_id) {
 								tgt_pos = b_item.position;
 								found_tgt = true;
 								break;
 							}
 						}
 					}
-				} else if (s.observers[0].target_body_id >= 0) {
-					for (const auto& b_item : nbody_system_.bodies()) {
-						if (static_cast<int32_t>(b_item.id) == s.observers[0].target_body_id) {
-							tgt_pos = b_item.position;
-							found_tgt = true;
-							break;
-						}
-					}
 				}
+
 				if (found_tgt) {
+					tgt_pos[0] += obs_cfg.look_at_offset[0];
+					tgt_pos[1] += obs_cfg.look_at_offset[1];
+					tgt_pos[2] += obs_cfg.look_at_offset[2];
 					const double dx = tgt_pos[0] - camera_.position[0];
 					const double dy = tgt_pos[1] - camera_.position[1];
 					const double dz = tgt_pos[2] - camera_.position[2];
@@ -1724,14 +1958,76 @@ public:
 		s.primary_disk.opacity_scale = params_.primary_disk.opacity_scale;
 		s.primary_disk.doppler_beaming_exponent = params_.primary_disk.extra_beaming_exponent;
 		s.primary_disk.color_saturation = params_.primary_disk.color_saturation;
+		s.primary_disk.edge_softness = params_.primary_disk.edge_softness;
+		s.primary_disk.temperature_exponent = params_.primary_disk.temperature_exponent;
+		s.primary_disk.zero_torque_strength = params_.primary_disk.zero_torque_strength;
+		s.primary_disk.tint_strength = params_.primary_disk.tint_strength;
+		s.primary_disk.tint = params_.primary_disk.tint;
+		s.primary_disk.rotation_speed_scale = params_.primary_disk.rotation_speed_scale;
+		s.primary_disk.ring_amplitude = params_.primary_disk.ring_amplitude;
+		s.primary_disk.ring_frequency = params_.primary_disk.ring_frequency;
+		s.primary_disk.ring_sharpness = params_.primary_disk.ring_sharpness;
+		s.primary_disk.spiral_arm_count = params_.primary_disk.spiral_arm_count;
+		s.primary_disk.spiral_amplitude = params_.primary_disk.spiral_amplitude;
+		s.primary_disk.spiral_pitch = params_.primary_disk.spiral_pitch;
+		s.primary_disk.turbulence_amplitude = params_.primary_disk.turbulence_amplitude;
+		s.primary_disk.turbulence_scale = params_.primary_disk.turbulence_scale;
+		s.primary_disk.turbulence_octaves = params_.primary_disk.turbulence_octaves;
+		s.primary_disk.radial_stretch = params_.primary_disk.radial_stretch;
+		s.primary_disk.grain_amplitude = params_.primary_disk.grain_amplitude;
+		s.primary_disk.grain_scale = params_.primary_disk.grain_scale;
+		s.primary_disk.noise_seed = params_.primary_disk.noise_seed;
+		s.primary_disk.hydro_model = static_cast<uint32_t>(params_.hydro_disk.model);
+		s.primary_disk.accretion_rate_scale = params_.hydro_disk.accretion_rate_scale;
+		s.primary_disk.torus_inner_radius = params_.hydro_disk.torus_inner_radius;
+		s.primary_disk.torus_center_radius = params_.hydro_disk.torus_center_radius;
+		s.primary_disk.adiabatic_index = params_.hydro_disk.adiabatic_index;
+		s.primary_disk.optical_depth_scale = params_.hydro_disk.optical_depth_scale;
+		s.primary_disk.hydro_sampling_density = params_.hydro_disk.sampling_density;
 
 		s.has_primary_jet = params_.jet.enabled;
 		s.primary_jet.enabled = params_.jet.enabled;
+		s.primary_jet.geometry = static_cast<uint32_t>(params_.jet.geometry);
+		s.primary_jet.field_line_index = params_.jet.field_line_index;
+		s.primary_jet.angular_velocity_law = static_cast<uint32_t>(params_.jet.angular_velocity_law);
+		s.primary_jet.angular_velocity_fraction = params_.jet.angular_velocity_fraction;
+		s.primary_jet.angular_velocity_variation = params_.jet.angular_velocity_variation;
+		s.primary_jet.fixed_angular_velocity = params_.jet.fixed_angular_velocity;
+		s.primary_jet.toroidal_field_scale = params_.jet.toroidal_field_scale;
+		s.primary_jet.rotation_coupling = params_.jet.rotation_coupling;
+		s.primary_jet.magnetization = params_.jet.magnetization;
+		s.primary_jet.magnetization_index = params_.jet.magnetization_index;
+		s.primary_jet.inner_radius_scale = params_.jet.inner_radius_scale;
 		s.primary_jet.footpoint_edge_deg = params_.jet.footpoint_edge_deg;
+		s.primary_jet.footpoint_softness_deg = params_.jet.footpoint_softness_deg;
 		s.primary_jet.outer_radius_mass_units = params_.jet.outer_radius_mass_units;
+		s.primary_jet.lorentz_factor_inner = params_.jet.lorentz_factor_inner;
 		s.primary_jet.lorentz_factor_max = params_.jet.lorentz_factor_max;
+		s.primary_jet.acceleration_radius_mass_units = params_.jet.acceleration_radius_mass_units;
+		s.primary_jet.acceleration_index = params_.jet.acceleration_index;
+		s.primary_jet.doppler_beaming_enabled = params_.jet.doppler_beaming_enabled;
+		s.primary_jet.gravitational_redshift_enabled = params_.jet.gravitational_redshift_enabled;
+		s.primary_jet.emission_model = static_cast<uint32_t>(params_.jet.emission_model);
+		s.primary_jet.power_law_index = params_.jet.power_law_index;
+		s.primary_jet.minimum_lorentz_factor = params_.jet.minimum_lorentz_factor;
+		s.primary_jet.non_thermal_fraction = params_.jet.non_thermal_fraction;
+		s.primary_jet.electron_temperature_k = params_.jet.electron_temperature_k;
+		s.primary_jet.temperature_index = params_.jet.temperature_index;
+		s.primary_jet.observing_frequency_hz = params_.jet.observing_frequency_hz;
+		s.primary_jet.absorption_scale = params_.jet.absorption_scale;
+		s.primary_jet.faraday_scale = params_.jet.faraday_scale;
+		s.primary_jet.display_mode = static_cast<uint32_t>(params_.jet.display_mode);
+		s.primary_jet.auto_normalization = params_.jet.auto_normalization;
+		s.primary_jet.reference_brightness_temperature_k = params_.jet.reference_brightness_temperature_k;
 		s.primary_jet.horizon_field_tesla = params_.jet.horizon_field_tesla;
 		s.primary_jet.core_density_scale = 1.0f;
+		s.primary_jet.brightness = params_.jet.brightness;
+		s.primary_jet.tint = params_.jet.tint;
+		s.primary_jet.polarization_coherence = params_.jet.polarization_coherence;
+		s.primary_jet.sampling_density = params_.jet.sampling_density;
+		s.primary_jet.max_samples = params_.jet.max_samples;
+		s.primary_jet.use_engine_length_scale = params_.jet.use_engine_length_scale;
+		s.primary_jet.meters_per_length_unit = params_.jet.meters_per_length_unit;
 
 		s.speed_of_light = constants_engine_.sim_speed_of_light();
 		s.gravitational_constant = constants_engine_.sim_gravitational_constant();

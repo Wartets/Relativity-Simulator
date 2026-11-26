@@ -67,15 +67,77 @@ struct ScenarioAccretionDiskConfig {
 	float opacity_scale{1.0f};
 	float doppler_beaming_exponent{0.0f};
 	float color_saturation{1.0f};
+	float edge_softness{0.3f};
+	float temperature_exponent{0.75f};
+	float zero_torque_strength{1.0f};
+	float tint_strength{0.0f};
+	std::array<float, 3> tint{1.0f, 1.0f, 1.0f};
+	float rotation_speed_scale{1.0f};
+	float ring_amplitude{0.0f};
+	float ring_frequency{8.0f};
+	float ring_sharpness{3.0f};
+	int spiral_arm_count{0};
+	float spiral_amplitude{0.0f};
+	float spiral_pitch{1.0f};
+	float turbulence_amplitude{0.0f};
+	float turbulence_scale{5.0f};
+	int turbulence_octaves{3};
+	float radial_stretch{2.0f};
+	float grain_amplitude{0.0f};
+	float grain_scale{50.0f};
+	uint32_t noise_seed{42};
+	uint32_t hydro_model{0};
+	float accretion_rate_scale{1.0f};
+	float torus_inner_radius{6.0f};
+	float torus_center_radius{12.0f};
+	float adiabatic_index{1.333333f};
+	float optical_depth_scale{1.0f};
+	float hydro_sampling_density{2.0f};
 };
 
 struct ScenarioJetConfig {
 	bool enabled{false};
+	uint32_t geometry{0};
+	float field_line_index{1.0f};
+	uint32_t angular_velocity_law{0};
+	float angular_velocity_fraction{0.5f};
+	float angular_velocity_variation{0.0f};
+	float fixed_angular_velocity{0.0f};
+	float toroidal_field_scale{1.0f};
+	float rotation_coupling{0.5f};
+	float magnetization{10.0f};
+	float magnetization_index{0.0f};
+	float inner_radius_scale{1.05f};
 	float footpoint_edge_deg{15.0f};
+	float footpoint_softness_deg{2.0f};
 	float outer_radius_mass_units{200.0f};
+	float lorentz_factor_inner{1.5f};
 	float lorentz_factor_max{10.0f};
+	float acceleration_radius_mass_units{50.0f};
+	float acceleration_index{1.0f};
+	bool doppler_beaming_enabled{true};
+	bool gravitational_redshift_enabled{true};
+	uint32_t emission_model{0};
+	float power_law_index{2.5f};
+	float minimum_lorentz_factor{10.0f};
+	float non_thermal_fraction{0.1f};
+	float electron_temperature_k{1.0e9f};
+	float temperature_index{0.0f};
+	float observing_frequency_hz{2.3e11f};
+	float absorption_scale{1.0f};
+	float faraday_scale{1.0f};
+	uint32_t display_mode{0};
+	bool auto_normalization{true};
+	float reference_brightness_temperature_k{1.0e10f};
 	float horizon_field_tesla{1.0e4f};
 	float core_density_scale{1.0f};
+	float brightness{1.0f};
+	std::array<float, 3> tint{1.0f, 1.0f, 1.0f};
+	float polarization_coherence{0.8f};
+	float sampling_density{1.0f};
+	int max_samples{32};
+	bool use_engine_length_scale{true};
+	float meters_per_length_unit{1.477e3f};
 };
 
 struct ScenarioBodyConfig {
@@ -133,7 +195,7 @@ struct ScenarioBodyConfig {
 	std::array<double, 3> orientation_euler{0.0, 0.0, 0.0};
 	std::array<double, 3> spin_axis{0.0, 0.0, 1.0};
 	uint32_t earth_map_variant{0};
-	uint32_t earth_map_quality{1};
+	uint32_t earth_map_quality{0};
 	float earth_terminator_softness{0.15f};
 	int layer_template_1{-1};
 	int layer_template_2{-1};
@@ -179,6 +241,77 @@ struct ScenarioObserverConfig {
 	std::string target_name{};
 	int32_t target_body_id{-1};
 	bool has_target{false};
+	std::string target_mode{"center_of_mass"};
+	std::array<double, 3> look_at_offset{0.0, 0.0, 0.0};
+};
+
+struct ScenarioPatternConfig {
+	std::string pattern_type{"asteroid_belt"};
+	std::string preset{"main_asteroid_belt"};
+	uint32_t object_count{150};
+	std::string parent_name{};
+	int32_t parent_id{-2};
+	std::array<double, 3> center_position{0.0, 0.0, 0.0};
+	std::array<double, 3> center_velocity{0.0, 0.0, 0.0};
+	double plane_inclination_deg{0.0};
+	double plane_longitude_node_deg{0.0};
+	double plane_argument_periapsis_deg{0.0};
+	double mean_semi_major_axis{32.0};
+	double radial_thickness{12.0};
+	std::string radial_distribution{"uniform"};
+	double radial_gaussian_sigma{2.5};
+	double radial_power_law_index{-1.5};
+	bool kirkwood_gaps_enabled{false};
+	int32_t kirkwood_gap_count{3};
+	double kirkwood_resonance_depth{0.85};
+	double vertical_scale_height{1.0};
+	std::string vertical_distribution{"gaussian"};
+	double mean_eccentricity{0.06};
+	double eccentricity_dispersion{0.035};
+	std::string eccentricity_distribution{"rayleigh"};
+	double mean_inclination_dispersion_deg{3.5};
+	std::string inclination_distribution{"rayleigh"};
+	std::string angular_distribution{"uniform"};
+	double angular_opening_deg{360.0};
+	double angular_center_deg{0.0};
+	double lagrangian_clustering_strength{0.8};
+	std::string velocity_mode{"keplerian_circular"};
+	double mean_velocity_multiplier{1.0};
+	double velocity_dispersion_fraction{0.03};
+	std::string velocity_distribution{"maxwell_boltzmann"};
+	double prograde_fraction{1.0};
+	std::array<double, 3> fixed_velocity_vector{0.0, 0.0, 0.0};
+	double expansion_speed{0.05};
+	std::string spherical_type{"plummer_sphere"};
+	double thin_shell_radius{28.0};
+	double plummer_scale_radius{16.0};
+	double uniform_sphere_radius{25.0};
+	double shell_inner_radius{14.0};
+	double shell_outer_radius{42.0};
+	double spherical_power_law_gamma{-2.0};
+	double solid_body_rotation_speed{0.04};
+	double solid_body_axis_tilt_deg{0.0};
+	double solid_body_axis_azimuth_deg{0.0};
+	std::string archetype{"asteroid"};
+	std::string mass_distribution{"power_law"};
+	double fixed_mass{1.0e-7};
+	double min_mass{1.0e-9};
+	double max_mass{2.0e-6};
+	double mass_power_law_alpha{1.833};
+	bool radius_from_density{true};
+	double mean_density{2700.0};
+	double density_dispersion_pct{15.0};
+	double fixed_radius{0.05};
+	double min_radius{0.005};
+	double max_radius{0.4};
+	bool temperature_equilibrium{true};
+	double reference_temperature_k{250.0};
+	double temperature_falloff_exponent{0.5};
+	double color_jitter{0.2};
+	std::string name_prefix{"Asteroid"};
+	bool avoid_horizon_overlap{true};
+	bool avoid_mutual_collisions{true};
+	uint64_t seed{1337};
 };
 
 struct ScenarioIntegratorConfig {
@@ -272,6 +405,7 @@ struct ScenarioDefinition {
 	bool has_primary_jet{false};
 	ScenarioJetConfig primary_jet{};
 
+	std::vector<ScenarioPatternConfig> patterns{};
 	std::vector<ScenarioBodyConfig> bodies{};
 	std::vector<ScenarioObserverConfig> observers{};
 	ScenarioIntegratorConfig integrator{};
@@ -461,16 +595,78 @@ public:
 			ss << "  opacity_scale: " << s.primary_disk.opacity_scale << "\n";
 			ss << "  doppler_beaming_exponent: " << s.primary_disk.doppler_beaming_exponent << "\n";
 			ss << "  color_saturation: " << s.primary_disk.color_saturation << "\n";
+			ss << "  edge_softness: " << s.primary_disk.edge_softness << "\n";
+			ss << "  temperature_exponent: " << s.primary_disk.temperature_exponent << "\n";
+			ss << "  zero_torque_strength: " << s.primary_disk.zero_torque_strength << "\n";
+			ss << "  tint_strength: " << s.primary_disk.tint_strength << "\n";
+			ss << "  tint: [" << s.primary_disk.tint[0] << ", " << s.primary_disk.tint[1] << ", " << s.primary_disk.tint[2] << "]\n";
+			ss << "  rotation_speed_scale: " << s.primary_disk.rotation_speed_scale << "\n";
+			ss << "  ring_amplitude: " << s.primary_disk.ring_amplitude << "\n";
+			ss << "  ring_frequency: " << s.primary_disk.ring_frequency << "\n";
+			ss << "  ring_sharpness: " << s.primary_disk.ring_sharpness << "\n";
+			ss << "  spiral_arm_count: " << s.primary_disk.spiral_arm_count << "\n";
+			ss << "  spiral_amplitude: " << s.primary_disk.spiral_amplitude << "\n";
+			ss << "  spiral_pitch: " << s.primary_disk.spiral_pitch << "\n";
+			ss << "  turbulence_amplitude: " << s.primary_disk.turbulence_amplitude << "\n";
+			ss << "  turbulence_scale: " << s.primary_disk.turbulence_scale << "\n";
+			ss << "  turbulence_octaves: " << s.primary_disk.turbulence_octaves << "\n";
+			ss << "  radial_stretch: " << s.primary_disk.radial_stretch << "\n";
+			ss << "  grain_amplitude: " << s.primary_disk.grain_amplitude << "\n";
+			ss << "  grain_scale: " << s.primary_disk.grain_scale << "\n";
+			ss << "  noise_seed: " << s.primary_disk.noise_seed << "\n";
+			ss << "  hydro_model: " << s.primary_disk.hydro_model << "\n";
+			ss << "  accretion_rate_scale: " << s.primary_disk.accretion_rate_scale << "\n";
+			ss << "  torus_inner_radius: " << s.primary_disk.torus_inner_radius << "\n";
+			ss << "  torus_center_radius: " << s.primary_disk.torus_center_radius << "\n";
+			ss << "  adiabatic_index: " << s.primary_disk.adiabatic_index << "\n";
+			ss << "  optical_depth_scale: " << s.primary_disk.optical_depth_scale << "\n";
+			ss << "  hydro_sampling_density: " << s.primary_disk.hydro_sampling_density << "\n";
 		}
 
 		if (s.has_primary_jet) {
 			ss << "primary_jet:\n";
 			ss << "  enabled: " << (s.primary_jet.enabled ? "true" : "false") << "\n";
+			ss << "  geometry: " << s.primary_jet.geometry << "\n";
+			ss << "  field_line_index: " << s.primary_jet.field_line_index << "\n";
+			ss << "  angular_velocity_law: " << s.primary_jet.angular_velocity_law << "\n";
+			ss << "  angular_velocity_fraction: " << s.primary_jet.angular_velocity_fraction << "\n";
+			ss << "  angular_velocity_variation: " << s.primary_jet.angular_velocity_variation << "\n";
+			ss << "  fixed_angular_velocity: " << s.primary_jet.fixed_angular_velocity << "\n";
+			ss << "  toroidal_field_scale: " << s.primary_jet.toroidal_field_scale << "\n";
+			ss << "  rotation_coupling: " << s.primary_jet.rotation_coupling << "\n";
+			ss << "  magnetization: " << s.primary_jet.magnetization << "\n";
+			ss << "  magnetization_index: " << s.primary_jet.magnetization_index << "\n";
+			ss << "  inner_radius_scale: " << s.primary_jet.inner_radius_scale << "\n";
 			ss << "  footpoint_edge_deg: " << s.primary_jet.footpoint_edge_deg << "\n";
+			ss << "  footpoint_softness_deg: " << s.primary_jet.footpoint_softness_deg << "\n";
 			ss << "  outer_radius_mass_units: " << s.primary_jet.outer_radius_mass_units << "\n";
+			ss << "  lorentz_factor_inner: " << s.primary_jet.lorentz_factor_inner << "\n";
 			ss << "  lorentz_factor_max: " << s.primary_jet.lorentz_factor_max << "\n";
+			ss << "  acceleration_radius_mass_units: " << s.primary_jet.acceleration_radius_mass_units << "\n";
+			ss << "  acceleration_index: " << s.primary_jet.acceleration_index << "\n";
+			ss << "  doppler_beaming_enabled: " << (s.primary_jet.doppler_beaming_enabled ? "true" : "false") << "\n";
+			ss << "  gravitational_redshift_enabled: " << (s.primary_jet.gravitational_redshift_enabled ? "true" : "false") << "\n";
+			ss << "  emission_model: " << s.primary_jet.emission_model << "\n";
+			ss << "  power_law_index: " << s.primary_jet.power_law_index << "\n";
+			ss << "  minimum_lorentz_factor: " << s.primary_jet.minimum_lorentz_factor << "\n";
+			ss << "  non_thermal_fraction: " << s.primary_jet.non_thermal_fraction << "\n";
+			ss << "  electron_temperature_k: " << s.primary_jet.electron_temperature_k << "\n";
+			ss << "  temperature_index: " << s.primary_jet.temperature_index << "\n";
+			ss << "  observing_frequency_hz: " << s.primary_jet.observing_frequency_hz << "\n";
+			ss << "  absorption_scale: " << s.primary_jet.absorption_scale << "\n";
+			ss << "  faraday_scale: " << s.primary_jet.faraday_scale << "\n";
+			ss << "  display_mode: " << s.primary_jet.display_mode << "\n";
+			ss << "  auto_normalization: " << (s.primary_jet.auto_normalization ? "true" : "false") << "\n";
+			ss << "  reference_brightness_temperature_k: " << s.primary_jet.reference_brightness_temperature_k << "\n";
 			ss << "  horizon_field_tesla: " << s.primary_jet.horizon_field_tesla << "\n";
 			ss << "  core_density_scale: " << s.primary_jet.core_density_scale << "\n";
+			ss << "  brightness: " << s.primary_jet.brightness << "\n";
+			ss << "  tint: [" << s.primary_jet.tint[0] << ", " << s.primary_jet.tint[1] << ", " << s.primary_jet.tint[2] << "]\n";
+			ss << "  polarization_coherence: " << s.primary_jet.polarization_coherence << "\n";
+			ss << "  sampling_density: " << s.primary_jet.sampling_density << "\n";
+			ss << "  max_samples: " << s.primary_jet.max_samples << "\n";
+			ss << "  use_engine_length_scale: " << (s.primary_jet.use_engine_length_scale ? "true" : "false") << "\n";
+			ss << "  meters_per_length_unit: " << s.primary_jet.meters_per_length_unit << "\n";
 		}
 
 		ss << "integrator:\n";
@@ -602,6 +798,78 @@ public:
 			ss << "    charge_unit: \"" << b.charge_unit << "\"\n";
 		}
 
+		if (!s.patterns.empty()) {
+			ss << "patterns:\n";
+			for (const auto& p : s.patterns) {
+				ss << "  - pattern_type: \"" << p.pattern_type << "\"\n";
+				ss << "    preset: \"" << p.preset << "\"\n";
+				ss << "    object_count: " << p.object_count << "\n";
+				if (!p.parent_name.empty()) ss << "    parent_name: \"" << p.parent_name << "\"\n";
+				if (p.parent_id != -2) ss << "    parent_id: " << p.parent_id << "\n";
+				ss << "    center_position: [" << p.center_position[0] << ", " << p.center_position[1] << ", " << p.center_position[2] << "]\n";
+				ss << "    center_velocity: [" << p.center_velocity[0] << ", " << p.center_velocity[1] << ", " << p.center_velocity[2] << "]\n";
+				ss << "    plane_inclination_deg: " << p.plane_inclination_deg << "\n";
+				ss << "    plane_longitude_node_deg: " << p.plane_longitude_node_deg << "\n";
+				ss << "    plane_argument_periapsis_deg: " << p.plane_argument_periapsis_deg << "\n";
+				ss << "    mean_semi_major_axis: " << p.mean_semi_major_axis << "\n";
+				ss << "    radial_thickness: " << p.radial_thickness << "\n";
+				ss << "    radial_distribution: \"" << p.radial_distribution << "\"\n";
+				ss << "    radial_gaussian_sigma: " << p.radial_gaussian_sigma << "\n";
+				ss << "    radial_power_law_index: " << p.radial_power_law_index << "\n";
+				ss << "    kirkwood_gaps_enabled: " << (p.kirkwood_gaps_enabled ? "true" : "false") << "\n";
+				ss << "    kirkwood_gap_count: " << p.kirkwood_gap_count << "\n";
+				ss << "    kirkwood_resonance_depth: " << p.kirkwood_resonance_depth << "\n";
+				ss << "    vertical_scale_height: " << p.vertical_scale_height << "\n";
+				ss << "    vertical_distribution: \"" << p.vertical_distribution << "\"\n";
+				ss << "    mean_eccentricity: " << p.mean_eccentricity << "\n";
+				ss << "    eccentricity_dispersion: " << p.eccentricity_dispersion << "\n";
+				ss << "    eccentricity_distribution: \"" << p.eccentricity_distribution << "\"\n";
+				ss << "    mean_inclination_dispersion_deg: " << p.mean_inclination_dispersion_deg << "\n";
+				ss << "    inclination_distribution: \"" << p.inclination_distribution << "\"\n";
+				ss << "    angular_distribution: \"" << p.angular_distribution << "\"\n";
+				ss << "    angular_opening_deg: " << p.angular_opening_deg << "\n";
+				ss << "    angular_center_deg: " << p.angular_center_deg << "\n";
+				ss << "    lagrangian_clustering_strength: " << p.lagrangian_clustering_strength << "\n";
+				ss << "    velocity_mode: \"" << p.velocity_mode << "\"\n";
+				ss << "    mean_velocity_multiplier: " << p.mean_velocity_multiplier << "\n";
+				ss << "    velocity_dispersion_fraction: " << p.velocity_dispersion_fraction << "\n";
+				ss << "    velocity_distribution: \"" << p.velocity_distribution << "\"\n";
+				ss << "    prograde_fraction: " << p.prograde_fraction << "\n";
+				ss << "    fixed_velocity_vector: [" << p.fixed_velocity_vector[0] << ", " << p.fixed_velocity_vector[1] << ", " << p.fixed_velocity_vector[2] << "]\n";
+				ss << "    expansion_speed: " << p.expansion_speed << "\n";
+				ss << "    spherical_type: \"" << p.spherical_type << "\"\n";
+				ss << "    thin_shell_radius: " << p.thin_shell_radius << "\n";
+				ss << "    plummer_scale_radius: " << p.plummer_scale_radius << "\n";
+				ss << "    uniform_sphere_radius: " << p.uniform_sphere_radius << "\n";
+				ss << "    shell_inner_radius: " << p.shell_inner_radius << "\n";
+				ss << "    shell_outer_radius: " << p.shell_outer_radius << "\n";
+				ss << "    spherical_power_law_gamma: " << p.spherical_power_law_gamma << "\n";
+				ss << "    solid_body_rotation_speed: " << p.solid_body_rotation_speed << "\n";
+				ss << "    solid_body_axis_tilt_deg: " << p.solid_body_axis_tilt_deg << "\n";
+				ss << "    solid_body_axis_azimuth_deg: " << p.solid_body_axis_azimuth_deg << "\n";
+				ss << "    archetype: \"" << p.archetype << "\"\n";
+				ss << "    mass_distribution: \"" << p.mass_distribution << "\"\n";
+				ss << "    fixed_mass: " << p.fixed_mass << "\n";
+				ss << "    min_mass: " << p.min_mass << "\n";
+				ss << "    max_mass: " << p.max_mass << "\n";
+				ss << "    mass_power_law_alpha: " << p.mass_power_law_alpha << "\n";
+				ss << "    radius_from_density: " << (p.radius_from_density ? "true" : "false") << "\n";
+				ss << "    mean_density: " << p.mean_density << "\n";
+				ss << "    density_dispersion_pct: " << p.density_dispersion_pct << "\n";
+				ss << "    fixed_radius: " << p.fixed_radius << "\n";
+				ss << "    min_radius: " << p.min_radius << "\n";
+				ss << "    max_radius: " << p.max_radius << "\n";
+				ss << "    temperature_equilibrium: " << (p.temperature_equilibrium ? "true" : "false") << "\n";
+				ss << "    reference_temperature_k: " << p.reference_temperature_k << "\n";
+				ss << "    temperature_falloff_exponent: " << p.temperature_falloff_exponent << "\n";
+				ss << "    color_jitter: " << p.color_jitter << "\n";
+				ss << "    name_prefix: \"" << p.name_prefix << "\"\n";
+				ss << "    avoid_horizon_overlap: " << (p.avoid_horizon_overlap ? "true" : "false") << "\n";
+				ss << "    avoid_mutual_collisions: " << (p.avoid_mutual_collisions ? "true" : "false") << "\n";
+				ss << "    seed: " << p.seed << "\n";
+			}
+		}
+
 		ss << "observers:\n";
 		for (const auto& o : s.observers) {
 			ss << "  - name: \"" << o.name << "\"\n";
@@ -613,6 +881,8 @@ public:
 			if (o.has_target) {
 				ss << "    target_name: \"" << o.target_name << "\"\n";
 				ss << "    target_body_id: " << o.target_body_id << "\n";
+				ss << "    target_mode: \"" << o.target_mode << "\"\n";
+				ss << "    look_at_offset: [" << o.look_at_offset[0] << ", " << o.look_at_offset[1] << ", " << o.look_at_offset[2] << "]\n";
 			}
 			ss << "    position_unit: \"" << o.position_unit << "\"\n";
 			ss << "    fov_unit: \"" << o.fov_unit << "\"\n";
@@ -815,7 +1085,7 @@ public:
 			return {static_cast<float>(values[0]), static_cast<float>(values[1]), static_cast<float>(values[2]), static_cast<float>(values[3])};
 		};
 
-		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Sources, Observers, Units, Time, Skybox, PrimaryDisk, PrimaryJet };
+		enum class Section : uint8_t { Root, Spacetime, Integrator, Output, Interactions, Bodies, Sources, Observers, Units, Time, Skybox, PrimaryDisk, PrimaryJet, Patterns };
 		Section current_section = Section::Root;
 
 		std::vector<std::pair<std::string, std::string>> current_body_raw_props;
@@ -951,6 +1221,7 @@ public:
 			if (key == "integrator") { expand_current_body(); current_section = Section::Integrator; continue; }
 			if (key == "output") { expand_current_body(); current_section = Section::Output; continue; }
 			if (key == "interactions") { expand_current_body(); current_section = Section::Interactions; continue; }
+			if (key == "patterns" || key == "formations") { expand_current_body(); current_section = Section::Patterns; continue; }
 			if (key == "bodies") { expand_current_body(); current_section = Section::Bodies; continue; }
 			if (key == "sources") { expand_current_body(); current_section = Section::Sources; continue; }
 			if (key == "observers") { expand_current_body(); current_section = Section::Observers; continue; }
@@ -1022,6 +1293,37 @@ public:
 				else if (key == "opacity_scale") s.primary_disk.opacity_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.opacity_scale));
 				else if (key == "doppler_beaming_exponent") s.primary_disk.doppler_beaming_exponent = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.doppler_beaming_exponent));
 				else if (key == "color_saturation") s.primary_disk.color_saturation = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.color_saturation));
+				else if (key == "edge_softness") s.primary_disk.edge_softness = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.edge_softness));
+				else if (key == "temperature_exponent") s.primary_disk.temperature_exponent = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.temperature_exponent));
+				else if (key == "zero_torque_strength" || key == "zero_torque") s.primary_disk.zero_torque_strength = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.zero_torque_strength));
+				else if (key == "tint_strength") s.primary_disk.tint_strength = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.tint_strength));
+				else if (key == "tint") { auto c = parse_color(val); s.primary_disk.tint = {c[0], c[1], c[2]}; }
+				else if (key == "rotation_speed_scale" || key == "pattern_rotation") s.primary_disk.rotation_speed_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.rotation_speed_scale));
+				else if (key == "ring_amplitude") s.primary_disk.ring_amplitude = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.ring_amplitude));
+				else if (key == "ring_frequency") s.primary_disk.ring_frequency = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.ring_frequency));
+				else if (key == "ring_sharpness") s.primary_disk.ring_sharpness = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.ring_sharpness));
+				else if (key == "spiral_arm_count" || key == "spiral_arms") s.primary_disk.spiral_arm_count = static_cast<int>(ScenarioValueSampler::sample(val, s.primary_disk.spiral_arm_count));
+				else if (key == "spiral_amplitude") s.primary_disk.spiral_amplitude = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.spiral_amplitude));
+				else if (key == "spiral_pitch") s.primary_disk.spiral_pitch = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.spiral_pitch));
+				else if (key == "turbulence_amplitude" || key == "turbulence") s.primary_disk.turbulence_amplitude = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.turbulence_amplitude));
+				else if (key == "turbulence_scale") s.primary_disk.turbulence_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.turbulence_scale));
+				else if (key == "turbulence_octaves") s.primary_disk.turbulence_octaves = static_cast<int>(ScenarioValueSampler::sample(val, s.primary_disk.turbulence_octaves));
+				else if (key == "radial_stretch") s.primary_disk.radial_stretch = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.radial_stretch));
+				else if (key == "grain_amplitude" || key == "grain") s.primary_disk.grain_amplitude = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.grain_amplitude));
+				else if (key == "grain_scale") s.primary_disk.grain_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.grain_scale));
+				else if (key == "noise_seed") s.primary_disk.noise_seed = static_cast<uint32_t>(ScenarioValueSampler::sample(val, s.primary_disk.noise_seed));
+				else if (key == "hydro_model" || key == "model") {
+					std::string m = lower_str(unquote(val));
+					if (m == "novikov_thorne" || m == "novikov" || m == "thorne" || m == "1") s.primary_disk.hydro_model = 1U;
+					else if (m == "fishbone_moncrief" || m == "torus" || m == "2") s.primary_disk.hydro_model = 2U;
+					else s.primary_disk.hydro_model = 0U;
+				}
+				else if (key == "accretion_rate_scale" || key == "accretion_rate") s.primary_disk.accretion_rate_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.accretion_rate_scale));
+				else if (key == "torus_inner_radius") s.primary_disk.torus_inner_radius = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.torus_inner_radius));
+				else if (key == "torus_center_radius") s.primary_disk.torus_center_radius = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.torus_center_radius));
+				else if (key == "adiabatic_index") s.primary_disk.adiabatic_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.adiabatic_index));
+				else if (key == "optical_depth_scale") s.primary_disk.optical_depth_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.optical_depth_scale));
+				else if (key == "hydro_sampling_density") s.primary_disk.hydro_sampling_density = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_disk.hydro_sampling_density));
 				continue;
 			}
 
@@ -1033,6 +1335,140 @@ public:
 				else if (key == "lorentz_factor_max") s.primary_jet.lorentz_factor_max = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.lorentz_factor_max));
 				else if (key == "horizon_field_tesla") s.primary_jet.horizon_field_tesla = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.horizon_field_tesla));
 				else if (key == "core_density_scale") s.primary_jet.core_density_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.core_density_scale));
+				else if (key == "geometry") {
+					std::string g = lower_str(unquote(val));
+					if (g == "paraboloidal" || g == "1") s.primary_jet.geometry = 1U;
+					else if (g == "splitmonopole" || g == "split" || g == "2") s.primary_jet.geometry = 2U;
+					else s.primary_jet.geometry = 0U;
+				}
+				else if (key == "field_line_index") s.primary_jet.field_line_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.field_line_index));
+				else if (key == "angular_velocity_law") {
+					std::string a = lower_str(unquote(val));
+					if (a == "fixed" || a == "constant" || a == "1") s.primary_jet.angular_velocity_law = 1U;
+					else s.primary_jet.angular_velocity_law = 0U;
+				}
+				else if (key == "angular_velocity_fraction") s.primary_jet.angular_velocity_fraction = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.angular_velocity_fraction));
+				else if (key == "angular_velocity_variation") s.primary_jet.angular_velocity_variation = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.angular_velocity_variation));
+				else if (key == "fixed_angular_velocity") s.primary_jet.fixed_angular_velocity = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.fixed_angular_velocity));
+				else if (key == "toroidal_field_scale") s.primary_jet.toroidal_field_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.toroidal_field_scale));
+				else if (key == "rotation_coupling") s.primary_jet.rotation_coupling = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.rotation_coupling));
+				else if (key == "magnetization" || key == "sigma") s.primary_jet.magnetization = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.magnetization));
+				else if (key == "magnetization_index") s.primary_jet.magnetization_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.magnetization_index));
+				else if (key == "inner_radius_scale") s.primary_jet.inner_radius_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.inner_radius_scale));
+				else if (key == "footpoint_softness_deg") s.primary_jet.footpoint_softness_deg = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.footpoint_softness_deg));
+				else if (key == "lorentz_factor_inner") s.primary_jet.lorentz_factor_inner = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.lorentz_factor_inner));
+				else if (key == "acceleration_radius_mass_units") s.primary_jet.acceleration_radius_mass_units = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.acceleration_radius_mass_units));
+				else if (key == "acceleration_index") s.primary_jet.acceleration_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.acceleration_index));
+				else if (key == "doppler_beaming_enabled") s.primary_jet.doppler_beaming_enabled = (val != "false");
+				else if (key == "gravitational_redshift_enabled") s.primary_jet.gravitational_redshift_enabled = (val != "false");
+				else if (key == "emission_model") {
+					std::string em = lower_str(unquote(val));
+					if (em == "thermalsynchrotron" || em == "thermal" || em == "1") s.primary_jet.emission_model = 1U;
+					else if (em == "hybrid" || em == "hybridthermalnonthermal" || em == "2") s.primary_jet.emission_model = 2U;
+					else s.primary_jet.emission_model = 0U;
+				}
+				else if (key == "power_law_index") s.primary_jet.power_law_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.power_law_index));
+				else if (key == "minimum_lorentz_factor") s.primary_jet.minimum_lorentz_factor = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.minimum_lorentz_factor));
+				else if (key == "non_thermal_fraction") s.primary_jet.non_thermal_fraction = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.non_thermal_fraction));
+				else if (key == "electron_temperature_k") s.primary_jet.electron_temperature_k = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.electron_temperature_k));
+				else if (key == "temperature_index") s.primary_jet.temperature_index = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.temperature_index));
+				else if (key == "observing_frequency_hz") s.primary_jet.observing_frequency_hz = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.observing_frequency_hz));
+				else if (key == "absorption_scale") s.primary_jet.absorption_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.absorption_scale));
+				else if (key == "faraday_scale") s.primary_jet.faraday_scale = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.faraday_scale));
+				else if (key == "display_mode") s.primary_jet.display_mode = static_cast<uint32_t>(ScenarioValueSampler::sample(val, 0.0));
+				else if (key == "auto_normalization") s.primary_jet.auto_normalization = (val != "false");
+				else if (key == "reference_brightness_temperature_k") s.primary_jet.reference_brightness_temperature_k = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.reference_brightness_temperature_k));
+				else if (key == "brightness") s.primary_jet.brightness = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.brightness));
+				else if (key == "tint") { auto c = parse_color(val); s.primary_jet.tint = {c[0], c[1], c[2]}; }
+				else if (key == "polarization_coherence") s.primary_jet.polarization_coherence = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.polarization_coherence));
+				else if (key == "sampling_density") s.primary_jet.sampling_density = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.sampling_density));
+				else if (key == "max_samples") s.primary_jet.max_samples = static_cast<int>(ScenarioValueSampler::sample(val, s.primary_jet.max_samples));
+				else if (key == "use_engine_length_scale") s.primary_jet.use_engine_length_scale = (val != "false");
+				else if (key == "meters_per_length_unit") s.primary_jet.meters_per_length_unit = static_cast<float>(ScenarioValueSampler::sample(val, s.primary_jet.meters_per_length_unit));
+				continue;
+			}
+
+			if (current_section == Section::Patterns) {
+				if (sv.starts_with("-")) {
+					s.patterns.emplace_back();
+					const size_t sub_colon = sv.find(':');
+					if (sub_colon != std::string_view::npos) {
+						const std::string_view skey = trim(sv.substr(1, sub_colon - 1));
+						const std::string_view sval = trim(sv.substr(sub_colon + 1));
+						if (skey == "pattern_type" || skey == "type") s.patterns.back().pattern_type = unquote(sval);
+						else if (skey == "preset") s.patterns.back().preset = unquote(sval);
+					}
+					continue;
+				}
+				if (!s.patterns.empty()) {
+					auto& p = s.patterns.back();
+					if (key == "pattern_type" || key == "type") p.pattern_type = unquote(val);
+					else if (key == "preset") p.preset = unquote(val);
+					else if (key == "object_count" || key == "count") p.object_count = static_cast<uint32_t>(ScenarioValueSampler::sample(val, p.object_count));
+					else if (key == "parent_name" || key == "parent") p.parent_name = unquote(val);
+					else if (key == "parent_id") p.parent_id = static_cast<int32_t>(ScenarioValueSampler::sample(val, p.parent_id));
+					else if (key == "center_position" || key == "center") { auto v = parse_vec4(val); p.center_position = {v[0], v[1], v[2]}; }
+					else if (key == "center_velocity") { auto v = parse_vec4(val); p.center_velocity = {v[0], v[1], v[2]}; }
+					else if (key == "plane_inclination_deg" || key == "inclination") p.plane_inclination_deg = ScenarioValueSampler::sample(val, p.plane_inclination_deg);
+					else if (key == "plane_longitude_node_deg" || key == "longitude_node") p.plane_longitude_node_deg = ScenarioValueSampler::sample(val, p.plane_longitude_node_deg);
+					else if (key == "plane_argument_periapsis_deg" || key == "argument_periapsis") p.plane_argument_periapsis_deg = ScenarioValueSampler::sample(val, p.plane_argument_periapsis_deg);
+					else if (key == "mean_semi_major_axis" || key == "semi_major_axis" || key == "radius") p.mean_semi_major_axis = ScenarioValueSampler::sample(val, p.mean_semi_major_axis);
+					else if (key == "radial_thickness" || key == "thickness") p.radial_thickness = ScenarioValueSampler::sample(val, p.radial_thickness);
+					else if (key == "radial_distribution") p.radial_distribution = unquote(val);
+					else if (key == "radial_gaussian_sigma") p.radial_gaussian_sigma = ScenarioValueSampler::sample(val, p.radial_gaussian_sigma);
+					else if (key == "radial_power_law_index") p.radial_power_law_index = ScenarioValueSampler::sample(val, p.radial_power_law_index);
+					else if (key == "kirkwood_gaps_enabled") p.kirkwood_gaps_enabled = (val == "true");
+					else if (key == "kirkwood_gap_count") p.kirkwood_gap_count = static_cast<int32_t>(ScenarioValueSampler::sample(val, p.kirkwood_gap_count));
+					else if (key == "kirkwood_resonance_depth") p.kirkwood_resonance_depth = ScenarioValueSampler::sample(val, p.kirkwood_resonance_depth);
+					else if (key == "vertical_scale_height" || key == "scale_height") p.vertical_scale_height = ScenarioValueSampler::sample(val, p.vertical_scale_height);
+					else if (key == "vertical_distribution") p.vertical_distribution = unquote(val);
+					else if (key == "mean_eccentricity" || key == "eccentricity") p.mean_eccentricity = ScenarioValueSampler::sample(val, p.mean_eccentricity);
+					else if (key == "eccentricity_dispersion") p.eccentricity_dispersion = ScenarioValueSampler::sample(val, p.eccentricity_dispersion);
+					else if (key == "eccentricity_distribution") p.eccentricity_distribution = unquote(val);
+					else if (key == "mean_inclination_dispersion_deg" || key == "inclination_dispersion") p.mean_inclination_dispersion_deg = ScenarioValueSampler::sample(val, p.mean_inclination_dispersion_deg);
+					else if (key == "inclination_distribution") p.inclination_distribution = unquote(val);
+					else if (key == "angular_distribution") p.angular_distribution = unquote(val);
+					else if (key == "angular_opening_deg") p.angular_opening_deg = ScenarioValueSampler::sample(val, p.angular_opening_deg);
+					else if (key == "angular_center_deg") p.angular_center_deg = ScenarioValueSampler::sample(val, p.angular_center_deg);
+					else if (key == "lagrangian_clustering_strength") p.lagrangian_clustering_strength = ScenarioValueSampler::sample(val, p.lagrangian_clustering_strength);
+					else if (key == "velocity_mode") p.velocity_mode = unquote(val);
+					else if (key == "mean_velocity_multiplier") p.mean_velocity_multiplier = ScenarioValueSampler::sample(val, p.mean_velocity_multiplier);
+					else if (key == "velocity_dispersion_fraction") p.velocity_dispersion_fraction = ScenarioValueSampler::sample(val, p.velocity_dispersion_fraction);
+					else if (key == "velocity_distribution") p.velocity_distribution = unquote(val);
+					else if (key == "prograde_fraction") p.prograde_fraction = ScenarioValueSampler::sample(val, p.prograde_fraction);
+					else if (key == "fixed_velocity_vector") { auto v = parse_vec4(val); p.fixed_velocity_vector = {v[0], v[1], v[2]}; }
+					else if (key == "expansion_speed") p.expansion_speed = ScenarioValueSampler::sample(val, p.expansion_speed);
+					else if (key == "spherical_type") p.spherical_type = unquote(val);
+					else if (key == "thin_shell_radius") p.thin_shell_radius = ScenarioValueSampler::sample(val, p.thin_shell_radius);
+					else if (key == "plummer_scale_radius") p.plummer_scale_radius = ScenarioValueSampler::sample(val, p.plummer_scale_radius);
+					else if (key == "uniform_sphere_radius") p.uniform_sphere_radius = ScenarioValueSampler::sample(val, p.uniform_sphere_radius);
+					else if (key == "shell_inner_radius") p.shell_inner_radius = ScenarioValueSampler::sample(val, p.shell_inner_radius);
+					else if (key == "shell_outer_radius") p.shell_outer_radius = ScenarioValueSampler::sample(val, p.shell_outer_radius);
+					else if (key == "spherical_power_law_gamma") p.spherical_power_law_gamma = ScenarioValueSampler::sample(val, p.spherical_power_law_gamma);
+					else if (key == "solid_body_rotation_speed") p.solid_body_rotation_speed = ScenarioValueSampler::sample(val, p.solid_body_rotation_speed);
+					else if (key == "solid_body_axis_tilt_deg") p.solid_body_axis_tilt_deg = ScenarioValueSampler::sample(val, p.solid_body_axis_tilt_deg);
+					else if (key == "solid_body_axis_azimuth_deg") p.solid_body_axis_azimuth_deg = ScenarioValueSampler::sample(val, p.solid_body_axis_azimuth_deg);
+					else if (key == "archetype") p.archetype = unquote(val);
+					else if (key == "mass_distribution") p.mass_distribution = unquote(val);
+					else if (key == "fixed_mass") p.fixed_mass = ScenarioValueSampler::sample(val, p.fixed_mass);
+					else if (key == "min_mass") p.min_mass = ScenarioValueSampler::sample(val, p.min_mass);
+					else if (key == "max_mass") p.max_mass = ScenarioValueSampler::sample(val, p.max_mass);
+					else if (key == "mass_power_law_alpha") p.mass_power_law_alpha = ScenarioValueSampler::sample(val, p.mass_power_law_alpha);
+					else if (key == "radius_from_density") p.radius_from_density = (val != "false");
+					else if (key == "mean_density") p.mean_density = ScenarioValueSampler::sample(val, p.mean_density);
+					else if (key == "density_dispersion_pct") p.density_dispersion_pct = ScenarioValueSampler::sample(val, p.density_dispersion_pct);
+					else if (key == "fixed_radius") p.fixed_radius = ScenarioValueSampler::sample(val, p.fixed_radius);
+					else if (key == "min_radius") p.min_radius = ScenarioValueSampler::sample(val, p.min_radius);
+					else if (key == "max_radius") p.max_radius = ScenarioValueSampler::sample(val, p.max_radius);
+					else if (key == "temperature_equilibrium") p.temperature_equilibrium = (val != "false");
+					else if (key == "reference_temperature_k") p.reference_temperature_k = ScenarioValueSampler::sample(val, p.reference_temperature_k);
+					else if (key == "temperature_falloff_exponent") p.temperature_falloff_exponent = ScenarioValueSampler::sample(val, p.temperature_falloff_exponent);
+					else if (key == "color_jitter") p.color_jitter = ScenarioValueSampler::sample(val, p.color_jitter);
+					else if (key == "name_prefix") p.name_prefix = unquote(val);
+					else if (key == "avoid_horizon_overlap") p.avoid_horizon_overlap = (val != "false");
+					else if (key == "avoid_mutual_collisions") p.avoid_mutual_collisions = (val != "false");
+					else if (key == "seed") p.seed = static_cast<uint64_t>(ScenarioValueSampler::sample(val, static_cast<double>(p.seed)));
+				}
 				continue;
 			}
 
@@ -1092,6 +1528,13 @@ public:
 					else if (key == "target_body_id" || key == "target_id") {
 						s.observers.back().target_body_id = static_cast<int32_t>(ScenarioValueSampler::sample(val, -1.0));
 						s.observers.back().has_target = true;
+					}
+					else if (key == "target_mode" || key == "barycenter_mode") {
+						s.observers.back().target_mode = unquote(val);
+					}
+					else if (key == "look_at_offset" || key == "target_offset") {
+						const auto v = parse_vec4(val);
+						s.observers.back().look_at_offset = {v[0], v[1], v[2]};
 					}
 					else if (key == "four_velocity") s.observers.back().four_velocity = parse_vec4(val);
 					else if (key == "orientation_convention") s.observers.back().orientation_convention = static_cast<uint32_t>(std::strtoul(std::string(val).c_str(), nullptr, 10));

@@ -1,7 +1,7 @@
 scenario_name: "Near-Extremal Kerr Horizon Close-Up"
 description: "Kerr black hole spinning near the theoretical extremality limit (a=0.999M), placing the camera close to the photon sphere to observe extreme frame-dragging and horizon flattening."
 author: "C. Bossu Réaubourg"
-version_tag: "1.1.0"
+version_tag: "1.1.1"
 units:
   distance: "km"
   mass: "M_sun"
@@ -21,6 +21,7 @@ spacetime:
   warp_velocity: 0.0
   speed_of_light: 1.0
   gravitational_constant: 1.0
+  pole_guard_precision_scale: 1.5
 primary_disk:
   enabled: true
   inner_radius_scale: 1.0
@@ -28,8 +29,13 @@ primary_disk:
   peak_temperature_k: 32000.0
   floor_temperature_k: 1200.0
   brightness: 1.5
+  opacity_scale: 1.0
   doppler_beaming_exponent: 1.0
   color_saturation: 1.0
+  edge_softness: 0.2
+  temperature_exponent: 0.75
+  zero_torque_strength: 1.0
+  rotation_speed_scale: 1.0
 time:
   warp_factor: 1.0
   tick_rate: 60.0

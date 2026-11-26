@@ -1,7 +1,7 @@
 scenario_name: "Galaxy Collision"
 description: "Direct collision and merger of two spiral galaxies with Navarro-Frenk-White dark matter halos and stellar disks"
 author: "C. Bossu Réaubourg"
-version_tag: "1.3.1"
+version_tag: "1.3.2"
 units:
   distance: "kpc"
   mass: "M_sun"
@@ -94,38 +94,45 @@ bodies:
     position: [0.0, 22.0, 6.0, 0.0]
     velocity: [0.0, -0.06, -0.02, 0.0]
     reference_radius: 1.2
-  - name: "G1 Disk Star"
-    body_id: 2000
-    count: 600
+patterns:
+  - pattern_type: "debris_swarm"
+    preset: "custom"
+    object_count: 650
     parent_name: "Spiral Galaxy 1 Core"
-    mass: "[1.0e-5, 5.0e-5]"
-    radius: "[0.04, 0.12]"
-    semi_major_axis: "[3.0, 16.0]"
-    eccentricity: "[0.01, 0.08]"
-    inclination_deg: "[10.0, 18.0]"
-    longitude_node_deg: "[0.0, 360.0]"
-    argument_periapsis_deg: "[0.0, 360.0]"
-    true_anomaly_deg: "[0.0, 360.0]"
-    preset_3d: "star"
-    surface_texture_mode: "stellargranulation"
-    color: [0.9, 0.95, 1.0, 1.0]
-    emission_intensity: 1.2
-  - name: "G2 Disk Star"
-    body_id: 3000
-    count: 600
+    plane_inclination_deg: 15.0
+    mean_semi_major_axis: 8.0
+    radial_thickness: 6.0
+    vertical_scale_height: 0.6
+    velocity_mode: "keplerian_circular"
+    mean_velocity_multiplier: 1.0
+    velocity_dispersion_fraction: 0.04
+    archetype: "star"
+    mass_distribution: "power_law"
+    mass_power_law_alpha: 2.35
+    min_mass: 1.0e-6
+    max_mass: 5.0e-5
+    fixed_radius: 0.06
+    name_prefix: "G1 Star"
+    seed: 2024
+  - pattern_type: "debris_swarm"
+    preset: "custom"
+    object_count: 650
     parent_name: "Spiral Galaxy 2 Core"
-    mass: "[1.0e-5, 5.0e-5]"
-    radius: "[0.04, 0.12]"
-    semi_major_axis: "[2.5, 14.0]"
-    eccentricity: "[0.01, 0.08]"
-    inclination_deg: "[40.0, 48.0]"
-    longitude_node_deg: "[0.0, 360.0]"
-    argument_periapsis_deg: "[0.0, 360.0]"
-    true_anomaly_deg: "[0.0, 360.0]"
-    preset_3d: "star"
-    surface_texture_mode: "stellargranulation"
-    color: [1.0, 0.85, 0.6, 1.0]
-    emission_intensity: 1.2
+    plane_inclination_deg: 45.0
+    mean_semi_major_axis: 7.0
+    radial_thickness: 5.5
+    vertical_scale_height: 0.5
+    velocity_mode: "keplerian_circular"
+    mean_velocity_multiplier: 1.0
+    velocity_dispersion_fraction: 0.04
+    archetype: "star"
+    mass_distribution: "power_law"
+    mass_power_law_alpha: 2.35
+    min_mass: 1.0e-6
+    max_mass: 5.0e-5
+    fixed_radius: 0.06
+    name_prefix: "G2 Star"
+    seed: 3048
 observers:
   - name: "IntergalacticObserver"
     fov_deg: 55.0

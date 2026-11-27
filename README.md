@@ -244,7 +244,7 @@ Sky and panorama assets:
 
 Earth and planetary assets:
 
-- Solar System Scope Earth textures (CC BY 4.0): [assets/earth/solarsystemscope/LICENCE.txt](assets/earth/solarsystemscope/LICENCE.txt)
+- Solar System Scope Planetary textures (CC BY 4.0): [assets/textures/solarsystemscope/LICENCE.txt](assets/textures/solarsystemscope/LICENCE.txt)
 
 ---
 

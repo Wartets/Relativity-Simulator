@@ -4,7 +4,7 @@ Executable: `test_camera_projections` - Source: `tests/test_camera_projections.c
 
 ## Purpose
 
-Verifies the projection primitives behind [projection_modes.md](projection_modes.md) and the optical models of [DESCRIPTION.md](../../DESCRIPTION.md#83-optical-projections--field-of-view).
+Verifies the optical frequency shift, beaming, and projection primitives of [DESCRIPTION.md](../../DESCRIPTION.md#83-optical-projections--field-of-view) and [MATHEMATICAL_FORMULATION.md Section 6.1](../../MATHEMATICAL_FORMULATION.md#61-relativistic-frequency-shift-beaming--frame-invariance).
 
 ## Checks
 

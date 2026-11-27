@@ -49,6 +49,7 @@ Commit refreshed results together with the change that motivated the run.
 
 | Test / Executable | Suite | Category | Documentation |
 | --- | --- | --- | --- |
+| `benchmark_cluster_throughput` | Cluster throughput | Distributed cluster | [suites/cluster_throughput.md](suites/cluster_throughput.md) |
 | `benchmark_engine_performance_quick` / `benchmark_engine_performance` | Engine performance | Engine performance | [suites/engine_performance.md](suites/engine_performance.md) |
 | `benchmark_simd_bundle` | SIMD geodesic bundle | Numerical performance | [suites/simd_bundle.md](suites/simd_bundle.md) |
 | `test_barnes_hut_octree` | Barnes-Hut octree | Dark matter and N-body | [suites/barnes_hut_octree.md](suites/barnes_hut_octree.md) |
@@ -59,11 +60,15 @@ Commit refreshed results together with the change that motivated the run.
 | `test_christoffel_solver` | Christoffel solver | Tensor and SIMD math | [suites/christoffel_solver.md](suites/christoffel_solver.md) |
 | `test_cie_spectral_pipeline` | CIE spectral pipeline | Rendering and optics | [suites/cie_spectral_pipeline.md](suites/cie_spectral_pipeline.md) |
 | `test_cluster_crypto_protocol` | Cluster crypto protocol | Distributed cluster | [suites/cluster_crypto_protocol.md](suites/cluster_crypto_protocol.md) |
+| `test_cluster_scheduler_stealing` | Cluster scheduler & work stealing | Distributed cluster | [suites/cluster_scheduler_stealing.md](suites/cluster_scheduler_stealing.md) |
+| `test_cluster_serialization_codecs` | Cluster serialization codecs | Distributed cluster | [suites/cluster_serialization_codecs.md](suites/cluster_serialization_codecs.md) |
+| `test_cluster_worker_execution` | Cluster worker execution | Distributed cluster | [suites/cluster_worker_execution.md](suites/cluster_worker_execution.md) |
 | `test_concurrent_command_injection` | Concurrent command injection | Core infrastructure | [suites/concurrent_command_injection.md](suites/concurrent_command_injection.md) |
 | `test_covariance_propagation` | Covariance propagation | Uncertainty quantification | [suites/covariance_propagation.md](suites/covariance_propagation.md) |
 | `test_dark_matter_field` | Dark matter field | Dark matter and N-body | [suites/dark_matter_field.md](suites/dark_matter_field.md) |
 | `test_dark_matter_profiles` | Dark matter profiles | Dark matter and N-body | [suites/dark_matter_profiles.md](suites/dark_matter_profiles.md) |
 | `test_default_startup_scenario` | Default startup scenario | Input and output | [suites/default_startup_scenario.md](suites/default_startup_scenario.md) |
+| `test_distributed_geodesic_pipeline` | Distributed geodesic pipeline | Distributed cluster | [suites/distributed_geodesic_pipeline.md](suites/distributed_geodesic_pipeline.md) |
 | `test_double_single` | Double-single arithmetic | Tensor and SIMD math | [suites/double_single.md](suites/double_single.md) |
 | `test_eos_tov` | Equation of state and TOV | Hydrodynamics and radiation | [suites/eos_tov.md](suites/eos_tov.md) |
 | `test_ephemeris_kepler` | Ephemeris and Keplerian elements | Ephemerides and frames | [suites/ephemeris_kepler.md](suites/ephemeris_kepler.md) |

@@ -1,21 +1,44 @@
-# Test Suite Specification: Distributed Geodesic Pipeline
+# Distributed geodesic pipeline suite
 
-- **Executable Target:** `test_distributed_geodesic_pipeline`
-- **Source File:** `tests/test_distributed_geodesic_pipeline.cpp`
-- **Output Report:** `docs/testing/results/distributed_geodesic_pipeline.md`
+Executable: `test_distributed_geodesic_pipeline` - Source: `tests/test_distributed_geodesic_pipeline.cpp` - Results: [distributed_geodesic_pipeline.md](../results/distributed_geodesic_pipeline.md)
 
 ## Purpose
 
-Validates end-to-end distributed master pipeline execution, colorimetric and geometric fidelity of reassembled frames against local reference, resilience under simulated worker failure, and distributed physics/uncertainty evaluation.
+Verifies end-to-end distributed pipeline execution through `ClusterOrchestrator` ([ARCHITECTURE.md](../../ARCHITECTURE.md#214-distributed-compute-subsystem--heterogeneous-cluster-architecture)): full-frame tile dispatch and reassembly against local references, fault-tolerant work stealing during worker disruption, distributed 1PN post-Newtonian N-body acceleration reductions, distributed Monte Carlo geodesic uncertainty ensembles, and distributed polynomial chaos stochastic quadratures.
 
-## Checked Invariants & Tolerances
+## Scenario
 
-| Check Domain | Expected Value | Tolerance | Justification |
-| :--- | :--- | :--- | :--- |
-| Reassembled Frame Radiance | Difference < 1e-5 | Absolute 1e-5 | Recomposed tiles match reference frame |
-| Pixel Classifications | Exact match | 0 mismatches | Status flag consistency across boundaries |
-| Shadow & Sky Invariant | Exact count | 0 rays | Geometric preservation of black hole shadow |
-| Worker Disconnection Recovery | 0 missing pixels | Exact | Local fallback recovers 100% of framebuffer |
-| 1PN N-Body Accelerations | Error < 1e-12 | Absolute 1e-12 | Distributed pairwise acceleration reduction |
-| Geodesic Uncertainty Ensemble | Exact sample counts | Exact | Distributed Monte Carlo statistics reduction |
-| Stochastic PCE Quadrature | Error < 1e-10 | Absolute 1e-10 | Multidimensional quadrature evaluation |
+A 128x128 Schwarzschild black hole scene ($M = 1.0, r_h = 2.0$) with accretion disk; worker disruption tested with 100 ms timeout; 32-body post-Newtonian system with $c = 100.0$; 1000-sample geodesic uncertainty ensemble at $r = 50.0$; 16-point stochastic PCE quadrature of degree 3.
+
+## Checks
+
+| Section | Check | Criterion |
+| --- | --- | --- |
+| Pipeline Frame Reassembly & Parity | Dispatch | Orchestrator dispatches and completes frame |
+| Pipeline Frame Reassembly & Parity | Radiance fidelity | Radiance matches local reference within 1e-5 |
+| Pipeline Frame Reassembly & Parity | Classification | Pixel status flags match local reference across all pixels |
+| Pipeline Frame Reassembly & Parity | Invariants | Horizon absorbed and celestial hit ray counts match exactly |
+| Worker Disconnection Resilience & Work Stealing | Fault tolerance | Frame completes reliably under disruption |
+| Worker Disconnection Resilience & Work Stealing | Coverage | Zero unrendered or missing pixels in reassembled framebuffer |
+| Distributed 1PN N-Body Evaluation | Execution | Local and distributed 1PN reductions succeed |
+| Distributed 1PN N-Body Evaluation | Precision | Distributed accelerations match local evaluation within 1e-12 |
+| Distributed Geodesic Uncertainty Ensemble | Execution | Local and distributed ensembles succeed |
+| Distributed Geodesic Uncertainty Ensemble | Statistics | Sample, absorbed, and escaped counts match; mean radius within 1e-10 |
+| Distributed Stochastic PCE Quadrature | Execution | Local and distributed quadratures succeed |
+| Distributed Stochastic PCE Quadrature | Precision | Quadrature response values match local evaluation within 1e-10 |
+
+## Justification
+
+Reassembled tile boundaries must not introduce radiance discontinuities or misclassified pixels. The distributed parallel reductions for N-body accelerations, Chan-Golub-LeVeque statistical moments, and tensor-grid quadratures are mathematically equivalent to local evaluations, bounded by numerical precision.
+
+## Measurements
+
+Maximum absolute radiance difference (`max_radiance_absolute_difference`), maximum N-body acceleration error (`max_nbody_acceleration_error`), and maximum PCE response error (`max_pce_response_error`).
+
+## Acceptance
+
+All checks pass.
+
+## Recorded results
+
+See [../results/distributed_geodesic_pipeline.md](../results/distributed_geodesic_pipeline.md).

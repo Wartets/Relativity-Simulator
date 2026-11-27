@@ -6,7 +6,7 @@ if (WIN32)
 endif()
 
 project(RelativisticEngine
-	VERSION 0.5.0.000
+	VERSION 0.5.0.001
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -103,8 +103,6 @@ if (ENABLE_LTO)
 			set(CMAKE_CXX_LINK_OPTIONS_IPO "-flto=auto")
 			set(CMAKE_C_COMPILE_OPTIONS_IPO "-flto=auto")
 			set(CMAKE_C_LINK_OPTIONS_IPO "-flto=auto")
-			add_compile_options(-flto=auto)
-			add_link_options(-flto=auto)
 		endif()
 	endif()
 endif()
@@ -138,6 +136,12 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
+if (TARGET glfw)
+	set_target_properties(glfw PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(glfw PRIVATE -fno-lto)
+	endif()
+endif()
 
 FetchContent_Declare(
 	imgui
@@ -225,9 +229,10 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 	FetchContent_MakeAvailable(lz4)
 
 	if (TARGET lz4_static)
+		set_target_properties(lz4_static PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 		target_compile_definitions(lz4_static PUBLIC LZ4_VISIBILITY_ATTRIBUTE=0)
 		if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-			target_compile_options(lz4_static PRIVATE -Wno-attributes)
+			target_compile_options(lz4_static PRIVATE -Wno-attributes -fno-lto)
 		endif()
 	endif()
 
@@ -238,6 +243,12 @@ if (ENGINE_ENABLE_DISTRIBUTED)
 		GIT_SHALLOW TRUE
 	)
 	FetchContent_MakeAvailable(enet)
+	if (TARGET enet)
+		set_target_properties(enet PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+		if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+			target_compile_options(enet PRIVATE -fno-lto)
+		endif()
+	endif()
 
 	add_library(relativistic_distributed STATIC
 		${CMAKE_CURRENT_SOURCE_DIR}/src/distributed/packet_protocol.cpp

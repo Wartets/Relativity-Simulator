@@ -976,7 +976,7 @@ inline void flatten_tree_branch(
 			auto add_badge = [&](const char* badge_text, ImU32 text_col, ImU32 bg_col, ImU32 border_col) noexcept {
 				if (badge_count < badge_items.size()) {
 					auto& b_slot = badge_items[badge_count++];
-					std::strncpy(b_slot.text, badge_text, sizeof(b_slot.text) - 1);
+					std::snprintf(b_slot.text, sizeof(b_slot.text), "%s", badge_text);
 					b_slot.text_col = text_col;
 					b_slot.bg_col = bg_col;
 					b_slot.border_col = border_col;

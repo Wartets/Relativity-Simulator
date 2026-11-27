@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
+if (WIN32)
+	set(CMAKE_C_USE_RESPONSE_FILE_FOR_OBJECTS 1)
+	set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_OBJECTS 1)
+endif()
+
 project(RelativisticEngine
-	VERSION 0.4.2.056
+	VERSION 0.4.2.057
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
@@ -39,12 +44,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if (WIN32)
 	enable_language(RC)
-	set(CMAKE_C_USE_RESPONSE_FILE_FOR_OBJECTS 1)
-	set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_OBJECTS 1)
-	file(REMOVE
-		"${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/RelativisticEngine.dir/objects.a"
-		"${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/RelativisticEngine.dir/apps/engine_cli/main.cpp.obj"
-	)
 endif()
 
 option(ENGINE_PORTABLE_EXE "Build engine_cli as a self-contained Windows executable" OFF)
@@ -100,6 +99,10 @@ if (ENABLE_LTO)
 	if (ipo_supported)
 		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 		if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+			set(CMAKE_CXX_COMPILE_OPTIONS_IPO "-flto=auto")
+			set(CMAKE_CXX_LINK_OPTIONS_IPO "-flto=auto")
+			set(CMAKE_C_COMPILE_OPTIONS_IPO "-flto=auto")
+			set(CMAKE_C_LINK_OPTIONS_IPO "-flto=auto")
 			add_compile_options(-flto=auto)
 			add_link_options(-flto=auto)
 		endif()
@@ -160,6 +163,15 @@ add_library(imgui_lib STATIC
 	${implot_SOURCE_DIR}/implot.cpp
 	${implot_SOURCE_DIR}/implot_items.cpp
 )
+set_target_properties(imgui_lib PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	target_compile_options(imgui_lib PRIVATE -fno-lto)
+	if (WIN32)
+		target_compile_options(imgui_lib PRIVATE -Wa,-mbig-obj)
+	endif()
+elseif (MSVC)
+	target_compile_options(imgui_lib PRIVATE /bigobj)
+endif()
 target_include_directories(imgui_lib SYSTEM PUBLIC 
 	${imgui_SOURCE_DIR} 
 	${imgui_SOURCE_DIR}/backends 

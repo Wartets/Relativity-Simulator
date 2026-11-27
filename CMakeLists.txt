@@ -6,7 +6,7 @@ if (WIN32)
 endif()
 
 project(RelativisticEngine
-	VERSION 0.5.0.001
+	VERSION 0.5.1.000
 	DESCRIPTION "Relativistic Physics and Raytracing Engine"
 	LANGUAGES C CXX
 )
